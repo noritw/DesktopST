@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import './theme.css';
+
+@layer base {
+  body {
+    background: transparent;
+    color: var(--color-text-primary);
+    font-family: 'Nunito', 'M PLUS Rounded 1c', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-bg);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-teal);
+    border-radius: 999px;
+  }
+}
+
+@layer components {
+  .btn-round {
+    @apply w-9 h-9 flex items-center justify-center rounded-full transition-all duration-150
+           bg-white/80 hover:bg-mint shadow-soft cursor-pointer text-primary border border-border
+           hover:scale-110 active:scale-95;
+  }
+
+  .panel {
+    @apply bg-bg rounded-panel shadow-panel border border-border;
+  }
+
+  .input-field {
+    @apply w-full bg-surface border border-border rounded-xl px-3 py-2
+           text-primary placeholder:text-secondary text-sm focus:outline-none
+           focus:border-teal focus:ring-1 focus:ring-teal/40 transition-all;
+  }
+
+  .tab-btn {
+    @apply px-4 py-2 rounded-full text-sm font-medium transition-all duration-150
+           text-secondary hover:text-primary hover:bg-teal/20;
+  }
+
+  .tab-btn.active {
+    @apply bg-mint text-primary font-semibold;
+  }
+}
+
+/* Drag region */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Transparent window: remove white background */
+.window-transparent {
+  background: transparent !important;
+}

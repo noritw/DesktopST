@@ -1,0 +1,21 @@
+:root {
+  --color-mint: #CBFBC4;
+  --color-teal: #AAEEDD;
+  --color-sky: #AAEEFF;
+  --color-butter: #FFE8AA;
+  --color-blush: #FFBBBB;
+  --color-lavender: #F0BBFF;
+
+  --color-bg: #F7FFFC;
+  --color-surface: #FFFFFF;
+  --color-border: #D8F5EC;
+  --color-text-primary: #3D5A52;
+  --color-text-secondary: #7BA898;
+
+  --radius-panel: 16px;
+  --radius-panel-lg: 24px;
+  --radius-btn: 50%;
+
+  --shadow-soft: 0 2px 8px rgba(170, 238, 221, 0.3);
+  --shadow-panel: 0 4px 16px rgba(170, 238, 221, 0.25);
+}
