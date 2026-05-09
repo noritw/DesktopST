@@ -1,4 +1,4 @@
-import { ipcMain, shell, BrowserWindow, dialog, app } from 'electron'
+import { ipcMain, shell, BrowserWindow, dialog, app, desktopCapturer } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -13,9 +13,12 @@ import {
   toggleInputWindow, toggleLogWindow, openSettingsWindow,
   broadcastToAll, getAllCharacterWindows, setCharacterWindowClickThrough,
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
-  showSpeechBubble, hideSpeechBubble, updateSpeechBubbleSize, syncSpeechBubblePosition, setCharacterHitRects,
+  showSpeechBubble, hideSpeechBubble, updateSpeechBubbleSize, syncSpeechBubblePosition,
+  reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects,
   beginCharacterDrag, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
-  createCharacterLibraryWindow
+  createCharacterLibraryWindow,
+  hideAllWindowsForScreenshot, restoreAllWindowsAfterScreenshot,
+  showPreviewWindow
 } from './windowManager'
 
 // ── In-memory state ───────────────────────────────────────
@@ -451,6 +454,9 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('desktop:drag-end', (_, characterId: string) => {
     const pos = endCharacterDrag(characterId)
+    if (pos) {
+      reconcileSpeechBubbleAfterCharacterDrag(characterId, pos)
+    }
     const d = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
     if (d && pos) {
       d.position = pos
@@ -740,7 +746,11 @@ export function registerIpcHandlers() {
     }
 
     // 2) Others: only reply if they have a distinct thought
-    const others = respondingIds.filter(id => id !== primaryId)
+    // maxGroupRounds controls how many additional (non-primary) character replies can be appended.
+    const maxAdditionalReplies = Math.max(0, Math.floor(Number(settings.llm.maxGroupRounds) || 0))
+    const others = respondingIds
+      .filter(id => id !== primaryId)
+      .slice(0, maxAdditionalReplies)
     for (const charId of others) {
       const char = getCharacter(charId)
       if (!char) continue
@@ -762,6 +772,7 @@ export function registerIpcHandlers() {
           `你正在判斷「${char.name}」是否要接續目前對話發言。`,
           '如果使用者明確要求大家聊天、某位角色點名你、或你能提供不同角度，請回應。',
           '如果你只是要重複上一位角色的意思、沒有新反應、或角色個性上會保持沉默，才選擇不回應。',
+          '若要回應，content 必須是角色直接發言，不可包含旁白、動作描寫、括號敘述或舞台指示。',
           '請只輸出一個 JSON 物件，不要加解釋，不要使用 Markdown。',
           '格式：{"respond":true,"emotion":"neutral","content":"要說的話"}',
           '不回應格式：{"respond":false}'
@@ -841,7 +852,8 @@ export function registerIpcHandlers() {
           'Use the full recent conversation as context, especially the latest message.',
           'Do not repeat what the previous speaker already said, and do not answer the earliest question again unless it is still relevant.',
           'Speak in this character voice, personality, stance, and current mood.',
-          'Add a fresh reaction, opinion, action, or follow-up that moves the conversation forward.',
+          'Add a fresh reaction, opinion, or follow-up that moves the conversation forward.',
+          'Reply with spoken dialogue only; do not include narration, action descriptions, or stage directions.',
           'Do not mention prompts, system instructions, or that you are reading context.'
         ].join('\n'),
         timestamp: Date.now()
@@ -885,6 +897,33 @@ export function registerIpcHandlers() {
     fileStore.saveSettings(settings)
     broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
     return d.muted
+  })
+
+  // Image preview window
+  ipcMain.handle('desktop:show-image-preview', (_, dataUrl: string) => {
+    showPreviewWindow(dataUrl)
+    return true
+  })
+
+  // Screenshot: hide windows, capture screen, restore, return data URL
+  ipcMain.handle('desktop:capture-screenshot', async () => {
+    const info = hideAllWindowsForScreenshot()
+    await new Promise(resolve => setTimeout(resolve, 300))
+    try {
+      const all = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: info.displayWidth, height: info.displayHeight }
+      })
+      const source = all.find(s => parseInt(s.display_id) === info.displayId) ?? all[0]
+      if (!source) return { ok: false, error: 'No screen source found' }
+      const dataUrl = source.thumbnail.toDataURL()
+      if (!dataUrl || dataUrl.length < 100) return { ok: false, error: 'Empty thumbnail' }
+      return { ok: true, dataUrl }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    } finally {
+      restoreAllWindowsAfterScreenshot()
+    }
   })
 
   // Import ST character card (JSON)

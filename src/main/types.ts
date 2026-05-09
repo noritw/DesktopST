@@ -83,6 +83,7 @@ export interface AppSettings {
     inputWindowBounds?: WindowBoundsState
     logWindowBounds?: WindowBoundsState
     theme: 'light' | 'dark' | 'auto'
+    hoverMenuOnHover: boolean
   }
 }
 
@@ -96,7 +97,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     model: 'gpt-4o',
     maxResponseTokens: 360,
     maxGroupRounds: 3,
-    maxImagesPerMessage: 4,
+    maxImagesPerMessage: 5,
     temperature: 0.8
   },
   memory: {
@@ -111,6 +112,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ui: {
     desktopCharacters: [],
     inputWindowPosition: { x: 100, y: 100 },
-    theme: 'light'
+    theme: 'light',
+    hoverMenuOnHover: true
   }
 }

@@ -82,6 +82,7 @@ export interface AppSettings {
     inputWindowBounds?: WindowBoundsState
     logWindowBounds?: WindowBoundsState
     theme: 'light' | 'dark' | 'auto'
+    hoverMenuOnHover: boolean
   }
 }
 

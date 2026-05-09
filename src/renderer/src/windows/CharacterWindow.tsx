@@ -14,6 +14,7 @@ export default function CharacterWindow({ characterId }: Props) {
   const removeFromDesktop = useAppStore(s => s.removeFromDesktop)
   const isThinking = useAppStore(s => !!s.thinkingByCharacterId[characterId])
   const uiAppFocused = useAppStore(s => s.uiAppFocused)
+  const hoverMenuOnHover = useAppStore(s => s.settings?.ui.hoverMenuOnHover ?? true)
 
   const urlSize = window.windowParams?.get('size') ?? new URLSearchParams(window.location.search).get('size')
   const initialSize = urlSize ? Number(urlSize) : NaN
@@ -123,7 +124,7 @@ export default function CharacterWindow({ characterId }: Props) {
     window.api.invoke('window:toggle-input')
   }, [characterId, scaleMode])
 
-  const menuVisible = menuPinned || (hovered && !hoverSuppressed)
+  const menuVisible = menuPinned || (hoverMenuOnHover && hovered && !hoverSuppressed)
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault()

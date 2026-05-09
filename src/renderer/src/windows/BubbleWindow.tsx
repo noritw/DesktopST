@@ -80,7 +80,7 @@ export default function BubbleWindow({ characterId }: Props) {
       if (containerRef.current) containerRef.current.style.width = `${width}px`
 
       const contentH = el.scrollHeight
-      const height = clamp(Math.ceil(contentH + 50), 78, 1200)
+      const height = Math.min(32000, Math.max(78, Math.ceil(contentH + 50)))
       window.api.invoke('bubble:set-size', characterId, { width, height })
     }
 
@@ -99,26 +99,25 @@ export default function BubbleWindow({ characterId }: Props) {
   if (!visible) return null
 
   return (
-    <div className="w-full h-full select-none" style={{ background: 'transparent' }}>
+    <div className="flex h-full min-h-0 w-full flex-col select-none" style={{ background: 'transparent' }}>
       <div
         ref={containerRef}
-        className="relative rounded-2xl rounded-bl-sm bg-white/95 border border-border shadow-panel px-3 py-2 text-sm text-primary leading-snug"
-        style={{ maxWidth: 420 }}
+        className="relative flex min-h-0 max-w-[420px] flex-col rounded-2xl rounded-bl-sm border border-border bg-white/95 px-3 py-2 text-sm leading-snug text-primary shadow-panel"
       >
-        <div className="flex items-center justify-between gap-2 mb-1">
-          <div className="text-[10px] text-secondary font-medium">
+        <div className="drag-region mb-1 flex shrink-0 items-center justify-between gap-2">
+          <div className="text-[10px] font-medium text-secondary">
             {speakerName || '角色'}
           </div>
           <button
             type="button"
-            className="w-5 h-5 rounded-full border border-border bg-white/80 text-secondary hover:text-primary hover:bg-mint transition-colors flex items-center justify-center"
+            className="no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-white/80 text-secondary transition-colors hover:bg-mint hover:text-primary"
             title="關閉對話泡泡"
             onClick={closeBubble}
           >
             <MonoIcon name="close" className="w-3 h-3" />
           </button>
         </div>
-        <div ref={contentRef} className="break-words">
+        <div ref={contentRef} className="no-drag min-h-0 flex-1 overflow-y-auto break-words">
           <MessageText text={displayText} />
         </div>
         <div

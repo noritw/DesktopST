@@ -6,11 +6,15 @@ export default function InputWindow() {
   const sendMessage = useAppStore(s => s.sendMessage)
   const isSending = useAppStore(s => s.isSending)
   const messages = useAppStore(selectMessages)
+  const settings = useAppStore(s => s.settings)
 
   const [text, setText] = useState('')
   const [images, setImages] = useState<string[]>([])
+  const [isCapturing, setIsCapturing] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const maxImages = settings?.llm?.maxImagesPerMessage ?? 4
 
   const lastError = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -57,7 +61,7 @@ export default function InputWindow() {
       reader.onload = () => resolve(reader.result as string)
       reader.readAsDataURL(file)
     }))
-    Promise.all(readers).then(urls => setImages(prev => [...prev, ...urls].slice(0, 4)))
+    Promise.all(readers).then(urls => setImages(prev => [...prev, ...urls].slice(0, maxImages)))
   }
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -77,6 +81,27 @@ export default function InputWindow() {
     setImages(prev => prev.filter((_, i) => i !== idx))
   }
 
+  const handleScreenshot = async () => {
+    if (images.length >= maxImages || isCapturing) return
+    setIsCapturing(true)
+    try {
+      const result = await window.api.invoke('desktop:capture-screenshot') as {
+        ok: boolean
+        dataUrl?: string
+        error?: string
+      }
+      if (result.ok && result.dataUrl) {
+        setImages(prev => [...prev, result.dataUrl!].slice(0, maxImages))
+      } else {
+        console.error('[Screenshot]', result.error)
+      }
+    } catch (err) {
+      console.error('[Screenshot] IPC error:', err)
+    } finally {
+      setIsCapturing(false)
+    }
+  }
+
   return (
     <div
       style={{
@@ -90,6 +115,7 @@ export default function InputWindow() {
         overflow: 'hidden'
       }}
     >
+
       <div className="drag-region flex items-center justify-between px-3 pt-2 pb-1">
         <span className="text-xs text-secondary font-medium no-drag select-none">DesktopST</span>
         <div className="flex gap-1 no-drag">
@@ -117,7 +143,13 @@ export default function InputWindow() {
         <div className="flex gap-2 px-3 pb-1 flex-wrap no-drag">
           {images.map((src, i) => (
             <div key={i} className="relative">
-              <img src={src} className="w-12 h-12 object-cover rounded-lg border border-border" alt="" />
+              <img
+                src={src}
+                className="w-12 h-12 object-cover rounded-lg border border-border cursor-pointer hover:opacity-80 transition-opacity"
+                alt=""
+                onClick={() => window.api.invoke('desktop:show-image-preview', src)}
+                title="點擊預覽"
+              />
               <button
                 type="button"
                 onClick={() => removeImage(i)}
@@ -151,6 +183,7 @@ export default function InputWindow() {
             type="button"
             className="btn-round w-8 h-8 text-sm"
             title="附加圖片"
+            disabled={images.length >= maxImages}
             onClick={() => fileInputRef.current?.click()}
           >
             <MonoIcon name="image" className="w-4 h-4" />
@@ -163,6 +196,15 @@ export default function InputWindow() {
             className="hidden"
             onChange={handleFileSelect}
           />
+          <button
+            type="button"
+            className="btn-round w-8 h-8 text-sm"
+            title={isCapturing ? '截圖中...' : images.length >= maxImages ? `已達圖片上限 (${maxImages})` : '截取螢幕畫面'}
+            disabled={images.length >= maxImages || isCapturing}
+            onClick={handleScreenshot}
+          >
+            <MonoIcon name="screenshot" className="w-4 h-4" />
+          </button>
         </div>
 
         <button

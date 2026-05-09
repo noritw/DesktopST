@@ -55,7 +55,7 @@ const MODELS: Record<string, string[]> = {
   grok: ['grok-3', 'grok-3-mini', 'grok-2']
 }
 
-const TABS = ['LLM 設定', '世界觀', '使用者', '記憶', '角色', '資料'] as const
+const TABS = ['LLM 設定', '世界觀', '使用者', '記憶', '介面', '角色', '資料'] as const
 type Tab = typeof TABS[number]
 
 export default function SettingsWindow() {
@@ -309,6 +309,26 @@ export default function SettingsWindow() {
                 className="w-full accent-teal"
               />
             </Field>
+            <Field label={`群組對話最多角色回應數（${draft.llm.maxGroupRounds} 則）`}>
+              <input type="range" min={1} max={10} step={1}
+                value={draft.llm.maxGroupRounds}
+                onChange={e => set('llm.maxGroupRounds', Number(e.target.value))}
+                className="w-full accent-teal"
+              />
+              <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                控制每次送出訊息後，群組模式最多追加幾位角色的後續回應；數值越大，對話越熱鬧但 token 消耗也越高。
+              </p>
+            </Field>
+            <Field label={`單則訊息圖片上限（${draft.llm.maxImagesPerMessage} 張）`}>
+              <input type="range" min={1} max={10} step={1}
+                value={draft.llm.maxImagesPerMessage}
+                onChange={e => set('llm.maxImagesPerMessage', Number(e.target.value))}
+                className="w-full accent-teal"
+              />
+              <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                每張圖片都會增加 token 消耗（以 gpt-4o 為例，1024×1024 約 765 tokens / 張）。
+              </p>
+            </Field>
           </>
         )}
 
@@ -486,6 +506,24 @@ export default function SettingsWindow() {
               })}
             </div>
           </div>
+        )}
+
+        {tab === '介面' && (
+          <>
+            <p className="text-xs font-medium text-secondary">互動方式</p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draft.ui.hoverMenuOnHover}
+                onChange={e => set('ui.hoverMenuOnHover', e.target.checked)}
+                className="accent-teal w-4 h-4"
+              />
+              <span className="text-sm text-primary">滑鼠移入角色身上時開啟功能選單</span>
+            </label>
+            {!draft.ui.hoverMenuOnHover && (
+              <p className="text-xs text-secondary ml-6">關閉後改用右鍵開關功能選單</p>
+            )}
+          </>
         )}
 
         {tab === '資料' && (
