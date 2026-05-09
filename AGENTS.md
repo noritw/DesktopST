@@ -76,7 +76,7 @@ DesktopST\
 - 第一版不實作：Lorebook、自動發話、TTS、Live2D、ST 對話記錄匯入
 - 桌面上至少保留一個角色，只剩一個時隱藏移除按鈕
 - API Key 必須加密（`safeStorage`），不可存純文字
-- 所有使用者資料存 `%APPDATA%\DesktopFamiliar\`，解除安裝不刪資料
+- 所有使用者資料存 `%APPDATA%\DesktopST\`，解除安裝不刪資料
 
 ---
 

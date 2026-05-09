@@ -130,8 +130,63 @@ const activeDragLastPositions = new Map<string, { x: number; y: number }>()
 let suppressAuxAutoHideUntil = 0
 let lastShownBubbleCharacterId: string | null = null
 
+let characterLibraryWindow: BrowserWindow | null = null
+
 function getAuxWindows(): BrowserWindow[] {
-  return [inputWindow, logWindow, settingsWindow].filter(w => w && !w.isDestroyed()) as BrowserWindow[]
+  return [inputWindow, logWindow, settingsWindow, characterLibraryWindow].filter(w => w && !w.isDestroyed()) as BrowserWindow[]
+}
+
+export function createCharacterLibraryWindow(): BrowserWindow {
+  if (characterLibraryWindow && !characterLibraryWindow.isDestroyed()) {
+    characterLibraryWindow.show()
+    characterLibraryWindow.focus()
+    raiseAuxAboveCharacters()
+    characterLibraryWindow.moveTop()
+    return characterLibraryWindow
+  }
+
+  characterLibraryWindow = new BrowserWindow({
+    width: 800,
+    height: 600,
+    frame: false,
+    backgroundColor: '#F7FFFC',
+    alwaysOnTop: true,
+    skipTaskbar: false,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  characterLibraryWindow.setAlwaysOnTop(true, 'pop-up-menu')
+
+  if (VITE_DEV_SERVER_URL) {
+    characterLibraryWindow.loadURL(makeURL({ w: 'library' }))
+  } else {
+    characterLibraryWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: { w: 'library' }
+    })
+  }
+
+  characterLibraryWindow.on('closed', () => {
+    characterLibraryWindow = null
+  })
+
+  if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
+    characterLibraryWindow.webContents.openDevTools({ mode: 'detach' })
+  }
+
+  characterLibraryWindow.show()
+  characterLibraryWindow.setOpacity(1)
+  raiseAuxAboveCharacters()
+  characterLibraryWindow.moveTop()
+  characterLibraryWindow.focus()
+  return characterLibraryWindow
+}
+
+export function getCharacterLibraryWindow(): BrowserWindow | undefined {
+  return characterLibraryWindow && !characterLibraryWindow.isDestroyed() ? characterLibraryWindow : undefined
 }
 
 export function suppressAuxAutoHide(ms = 700): void {
@@ -789,7 +844,8 @@ export function broadcastToAll(channel: string, data: unknown): void {
     ...bubbleWindows.values(),
     inputWindow,
     logWindow,
-    settingsWindow
+    settingsWindow,
+    characterLibraryWindow
   ].filter(w => w && !w.isDestroyed()) as BrowserWindow[]
   for (const w of wins) w.webContents.send(channel, data)
 }

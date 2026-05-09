@@ -3,6 +3,7 @@ import { useAppStore } from './stores/useAppStore'
 import CharacterWindow from './windows/CharacterWindow'
 import InputWindow from './windows/InputWindow'
 import SettingsWindow from './windows/SettingsWindow'
+import CharacterLibraryWindow from './windows/CharacterLibraryWindow'
 import LogWindow from './windows/LogWindow'
 import BubbleWindow from './windows/BubbleWindow'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -31,6 +32,7 @@ export default function App() {
   }
   if (w === 'input') return <ErrorBoundary><InputWindow /></ErrorBoundary>
   if (w === 'settings') return <ErrorBoundary><SettingsWindow /></ErrorBoundary>
+  if (w === 'library') return <ErrorBoundary><CharacterLibraryWindow /></ErrorBoundary>
   if (w === 'log') return <ErrorBoundary><LogWindow /></ErrorBoundary>
 
   // Fallback: show nothing (should not happen)

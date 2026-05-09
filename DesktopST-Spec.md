@@ -292,7 +292,7 @@ interface DesktopCharacterState {
 - 對話範例（textarea）
 
 #### 分頁 2：情緒圖片
-**設計**：固定 27 種預設情緒（參考 SillyTavern 的 expression sprites）
+**設計**：固定 28 種預設情緒（參考 SillyTavern 的 expression sprites）
 
 預設情緒清單：
 ```
@@ -588,7 +588,7 @@ admiration, amusement, anger, ..., neutral
 
 ### 9.1 路徑
 ```
-%APPDATA%\DesktopFamiliar\
+%APPDATA%\DesktopST\
 ├── settings.json              # 全域設定（API Key 加密）
 ├── characters\
 │   ├── {char_id}\
@@ -648,7 +648,7 @@ admiration, amusement, anger, ..., neutral
 
 ### 階段 3：完整 LLM 與素材（1-2 週）
 - [ ] Claude / Gemini / Grok adapter
-- [ ] 27 種情緒圖片切換
+- [ ] 28 種情緒圖片切換
 - [ ] 截圖（自製框選 + 全螢幕）
 - [ ] 多圖上傳
 - [ ] SillyTavern 角色卡匯入（JSON + PNG）
@@ -684,7 +684,7 @@ admiration, amusement, anger, ..., neutral
 - 要不要根據桌面活動偵測（使用者忙碌時不打擾）？
 
 ### 12.2 自訂情緒
-第一版採用固定 27 種，但後續可能開放自訂。需要解決：
+第一版採用固定 28 種，但後續可能開放自訂。需要解決：
 - 動態 system prompt 告知 LLM 可選情緒
 - UI 怎麼讓使用者新增情緒
 - 跨角色情緒一致性

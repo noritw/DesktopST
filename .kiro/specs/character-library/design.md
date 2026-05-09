@@ -211,7 +211,7 @@ const EMOTION_OPTIONS: Array<{ en: string; zh: string }> = [
   { en: 'remorse',        zh: '懊悔' },
   { en: 'sadness',        zh: '悲傷' },
   { en: 'surprise',       zh: '驚訝' },
-  { en: 'neutral',        zh: '平靜' },
+  { en: 'neutral',        zh: '預設' },
 ]
 ```
 

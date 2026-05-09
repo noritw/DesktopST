@@ -2,7 +2,7 @@
 
 ## Introduction
 
-本功能為 DesktopST 桌面 AI 角色扮演寵物程式新增一個獨立的「角色庫視窗」，提供完整的角色生命週期管理。使用者可在此視窗新增、刪除、編輯角色，匯入／匯出 SillyTavern（ST）相容角色卡（JSON 與 PNG 格式），更換角色頭像，以及為 27 種預設情緒各自設定對應圖片。視窗採用卡片式 Grid 排版，風格遵循專案的春夏粉彩扁平化設計原則。
+本功能為 DesktopST 桌面 AI 角色扮演寵物程式新增一個獨立的「角色庫視窗」，提供完整的角色生命週期管理。使用者可在此視窗新增、刪除、編輯角色，匯入／匯出 SillyTavern（ST）相容角色卡（JSON 與 PNG 格式），更換角色頭像，以及為 28 種預設情緒各自設定對應圖片。視窗採用卡片式 Grid 排版，風格遵循專案的春夏粉彩扁平化設計原則。
 
 ---
 
@@ -107,7 +107,7 @@
 #### 驗收標準
 
 1. THE Character_Editor 的「情緒圖片」分頁 SHALL 以「已上傳圖片清單」為主體，每筆記錄顯示圖片縮圖、檔案名稱、圖片尺寸（寬 × 高 px，透過 mouseover hint 或直接顯示），以及一個可多選的情緒下拉選單。
-2. THE Character_Editor 的情緒下拉選單 SHALL 以「英文名稱（中文說明）」格式顯示以下 28 種預設情緒選項，供使用者辨識；傳送給 LLM 時僅使用英文名稱：admiration（欽佩）、amusement（愉悅）、anger（憤怒）、annoyance（煩躁）、approval（認同）、caring（關懷）、confusion（困惑）、curiosity（好奇）、desire（渴望）、disappointment（失望）、disapproval（不認同）、disgust（厭惡）、embarrassment（尷尬）、excitement（興奮）、fear（恐懼）、gratitude（感激）、grief（悲痛）、joy（喜悅）、love（愛意）、nervousness（緊張）、optimism（樂觀）、pride（自豪）、realization（恍然大悟）、relief（如釋重負）、remorse（懊悔）、sadness（悲傷）、surprise（驚訝）、neutral（平靜）。
+2. THE Character_Editor 的情緒下拉選單 SHALL 以「英文名稱（中文說明）」格式顯示以下 28 種預設情緒選項，供使用者辨識；傳送給 LLM 時僅使用英文名稱：admiration（欽佩）、amusement（愉悅）、anger（憤怒）、annoyance（煩躁）、approval（認同）、caring（關懷）、confusion（困惑）、curiosity（好奇）、desire（渴望）、disappointment（失望）、disapproval（不認同）、disgust（厭惡）、embarrassment（尷尬）、excitement（興奮）、fear（恐懼）、gratitude（感激）、grief（悲痛）、joy（喜悅）、love（愛意）、nervousness（緊張）、optimism（樂觀）、pride（自豪）、realization（恍然大悟）、relief（如釋重負）、remorse（懊悔）、sadness（悲傷）、surprise（驚訝）、neutral（預設）。
 3. WHEN 使用者點擊「新增情緒圖片」按鈕，THE Character_Editor SHALL 開啟系統檔案選擇對話框，篩選條件為 `.png`、`.jpg`、`.jpeg`、`.gif`、`.webp`，並在選擇後將圖片加入清單，情緒對應預設為空（未指定）。
 4. WHEN 使用者在某筆圖片記錄的情緒下拉選單中選擇一或多個情緒，THE Character_Editor SHALL 將 `character.emotions[emotionName]` 設為該圖片的本機絕對路徑；同一張圖片可同時對應多個情緒名稱。
 5. WHEN 使用者從某筆圖片記錄的情緒下拉選單中取消勾選某情緒，THE Character_Editor SHALL 從 `character.emotions` 中移除該情緒的鍵值對。

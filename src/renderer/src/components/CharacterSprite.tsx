@@ -2,22 +2,33 @@ import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react'
 import MonoIcon from './MonoIcon'
 
 interface Props {
-  src: string
+  /** 主圖本機路徑（未編碼） */
+  avatarPath: string
+  emotion?: string
+  emotions?: Record<string, string>
   name: string
   size?: number
 }
 
 export interface CharacterSpriteHandle {
-  /** 查詢圖片座標 (x, y) 的 alpha 值（0–255）。座標是相對於顯示尺寸的像素。 */
   getAlphaAt: (x: number, y: number) => number
 }
 
+function resolveDisplayPath(avatarPath: string, emotion: string | undefined, emotions: Record<string, string> | undefined): string {
+  const map = emotions ?? {}
+  const em = emotion?.trim()
+  if (em && map[em]?.trim()) return map[em].trim()
+  return avatarPath ?? ''
+}
+
 const CharacterSprite = forwardRef<CharacterSpriteHandle, Props>(
-  function CharacterSprite({ src, name, size = 1 }, ref) {
+  function CharacterSprite({ avatarPath, emotion, emotions, name, size = 1 }, ref) {
     const w = Math.round(180 * size)
     const h = Math.round(260 * size)
 
-    // 存放圖片的原始像素資料（只在圖片載入時建立一次）
+    const displayPath = resolveDisplayPath(avatarPath, emotion, emotions)
+    const src = displayPath ? `local://${encodeURIComponent(displayPath)}` : ''
+
     const pixelDataRef = useRef<{ data: Uint8ClampedArray; width: number; height: number } | null>(null)
     const prevSrcRef = useRef<string>('')
 
@@ -42,7 +53,6 @@ const CharacterSprite = forwardRef<CharacterSpriteHandle, Props>(
             height: canvas.height
           }
         } catch {
-          // 若 canvas 讀取失敗（不應發生於本地圖片），fallback 為全不透明
           pixelDataRef.current = null
         }
       }
@@ -52,15 +62,13 @@ const CharacterSprite = forwardRef<CharacterSpriteHandle, Props>(
     useImperativeHandle(ref, () => ({
       getAlphaAt(clientX: number, clientY: number): number {
         const pd = pixelDataRef.current
-        if (!pd) return 255 // 沒有像素資料時視為不透明
+        if (!pd) return 255
 
-        // 把顯示座標換算成原始圖片座標
         const imgX = Math.round((clientX / w) * pd.width)
         const imgY = Math.round((clientY / h) * pd.height)
 
         if (imgX < 0 || imgY < 0 || imgX >= pd.width || imgY >= pd.height) return 0
 
-        // RGBA 每個像素佔 4 bytes，alpha 在第 4 個
         const idx = (imgY * pd.width + imgX) * 4 + 3
         return pd.data[idx] ?? 0
       }

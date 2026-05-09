@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useAppStore, selectCharacter, selectDesktopChar } from '../stores/useAppStore'
+import { useAppStore, selectCharacter, selectDesktopChar, selectCharacterLastMessage } from '../stores/useAppStore'
 import CharacterSprite, { type CharacterSpriteHandle } from '../components/CharacterSprite'
 import HoverMenu from '../components/HoverMenu'
 
@@ -227,11 +227,11 @@ export default function CharacterWindow({ characterId }: Props) {
     setMenuPinned(true)
   }, [characterId, maxVisibleScale, scaleDraft, scaleText])
 
+  const lastMsg = useAppStore(selectCharacterLastMessage(characterId))
+  const emotionTag = lastMsg?.emotion
+
   if (!character) return null
 
-  const avatarSrc = character.avatar
-    ? `local://${encodeURIComponent(character.avatar)}`
-    : ''
   const renderedSize = scaleMode ? scaleDraft : Math.min(maxVisibleScale, Math.max(0.25, size))
 
   return (
@@ -313,7 +313,14 @@ export default function CharacterWindow({ characterId }: Props) {
               pointerEvents: (spriteOpaque || hovered || scaleMode) ? 'auto' : 'none'
             }}
           >
-            <CharacterSprite ref={spriteRef} src={avatarSrc} name={character.name} size={renderedSize} />
+            <CharacterSprite
+              ref={spriteRef}
+              avatarPath={character.avatar}
+              emotion={emotionTag}
+              emotions={character.emotions}
+              name={character.name}
+              size={renderedSize}
+            />
           </div>
         </div>
 

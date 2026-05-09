@@ -83,12 +83,6 @@ function Icon({ name }: { name: IconName }) {
           <path {...common} d="M18 6L6 18" />
         </>
       )}
-      {name === 'remove' && (
-        <>
-          <path {...common} d="M6 6l12 12" />
-          <path {...common} d="M18 6L6 18" />
-        </>
-      )}
     </svg>
   )
 }
@@ -128,6 +122,18 @@ export default function HoverMenu({ characterId, visible, canRemove, isMuted, on
       title: `加入角色：${availableChars[0].name}`,
       onClick: () => addToDesktop(availableChars[0].id)
     }] : []),
+    {
+      icon: (
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <path d="M6 4h5l6 6v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" />
+          <path d="M11 4v5h5" />
+          <path d="M8 14h5" />
+          <path d="M8 17h3" />
+        </svg>
+      ),
+      title: '開啟角色庫',
+      onClick: () => window.api.invoke('character-library:open')
+    },
     {
       icon: <Icon name="settings" />,
       title: '角色設定',
