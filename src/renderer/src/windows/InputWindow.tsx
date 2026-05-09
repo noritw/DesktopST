@@ -48,7 +48,7 @@ export default function InputWindow() {
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#F7FFFC', border: '1px solid #D8F5EC', borderRadius: 16, overflow: 'hidden' }}>
       {/* Title bar / drag region */}
       <div className="drag-region flex items-center justify-between px-3 pt-2 pb-1">
-        <span className="text-xs text-secondary font-medium no-drag select-none">Desktop Familiar</span>
+        <span className="text-xs text-secondary font-medium no-drag select-none">DesktopST</span>
         <div className="flex gap-1 no-drag">
           <button
             className="tab-btn text-xs px-2 py-1"

@@ -51,4 +51,4 @@
 
 - `src/main/` 改動 → 必須重開 `npm run dev`
 - `src/renderer/` 改動 → HMR 自動套用，重新開關視窗即可
-- 所有使用者資料在 `%APPDATA%\DesktopFamiliar\`（重開不會消失）
+- 所有使用者資料在 `%APPDATA%\DesktopST\`（重開不會消失）

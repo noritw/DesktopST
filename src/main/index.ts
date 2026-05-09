@@ -68,7 +68,7 @@ function setupTray(appRoot: string) {
     : nativeImage.createEmpty()
 
   const tray = new Tray(icon)
-  tray.setToolTip('Desktop Familiar')
+  tray.setToolTip('DesktopST')
 
   const menu = Menu.buildFromTemplate([
     { label: '顯示輸入框', click: () => toggleInputWindow() },

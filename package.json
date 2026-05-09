@@ -1,5 +1,5 @@
 {
-  "name": "desktop-familiar",
+  "name": "desktop-st",
   "version": "0.1.0",
   "description": "桌面 AI 角色扮演寵物程式",
   "main": "out/main/index.js",
@@ -34,8 +34,8 @@
     "typescript": "^5.8.3"
   },
   "build": {
-    "appId": "com.desktopfamiliar.app",
-    "productName": "DesktopFamiliar",
+    "appId": "com.desktopst.app",
+    "productName": "DesktopST",
     "directories": {
       "output": "dist"
     },

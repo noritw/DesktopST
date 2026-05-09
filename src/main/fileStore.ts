@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid'
 import type { AppSettings, Character, Conversation, DesktopCharacterState } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
-const DATA_DIR = path.join(app.getPath('userData'), 'DesktopFamiliar')
+const DATA_DIR = path.join(app.getPath('userData'), 'DesktopST')
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
 const CHARS_DIR = path.join(DATA_DIR, 'characters')
 const CONVS_DIR = path.join(DATA_DIR, 'conversations')

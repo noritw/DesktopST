@@ -352,7 +352,7 @@ export default function SettingsWindow() {
           <div className="space-y-3">
             <p className="text-sm text-secondary">所有資料存放於：</p>
             <p className="text-xs font-mono bg-surface border border-border rounded-lg px-3 py-2 text-primary break-all">
-              %APPDATA%\DesktopFamiliar\
+              %APPDATA%\DesktopST\
             </p>
             <button
               className="btn-round w-auto px-4 rounded-full h-auto py-2 text-sm"
