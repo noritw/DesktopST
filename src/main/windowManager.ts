@@ -524,7 +524,7 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
   if (inputWindow && !inputWindow.isDestroyed()) {
     inputWindow.setOpacity(1)
     inputWindow.setResizable(true)
-    inputWindow.setMinimumSize(280, 120)
+    inputWindow.setMinimumSize(280, 106)
     raiseAuxAboveCharacters()
     inputWindow.moveTop()
     inputWindow.focus()
@@ -553,7 +553,7 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
   rememberAuxBounds('input', inputWindow)
   // Higher than character alwaysOnTop windows
   inputWindow.setAlwaysOnTop(true, 'pop-up-menu')
-  inputWindow.setMinimumSize(280, 120)
+  inputWindow.setMinimumSize(280, 106)
 
   if (VITE_DEV_SERVER_URL) {
     inputWindow.loadURL(makeURL({ w: 'input' }))
@@ -586,7 +586,7 @@ export function toggleInputWindow(position?: { x: number; y: number }): void {
   } else {
     inputWindow.setOpacity(1)
     inputWindow.setResizable(true)
-    inputWindow.setMinimumSize(280, 120)
+    inputWindow.setMinimumSize(280, 106)
     inputWindow.show()
     raiseAuxAboveCharacters()
     inputWindow.moveTop()

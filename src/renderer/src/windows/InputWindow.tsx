@@ -140,8 +140,8 @@ export default function InputWindow() {
           onPaste={handlePaste}
           placeholder="在這裡輸入訊息... (Ctrl+Enter 送出)"
           disabled={isSending}
-          className="input-field h-full resize-none py-2 min-h-[60px]"
-          rows={3}
+          className="input-field h-full resize-none py-2 min-h-0"
+          rows={1}
         />
       </div>
 
