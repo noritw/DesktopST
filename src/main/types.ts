@@ -82,6 +82,7 @@ export interface AppSettings {
     inputWindowPosition: { x: number; y: number }
     inputWindowBounds?: WindowBoundsState
     logWindowBounds?: WindowBoundsState
+    unfocusedBubbleOpacity: number
     theme: 'light' | 'dark' | 'auto'
     hoverMenuOnHover: boolean
   }
@@ -112,6 +113,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ui: {
     desktopCharacters: [],
     inputWindowPosition: { x: 100, y: 100 },
+    unfocusedBubbleOpacity: 0.1,
     theme: 'light',
     hoverMenuOnHover: true
   }

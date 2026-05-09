@@ -81,6 +81,7 @@ export interface AppSettings {
     inputWindowPosition: { x: number; y: number }
     inputWindowBounds?: WindowBoundsState
     logWindowBounds?: WindowBoundsState
+    unfocusedBubbleOpacity: number
     theme: 'light' | 'dark' | 'auto'
     hoverMenuOnHover: boolean
   }

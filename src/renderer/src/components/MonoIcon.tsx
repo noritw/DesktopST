@@ -12,6 +12,7 @@ export type MonoIconName =
   | 'user'
   | 'import'
   | 'screenshot'
+  | 'screenshot-character'
 
 export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIconName; className?: string }) {
   const common = {
@@ -118,6 +119,16 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <path {...common} d="M5 14v5h5" />
           <path {...common} d="M19 14v5h-5" />
           <circle {...common} cx="12" cy="12" r="2.5" />
+        </>
+      )}
+      {name === 'screenshot-character' && (
+        <>
+          <path {...common} d="M5 10V5h5" />
+          <path {...common} d="M14 5h5v5" />
+          <path {...common} d="M5 14v5h5" />
+          <path {...common} d="M19 14v5h-5" />
+          <circle {...common} cx="12" cy="10.5" r="2" />
+          <path {...common} d="M8.5 17c.9-2 2.2-3 3.5-3s2.6 1 3.5 3" />
         </>
       )}
     </svg>

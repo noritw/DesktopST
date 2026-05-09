@@ -58,6 +58,14 @@ export default function LogWindow() {
   const [promptMessage, setPromptMessage] = useState<Message | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
 
+  const focusTitleInput = () => {
+    window.api.invoke('ui:aux-activated')
+    window.requestAnimationFrame(() => {
+      titleInputRef.current?.focus()
+      titleInputRef.current?.select()
+    })
+  }
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length])
@@ -74,11 +82,7 @@ export default function LogWindow() {
 
   useEffect(() => {
     setTitleDraft(conversation?.title ?? '新對話')
-    window.requestAnimationFrame(() => {
-      window.api.invoke('ui:aux-activated')
-      titleInputRef.current?.focus()
-      titleInputRef.current?.select()
-    })
+    focusTitleInput()
   }, [conversation?.id, conversation?.title])
 
   useEffect(() => {
@@ -311,17 +315,21 @@ export default function LogWindow() {
               const ok = window.confirm('確定要刪除目前對話嗎？這個動作無法復原。')
               if (!ok) return
               await deleteCurrentConversation()
-              window.api.invoke('ui:aux-activated')
-              window.requestAnimationFrame(() => {
-                titleInputRef.current?.focus()
-                titleInputRef.current?.select()
-              })
+              focusTitleInput()
             }}
             title="刪除目前對話"
           >
             刪除
           </button>
-          <button type="button" className="tab-btn text-sm" onClick={newConversation} title="建立新對話">
+          <button
+            type="button"
+            className="tab-btn text-sm"
+            onClick={async () => {
+              await newConversation()
+              focusTitleInput()
+            }}
+            title="建立新對話"
+          >
             新對話
           </button>
           <button type="button" className="btn-round w-7 h-7 text-sm" onClick={() => window.api.invoke('window:close-self')}>

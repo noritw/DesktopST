@@ -1,4 +1,4 @@
-import { ipcMain, shell, BrowserWindow, dialog, app, desktopCapturer } from 'electron'
+import { ipcMain, shell, BrowserWindow, dialog, app, desktopCapturer, clipboard, nativeImage } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -13,12 +13,13 @@ import {
   toggleInputWindow, toggleLogWindow, openSettingsWindow,
   broadcastToAll, getAllCharacterWindows, setCharacterWindowClickThrough,
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
-  showSpeechBubble, hideSpeechBubble, updateSpeechBubbleSize, syncSpeechBubblePosition,
+  showSpeechBubble, hideSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition,
   showUserSpeechBubble, hideUserSpeechBubble, updateUserSpeechBubbleSize,
   reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects,
   beginCharacterDrag, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
+  setUnfocusedBubbleOpacity,
   createCharacterLibraryWindow,
-  hideAllWindowsForScreenshot, restoreAllWindowsAfterScreenshot,
+  hideAllWindowsForScreenshot, hideAuxWindowsForScreenshotKeepingCharacters, restoreAllWindowsAfterScreenshot,
   showPreviewWindow
 } from './windowManager'
 
@@ -28,7 +29,15 @@ let settings: AppSettings
 let characters: Character[]
 let activeConversationId: string | null = null
 let conversations: Map<string, Conversation> = new Map()
-let lastPrimaryResponderId: string | null = null
+
+function clamp01(n: number): number {
+  return Math.max(0, Math.min(1, n))
+}
+
+function normalizeUnfocusedBubbleOpacity(v: unknown): number {
+  const n = Number(v)
+  return clamp01(Number.isFinite(n) ? n : 0.1)
+}
 
 function formatSystemTimeLabel(d: Date): string {
   const hours = d.getHours()
@@ -51,6 +60,12 @@ function normalizeText(s: string): string {
   return s.toLowerCase()
 }
 
+function copyDataUrlImageToClipboard(dataUrl: string): void {
+  const image = nativeImage.createFromDataURL(dataUrl)
+  if (image.isEmpty()) throw new Error('Failed to convert screenshot for clipboard')
+  clipboard.writeImage(image)
+}
+
 function characterAliases(char: Character): string[] {
   const nn = Array.isArray(char.nicknames) ? char.nicknames : []
   return [char.name, ...nn].map(s => String(s ?? '').trim()).filter(Boolean)
@@ -66,13 +81,18 @@ function isAddressed(content: string, char: Character): boolean {
   return false
 }
 
+function shuffleIds(ids: string[]): string[] {
+  const out = [...ids]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[out[i], out[j]] = [out[j], out[i]]
+  }
+  return out
+}
+
 function pickPrimaryResponderId(respondingIds: string[], mentionedIds: string[]): string | null {
   if (respondingIds.length === 0) return null
-  if (mentionedIds.length > 0) return mentionedIds[0]
-  if (lastPrimaryResponderId && respondingIds.includes(lastPrimaryResponderId)) {
-    const idx = respondingIds.indexOf(lastPrimaryResponderId)
-    return respondingIds[(idx + 1) % respondingIds.length]
-  }
+  if (mentionedIds.length > 0) return respondingIds[0]
   return respondingIds[0]
 }
 
@@ -98,6 +118,75 @@ function normalizeForCompare(s: string): string {
     .toLowerCase()
 }
 
+function escapeRegExp(s: string): string {
+  return String(s ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function maybeUnwrapSingleDialogueQuote(text: string): string {
+  const s = String(text ?? '').trim()
+  const pairs: Array<[string, string]> = [['「', '」'], ['『', '』'], ['"', '"']]
+  for (const [left, right] of pairs) {
+    if (!s.startsWith(left) || !s.endsWith(right)) continue
+    const inner = s.slice(left.length, s.length - right.length).trim()
+    if (!inner) return ''
+    // Keep quotes when text is intentionally quoting something inside.
+    if (inner.includes(left) || inner.includes(right)) return s
+    return inner
+  }
+  return s
+}
+
+function stripSpeakerPrefixFromLine(line: string, aliases: string[]): string {
+  let text = String(line ?? '').trim()
+  if (!text) return ''
+  const sorted = aliases.filter(Boolean).sort((a, b) => b.length - a.length)
+  for (const alias of sorted) {
+    const escaped = escapeRegExp(alias)
+    const pattern = new RegExp(`^(?:[【\\[]\\s*)?${escaped}(?:\\s*[】\\]]\\s*)?\\s*[：:]\\s*`)
+    if (pattern.test(text)) {
+      text = text.replace(pattern, '').trim()
+      break
+    }
+  }
+  return maybeUnwrapSingleDialogueQuote(text)
+}
+
+function normalizeCharacterDialogue(raw: string, char: Character): string {
+  const text = String(raw ?? '').trim()
+  if (!text) return ''
+  const aliases = characterAliases(char)
+  const normalizedLines = text
+    .split(/\r?\n/)
+    .map(line => stripSpeakerPrefixFromLine(line, aliases))
+  return maybeUnwrapSingleDialogueQuote(normalizedLines.join('\n').trim())
+}
+
+function stripOtherCharacterSpeakerLines(text: string, selfCharId: string): string {
+  const otherAliases = characters
+    .filter(c => c.id !== selfCharId)
+    .flatMap(c => characterAliases(c))
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+  if (otherAliases.length === 0) return String(text ?? '').trim()
+
+  const isOtherSpeakerPrefixed = (line: string): boolean => {
+    const t = String(line ?? '').trim()
+    if (!t) return false
+    for (const alias of otherAliases) {
+      const escaped = escapeRegExp(alias)
+      const pattern = new RegExp(`^(?:[【\\[]\\s*)?${escaped}(?:\\s*[】\\]]\\s*)?\\s*[：:]\\s*`)
+      if (pattern.test(t)) return true
+    }
+    return false
+  }
+
+  return String(text ?? '')
+    .split(/\r?\n/)
+    .filter(line => !isOtherSpeakerPrefixed(line))
+    .join('\n')
+    .trim()
+}
+
 const MAX_MEDIA_BYTES = 10 * 1024 * 1024
 const ALLOWED_IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp'])
 
@@ -117,6 +206,8 @@ export function initState(
   desktopState: { characterId: string; position: { x: number; y: number }; size: number; muted: boolean; zIndex: number }[]
 ) {
   settings = s
+  settings.ui.unfocusedBubbleOpacity = normalizeUnfocusedBubbleOpacity(settings.ui.unfocusedBubbleOpacity)
+  setUnfocusedBubbleOpacity(settings.ui.unfocusedBubbleOpacity)
   characters = chars
   configureAuxWindowPersistence(
     (kind) => kind === 'input' ? settings.ui.inputWindowBounds : settings.ui.logWindowBounds,
@@ -218,6 +309,8 @@ export function registerIpcHandlers() {
   ipcMain.handle('settings:get', () => settings)
 
   ipcMain.handle('settings:save', (_, s: AppSettings) => {
+    s.ui.unfocusedBubbleOpacity = normalizeUnfocusedBubbleOpacity(s.ui.unfocusedBubbleOpacity)
+    setUnfocusedBubbleOpacity(s.ui.unfocusedBubbleOpacity)
     settings = s
     fileStore.saveSettings(s)
     broadcastToAll('settings:updated', settings)
@@ -599,6 +692,7 @@ export function registerIpcHandlers() {
     conv.summary = ''
     conv.updatedAt = Date.now()
     fileStore.saveConversation(conv)
+    hideAllCharacterSpeechBubbles()
     broadcastToAll('conversation:updated', conv)
     return true
   })
@@ -669,6 +763,11 @@ export function registerIpcHandlers() {
     }
     conv.messages.push(userMsg)
     broadcastToAll('conversation:updated', conv)
+    const shownUserText = String(payload.content ?? '').trim()
+    if (shownUserText) {
+      const userSpeaker = String(settings?.persona.displayName || settings?.persona.nickname || '你')
+      showUserSpeechBubble(userSpeaker, shownUserText)
+    }
     const userMsgForPrompt: Message = { ...userMsg, content: userContentForPrompt }
 
     const desktopAll = settings.ui.desktopCharacters.map(d => d.characterId)
@@ -682,8 +781,11 @@ export function registerIpcHandlers() {
     const mentionedIds = mentionedAll.filter(id => desktopResponders.includes(id))
 
     const respondingIds = mentionedIds.length > 0
-      ? [...mentionedIds, ...desktopResponders.filter(id => !mentionedIds.includes(id))]
-      : desktopResponders
+      ? [
+        ...shuffleIds(mentionedIds),
+        ...shuffleIds(desktopResponders.filter(id => !mentionedIds.includes(id)))
+      ]
+      : shuffleIds(desktopResponders)
 
     if (respondingIds.length === 0) {
       // If there are desktop characters but all are muted, surface a hint in conversation.
@@ -708,7 +810,6 @@ export function registerIpcHandlers() {
 
     const primaryId = pickPrimaryResponderId(respondingIds, mentionedIds)
     if (!primaryId) return { ok: true }
-    lastPrimaryResponderId = primaryId
 
     const primaryChar = getCharacter(primaryId)
     if (!primaryChar) return { ok: true }
@@ -726,13 +827,20 @@ export function registerIpcHandlers() {
         images: payload.images,
         speakerNameById: getSpeakerNameById()
       })
+      const primaryReply = stripOtherCharacterSpeakerLines(
+        normalizeCharacterDialogue(content, primaryChar),
+        primaryChar.id
+      )
+      if (!primaryReply) {
+        throw new Error('模型輸出包含其他角色台詞，已拒絕這次回覆。')
+      }
       userMsg.debugPrompt = debugPrompt
-      lastReplyText = content
+      lastReplyText = primaryReply
       const charMsg: Message = {
         id: uuidv4(),
         role: 'character',
         characterId: primaryId,
-        content,
+        content: primaryReply,
         llmProvider: settings.llm.provider,
         llmModel: settings.llm.model,
         debugPrompt,
@@ -743,7 +851,7 @@ export function registerIpcHandlers() {
       conv.updatedAt = Date.now()
       broadcastToAll('conversation:updated', conv)
       broadcastToAll('character:new-message', { characterId: primaryId, message: charMsg })
-      showSpeechBubble(primaryId, primaryChar.name, content)
+      showSpeechBubble(primaryId, primaryChar.name, primaryReply)
       broadcastToAll('character:thinking', { characterId: primaryId, thinking: false })
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e)
@@ -810,7 +918,10 @@ export function registerIpcHandlers() {
           ? String(jsonText).trim()
           : ''
         const respond = parsed ? !!parsed.respond : !!fallbackReply
-        const reply = String(parsed?.content ?? fallbackReply).trim()
+        const reply = stripOtherCharacterSpeakerLines(
+          normalizeCharacterDialogue(String(parsed?.content ?? fallbackReply).trim(), char),
+          char.id
+        )
         const replyNorm = normalizeForCompare(reply)
         const lastNorm = normalizeForCompare(lastReplyText)
 
@@ -881,11 +992,18 @@ export function registerIpcHandlers() {
         messages: [...recentMessages, forceInstruction],
         speakerNameById: getSpeakerNameById()
       })
+      const forcedReply = stripOtherCharacterSpeakerLines(
+        normalizeCharacterDialogue(content, char),
+        char.id
+      )
+      if (!forcedReply) {
+        return { error: '模型輸出包含其他角色台詞，已拒絕這次強制發話。' }
+      }
       const msg: Message = {
         id: uuidv4(),
         role: 'character',
         characterId,
-        content,
+        content: forcedReply,
         llmProvider: settings.llm.provider,
         llmModel: settings.llm.model,
         debugPrompt,
@@ -897,7 +1015,7 @@ export function registerIpcHandlers() {
       fileStore.saveConversation(conv)
       broadcastToAll('conversation:updated', conv)
       broadcastToAll('character:new-message', { characterId, message: msg })
-      showSpeechBubble(characterId, char.name, content)
+      showSpeechBubble(characterId, char.name, forcedReply)
       return { ok: true }
     } catch (e: unknown) {
       return { error: e instanceof Error ? e.message : String(e) }
@@ -935,6 +1053,37 @@ export function registerIpcHandlers() {
       if (!source) return { ok: false, error: 'No screen source found' }
       const dataUrl = source.thumbnail.toDataURL()
       if (!dataUrl || dataUrl.length < 100) return { ok: false, error: 'Empty thumbnail' }
+      try {
+        copyDataUrlImageToClipboard(dataUrl)
+      } catch (clipboardErr) {
+        console.warn('[Screenshot] Clipboard write failed:', clipboardErr)
+      }
+      return { ok: true, dataUrl }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    } finally {
+      restoreAllWindowsAfterScreenshot()
+    }
+  })
+
+  // Screenshot: keep character/bubble windows, hide UI windows, return data URL
+  ipcMain.handle('desktop:capture-screenshot-with-characters', async () => {
+    const info = hideAuxWindowsForScreenshotKeepingCharacters()
+    await new Promise(resolve => setTimeout(resolve, 300))
+    try {
+      const all = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: info.displayWidth, height: info.displayHeight }
+      })
+      const source = all.find(s => parseInt(s.display_id) === info.displayId) ?? all[0]
+      if (!source) return { ok: false, error: 'No screen source found' }
+      const dataUrl = source.thumbnail.toDataURL()
+      if (!dataUrl || dataUrl.length < 100) return { ok: false, error: 'Empty thumbnail' }
+      try {
+        copyDataUrlImageToClipboard(dataUrl)
+      } catch (clipboardErr) {
+        console.warn('[Screenshot] Clipboard write failed:', clipboardErr)
+      }
       return { ok: true, dataUrl }
     } catch (err) {
       return { ok: false, error: String(err) }

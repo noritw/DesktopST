@@ -105,6 +105,9 @@ export default function BasicInfoTab({ draft, setDraft, onError }: Props) {
 
       <label className="block">
         <span className="text-xs font-medium text-secondary">對話範例</span>
+        <p className="text-[11px] text-secondary mt-0.5">
+          可用標籤：<code>{'{{user}}'}</code>、<code>{'{{char}}'}</code>
+        </p>
         <textarea
           className="input-field mt-1 min-h-[88px] resize-y"
           value={draft.exampleDialogue}

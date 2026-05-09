@@ -341,6 +341,9 @@ export default function SettingsWindow() {
                 onChange={e => set('worldSetting', e.target.value)}
                 placeholder="描述這個世界的背景設定..."
               />
+              <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                可用標籤：<code>{'{{user}}'}</code>、<code>{'{{char}}'}</code>
+              </p>
             </Field>
             <Field label="角色互動範例">
               <textarea
@@ -349,6 +352,9 @@ export default function SettingsWindow() {
                 onChange={e => set('interactionExample', e.target.value)}
                 placeholder="角色之間如何互動的範例..."
               />
+              <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                可用標籤：<code>{'{{user}}'}</code>、<code>{'{{char}}'}</code>
+              </p>
             </Field>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -523,6 +529,20 @@ export default function SettingsWindow() {
             {!draft.ui.hoverMenuOnHover && (
               <p className="text-xs text-secondary ml-6">關閉後改用右鍵開關功能選單</p>
             )}
+            <div className="pt-2 space-y-1">
+              <Field label={`App 失焦時角色對白透明度（${Math.round((draft.ui.unfocusedBubbleOpacity ?? 0.1) * 100)}%）`}>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  value={Math.round((draft.ui.unfocusedBubbleOpacity ?? 0.1) * 100)}
+                  onChange={e => set('ui.unfocusedBubbleOpacity', Number(e.target.value) / 100)}
+                  className="w-full accent-teal"
+                />
+              </Field>
+              <p className="text-xs text-secondary">僅在對白框可見時套用；0% 為完全透明，100% 為不透明。</p>
+            </div>
           </>
         )}
 

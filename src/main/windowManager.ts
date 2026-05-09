@@ -50,12 +50,22 @@ function bubbleBoundsNearlyEqual(a: WindowBoundsState, b: WindowBoundsState, eps
 
 /** 與上次程式 setBounds 比對時放寬：Windows／高分屏下 getBounds 常有 1～數 px 抖動，過嚴會誤觸 refresh 累積偏移 */
 const BUBBLE_PROGRAMMATIC_BOUNDS_EPS = 28
+const DEFAULT_UNFOCUSED_BUBBLE_OPACITY = 0.1
+let unfocusedBubbleOpacity = DEFAULT_UNFOCUSED_BUBBLE_OPACITY
 
 function getCharacterWindowSize(scale: number): { width: number; height: number } {
   return {
     width: Math.max(280, Math.round(220 * scale)),
     height: Math.max(220, Math.round(380 * scale))
   }
+}
+
+function normalizeOpacity(opacity: number): number {
+  return clamp(
+    Number.isFinite(opacity) ? opacity : DEFAULT_UNFOCUSED_BUBBLE_OPACITY,
+    0,
+    1
+  )
 }
 
 function defaultUserBubbleBounds(): WindowBoundsState {
@@ -482,6 +492,7 @@ export function getAllCharacterWindows(): BrowserWindow[] {
 
 export function closeCharacterWindow(characterId: string): void {
   bubbleHiddenForCharacterDrag.delete(characterId)
+  hideSpeechBubble(characterId)
   const win = characterWindows.get(characterId)
   if (win && !win.isDestroyed()) win.close()
 }
@@ -612,6 +623,22 @@ export function hideSpeechBubble(characterId: string): boolean {
   bubbleHiddenForCharacterDrag.delete(characterId)
   if (lastShownBubbleCharacterId === characterId) lastShownBubbleCharacterId = null
   return true
+}
+
+export function hideAllCharacterSpeechBubbles(): number {
+  let hiddenCount = 0
+  for (const [characterId, bw] of bubbleWindows.entries()) {
+    if (bw.isDestroyed() || !bw.isVisible()) continue
+    bw.hide()
+    bubbleHiddenForCharacterDrag.delete(characterId)
+    hiddenCount += 1
+  }
+  lastShownBubbleCharacterId = null
+  return hiddenCount
+}
+
+export function setUnfocusedBubbleOpacity(opacity: number): void {
+  unfocusedBubbleOpacity = normalizeOpacity(opacity)
 }
 
 /** 使用者拖曳對白視窗（moved 與程式預期不符）時，把目前螢幕位置換算成相對錨點的偏移並寫入 bubbleUserOffset；此值之後跟隨角色移動，直到使用者再次拖對白。
@@ -915,12 +942,18 @@ export function hideUserSpeechBubble(): boolean {
 }
 
 export function hideAuxWindowsRememberingState(): void {
+  for (const w of bubbleWindows.values()) {
+    if (w.isVisible()) w.setOpacity(unfocusedBubbleOpacity)
+  }
   for (const w of getAuxWindows()) {
     if (w.isVisible()) w.setOpacity(0.1)
   }
 }
 
 export function restoreAuxWindowsFromRememberedState(): void {
+  for (const w of bubbleWindows.values()) {
+    if (w.isVisible()) w.setOpacity(1)
+  }
   const focused = BrowserWindow.getFocusedWindow()
   if (focused && getAuxWindows().includes(focused)) focused.setOpacity(1)
 }
@@ -937,6 +970,15 @@ export function hideAllWindowsForScreenshot(): { displayId: number; displayWidth
   }
   for (const w of getAuxWindows()) {
     w.setOpacity(0)
+  }
+  const cursor = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursor)
+  return { displayId: display.id, displayWidth: display.size.width, displayHeight: display.size.height }
+}
+
+export function hideAuxWindowsForScreenshotKeepingCharacters(): { displayId: number; displayWidth: number; displayHeight: number } {
+  for (const w of [inputWindow, logWindow, settingsWindow, characterLibraryWindow, previewWindow]) {
+    if (w && !w.isDestroyed()) w.setOpacity(0)
   }
   const cursor = screen.getCursorScreenPoint()
   const display = screen.getDisplayNearestPoint(cursor)

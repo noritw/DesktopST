@@ -10,6 +10,9 @@ export default function AdvancedTab({ draft, setDraft }: Props) {
     <div className="space-y-4">
       <label className="block">
         <span className="text-xs font-medium text-secondary">Scenario</span>
+        <p className="text-[11px] text-secondary mt-0.5">
+          可用標籤：<code>{'{{user}}'}</code>、<code>{'{{char}}'}</code>
+        </p>
         <textarea
           className="input-field mt-1 min-h-[88px] resize-y"
           value={draft.scenario ?? ''}

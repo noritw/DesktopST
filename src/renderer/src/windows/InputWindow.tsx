@@ -81,11 +81,11 @@ export default function InputWindow() {
     setImages(prev => prev.filter((_, i) => i !== idx))
   }
 
-  const handleScreenshot = async () => {
+  const handleScreenshot = async (channel: 'desktop:capture-screenshot' | 'desktop:capture-screenshot-with-characters') => {
     if (images.length >= maxImages || isCapturing) return
     setIsCapturing(true)
     try {
-      const result = await window.api.invoke('desktop:capture-screenshot') as {
+      const result = await window.api.invoke(channel) as {
         ok: boolean
         dataUrl?: string
         error?: string
@@ -201,9 +201,18 @@ export default function InputWindow() {
             className="btn-round w-8 h-8 text-sm"
             title={isCapturing ? '截圖中...' : images.length >= maxImages ? `已達圖片上限 (${maxImages})` : '截取螢幕畫面'}
             disabled={images.length >= maxImages || isCapturing}
-            onClick={handleScreenshot}
+            onClick={() => handleScreenshot('desktop:capture-screenshot')}
           >
             <MonoIcon name="screenshot" className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            className="btn-round w-8 h-8 text-sm"
+            title={isCapturing ? '截圖中...' : images.length >= maxImages ? `已達圖片上限 (${maxImages})` : '保留角色與對白框截圖'}
+            disabled={images.length >= maxImages || isCapturing}
+            onClick={() => handleScreenshot('desktop:capture-screenshot-with-characters')}
+          >
+            <MonoIcon name="screenshot-character" className="w-4 h-4" />
           </button>
         </div>
 

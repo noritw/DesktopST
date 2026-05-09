@@ -28,6 +28,16 @@ function sanitizePromptText(text: string | undefined | null): string {
     .trim()
 }
 
+function applyStStyleTags(
+  text: string | undefined | null,
+  vars: { userName: string; charName: string }
+): string {
+  const clean = sanitizePromptText(text)
+  return clean
+    .replace(/\{\{\s*user\s*\}\}/gi, vars.userName)
+    .replace(/\{\{\s*char\s*\}\}/gi, vars.charName)
+}
+
 function buildTimeMoodGuideline(hours: number): string {
   if (hours < 5) return '目前是深夜到凌晨，語氣可更貼近陪伴與心疼。'
   if (hours < 8) return '目前是清晨，可自然回應早起、沒睡或剛醒的狀態。'
@@ -107,10 +117,17 @@ function buildSystemPrompt(settings: AppSettings, char: PromptCharacter): string
     ].join('\n')
   ]
 
-  const override = sanitizePromptText(char.systemPromptOverride)
-  const personality = sanitizePromptText(char.personality)
-  const scenario = sanitizePromptText(char.scenario)
-  const exampleDialogue = sanitizePromptText(char.exampleDialogue)
+  const displayName = sanitizePromptText(settings.persona.displayName) || '使用者'
+  const nickname = sanitizePromptText(settings.persona.nickname) || displayName
+  const tagVars = {
+    userName: nickname || displayName,
+    charName: sanitizePromptText(char.name) || '角色'
+  }
+
+  const override = applyStStyleTags(char.systemPromptOverride, tagVars)
+  const personality = applyStStyleTags(char.personality, tagVars)
+  const scenario = applyStStyleTags(char.scenario, tagVars)
+  const exampleDialogue = applyStStyleTags(char.exampleDialogue, tagVars)
   if (override || personality || scenario || exampleDialogue) {
     parts.push([
       '[Character DNA]',
@@ -125,21 +142,22 @@ function buildSystemPrompt(settings: AppSettings, char: PromptCharacter): string
     '[Output Contract]',
     `- Start with [emotion], allowed: ${EMOTION_LIST.join(', ')}`,
     '- Then spoken dialogue only (no narration, no stage directions, no inner monologue).',
+    '- 不要輸出「角色名：內容」格式（例如：紀天行：...）。直接輸出台詞內容本身。',
+    '- 不要把整段台詞包在外層引號（「」/『』/""). 只有在引用他人原話時才使用引號。',
     '- Show at least 1 voice trait and 1 relationship attitude from Character DNA.',
     '- Avoid assistant proposals like: "要不要我幫你", "我可以幫你", "你可以試試".',
     '- 不要改成教學、客服、顧問或任務拆解口吻。',
+    `- 你只代表「${tagVars.charName}」發言。禁止替其他角色代言、禁止輸出其他角色名字開頭的台詞（如：紀天行：...）。`,
     '- 回覆預設 1 到 3 句，除非使用者明確要求展開。',
     '- 全文使用繁體中文與台灣慣用語。'
   ].join('\n'))
 
-  const worldSetting = sanitizePromptText(settings.worldSetting)
+  const worldSetting = applyStStyleTags(settings.worldSetting, tagVars)
   if (worldSetting) {
     parts.push(`[World Context]\n${worldSetting}`)
   }
 
   if (settings.persona.displayName?.trim() || settings.persona.nickname?.trim() || settings.persona.description?.trim()) {
-    const displayName = sanitizePromptText(settings.persona.displayName) || '使用者'
-    const nickname = sanitizePromptText(settings.persona.nickname) || displayName
     const description = sanitizePromptText(settings.persona.description)
     parts.push([
       '[User Profile]',
@@ -149,7 +167,7 @@ function buildSystemPrompt(settings: AppSettings, char: PromptCharacter): string
     ].join('\n'))
   }
 
-  const interactionExample = sanitizePromptText(settings.interactionExample)
+  const interactionExample = applyStStyleTags(settings.interactionExample, tagVars)
   if (interactionExample) {
     parts.push(`[Interaction Hints]\n${interactionExample}`)
   }
