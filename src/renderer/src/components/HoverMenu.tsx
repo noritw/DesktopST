@@ -83,12 +83,6 @@ function Icon({ name }: { name: IconName }) {
           <path {...common} d="M18 6L6 18" />
         </>
       )}
-      {name === 'remove' && (
-        <>
-          <path {...common} d="M6 6l12 12" />
-          <path {...common} d="M18 6L6 18" />
-        </>
-      )}
     </svg>
   )
 }

@@ -309,6 +309,16 @@ export default function SettingsWindow() {
                 className="w-full accent-teal"
               />
             </Field>
+            <Field label={`單則訊息圖片上限（${draft.llm.maxImagesPerMessage} 張）`}>
+              <input type="range" min={1} max={10} step={1}
+                value={draft.llm.maxImagesPerMessage}
+                onChange={e => set('llm.maxImagesPerMessage', Number(e.target.value))}
+                className="w-full accent-teal"
+              />
+              <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                每張圖片都會增加 token 消耗（以 gpt-4o 為例，1024×1024 約 765 tokens / 張）。
+              </p>
+            </Field>
           </>
         )}
 

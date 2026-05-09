@@ -97,7 +97,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     model: 'gpt-4o',
     maxResponseTokens: 360,
     maxGroupRounds: 3,
-    maxImagesPerMessage: 4,
+    maxImagesPerMessage: 5,
     temperature: 0.8
   },
   memory: {
