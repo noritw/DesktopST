@@ -24,3 +24,4 @@ contextBridge.exposeInMainWorld('api', {
 contextBridge.exposeInMainWorld('windowParams', {
   get: (key: string): string | null => new URLSearchParams(window.location.search).get(key)
 })
+

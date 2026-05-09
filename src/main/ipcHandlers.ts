@@ -1,4 +1,4 @@
-import { ipcMain, shell, BrowserWindow } from 'electron'
+import { ipcMain, shell, BrowserWindow, desktopCapturer } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
 import type { AppSettings, Character, Conversation, Message } from './types'
 import * as fileStore from './fileStore'
@@ -10,7 +10,8 @@ import {
   broadcastToAll, getAllCharacterWindows, setCharacterWindowClickThrough,
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
   showSpeechBubble, hideSpeechBubble, updateSpeechBubbleSize, syncSpeechBubblePosition, setCharacterHitRects,
-  beginCharacterDrag, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence
+  beginCharacterDrag, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
+  hideAllWindowsForScreenshot, restoreAllWindowsAfterScreenshot
 } from './windowManager'
 
 // ── In-memory state ───────────────────────────────────────
@@ -725,6 +726,27 @@ export function registerIpcHandlers() {
     fileStore.saveSettings(settings)
     broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
     return d.muted
+  })
+
+  // Screenshot: hide windows, capture screen, restore, return data URL
+  ipcMain.handle('desktop:capture-screenshot', async () => {
+    const info = hideAllWindowsForScreenshot()
+    await new Promise(resolve => setTimeout(resolve, 300))
+    try {
+      const all = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: info.displayWidth, height: info.displayHeight }
+      })
+      const source = all.find(s => parseInt(s.display_id) === info.displayId) ?? all[0]
+      if (!source) return { ok: false, error: 'No screen source found' }
+      const dataUrl = source.thumbnail.toDataURL()
+      if (!dataUrl || dataUrl.length < 100) return { ok: false, error: 'Empty thumbnail' }
+      return { ok: true, dataUrl }
+    } catch (err) {
+      return { ok: false, error: String(err) }
+    } finally {
+      restoreAllWindowsAfterScreenshot()
+    }
   })
 
   // Import ST character card (JSON)

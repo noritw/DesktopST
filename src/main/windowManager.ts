@@ -609,6 +609,33 @@ export function restoreAuxWindowsFromRememberedState(): void {
   if (focused && getAuxWindows().includes(focused)) focused.setOpacity(1)
 }
 
+export function hideAllWindowsForScreenshot(): { displayId: number; displayWidth: number; displayHeight: number } {
+  for (const w of characterWindows.values()) {
+    if (!w.isDestroyed()) w.setOpacity(0)
+  }
+  for (const w of bubbleWindows.values()) {
+    if (!w.isDestroyed()) w.setOpacity(0)
+  }
+  for (const w of getAuxWindows()) {
+    w.setOpacity(0)
+  }
+  const cursor = screen.getCursorScreenPoint()
+  const display = screen.getDisplayNearestPoint(cursor)
+  return { displayId: display.id, displayWidth: display.size.width, displayHeight: display.size.height }
+}
+
+export function restoreAllWindowsAfterScreenshot(): void {
+  for (const w of characterWindows.values()) {
+    if (!w.isDestroyed() && w.isVisible()) w.setOpacity(1)
+  }
+  for (const w of bubbleWindows.values()) {
+    if (!w.isDestroyed() && w.isVisible()) w.setOpacity(1)
+  }
+  for (const w of getAuxWindows()) {
+    if (w.isVisible()) w.setOpacity(1)
+  }
+}
+
 export function raiseAllCharactersAboveAux(): void {
   charactersRaisedAboveAux = true
   // Raise characters to pop-up-menu level and move them on top.

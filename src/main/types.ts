@@ -83,6 +83,7 @@ export interface AppSettings {
     inputWindowBounds?: WindowBoundsState
     logWindowBounds?: WindowBoundsState
     theme: 'light' | 'dark' | 'auto'
+    hoverMenuOnHover: boolean
   }
 }
 
@@ -111,6 +112,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ui: {
     desktopCharacters: [],
     inputWindowPosition: { x: 100, y: 100 },
-    theme: 'light'
+    theme: 'light',
+    hoverMenuOnHover: true
   }
 }
