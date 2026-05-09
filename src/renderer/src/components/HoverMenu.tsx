@@ -6,10 +6,11 @@ interface Props {
   visible: boolean
   canRemove: boolean
   isMuted: boolean
+  onScale?: () => void
   onButtonsEl?: (el: HTMLDivElement | null) => void
 }
 
-type IconName = 'speak' | 'volume' | 'muted' | 'settings' | 'remove'
+type IconName = 'speak' | 'volume' | 'muted' | 'settings' | 'remove' | 'scale'
 
 function Icon({ name }: { name: IconName }) {
   const common = {
@@ -54,6 +55,18 @@ function Icon({ name }: { name: IconName }) {
           <path {...common} d="M5.9 15.5l-1.7 1" />
         </>
       )}
+      {name === 'scale' && (
+        <>
+          <path {...common} d="M8 4H4v4" />
+          <path {...common} d="M4 4l6 6" />
+          <path {...common} d="M16 20h4v-4" />
+          <path {...common} d="M20 20l-6-6" />
+          <path {...common} d="M16 4h4v4" />
+          <path {...common} d="M20 4l-6 6" />
+          <path {...common} d="M8 20H4v-4" />
+          <path {...common} d="M4 20l6-6" />
+        </>
+      )}
       {name === 'remove' && (
         <>
           <path {...common} d="M6 6l12 12" />
@@ -64,7 +77,7 @@ function Icon({ name }: { name: IconName }) {
   )
 }
 
-export default function HoverMenu({ characterId, visible, canRemove, isMuted, onButtonsEl }: Props) {
+export default function HoverMenu({ characterId, visible, canRemove, isMuted, onScale, onButtonsEl }: Props) {
   const forceSpeak = useAppStore(s => s.forceSpeak)
   const toggleMute = useAppStore(s => s.toggleMute)
   const removeFromDesktop = useAppStore(s => s.removeFromDesktop)
@@ -104,6 +117,11 @@ export default function HoverMenu({ characterId, visible, canRemove, isMuted, on
       icon: <Icon name="settings" />,
       title: '角色設定',
       onClick: () => window.api.invoke('window:open-settings', 'character')
+    },
+    {
+      icon: <Icon name="scale" />,
+      title: '縮放角色',
+      onClick: () => onScale?.()
     },
     ...(canRemove ? [{
       icon: <Icon name="remove" />,

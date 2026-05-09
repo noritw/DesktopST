@@ -16,12 +16,28 @@ export default function CharacterWindow({ characterId }: Props) {
 
   const urlSize = window.windowParams?.get('size') ?? new URLSearchParams(window.location.search).get('size')
   const initialSize = urlSize ? Number(urlSize) : NaN
+  const size = desktopState?.size ?? (Number.isFinite(initialSize) && initialSize > 0 ? initialSize : 1)
+  const isMuted = desktopState?.muted ?? false
+  const canRemove = desktopCharacters.length > 1
+  const maxVisibleScale = Math.max(
+    0.25,
+    Math.min(
+      4,
+      Math.floor(((window.screen.availWidth - 12) / 220) * 20) / 20,
+      Math.floor(((window.screen.availHeight - 12) / 380) * 20) / 20
+    )
+  )
 
   const [hovered, setHovered] = useState(false)
   const [menuPinned, setMenuPinned] = useState(false)
   const [hoverSuppressed, setHoverSuppressed] = useState(false)
+  const [scaleMode, setScaleMode] = useState(false)
+  const [scaleDraft, setScaleDraft] = useState(size)
+  const [scaleText, setScaleText] = useState(String(size))
+
   const interactiveRef = useRef<HTMLDivElement>(null)
   const hoverMenuButtonsRef = useRef<HTMLDivElement | null>(null)
+  const scaleControlsRef = useRef<HTMLDivElement | null>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const didDragRef = useRef(false)
 
@@ -29,7 +45,13 @@ export default function CharacterWindow({ characterId }: Props) {
     if (!uiAppFocused) setHovered(false)
   }, [uiAppFocused])
 
-  // Report interactive hit rects to main so it can decide click-through reliably on Windows.
+  useEffect(() => {
+    if (!scaleMode) {
+      setScaleDraft(size)
+      setScaleText(String(size))
+    }
+  }, [scaleMode, size])
+
   useEffect(() => {
     const toScreenRect = (r: DOMRect) => ({
       x: Math.round(window.screenX + r.left),
@@ -42,8 +64,8 @@ export default function CharacterWindow({ characterId }: Props) {
       const spriteEl = interactiveRef.current
       if (!spriteEl) return
       const sprite = toScreenRect(spriteEl.getBoundingClientRect())
-      const btnEl = hoverMenuButtonsRef.current
-      const buttons = btnEl ? toScreenRect(btnEl.getBoundingClientRect()) : null
+      const controlsEl = scaleMode ? scaleControlsRef.current : hoverMenuButtonsRef.current
+      const buttons = controlsEl ? toScreenRect(controlsEl.getBoundingClientRect()) : null
       window.api.invoke('desktop:update-hit-rects', characterId, { sprite, buttons })
     }
 
@@ -53,21 +75,20 @@ export default function CharacterWindow({ characterId }: Props) {
       window.clearInterval(id)
       window.api.invoke('desktop:update-hit-rects', characterId, null)
     }
-  }, [characterId])
+  }, [characterId, scaleMode])
 
-  // Drag: move window by dragging the character sprite
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return
-    e.preventDefault()
+  const handleMouseDown = useCallback((event: React.MouseEvent) => {
+    if (event.button !== 0 || scaleMode) return
+    event.preventDefault()
     window.api.invoke('ui:character-activated', characterId)
     window.api.invoke('desktop:drag-start', characterId)
     didDragRef.current = false
-    dragStartRef.current = { x: e.screenX, y: e.screenY }
+    dragStartRef.current = { x: event.screenX, y: event.screenY }
 
-    const onMove = (ev: MouseEvent) => {
+    const onMove = (moveEvent: MouseEvent) => {
       if (!dragStartRef.current) return
-      const dx = ev.screenX - dragStartRef.current.x
-      const dy = ev.screenY - dragStartRef.current.y
+      const dx = moveEvent.screenX - dragStartRef.current.x
+      const dy = moveEvent.screenY - dragStartRef.current.y
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDragRef.current = true
     }
 
@@ -80,21 +101,21 @@ export default function CharacterWindow({ characterId }: Props) {
 
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
-  }, [characterId])
+  }, [characterId, scaleMode])
 
-  // Click (not drag) → toggle input window
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    if (didDragRef.current) return
-    e.stopPropagation()
+  const handleClick = useCallback((event: React.MouseEvent) => {
+    if (scaleMode || didDragRef.current) return
+    event.stopPropagation()
     window.api.invoke('ui:character-activated', characterId)
     window.api.invoke('window:toggle-input')
-  }, [characterId])
+  }, [characterId, scaleMode])
 
   const menuVisible = menuPinned || (hovered && !hoverSuppressed)
 
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
+  const handleContextMenu = useCallback((event: React.MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (scaleMode) return
     window.api.invoke('ui:character-activated', characterId)
     if (menuVisible) {
       setMenuPinned(false)
@@ -103,30 +124,59 @@ export default function CharacterWindow({ characterId }: Props) {
       setMenuPinned(true)
       setHoverSuppressed(false)
     }
-  }, [characterId, menuVisible])
+  }, [characterId, menuVisible, scaleMode])
+
+  const applyScale = useCallback((next: number) => {
+    const clamped = Math.min(maxVisibleScale, Math.max(0.25, next))
+    setScaleDraft(clamped)
+    setScaleText(clamped.toFixed(2).replace(/\.?0+$/, ''))
+  }, [maxVisibleScale])
+
+  const applyScaleText = useCallback(() => {
+    const next = Number(scaleText)
+    if (!Number.isFinite(next)) {
+      setScaleText(scaleDraft.toFixed(2).replace(/\.?0+$/, ''))
+      return
+    }
+    applyScale(next)
+  }, [applyScale, scaleDraft, scaleText])
+
+  const enterScaleMode = useCallback(() => {
+    const clamped = Math.min(maxVisibleScale, Math.max(0.25, size))
+    setScaleDraft(clamped)
+    setScaleText(clamped.toFixed(2).replace(/\.?0+$/, ''))
+    window.api.invoke('desktop:preview-size', characterId, maxVisibleScale)
+    setScaleMode(true)
+    setMenuPinned(true)
+    setHoverSuppressed(false)
+  }, [characterId, maxVisibleScale, size])
+
+  const exitScaleMode = useCallback(() => {
+    const next = Number(scaleText)
+    const finalScale = Number.isFinite(next)
+      ? Math.min(maxVisibleScale, Math.max(0.25, next))
+      : scaleDraft
+    setScaleDraft(finalScale)
+    setScaleText(finalScale.toFixed(2).replace(/\.?0+$/, ''))
+    window.api.invoke('desktop:update-size', characterId, finalScale)
+    setScaleMode(false)
+    setMenuPinned(true)
+  }, [characterId, maxVisibleScale, scaleDraft, scaleText])
 
   if (!character) return null
-
-  const size = desktopState?.size ?? (Number.isFinite(initialSize) && initialSize > 0 ? initialSize : 1)
-  const isMuted = desktopState?.muted ?? false
-  const canRemove = desktopCharacters.length > 1
 
   const avatarSrc = character.avatar
     ? `local://${encodeURIComponent(character.avatar)}`
     : ''
+  const renderedSize = scaleMode ? scaleDraft : Math.min(maxVisibleScale, Math.max(0.25, size))
 
   return (
-    // The root div covers the full window but is pointer-events:none (click-through)
-    // Only the interactive-zone div has pointer-events:auto
     <div
       className="w-full h-full relative select-none"
       style={{ background: 'transparent', pointerEvents: 'none' }}
     >
-      {/* Interactive zone: flex row — sprite left, buttons right.
-          Both are inside the same container so mouseleave only fires
-          when the cursor leaves the entire combined area. */}
       <div
-        className="absolute bottom-0 left-0 flex items-start"
+        className={`absolute left-0 flex items-start ${scaleMode ? 'bottom-14' : 'bottom-0'}`}
         style={{ pointerEvents: 'auto' }}
         ref={interactiveRef}
         onMouseEnter={() => setHovered(true)}
@@ -135,9 +185,93 @@ export default function CharacterWindow({ characterId }: Props) {
           setHoverSuppressed(false)
         }}
       >
-        {/* Sprite column */}
-        <div className="relative flex-shrink-0">
-          {/* Thinking bubble */}
+        <div className={`relative flex-shrink-0 ${scaleMode ? 'w-[260px]' : ''}`}>
+          {scaleMode && (
+            <div
+              ref={scaleControlsRef}
+              className="absolute top-0 left-0 w-[260px] -bottom-14 z-10 pointer-events-auto"
+              onMouseDown={event => event.stopPropagation()}
+              onClick={event => event.stopPropagation()}
+            >
+              <div className="hidden">
+                <button
+                  type="button"
+                  className="w-8 h-8 rounded-full border border-border bg-white/90 text-primary shadow-soft flex items-center justify-center hover:bg-mint"
+                  title="復原原始大小"
+                  onClick={() => applyScale(1)}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4">
+                    <path d="M4 7v6h6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M5 13a7 7 0 1 0 2-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="w-8 h-8 rounded-full border border-border bg-mint text-primary shadow-soft flex items-center justify-center hover:bg-teal"
+                  title="確定縮放比例"
+                  onClick={exitScaleMode}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4">
+                    <path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="absolute left-2 right-2 bottom-0 rounded-2xl border border-border bg-white/90 px-3 py-2 shadow-soft">
+                <div className="mb-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="w-8 h-8 rounded-full border border-border bg-white/90 text-primary flex items-center justify-center hover:bg-mint"
+                    title="Reset"
+                    onClick={() => applyScale(1)}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4">
+                      <path d="M4 7v6h6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="M5 13a7 7 0 1 0 2-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  <div className="flex min-w-0 flex-1 items-center gap-1 text-[11px] font-semibold text-primary">
+                    <span className="shrink-0">{'\u7e2e\u653e\u6bd4\u4f8b\uff1a'}</span>
+                    <input
+                      type="number"
+                      min={0.25}
+                      max={maxVisibleScale}
+                      step={0.05}
+                      value={scaleText}
+                      onChange={event => setScaleText(event.target.value)}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') applyScaleText()
+                      }}
+                      onBlur={applyScaleText}
+                      className="min-w-0 w-full rounded-full border border-border bg-white px-2 py-1 text-center text-primary outline-none focus:border-teal"
+                      title="Scale"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="w-8 h-8 rounded-full border border-border bg-mint text-primary flex items-center justify-center hover:bg-teal"
+                    title="OK"
+                    onClick={exitScaleMode}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4">
+                      <path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </div>
+                <input
+                  type="range"
+                  min={0.25}
+                  max={maxVisibleScale}
+                  step={0.05}
+                  value={scaleDraft}
+                  onChange={event => applyScale(Number(event.target.value))}
+                  className="w-full accent-teal"
+                  title={`縮放比例 ${scaleDraft.toFixed(2)}`}
+                />
+              </div>
+            </div>
+          )}
+
           {isThinking && (
             <div
               className="absolute -top-8 left-2 pointer-events-none"
@@ -155,25 +289,27 @@ export default function CharacterWindow({ characterId }: Props) {
             </div>
           )}
 
-          {/* Draggable sprite */}
           <div
-            className="cursor-grab active:cursor-grabbing"
+            className={scaleMode ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}
             onMouseDown={handleMouseDown}
             onClick={handleClick}
             onContextMenu={handleContextMenu}
-            style={{ userSelect: 'none' }}
+            style={{ userSelect: 'none', display: scaleMode ? 'flex' : undefined, justifyContent: scaleMode ? 'center' : undefined }}
           >
-            <CharacterSprite src={avatarSrc} name={character.name} size={size} />
+            <CharacterSprite src={avatarSrc} name={character.name} size={renderedSize} />
           </div>
         </div>
 
-        <HoverMenu
-          characterId={characterId}
-          visible={menuVisible}
-          canRemove={canRemove}
-          isMuted={isMuted}
-          onButtonsEl={(el) => { hoverMenuButtonsRef.current = el }}
-        />
+        {!scaleMode && (
+          <HoverMenu
+            characterId={characterId}
+            visible={menuVisible}
+            canRemove={canRemove}
+            isMuted={isMuted}
+            onScale={enterScaleMode}
+            onButtonsEl={(el) => { hoverMenuButtonsRef.current = el }}
+          />
+        )}
       </div>
     </div>
   )

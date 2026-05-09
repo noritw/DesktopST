@@ -5,11 +5,12 @@ import * as fileStore from './fileStore'
 import { chatWithOpenAI } from './llm/openaiAdapter'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow,
+  resizeCharacterWindow,
   toggleInputWindow, toggleLogWindow, openSettingsWindow,
   broadcastToAll, getAllCharacterWindows, setCharacterWindowClickThrough,
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
   showSpeechBubble, hideSpeechBubble, updateSpeechBubbleSize, syncSpeechBubblePosition, setCharacterHitRects,
-  beginCharacterDrag, endCharacterDrag, suppressAuxAutoHide
+  beginCharacterDrag, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence
 } from './windowManager'
 
 // ── In-memory state ───────────────────────────────────────
@@ -95,6 +96,18 @@ export function initState(
 ) {
   settings = s
   characters = chars
+  configureAuxWindowPersistence(
+    (kind) => kind === 'input' ? settings.ui.inputWindowBounds : settings.ui.logWindowBounds,
+    (kind, bounds) => {
+      if (kind === 'input') {
+        settings.ui.inputWindowBounds = bounds
+        settings.ui.inputWindowPosition = { x: bounds.x, y: bounds.y }
+      } else {
+        settings.ui.logWindowBounds = bounds
+      }
+      fileStore.saveSettings(settings)
+    }
+  )
 
   // Ensure desktop characters are set
   if (desktopState.length > 0 && s.ui.desktopCharacters.length === 0) {
@@ -246,6 +259,25 @@ export function registerIpcHandlers() {
     }
     // Pass pos directly so syncSpeechBubblePosition doesn't read stale getBounds() after setPosition.
     syncSpeechBubblePosition(characterId, pos)
+    return true
+  })
+
+  ipcMain.handle('desktop:update-size', (_, characterId: string, size: number) => {
+    const nextSize = Math.min(4, Math.max(0.25, Number(size) || 1))
+    const d = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
+    const nextPos = resizeCharacterWindow(characterId, nextSize)
+    if (d) {
+      d.size = nextPos?.size ?? nextSize
+      if (nextPos) d.position = nextPos.position
+      fileStore.saveSettings(settings)
+      broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
+    }
+    return true
+  })
+
+  ipcMain.handle('desktop:preview-size', (_, characterId: string, size: number) => {
+    const nextSize = Math.min(4, Math.max(0.25, Number(size) || 1))
+    resizeCharacterWindow(characterId, nextSize)
     return true
   })
 

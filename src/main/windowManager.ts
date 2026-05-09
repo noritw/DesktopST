@@ -5,6 +5,10 @@ const VITE_DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL']
 const DEVTOOLS_ENABLED = process.env['DESKTOPST_DEVTOOLS'] === '1'
 const CHARACTER_ALWAYS_ON_TOP_LEVEL = 'floating' as const
 const BUBBLE_ALWAYS_ON_TOP_LEVEL = 'screen-saver' as const
+type WindowBoundsState = { x: number; y: number; width: number; height: number }
+type AuxWindowKind = 'input' | 'log'
+let getSavedAuxBounds: ((kind: AuxWindowKind) => WindowBoundsState | null | undefined) | null = null
+let saveAuxBounds: ((kind: AuxWindowKind, bounds: WindowBoundsState) => void) | null = null
 
 function makeURL(params: Record<string, string>): string {
   const query = new URLSearchParams(params).toString()
@@ -36,6 +40,82 @@ function normalizeWindowPosition(
 }
 
 // ── Character windows ─────────────────────────────────────
+
+function getCharacterWindowSize(scale: number): { width: number; height: number } {
+  return {
+    width: Math.max(280, Math.round(220 * scale)),
+    height: Math.max(220, Math.round(380 * scale))
+  }
+}
+
+function defaultInputBounds(): WindowBoundsState {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+  return { x: Math.round(width / 2 - 200), y: Math.round(height - 200), width: 400, height: 160 }
+}
+
+function defaultLogBounds(): WindowBoundsState {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize
+  return { x: Math.round(width / 2 - 280), y: 80, width: 560, height: Math.round(height * 0.7) }
+}
+
+function isWindowBoundsVisible(bounds: WindowBoundsState): boolean {
+  if (
+    !Number.isFinite(bounds.x) ||
+    !Number.isFinite(bounds.y) ||
+    !Number.isFinite(bounds.width) ||
+    !Number.isFinite(bounds.height) ||
+    bounds.width < 120 ||
+    bounds.height < 80
+  ) return false
+  const center = { x: bounds.x + Math.round(bounds.width / 2), y: bounds.y + Math.round(bounds.height / 2) }
+  for (const display of screen.getAllDisplays()) {
+    const wa = display.workArea
+    if (center.x >= wa.x && center.x <= wa.x + wa.width && center.y >= wa.y && center.y <= wa.y + wa.height) {
+      return true
+    }
+  }
+  return false
+}
+
+function getInitialAuxBounds(kind: AuxWindowKind): WindowBoundsState {
+  const fallback = kind === 'input' ? defaultInputBounds() : defaultLogBounds()
+  const saved = getSavedAuxBounds?.(kind)
+  if (saved && isWindowBoundsVisible(saved)) return saved
+  return fallback
+}
+
+function rememberAuxBounds(kind: AuxWindowKind, win: BrowserWindow): void {
+  let timer: NodeJS.Timeout | null = null
+  const save = () => {
+    if (win.isDestroyed()) return
+    const b = win.getBounds()
+    saveAuxBounds?.(kind, { x: b.x, y: b.y, width: b.width, height: b.height })
+  }
+  const schedule = () => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(save, 250)
+  }
+  win.on('move', schedule)
+  win.on('resize', schedule)
+  win.on('close', save)
+}
+
+export function configureAuxWindowPersistence(
+  getBounds: (kind: AuxWindowKind) => WindowBoundsState | null | undefined,
+  saveBounds: (kind: AuxWindowKind, bounds: WindowBoundsState) => void
+): void {
+  getSavedAuxBounds = getBounds
+  saveAuxBounds = saveBounds
+}
+
+function clampCharacterScaleForDisplay(scale: number, point: { x: number; y: number }): number {
+  const display = screen.getDisplayNearestPoint(point)
+  const wa = display.workArea
+  const maxByWidth = (wa.width - 12) / 220
+  const maxByHeight = (wa.height - 12) / 380
+  const maxVisibleScale = Math.max(0.25, Math.min(4, maxByWidth, maxByHeight))
+  return clamp(scale, 0.25, maxVisibleScale)
+}
 
 const characterWindows = new Map<string, BrowserWindow>()
 const bubbleWindows = new Map<string, BrowserWindow>()
@@ -103,11 +183,9 @@ export function createCharacterWindow(
   position: { x: number; y: number },
   size: number
 ): BrowserWindow {
-  const scale = Number.isFinite(size) && size > 0 ? size : 1
-  const winSize = {
-    width: Math.round(220 * scale),
-    height: Math.round(380 * scale)
-  }
+  const requestedScale = Number.isFinite(size) && size > 0 ? size : 1
+  const scale = clampCharacterScaleForDisplay(requestedScale, position)
+  const winSize = getCharacterWindowSize(scale)
   const pos = normalizeWindowPosition(position, winSize)
 
   const win = new BrowserWindow({
@@ -156,6 +234,34 @@ export function createCharacterWindow(
 
 export function getCharacterWindow(characterId: string): BrowserWindow | undefined {
   return characterWindows.get(characterId)
+}
+
+export function resizeCharacterWindow(characterId: string, size: number): { position: { x: number; y: number }; size: number } | null {
+  const win = getCharacterWindow(characterId)
+  if (!win || win.isDestroyed()) return null
+
+  const oldBounds = win.getBounds()
+  const scale = clampCharacterScaleForDisplay(Number.isFinite(size) ? size : 1, {
+    x: oldBounds.x,
+    y: oldBounds.y + oldBounds.height
+  })
+  const nextSize = getCharacterWindowSize(scale)
+  const nextPosition = normalizeWindowPosition(
+    {
+      x: oldBounds.x,
+      y: oldBounds.y + oldBounds.height - nextSize.height
+    },
+    nextSize
+  )
+
+  win.setBounds({
+    x: nextPosition.x,
+    y: nextPosition.y,
+    width: nextSize.width,
+    height: nextSize.height
+  }, false)
+  syncSpeechBubblePosition(characterId, nextPosition)
+  return { position: nextPosition, size: scale }
 }
 
 export function setCharacterWindowClickThrough(characterId: string, clickThrough: boolean): boolean {
@@ -417,31 +523,37 @@ let inputWindow: BrowserWindow | null = null
 export function createInputWindow(position: { x: number; y: number }): BrowserWindow {
   if (inputWindow && !inputWindow.isDestroyed()) {
     inputWindow.setOpacity(1)
+    inputWindow.setResizable(true)
+    inputWindow.setMinimumSize(280, 120)
     raiseAuxAboveCharacters()
     inputWindow.moveTop()
     inputWindow.focus()
     return inputWindow
   }
 
+  const savedBounds = getInitialAuxBounds('input')
+  const initialBounds = getSavedAuxBounds?.('input') ? savedBounds : { ...savedBounds, x: position.x, y: position.y }
   inputWindow = new BrowserWindow({
-    x: position.x,
-    y: position.y,
-    width: 400,
-    height: 160,
+    x: initialBounds.x,
+    y: initialBounds.y,
+    width: initialBounds.width,
+    height: initialBounds.height,
     frame: false,
     transparent: false,
     backgroundColor: '#F7FFFC',
     alwaysOnTop: true,
     skipTaskbar: true,
-    resizable: false,
+    resizable: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false
     }
   })
+  rememberAuxBounds('input', inputWindow)
   // Higher than character alwaysOnTop windows
   inputWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  inputWindow.setMinimumSize(280, 120)
 
   if (VITE_DEV_SERVER_URL) {
     inputWindow.loadURL(makeURL({ w: 'input' }))
@@ -465,14 +577,16 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
 
 export function toggleInputWindow(position?: { x: number; y: number }): void {
   if (!inputWindow || inputWindow.isDestroyed()) {
-    const { width, height } = screen.getPrimaryDisplay().workAreaSize
-    createInputWindow(position ?? { x: Math.round(width / 2 - 200), y: Math.round(height - 200) })
+    const fallback = defaultInputBounds()
+    createInputWindow(position ?? { x: fallback.x, y: fallback.y })
     return
   }
   if (inputWindow.isVisible()) {
     inputWindow.hide()
   } else {
     inputWindow.setOpacity(1)
+    inputWindow.setResizable(true)
+    inputWindow.setMinimumSize(280, 120)
     inputWindow.show()
     raiseAuxAboveCharacters()
     inputWindow.moveTop()
@@ -565,12 +679,12 @@ let logWindow: BrowserWindow | null = null
 
 export function toggleLogWindow(): void {
   if (!logWindow || logWindow.isDestroyed()) {
-    const { width, height } = screen.getPrimaryDisplay().workAreaSize
+    const initialBounds = getInitialAuxBounds('log')
     logWindow = new BrowserWindow({
-      x: Math.round(width / 2 - 280),
-      y: 80,
-      width: 560,
-      height: Math.round(height * 0.7),
+      x: initialBounds.x,
+      y: initialBounds.y,
+      width: initialBounds.width,
+      height: initialBounds.height,
       frame: false,
       transparent: false,
       backgroundColor: '#F7FFFC',
@@ -582,6 +696,7 @@ export function toggleLogWindow(): void {
         nodeIntegration: false
       }
     })
+    rememberAuxBounds('log', logWindow)
     logWindow.setAlwaysOnTop(true, 'pop-up-menu')
     if (VITE_DEV_SERVER_URL) {
       logWindow.loadURL(makeURL({ w: 'log' }))

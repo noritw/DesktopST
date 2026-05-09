@@ -47,6 +47,13 @@ export interface DesktopCharacterState {
   zIndex: number
 }
 
+export interface WindowBoundsState {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface AppSettings {
   worldSetting: string
   interactionExample: string
@@ -73,6 +80,8 @@ export interface AppSettings {
   ui: {
     desktopCharacters: DesktopCharacterState[]
     inputWindowPosition: { x: number; y: number }
+    inputWindowBounds?: WindowBoundsState
+    logWindowBounds?: WindowBoundsState
     theme: 'light' | 'dark' | 'auto'
   }
 }

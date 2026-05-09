@@ -102,7 +102,21 @@ npm run typecheck # 型別檢查
 ## 目前進度
 
 - [x] 規格書完成（v1.3）
-- [ ] 專案骨架初始化
-- [ ] 階段 1 MVP 開發中
+- [x] 專案骨架初始化
+- [x] 階段 1 MVP 基礎架構（桌面角色視窗、輸入視窗、LLM 對話、角色設定）
+- [x] 相關 UI 操作優化（hover menu、拖曳、點擊穿透、音效靜音）
+
+**目前進行中（未提交）：**
+- [x] 角色縮放功能
+  - HoverMenu 新增縮放按鈕（scale icon），點擊進入縮放模式
+  - CharacterWindow 新增縮放模式 UI（可即時預覽、輸入數值或拖曳 slider）
+  - 縮放自動 clamp 至螢幕可見範圍（`clampCharacterScaleForDisplay`）
+  - 視窗最小尺寸保護（280×220 px）
+  - IPC：`desktop:update-size`（確認儲存）、`desktop:preview-size`（即時預覽不存檔）
+- [x] 輔助視窗位置 / 大小記憶
+  - Input window 改為可調整大小（resizable），拖移後自動記憶 bounds
+  - Log window 同樣記憶 bounds
+  - 新增 `AppSettings.ui.inputWindowBounds` / `logWindowBounds` 欄位
+  - `configureAuxWindowPersistence()` 負責連接存檔邏輯（防抖 250ms）
 
 詳細開發階段見規格書 §11。
