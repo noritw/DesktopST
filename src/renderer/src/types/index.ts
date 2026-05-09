@@ -42,6 +42,7 @@ export interface DesktopCharacterState {
   characterId: string
   position: { x: number; y: number }
   size: number
+  flipped: boolean
   muted: boolean
   zIndex: number
 }

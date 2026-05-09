@@ -63,6 +63,7 @@ app.on('ready', async () => {
       characterId: chars[0].id,
       position: { x: 80, y: 400 },
       size: 1,
+      flipped: false,
       muted: false,
       zIndex: 1
     }]

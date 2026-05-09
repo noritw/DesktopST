@@ -8,6 +8,7 @@ interface Props {
   emotions?: Record<string, string>
   name: string
   size?: number
+  flipped?: boolean
 }
 
 export interface CharacterSpriteHandle {
@@ -22,7 +23,7 @@ function resolveDisplayPath(avatarPath: string, emotion: string | undefined, emo
 }
 
 const CharacterSprite = forwardRef<CharacterSpriteHandle, Props>(
-  function CharacterSprite({ avatarPath, emotion, emotions, name, size = 1 }, ref) {
+  function CharacterSprite({ avatarPath, emotion, emotions, name, size = 1, flipped = false }, ref) {
     const w = Math.round(180 * size)
     const h = Math.round(260 * size)
 
@@ -64,7 +65,8 @@ const CharacterSprite = forwardRef<CharacterSpriteHandle, Props>(
         const pd = pixelDataRef.current
         if (!pd) return 255
 
-        const imgX = Math.round((clientX / w) * pd.width)
+        const localX = flipped ? (w - clientX) : clientX
+        const imgX = Math.round((localX / w) * pd.width)
         const imgY = Math.round((clientY / h) * pd.height)
 
         if (imgX < 0 || imgY < 0 || imgX >= pd.width || imgY >= pd.height) return 0
@@ -91,7 +93,7 @@ const CharacterSprite = forwardRef<CharacterSpriteHandle, Props>(
         src={src}
         alt={name}
         draggable={false}
-        style={{ width: w, height: h, objectFit: 'contain' }}
+        style={{ width: w, height: h, objectFit: 'contain', transform: flipped ? 'scaleX(-1)' : 'none' }}
         className="select-none pointer-events-none"
       />
     )

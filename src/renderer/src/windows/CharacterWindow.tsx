@@ -19,6 +19,7 @@ export default function CharacterWindow({ characterId }: Props) {
   const urlSize = window.windowParams?.get('size') ?? new URLSearchParams(window.location.search).get('size')
   const initialSize = urlSize ? Number(urlSize) : NaN
   const size = desktopState?.size ?? (Number.isFinite(initialSize) && initialSize > 0 ? initialSize : 1)
+  const flipped = desktopState?.flipped ?? false
   const isMuted = desktopState?.muted ?? false
   const canRemove = desktopCharacters.length > 1
   const maxVisibleScale = Math.max(
@@ -36,6 +37,7 @@ export default function CharacterWindow({ characterId }: Props) {
   const [scaleMode, setScaleMode] = useState(false)
   const [scaleDraft, setScaleDraft] = useState(size)
   const [scaleText, setScaleText] = useState(String(size))
+  const [flipDraft, setFlipDraft] = useState(flipped)
 
   const interactiveRef = useRef<HTMLDivElement>(null)
   const menuPinnedRef = useRef(menuPinned)
@@ -63,8 +65,9 @@ export default function CharacterWindow({ characterId }: Props) {
     if (!scaleMode) {
       setScaleDraft(size)
       setScaleText(String(size))
+      setFlipDraft(flipped)
     }
-  }, [scaleMode, size])
+  }, [flipped, scaleMode, size])
 
   useEffect(() => {
     const toScreenRect = (r: DOMRect) => ({
@@ -210,11 +213,12 @@ export default function CharacterWindow({ characterId }: Props) {
     const clamped = Math.min(maxVisibleScale, Math.max(0.25, size))
     setScaleDraft(clamped)
     setScaleText(clamped.toFixed(2).replace(/\.?0+$/, ''))
+    setFlipDraft(flipped)
     window.api.invoke('desktop:preview-size', characterId, maxVisibleScale)
     setScaleMode(true)
     setMenuPinned(true)
     setHoverSuppressed(false)
-  }, [characterId, maxVisibleScale, size])
+  }, [characterId, flipped, maxVisibleScale, size])
 
   const exitScaleMode = useCallback(() => {
     const next = Number(scaleText)
@@ -224,9 +228,10 @@ export default function CharacterWindow({ characterId }: Props) {
     setScaleDraft(finalScale)
     setScaleText(finalScale.toFixed(2).replace(/\.?0+$/, ''))
     window.api.invoke('desktop:update-size', characterId, finalScale)
+    window.api.invoke('desktop:update-flipped', characterId, flipDraft)
     setScaleMode(false)
     setMenuPinned(true)
-  }, [characterId, maxVisibleScale, scaleDraft, scaleText])
+  }, [characterId, flipDraft, maxVisibleScale, scaleDraft, scaleText])
 
   const lastMsg = useAppStore(selectCharacterLastMessage(characterId))
   const emotionTag = lastMsg?.emotion
@@ -234,6 +239,7 @@ export default function CharacterWindow({ characterId }: Props) {
   if (!character) return null
 
   const renderedSize = scaleMode ? scaleDraft : Math.min(maxVisibleScale, Math.max(0.25, size))
+  const renderedFlipped = scaleMode ? flipDraft : flipped
 
   return (
     <div
@@ -321,6 +327,7 @@ export default function CharacterWindow({ characterId }: Props) {
               emotions={character.emotions}
               name={character.name}
               size={renderedSize}
+              flipped={renderedFlipped}
             />
           </div>
         </div>
@@ -398,6 +405,15 @@ export default function CharacterWindow({ characterId }: Props) {
               className="w-full accent-teal"
               title={`縮放比例 ${scaleDraft.toFixed(2)}`}
             />
+            <label className="mt-2 flex items-center gap-2 text-xs text-primary select-none cursor-pointer">
+              <input
+                type="checkbox"
+                checked={flipDraft}
+                onChange={event => setFlipDraft(event.target.checked)}
+                className="accent-teal w-4 h-4"
+              />
+              <span>水平翻轉角色圖片</span>
+            </label>
           </div>
         </div>
       )}

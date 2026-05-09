@@ -203,7 +203,7 @@ function safeCharacterDir(characterId: string): string | null {
 export function initState(
   s: AppSettings,
   chars: Character[],
-  desktopState: { characterId: string; position: { x: number; y: number }; size: number; muted: boolean; zIndex: number }[]
+  desktopState: { characterId: string; position: { x: number; y: number }; size: number; flipped: boolean; muted: boolean; zIndex: number }[]
 ) {
   settings = s
   settings.ui.unfocusedBubbleOpacity = normalizeUnfocusedBubbleOpacity(settings.ui.unfocusedBubbleOpacity)
@@ -487,7 +487,7 @@ export function registerIpcHandlers() {
   // Desktop characters
   ipcMain.handle('desktop:add-character', (_, characterId: string) => {
     if (settings.ui.desktopCharacters.some(d => d.characterId === characterId)) return false
-    const state = { characterId, position: { x: 100, y: 400 }, size: 1, muted: false, zIndex: Date.now() }
+    const state = { characterId, position: { x: 100, y: 400 }, size: 1, flipped: false, muted: false, zIndex: Date.now() }
     settings.ui.desktopCharacters.push(state)
     fileStore.saveSettings(settings)
     createCharacterWindow(characterId, state.position, state.size)
@@ -535,6 +535,15 @@ export function registerIpcHandlers() {
   ipcMain.handle('desktop:preview-size', (_, characterId: string, size: number) => {
     const nextSize = Math.min(4, Math.max(0.25, Number(size) || 1))
     resizeCharacterWindow(characterId, nextSize)
+    return true
+  })
+
+  ipcMain.handle('desktop:update-flipped', (_, characterId: string, flipped: boolean) => {
+    const d = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
+    if (!d) return false
+    d.flipped = !!flipped
+    fileStore.saveSettings(settings)
+    broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
     return true
   })
 

@@ -44,7 +44,10 @@ export function loadSettings(): AppSettings {
       ui: {
         ...DEFAULT_SETTINGS.ui,
         ...(s as Partial<AppSettings>).ui,
-        desktopCharacters: (s as Partial<AppSettings>).ui?.desktopCharacters ?? DEFAULT_SETTINGS.ui.desktopCharacters
+        desktopCharacters: ((s as Partial<AppSettings>).ui?.desktopCharacters ?? DEFAULT_SETTINGS.ui.desktopCharacters).map(dc => ({
+          ...dc,
+          flipped: !!dc?.flipped
+        }))
       }
     }
   } catch {
@@ -177,6 +180,7 @@ export function initDefaultCharacters(appRoot: string): { chars: Character[]; de
     characterId: c.id,
     position: { x: 80 + i * 220, y: 400 },
     size: 1,
+    flipped: false,
     muted: false,
     zIndex: i + 1
   }))
