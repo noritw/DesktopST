@@ -1,8 +1,12 @@
-import { ipcMain, shell, BrowserWindow, desktopCapturer } from 'electron'
+import { ipcMain, shell, BrowserWindow, dialog, app, desktopCapturer } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
+import * as fs from 'fs'
+import * as path from 'path'
 import type { AppSettings, Character, Conversation, Message } from './types'
 import * as fileStore from './fileStore'
 import { chatWithOpenAI } from './llm/openaiAdapter'
+import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
+import { importStJson, exportToStJson } from './stCardMapper'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow,
   resizeCharacterWindow,
@@ -12,6 +16,7 @@ import {
   showSpeechBubble, hideSpeechBubble, updateSpeechBubbleSize, syncSpeechBubblePosition,
   reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects,
   beginCharacterDrag, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
+  createCharacterLibraryWindow,
   hideAllWindowsForScreenshot, restoreAllWindowsAfterScreenshot,
   showPreviewWindow
 } from './windowManager'
@@ -90,6 +95,19 @@ function normalizeForCompare(s: string): string {
     .replace(/\s+/g, ' ')
     .replace(/[，、。！？!?,.]+/g, '')
     .toLowerCase()
+}
+
+const MAX_MEDIA_BYTES = 10 * 1024 * 1024
+const ALLOWED_IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp'])
+
+function normalizeImageExt(ext: string): string {
+  const t = String(ext ?? '').trim().toLowerCase()
+  return t.startsWith('.') ? t : `.${t}`
+}
+
+function safeCharacterDir(characterId: string): string | null {
+  const dir = path.join(fileStore.getDataDir(), 'characters', characterId)
+  return fs.existsSync(path.join(dir, 'card.json')) ? dir : null
 }
 
 export function initState(
@@ -228,6 +246,148 @@ export function registerIpcHandlers() {
     broadcastToAll('characters:updated', characters)
     broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
     return true
+  })
+
+  ipcMain.handle('character-library:open', () => {
+    try {
+      createCharacterLibraryWindow()
+      return true
+    } catch (e) {
+      console.error(e)
+      return false
+    }
+  })
+
+  ipcMain.handle('character:import-png', (_, payload: { buffer: ArrayBuffer }) => {
+    try {
+      const buf = Buffer.from(payload.buffer ?? new ArrayBuffer(0))
+      if (buf.length > MAX_MEDIA_BYTES) return { error: '檔案超過 10 MB 上限' }
+      let jsonStr: string
+      try {
+        jsonStr = extractCharaJson(buf)
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e) }
+      }
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(jsonStr)
+      } catch {
+        return { error: '內容無法解析為有效角色卡資料' }
+      }
+      const id = uuidv4()
+      let char = importStJson(parsed, id)
+      const dir = path.join(fileStore.getDataDir(), 'characters', id)
+      fs.mkdirSync(dir, { recursive: true })
+      const avatarPath = path.join(dir, 'avatar.png')
+      fs.writeFileSync(avatarPath, buf)
+      char = { ...char, avatar: avatarPath }
+      characters.push(char)
+      fileStore.saveCharacter(char)
+      broadcastToAll('characters:updated', characters)
+      return char
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('character:export-json', (_, char: Character) => {
+    try {
+      return { json: exportToStJson(char) }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('character:export-png', (_, char: Character) => {
+    try {
+      if (!char?.id?.trim() || !char?.name?.trim()) {
+        return { error: '角色資料不完整' }
+      }
+      const appRoot = app.getAppPath()
+      let baseBuf: Buffer
+      if (char.avatar && fs.existsSync(char.avatar)) {
+        baseBuf = fs.readFileSync(char.avatar)
+      } else {
+        baseBuf = getExportPngBaseBuffer(appRoot)
+      }
+      const jsonStr = exportToStJson(char)
+      const out = embedCharaJson(baseBuf, jsonStr)
+      const arrayBuffer = out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength)
+      return { buffer: arrayBuffer }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('character:save-avatar', (_, payload: { id: string; buffer: ArrayBuffer; ext: string }) => {
+    try {
+      const ext = normalizeImageExt(payload.ext)
+      if (!ALLOWED_IMAGE_EXT.has(ext)) return { error: '不支援的圖片格式' }
+      const buf = Buffer.from(payload.buffer ?? new ArrayBuffer(0))
+      if (buf.length > MAX_MEDIA_BYTES) return { error: '檔案超過 10 MB 上限' }
+      const dir = safeCharacterDir(payload.id)
+      if (!dir) return { error: 'Character not found' }
+      const dest = path.join(dir, `avatar${ext}`)
+      fs.writeFileSync(dest, buf)
+      return { path: dest }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('character:save-emotion-sprite', (_, payload: { id: string; filename: string; buffer: ArrayBuffer; ext: string }) => {
+    try {
+      const ext = normalizeImageExt(payload.ext)
+      if (!ALLOWED_IMAGE_EXT.has(ext)) return { error: '不支援的圖片格式' }
+      const buf = Buffer.from(payload.buffer ?? new ArrayBuffer(0))
+      if (buf.length > MAX_MEDIA_BYTES) return { error: '檔案超過 10 MB 上限' }
+      const dir = safeCharacterDir(payload.id)
+      if (!dir) return { error: 'Character not found' }
+      const emotionsDir = path.join(dir, 'emotions')
+      fs.mkdirSync(emotionsDir, { recursive: true })
+      const rawName = payload.filename?.trim() || 'sprite'
+      let stem = path.basename(rawName, path.extname(rawName))
+      stem = stem.replace(/[^\w.\-()\u4e00-\u9fff]/g, '_') || 'sprite'
+      let dest = path.join(emotionsDir, `${stem}${ext}`)
+      if (fs.existsSync(dest)) {
+        dest = path.join(emotionsDir, `${Date.now()}_${stem}${ext}`)
+      }
+      fs.writeFileSync(dest, buf)
+      return { path: dest }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('file:save-dialog', async (event, opts: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const dialogOpts = {
+        defaultPath: opts.defaultPath,
+        filters: opts.filters ?? [{ name: 'All Files', extensions: ['*'] }]
+      }
+      const { canceled, filePath } =
+        win && !win.isDestroyed()
+          ? await dialog.showSaveDialog(win, dialogOpts)
+          : await dialog.showSaveDialog(dialogOpts)
+      if (canceled || !filePath) return { filePath: undefined }
+      return { filePath }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('file:write-file', (_, payload: { path: string; data: ArrayBuffer | string }) => {
+    try {
+      if (typeof payload.data === 'string') {
+        fs.writeFileSync(payload.path, payload.data, 'utf-8')
+      } else {
+        fs.writeFileSync(payload.path, Buffer.from(payload.data))
+      }
+      return { ok: true as const }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   // Desktop characters
@@ -770,23 +930,8 @@ export function registerIpcHandlers() {
   ipcMain.handle('character:import-json', (_, jsonStr: string) => {
     try {
       const raw = JSON.parse(jsonStr)
-      const data = raw.data ?? raw
       const id = uuidv4()
-      const char: Character = {
-        id,
-        name: data.name ?? raw.name ?? 'Unknown',
-        avatar: '',
-        description: data.description ?? '',
-        personality: data.personality ?? '',
-        firstMessage: data.first_mes ?? raw.first_mes ?? '',
-        exampleDialogue: data.mes_example ?? raw.mes_example ?? '',
-        emotions: {},
-        scenario: data.scenario ?? raw.scenario,
-        systemPromptOverride: data.system_prompt ?? raw.system_prompt,
-        creatorNotes: data.creator_notes ?? raw.creatorcomment,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      }
+      const char = importStJson(raw, id)
       characters.push(char)
       fileStore.saveCharacter(char)
       broadcastToAll('characters:updated', characters)

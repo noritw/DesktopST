@@ -411,9 +411,14 @@ export default function SettingsWindow() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-secondary">角色列表</span>
-              <button className="tab-btn text-xs" onClick={handleImportJson}>
-                 匯入 JSON
-              </button>
+              <div className="flex gap-2">
+                <button className="tab-btn text-xs" type="button" onClick={() => window.api.invoke('character-library:open')}>
+                  角色庫
+                </button>
+                <button className="tab-btn text-xs" type="button" onClick={handleImportJson}>
+                  匯入 JSON
+                </button>
+              </div>
             </div>
 
             {/* Character list */}

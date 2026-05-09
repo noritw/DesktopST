@@ -106,6 +106,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   saveCharacter: async (c) => {
     await window.api.invoke('character:save', c)
+    set(state => {
+      const idx = state.characters.findIndex(x => x.id === c.id)
+      const chars = [...state.characters]
+      if (idx >= 0) chars[idx] = c
+      else chars.push(c)
+      return { characters: chars }
+    })
   },
 
   deleteCharacter: async (id) => {
