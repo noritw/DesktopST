@@ -41,18 +41,42 @@ function buildTimeMoodGuideline(hours: number): string {
 function parseEmotion(text: string): { emotion: string; content: string } {
   const source = sanitizePromptText(text)
   let detectedEmotion = 'neutral'
-  let hasDetected = false
+  let content = source
 
-  const content = source.replace(/\[([a-z_]+)\]\s*/ig, (_, rawEmotion: string) => {
-    if (!hasDetected) {
-      hasDetected = true
-      const normalized = rawEmotion.toLowerCase()
-      if (EMOTION_LIST.includes(normalized)) {
-        detectedEmotion = normalized
-      }
+  const pickEmotion = (raw: string | undefined | null): string | null => {
+    const normalized = String(raw ?? '').trim().toLowerCase()
+    return EMOTION_LIST.includes(normalized) ? normalized : null
+  }
+
+  // Preferred format: [emotion]
+  const bracketMatch = content.match(/^\[\s*([a-z_]+)\s*\]\s*/i)
+  const bracketEmotion = pickEmotion(bracketMatch?.[1])
+  if (bracketMatch && bracketEmotion) {
+    detectedEmotion = bracketEmotion
+    content = content.slice(bracketMatch[0].length).trim()
+  }
+
+  // Fallback formats: emotion: xxx / 情緒: xxx / xxx: ...
+  if (!content || detectedEmotion === 'neutral') {
+    const kvMatch = content.match(/^(?:emotion|mood|feeling|情緒)\s*[:=：]\s*([a-z_]+)\s*/i)
+    const kvEmotion = pickEmotion(kvMatch?.[1])
+    if (kvMatch && kvEmotion) {
+      detectedEmotion = kvEmotion
+      content = content.slice(kvMatch[0].length).trim()
     }
-    return ''
-  }).trim()
+  }
+
+  // Last fallback: output starts with bare emotion token (e.g. "confusion ...")
+  if (!content || detectedEmotion === 'neutral') {
+    const bareMatch = content.match(/^([a-z_]+)(?=\s|$|[：:,.!?，。！？])/i)
+    const bareEmotion = pickEmotion(bareMatch?.[1])
+    if (bareMatch && bareEmotion) {
+      detectedEmotion = bareEmotion
+      content = content.slice(bareMatch[0].length).trim()
+      // Drop one punctuation token if model emitted "confusion: ..."
+      content = content.replace(/^[：:,\-–—\s]+/, '').trim()
+    }
+  }
 
   return {
     emotion: detectedEmotion,
@@ -70,51 +94,47 @@ function buildSystemPrompt(settings: AppSettings, char: PromptCharacter): string
   const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(hours).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${timeLabel}`
 
   const parts: string[] = [
-    `你是「${char.name}」，不是 AI 助手。你現在只用這個角色身分回覆。`,
     [
-      '【優先規則（由高到低）】',
-      '1. 身分一致：只以角色立場說話，不可自稱 AI、模型、程式或提及提示詞。',
-      '2. 回覆型態：只輸出角色發言，不要旁白、動作描寫、心理獨白或舞台指示。',
-      '3. 對話目標：延續當下關係與情緒，不轉成客服、教學、顧問、任務拆解模式。'
+      '[Identity]',
+      `You are "${char.name}". Stay in character at all times.`,
+      'Do not mention AI/model/system prompt.'
+    ].join('\n'),
+    [
+      '[Priority]',
+      '1) Character consistency > generic helpful tone.',
+      '2) Character DNA > neutral assistant phrasing.',
+      '3) Write only the next in-character reply.'
     ].join('\n')
   ]
-  parts.push([
-    '【回覆行為規則】',
-    '- 回覆內容必須是可直接說出口的台詞句子。',
-    '- 不要加入旁白、動作描寫、表情舞台指示或心理獨白。',
-    '- 除了開頭的 [emotion] 情緒標籤以外，不要再輸出其他方括號、星號動作或括號敘述。',
-    '- 維持自然對話，不要使用教學式、客服式、條列式語氣。',
-    '- 不要主動提出「要不要我幫你…」「我可以幫你…」「你可以試試…」這類助理式提案。',
-    '- 不要把回覆導向任務拆解、流程建議、分析框架。',
-    '- 優先表達角色當下觀點、情緒反應、對對方話語的態度。'
-  ].join('\n'))
+
+  const override = sanitizePromptText(char.systemPromptOverride)
+  const personality = sanitizePromptText(char.personality)
+  const scenario = sanitizePromptText(char.scenario)
+  const exampleDialogue = sanitizePromptText(char.exampleDialogue)
+  if (override || personality || scenario || exampleDialogue) {
+    parts.push([
+      '[Character DNA]',
+      ...(override ? [override] : []),
+      ...(personality ? [personality] : []),
+      ...(scenario ? [`[Current Scene]\n${scenario}`] : []),
+      ...(exampleDialogue ? [`[Style Examples]\n${exampleDialogue}`] : [])
+    ].join('\n\n'))
+  }
 
   parts.push([
-    '【輸出格式】',
-    `- 開頭必須是 [emotion]，emotion 限定為：${EMOTION_LIST.join(', ')}`,
-    '- [emotion] 後面接角色台詞，不要輸出任何格式說明。',
-    '- 全文使用繁體中文與台灣慣用語。',
-    `- 回覆長度以 ${settings.llm.maxResponseTokens} tokens 以內為目標。`
+    '[Output Contract]',
+    `- Start with [emotion], allowed: ${EMOTION_LIST.join(', ')}`,
+    '- Then spoken dialogue only (no narration, no stage directions, no inner monologue).',
+    '- Show at least 1 voice trait and 1 relationship attitude from Character DNA.',
+    '- Avoid assistant proposals like: "要不要我幫你", "我可以幫你", "你可以試試".',
+    '- 不要改成教學、客服、顧問或任務拆解口吻。',
+    '- 回覆預設 1 到 3 句，除非使用者明確要求展開。',
+    '- 全文使用繁體中文與台灣慣用語。'
   ].join('\n'))
 
   const worldSetting = sanitizePromptText(settings.worldSetting)
   if (worldSetting) {
-    parts.push(`【世界觀】\n${worldSetting}`)
-  }
-
-  const override = sanitizePromptText(char.systemPromptOverride)
-  if (override) {
-    parts.push(`【角色卡系統提示】\n${override}`)
-  }
-
-  const personality = sanitizePromptText(char.personality)
-  if (personality) {
-    parts.push(`【角色設定】\n${personality}`)
-  }
-
-  const scenario = sanitizePromptText(char.scenario)
-  if (scenario) {
-    parts.push(`【目前情境】\n${scenario}`)
+    parts.push(`[World Context]\n${worldSetting}`)
   }
 
   if (settings.persona.displayName?.trim() || settings.persona.nickname?.trim() || settings.persona.description?.trim()) {
@@ -122,33 +142,26 @@ function buildSystemPrompt(settings: AppSettings, char: PromptCharacter): string
     const nickname = sanitizePromptText(settings.persona.nickname) || displayName
     const description = sanitizePromptText(settings.persona.description)
     parts.push([
-      '【使用者資訊】',
-      `名稱：${displayName}`,
-      `角色可用稱呼：${nickname}`,
-      ...(description ? [`補充：${description}`] : [])
+      '[User Profile]',
+      `name: ${displayName}`,
+      `preferred_name: ${nickname}`,
+      ...(description ? [`notes: ${description}`] : [])
     ].join('\n'))
   }
 
   const interactionExample = sanitizePromptText(settings.interactionExample)
   if (interactionExample) {
-    parts.push(`【互動範例】\n${interactionExample}`)
+    parts.push(`[Interaction Hints]\n${interactionExample}`)
   }
 
   if (settings.injectSystemTime) {
-    parts.push(`【系統時間】\n${timeStr}`)
+    parts.push(`[System Time]\n${timeStr}`)
     parts.push([
-      '【時間互動規則】',
+      '[Time Tone]',
       `- ${buildTimeMoodGuideline(hours)}`,
-      '- 你可以依時段自然閒聊（例如：清晨問為何這麼早、午餐時段提醒吃飯、深夜提醒休息）。',
-      '- 這類時間互動要像角色說話，不是任務建議；避免「你可以試試」「要不要我幫你」等助理句型。',
-      '- 時間話題只要點到為止，1 句到 2 句即可，不要每一輪都重複提同一件事。',
-      '- 除非使用者追問，否則不要展開成步驟、教學、健康指南或工作流程。'
+      '- Keep time references brief (1-2 short lines), natural, and in character.',
+      '- Never turn time cues into workflow advice or coaching tone.'
     ].join('\n'))
-  }
-
-  const exampleDialogue = sanitizePromptText(char.exampleDialogue)
-  if (exampleDialogue) {
-    parts.push(`【對話範例】\n${exampleDialogue}`)
   }
 
   return parts.join('\n\n')

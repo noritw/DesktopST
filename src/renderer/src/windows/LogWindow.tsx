@@ -15,6 +15,26 @@ function stripInjectedTime(content: string): string {
     .trim()
 }
 
+function stripLeadingEmotionTag(content: string): string {
+  return String(content ?? '')
+    .replace(/^\[\s*[a-z_]+\s*\]\s*/i, '')
+    .replace(/^(?:emotion|mood|feeling|情緒)\s*[:=：]\s*[a-z_]+\s*/i, '')
+    .replace(/^([a-z_]+)(?=\s|$|[：:,.!?，。！？])\s*/i, (_, raw: string) => {
+      const emo = raw.toLowerCase()
+      const known = new Set([
+        'admiration', 'amusement', 'anger', 'annoyance', 'approval',
+        'caring', 'confusion', 'curiosity', 'desire', 'disappointment',
+        'disapproval', 'disgust', 'embarrassment', 'excitement', 'fear',
+        'gratitude', 'grief', 'joy', 'love', 'nervousness',
+        'optimism', 'pride', 'realization', 'relief', 'remorse',
+        'sadness', 'surprise', 'neutral'
+      ])
+      return known.has(emo) ? '' : raw
+    })
+    .replace(/^[：:,\-–—\s]+/, '')
+    .trim()
+}
+
 export default function LogWindow() {
   const messages = useAppStore(selectMessages)
   const characters = useAppStore(s => s.characters)
@@ -145,7 +165,9 @@ export default function LogWindow() {
   const renderMessage = (msg: Message) => {
     const isUser = msg.role === 'user'
     const isCharacter = msg.role === 'character'
-    const displayContent = isUser ? stripInjectedTime(msg.content) : msg.content
+    const displayContent = isUser
+      ? stripInjectedTime(msg.content)
+      : (isCharacter ? stripLeadingEmotionTag(msg.content) : msg.content)
     const isEditing = editingId === msg.id
 
     return (
