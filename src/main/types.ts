@@ -23,6 +23,7 @@ export interface Message {
   content: string
   llmProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
   llmModel?: string
+  debugPrompt?: string
   emotion?: string
   images?: string[]
   timestamp: number

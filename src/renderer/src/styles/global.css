@@ -28,7 +28,18 @@
   .btn-round {
     @apply w-9 h-9 flex items-center justify-center rounded-full transition-all duration-150
            bg-white/80 hover:bg-mint shadow-soft cursor-pointer text-primary border border-border
-           hover:scale-110 active:scale-95;
+           hover:shadow-panel active:bg-teal/30;
+  }
+
+  .btn-danger {
+    color: var(--color-danger);
+    border-color: var(--color-danger-border);
+    background: color-mix(in srgb, var(--color-danger-soft) 80%, transparent);
+  }
+
+  .btn-danger:hover {
+    color: var(--color-danger);
+    background: var(--color-danger-soft);
   }
 
   .panel {

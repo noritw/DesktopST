@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { useAppStore, selectCharacter, selectDesktopChar, selectCharacterLastMessage } from '../stores/useAppStore'
+import { useAppStore, selectCharacter, selectDesktopChar } from '../stores/useAppStore'
 import CharacterSprite from '../components/CharacterSprite'
-import SpeechBubble from '../components/SpeechBubble'
 import HoverMenu from '../components/HoverMenu'
-
-const BUBBLE_DURATION = 8000
 
 interface Props {
   characterId: string
@@ -13,66 +10,48 @@ interface Props {
 export default function CharacterWindow({ characterId }: Props) {
   const character = useAppStore(selectCharacter(characterId))
   const desktopState = useAppStore(selectDesktopChar(characterId))
-  const lastMessage = useAppStore(selectCharacterLastMessage(characterId))
   const desktopCharacters = useAppStore(s => s.desktopCharacters)
   const isThinking = useAppStore(s => !!s.thinkingByCharacterId[characterId])
+  const uiAppFocused = useAppStore(s => s.uiAppFocused)
 
   const urlSize = window.windowParams?.get('size') ?? new URLSearchParams(window.location.search).get('size')
   const initialSize = urlSize ? Number(urlSize) : NaN
 
   const [hovered, setHovered] = useState(false)
-  const [bubbleVisible, setBubbleVisible] = useState(false)
-  const [bubbleText, setBubbleText] = useState('')
-  const bubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [menuPinned, setMenuPinned] = useState(false)
+  const [hoverSuppressed, setHoverSuppressed] = useState(false)
   const interactiveRef = useRef<HTMLDivElement>(null)
   const hoverMenuButtonsRef = useRef<HTMLDivElement | null>(null)
-  const clickThroughRef = useRef<boolean | null>(null)
-  const isDraggingRef = useRef(false)
-  const dragStartRef = useRef<{ mx: number; my: number; wx: number; wy: number } | null>(null)
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const didDragRef = useRef(false)
 
-  // Show bubble when new message arrives
   useEffect(() => {
-    if (!lastMessage) return
-    setBubbleText(lastMessage.content)
-    setBubbleVisible(true)
-    if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current)
-    bubbleTimerRef.current = setTimeout(() => setBubbleVisible(false), BUBBLE_DURATION)
-  }, [lastMessage?.id])
+    if (!uiAppFocused) setHovered(false)
+  }, [uiAppFocused])
 
-  // Make the transparent area click-through so overlapped characters can still be clicked.
+  // Report interactive hit rects to main so it can decide click-through reliably on Windows.
   useEffect(() => {
-    let raf = 0
-    const update = (e: MouseEvent) => {
-      if (!interactiveRef.current) return
-      if (isDraggingRef.current) return
-      const r = interactiveRef.current.getBoundingClientRect()
-      const mr = hoverMenuButtonsRef.current?.getBoundingClientRect() ?? null
-      const inside =
-        (e.clientX >= r.left && e.clientX <= r.right &&
-          e.clientY >= r.top && e.clientY <= r.bottom) ||
-        (!!mr && e.clientX >= mr.left && e.clientX <= mr.right &&
-          e.clientY >= mr.top && e.clientY <= mr.bottom)
-      const nextClickThrough = !inside
-      if (clickThroughRef.current === nextClickThrough) return
-      clickThroughRef.current = nextClickThrough
-      window.api.invoke('desktop:set-click-through', characterId, nextClickThrough)
+    const toScreenRect = (r: DOMRect) => ({
+      x: Math.round(window.screenX + r.left),
+      y: Math.round(window.screenY + r.top),
+      w: Math.round(r.width),
+      h: Math.round(r.height)
+    })
+
+    const tick = () => {
+      const spriteEl = interactiveRef.current
+      if (!spriteEl) return
+      const sprite = toScreenRect(spriteEl.getBoundingClientRect())
+      const btnEl = hoverMenuButtonsRef.current
+      const buttons = btnEl ? toScreenRect(btnEl.getBoundingClientRect()) : null
+      window.api.invoke('desktop:update-hit-rects', characterId, { sprite, buttons })
     }
-    const onMove = (e: MouseEvent) => {
-      if (raf) return
-      raf = window.requestAnimationFrame(() => {
-        raf = 0
-        update(e)
-      })
-    }
-    window.addEventListener('mousemove', onMove)
-    // Initial state: keep interactive so first click/drag always works.
-    window.api.invoke('desktop:set-click-through', characterId, false)
-    clickThroughRef.current = false
+
+    tick()
+    const id = window.setInterval(tick, 50)
     return () => {
-      if (raf) window.cancelAnimationFrame(raf)
-      window.removeEventListener('mousemove', onMove)
-      window.api.invoke('desktop:set-click-through', characterId, false)
+      window.clearInterval(id)
+      window.api.invoke('desktop:update-hit-rects', characterId, null)
     }
   }, [characterId])
 
@@ -80,33 +59,25 @@ export default function CharacterWindow({ characterId }: Props) {
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return
     e.preventDefault()
+    window.api.invoke('ui:character-activated', characterId)
+    window.api.invoke('desktop:drag-start', characterId)
     didDragRef.current = false
-    isDraggingRef.current = true
-    // Ensure the window is not click-through while dragging
-    if (clickThroughRef.current !== false) {
-      clickThroughRef.current = false
-      window.api.invoke('desktop:set-click-through', characterId, false)
-    }
-    dragStartRef.current = { mx: e.screenX, my: e.screenY, wx: window.screenX, wy: window.screenY }
+    dragStartRef.current = { x: e.screenX, y: e.screenY }
 
     const onMove = (ev: MouseEvent) => {
       if (!dragStartRef.current) return
-      const dx = ev.screenX - dragStartRef.current.mx
-      const dy = ev.screenY - dragStartRef.current.my
+      const dx = ev.screenX - dragStartRef.current.x
+      const dy = ev.screenY - dragStartRef.current.y
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDragRef.current = true
-      const nx = dragStartRef.current.wx + dx
-      const ny = dragStartRef.current.wy + dy
-      window.api.invoke('desktop:update-position', characterId, { x: nx, y: ny })
     }
 
     const onUp = () => {
       dragStartRef.current = null
-      isDraggingRef.current = false
+      window.api.invoke('desktop:drag-end', characterId)
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
 
-    // Use window instead of document so events are captured even when mouse leaves the window
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
   }, [characterId])
@@ -115,8 +86,24 @@ export default function CharacterWindow({ characterId }: Props) {
   const handleClick = useCallback((e: React.MouseEvent) => {
     if (didDragRef.current) return
     e.stopPropagation()
+    window.api.invoke('ui:character-activated', characterId)
     window.api.invoke('window:toggle-input')
-  }, [])
+  }, [characterId])
+
+  const menuVisible = menuPinned || (hovered && !hoverSuppressed)
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    window.api.invoke('ui:character-activated', characterId)
+    if (menuVisible) {
+      setMenuPinned(false)
+      setHoverSuppressed(true)
+    } else {
+      setMenuPinned(true)
+      setHoverSuppressed(false)
+    }
+  }, [characterId, menuVisible])
 
   if (!character) return null
 
@@ -132,53 +119,57 @@ export default function CharacterWindow({ characterId }: Props) {
     // The root div covers the full window but is pointer-events:none (click-through)
     // Only the interactive-zone div has pointer-events:auto
     <div
-      className="w-full h-full flex flex-col select-none"
+      className="w-full h-full relative select-none"
       style={{ background: 'transparent', pointerEvents: 'none' }}
     >
-      {/* Speech bubble area — no pointer events */}
-      <div className="flex-1 flex items-end px-2 pb-1 pointer-events-none">
-        <SpeechBubble text={bubbleText} visible={bubbleVisible} />
-      </div>
-
-      {/* Interactive zone: sprite + hover menu — pointer events enabled */}
+      {/* Interactive zone: flex row — sprite left, buttons right.
+          Both are inside the same container so mouseleave only fires
+          when the cursor leaves the entire combined area. */}
       <div
-        className="flex-shrink-0 relative self-start"
+        className="absolute bottom-0 left-0 flex items-start"
         style={{ pointerEvents: 'auto' }}
         ref={interactiveRef}
         onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        onMouseLeave={() => {
+          setHovered(false)
+          setHoverSuppressed(false)
+        }}
       >
-        {/* Thinking bubble */}
-        {isThinking && (
-          <div
-            className="absolute -top-8 left-2 pointer-events-none"
-            style={{
-              padding: '6px 10px',
-              borderRadius: 999,
-              background: 'rgba(255,255,255,0.92)',
-              border: '1px solid rgba(216,245,236,1)',
-              color: '#3D5A52'
-            }}
-          >
-            <span className="dst-thinking-dots" aria-label="thinking">
-              <span>.</span><span>.</span><span>.</span>
-            </span>
-          </div>
-        )}
+        {/* Sprite column */}
+        <div className="relative flex-shrink-0">
+          {/* Thinking bubble */}
+          {isThinking && (
+            <div
+              className="absolute -top-8 left-2 pointer-events-none"
+              style={{
+                padding: '6px 10px',
+                borderRadius: 999,
+                background: 'rgba(255,255,255,0.92)',
+                border: '1px solid rgba(216,245,236,1)',
+                color: '#3D5A52'
+              }}
+            >
+              <span className="dst-thinking-dots" aria-label="thinking">
+                <span>.</span><span>.</span><span>.</span>
+              </span>
+            </div>
+          )}
 
-        {/* Draggable sprite */}
-        <div
-          className="cursor-grab active:cursor-grabbing"
-          onMouseDown={handleMouseDown}
-          onClick={handleClick}
-          style={{ userSelect: 'none' }}
-        >
-          <CharacterSprite src={avatarSrc} name={character.name} size={size} />
+          {/* Draggable sprite */}
+          <div
+            className="cursor-grab active:cursor-grabbing"
+            onMouseDown={handleMouseDown}
+            onClick={handleClick}
+            onContextMenu={handleContextMenu}
+            style={{ userSelect: 'none' }}
+          >
+            <CharacterSprite src={avatarSrc} name={character.name} size={size} />
+          </div>
         </div>
 
         <HoverMenu
           characterId={characterId}
-          visible={hovered}
+          visible={menuVisible}
           canRemove={canRemove}
           isMuted={isMuted}
           onButtonsEl={(el) => { hoverMenuButtonsRef.current = el }}

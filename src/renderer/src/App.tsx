@@ -4,6 +4,7 @@ import CharacterWindow from './windows/CharacterWindow'
 import InputWindow from './windows/InputWindow'
 import SettingsWindow from './windows/SettingsWindow'
 import LogWindow from './windows/LogWindow'
+import BubbleWindow from './windows/BubbleWindow'
 import ErrorBoundary from './components/ErrorBoundary'
 
 const w = typeof window !== 'undefined' && window.windowParams
@@ -23,6 +24,10 @@ export default function App() {
   if (w === 'character') {
     const id = window.windowParams?.get('id') ?? new URLSearchParams(window.location.search).get('id')
     return <ErrorBoundary><CharacterWindow characterId={id ?? ''} /></ErrorBoundary>
+  }
+  if (w === 'bubble') {
+    const id = window.windowParams?.get('id') ?? new URLSearchParams(window.location.search).get('id')
+    return <ErrorBoundary><BubbleWindow characterId={id ?? ''} /></ErrorBoundary>
   }
   if (w === 'input') return <ErrorBoundary><InputWindow /></ErrorBoundary>
   if (w === 'settings') return <ErrorBoundary><SettingsWindow /></ErrorBoundary>

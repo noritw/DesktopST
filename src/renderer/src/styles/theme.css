@@ -11,6 +11,16 @@
   --color-border: #D8F5EC;
   --color-text-primary: #3D5A52;
   --color-text-secondary: #7BA898;
+  --color-text-user: #247566;
+  --color-danger: #E85D3F;
+  --color-danger-soft: #FFE2D8;
+  --color-danger-border: #FFB59F;
+
+  /* Theme extension space: future presets/custom palettes can override these aliases. */
+  --theme-accent: var(--color-teal);
+  --theme-accent-soft: var(--color-mint);
+  --theme-danger: var(--color-danger);
+  --theme-danger-soft: var(--color-danger-soft);
 
   --radius-panel: 16px;
   --radius-panel-lg: 24px;

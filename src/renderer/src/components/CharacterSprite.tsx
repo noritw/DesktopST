@@ -1,3 +1,5 @@
+import MonoIcon from './MonoIcon'
+
 interface Props {
   src: string
   name: string
@@ -11,10 +13,10 @@ export default function CharacterSprite({ src, name, size = 1 }: Props) {
   if (!src) {
     return (
       <div
-        className="rounded-full bg-mint flex items-center justify-center text-4xl shadow-soft"
+        className="rounded-full bg-mint flex items-center justify-center shadow-soft"
         style={{ width: w, height: h }}
       >
-        👤
+        <MonoIcon name="user" className="w-10 h-10 text-primary" />
         <span className="sr-only">{name}</span>
       </div>
     )

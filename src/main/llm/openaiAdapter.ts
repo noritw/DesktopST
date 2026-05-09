@@ -10,6 +10,15 @@ const EMOTION_LIST = [
   'sadness', 'surprise', 'neutral'
 ]
 
+type PromptCharacter = {
+  id?: string
+  name: string
+  personality: string
+  scenario?: string
+  systemPromptOverride?: string
+  exampleDialogue?: string
+}
+
 function parseEmotion(text: string): { emotion: string; content: string } {
   const match = text.match(/^\[([a-z_]+)\]\s*/i)
   if (match) {
@@ -22,43 +31,62 @@ function parseEmotion(text: string): { emotion: string; content: string } {
   return { emotion: 'neutral', content: text }
 }
 
-function buildSystemPrompt(
-  settings: AppSettings,
-  char: { name: string; personality: string; scenario?: string; systemPromptOverride?: string; exampleDialogue?: string }
-): string {
+function buildSystemPrompt(settings: AppSettings, char: PromptCharacter): string {
   const now = new Date()
   const hours = now.getHours()
   const timeLabel =
-    hours < 5 ? '凌晨' : hours < 8 ? '清晨' : hours < 12 ? '上午' :
+    hours < 5 ? '深夜' : hours < 8 ? '清晨' : hours < 12 ? '上午' :
     hours < 13 ? '中午' : hours < 18 ? '下午' : hours < 19 ? '傍晚' :
     hours < 23 ? '晚上' : '深夜'
-  const timeStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(hours).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')} ${timeLabel}`
-
-  if (char.systemPromptOverride) return char.systemPromptOverride
+  const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(hours).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${timeLabel}`
 
   const parts: string[] = []
 
-  if (settings.worldSetting) parts.push(settings.worldSetting)
+  if (settings.worldSetting?.trim()) {
+    parts.push(`【世界觀】\n${settings.worldSetting.trim()}`)
+  }
 
-  parts.push(`你是${char.name}。以下是你的設定：\n${char.personality}`)
+  if (char.systemPromptOverride?.trim()) {
+    parts.push(`【角色卡系統提示】\n${char.systemPromptOverride.trim()}`)
+  }
 
-  if (char.scenario) parts.push(`【場景】\n${char.scenario}`)
+  parts.push(`你正在扮演「${char.name}」。請始終以這個角色的口吻、知識範圍與情緒反應回答。`)
 
-  if (settings.persona.displayName) {
-    parts.push(`【使用者資料】\n名稱：${settings.persona.displayName}（稱呼：${settings.persona.nickname || settings.persona.displayName}）${settings.persona.description ? '\n' + settings.persona.description : ''}`)
+  if (char.personality?.trim()) {
+    parts.push(`【角色設定】\n${char.personality.trim()}`)
+  }
+
+  if (char.scenario?.trim()) {
+    parts.push(`【目前情境】\n${char.scenario.trim()}`)
+  }
+
+  if (settings.persona.displayName?.trim() || settings.persona.nickname?.trim() || settings.persona.description?.trim()) {
+    const displayName = settings.persona.displayName?.trim() || '使用者'
+    const nickname = settings.persona.nickname?.trim() || displayName
+    const description = settings.persona.description?.trim()
+    parts.push([
+      '【使用者資訊】',
+      `名稱：${displayName}`,
+      `角色可用稱呼：${nickname}`,
+      ...(description ? [`補充：${description}`] : [])
+    ].join('\n'))
+  }
+
+  if (settings.interactionExample?.trim()) {
+    parts.push(`【互動範例】\n${settings.interactionExample.trim()}`)
   }
 
   if (settings.injectSystemTime) {
-    parts.push(`【目前時間】${timeStr}`)
-    parts.push('規則：若使用者詢問時間，請直接用「【目前時間】」中的時間回答；若未詢問，也請在自然的時機點主動提到一次目前時間（不要每句都提）。')
+    parts.push(`【系統時間】\n${timeStr}`)
+    parts.push('除非使用者詢問時間、日期、天氣感受或當下情境，請不要主動報時；只把它作為角色理解目前時段的背景。')
   }
 
-  parts.push(`你的回應必須以 [情緒] 標記開頭，從以下清單選一個：\n${EMOTION_LIST.join(', ')}\n範例：[joy] 今天天氣真好！`)
+  parts.push(`回覆格式：請在回答最前面加上一個情緒標籤，格式為 [emotion]，emotion 必須是以下其中之一：\n${EMOTION_LIST.join(', ')}\n例如：[joy] 今天也一起慢慢來吧。`)
 
-  parts.push(`請控制每則回應在 ${settings.llm.maxResponseTokens} 字以內。`)
+  parts.push(`請用繁體中文自然回覆，保持角色扮演，不要跳出角色。回覆長度以 ${settings.llm.maxResponseTokens} tokens 以內為目標。`)
 
-  if (char.exampleDialogue) {
-    parts.push(`【對話範例】\n${char.exampleDialogue}`)
+  if (char.exampleDialogue?.trim()) {
+    parts.push(`【對話範例】\n${char.exampleDialogue.trim()}`)
   }
 
   return parts.join('\n\n')
@@ -72,14 +100,27 @@ function toOpenAIInputContent(text: string, images?: string[]) {
   ]
 }
 
+function messageSpeakerLabel(
+  message: Message,
+  settings: AppSettings,
+  speakerNameById?: Record<string, string>
+): string {
+  if (message.role === 'user') {
+    return settings.persona.displayName?.trim()
+      || settings.persona.nickname?.trim()
+      || '使用者'
+  }
+  if (message.role === 'character') {
+    return (message.characterId && speakerNameById?.[message.characterId]) || '其他角色'
+  }
+  return '系統'
+}
+
 function shouldOmitTemperature(model: string): boolean {
-  // 部分推理/新模型對 sampling 參數限制較多，先採保守策略避免整個請求被拒。
-  // 後續若要更精細，可依官方文件/實測調整。
   return /^gpt-5(\.|-|$)/i.test(model) || /^o\d/i.test(model)
 }
 
 function extractResponseText(resp: unknown): string {
-  // The JS SDK exposes `output_text` on Responses objects, but keep a fallback
   const anyResp = resp as { output_text?: string; output?: unknown[] }
   if (typeof anyResp?.output_text === 'string') return anyResp.output_text
 
@@ -97,11 +138,12 @@ function extractResponseText(resp: unknown): string {
 
 export async function chatWithOpenAI(params: {
   settings: AppSettings
-  character: { name: string; personality: string; scenario?: string; systemPromptOverride?: string; exampleDialogue?: string }
+  character: PromptCharacter
   messages: Message[]
   images?: string[]
-}): Promise<{ content: string; emotion: string }> {
-  const { settings, character, messages, images } = params
+  speakerNameById?: Record<string, string>
+}): Promise<{ content: string; emotion: string; debugPrompt: string }> {
+  const { settings, character, messages, images, speakerNameById } = params
 
   const client = new OpenAI({
     apiKey: settings.llm.apiKey,
@@ -116,20 +158,23 @@ export async function chatWithOpenAI(params: {
   }> = [
     { role: 'system', content: systemPrompt },
     ...messages.map(m => {
-      const role: 'user' | 'assistant' = m.role === 'user' ? 'user' : 'assistant'
-      const content =
-        role === 'user'
-          ? toOpenAIInputContent(m.content, m.images && m.images.length > 0 ? m.images : undefined)
-          : m.content
+      const isOwnCharacterMessage = m.role === 'character' && !!character.id && m.characterId === character.id
+      const role: 'user' | 'assistant' = isOwnCharacterMessage ? 'assistant' : 'user'
+      const label = messageSpeakerLabel(m, settings, speakerNameById)
+      const text = isOwnCharacterMessage ? m.content : `【${label}】\n${m.content}`
+      const content = role === 'user'
+        ? toOpenAIInputContent(text, m.images && m.images.length > 0 ? m.images : undefined)
+        : text
       return { role, content }
     })
   ]
 
-  // If the caller passes fresh images, attach to the last user message (common "send" flow)
+  // If the caller passes fresh images, attach to the last user message.
   if (images && images.length > 0 && input.length > 0) {
     for (let i = input.length - 1; i >= 0; i--) {
-      if (input[i].role === 'user') {
-        const baseText = (typeof input[i].content === 'string' ? input[i].content : '') as string
+      const item = input[i]
+      if (item.role === 'user') {
+        const baseText = typeof item.content === 'string' ? item.content : ''
         input[i] = { role: 'user', content: toOpenAIInputContent(baseText, images) }
         break
       }
@@ -144,9 +189,20 @@ export async function chatWithOpenAI(params: {
   if (!shouldOmitTemperature(settings.llm.model)) {
     body.temperature = settings.llm.temperature
   }
+  const debugPrompt = JSON.stringify({
+    provider: 'openai',
+    model: settings.llm.model,
+    endpoint: settings.llm.endpoint || 'default',
+    max_output_tokens: body.max_output_tokens,
+    temperature: body.temperature,
+    input
+  }, null, 2)
 
   const resp = await client.responses.create(body as any)
 
   const raw = extractResponseText(resp)
-  return parseEmotion(raw)
+  if (!raw || raw.trim().length === 0) {
+    throw new Error(`Empty response from model: ${settings.llm.model}`)
+  }
+  return { ...parseEmotion(raw), debugPrompt }
 }

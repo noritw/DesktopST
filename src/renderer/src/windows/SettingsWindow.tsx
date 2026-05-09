@@ -5,6 +5,7 @@ import {
 } from '../constants/openaiDataSharingIncentiveModels'
 import { useAppStore } from '../stores/useAppStore'
 import type { AppSettings, Character } from '../types'
+import MonoIcon from '../components/MonoIcon'
 
 const OPENAI_MODEL_LIST_HELP =
   'https://help.openai.com/en/articles/10306912-sharing-feedback-evaluation-and-fine-tuning-data-and-api-inputs-and-outputs-with-openai'
@@ -58,6 +59,16 @@ const TABS = ['LLM 設定', '世界觀', '使用者', '記憶', '角色', '資�
 type Tab = typeof TABS[number]
 
 export default function SettingsWindow() {
+  useEffect(() => {
+    const onDown = () => window.api.invoke('ui:aux-activated')
+    window.addEventListener('mousedown', onDown, true)
+    window.addEventListener('focus', onDown, true)
+    return () => {
+      window.removeEventListener('mousedown', onDown, true)
+      window.removeEventListener('focus', onDown, true)
+    }
+  }, [])
+
   const settings = useAppStore(s => s.settings)
   const saveSettings = useAppStore(s => s.saveSettings)
   const characters = useAppStore(s => s.characters)
@@ -157,11 +168,24 @@ export default function SettingsWindow() {
     <div className="w-full h-full flex flex-col bg-bg">
       {/* Title bar */}
       <div className="drag-region flex items-center justify-between px-4 py-3 border-b border-border">
-        <span className="font-semibold text-primary no-drag">⚙️ 設定</span>
+        <span className="font-semibold text-primary no-drag"> 設定</span>
         <button
+          type="button"
           className="btn-round w-7 h-7 text-sm no-drag"
-          onClick={() => window.api.invoke('window:close-self')}
-        >✕</button>
+          title="Close settings"
+          aria-label="Close settings"
+          onMouseDown={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+          }}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            window.api.invoke('window:close-self')
+          }}
+        >
+          <MonoIcon name="close" className="w-3.5 h-3.5" />
+        </button>
       </div>
 
       {/* Tabs */}
@@ -368,7 +392,7 @@ export default function SettingsWindow() {
             <div className="flex items-center justify-between">
               <span className="text-xs font-medium text-secondary">角色列表</span>
               <button className="tab-btn text-xs" onClick={handleImportJson}>
-                📥 匯入 JSON
+                 匯入 JSON
               </button>
             </div>
 
@@ -386,14 +410,14 @@ export default function SettingsWindow() {
                       <div className="w-8 h-8 rounded-full bg-mint flex items-center justify-center text-sm shrink-0 overflow-hidden">
                         {char.avatar
                           ? <img src={`local://${encodeURIComponent(char.avatar)}`} className="w-full h-full object-cover" alt="" />
-                          : '👤'}
+                          : ''}
                       </div>
                       <span className="flex-1 text-sm font-medium text-primary">{char.name}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full ${onDesktop ? 'bg-teal/30 text-primary' : 'bg-surface text-secondary border border-border'}`}>
                         {onDesktop ? '桌面中' : '未上桌'}
                       </span>
                       <button
-                        className="text-xs tab-btn py-1 px-2"
+                        className={`text-xs tab-btn py-1 px-2 ${onDesktop ? 'text-[#E85D3F] hover:text-[#E85D3F] hover:bg-[#FFE2D8]' : ''}`}
                         onClick={e => { e.stopPropagation(); onDesktop ? removeFromDesktop(char.id) : addToDesktop(char.id) }}
                       >
                         {onDesktop ? '移出' : '上桌'}
@@ -447,7 +471,7 @@ export default function SettingsWindow() {
                             onClick={handleSaveChar}
                             className="px-4 py-1.5 rounded-full text-sm font-semibold bg-mint text-primary shadow-soft hover:bg-teal transition-all"
                           >
-                            {charSaved ? '✓ 已儲存' : '儲存角色'}
+                            {charSaved ? ' 已儲存' : '儲存角色'}
                           </button>
                         </div>
                       </div>
@@ -469,7 +493,7 @@ export default function SettingsWindow() {
               className="btn-round w-auto px-4 rounded-full h-auto py-2 text-sm"
               onClick={() => window.api.invoke('window:open-data-folder')}
             >
-              📂 開啟資料夾
+               開啟資料夾
             </button>
           </div>
         )}
@@ -481,9 +505,9 @@ export default function SettingsWindow() {
           <button
             onClick={handleSave}
             className="px-6 py-2 rounded-full text-sm font-semibold bg-mint text-primary
-                       shadow-soft hover:bg-teal transition-all hover:scale-105 active:scale-95"
+                       shadow-soft hover:bg-teal transition-all"
           >
-            {saved ? '✓ 已儲存' : '儲存'}
+            {saved ? ' 已儲存' : '儲存'}
           </button>
         </div>
       )}

@@ -17,7 +17,11 @@ const config: Config = {
         surface: '#FFFFFF',
         border: '#D8F5EC',
         primary: '#3D5A52',
-        secondary: '#7BA898'
+        secondary: '#7BA898',
+        user: '#247566',
+        danger: '#E85D3F',
+        'danger-soft': '#FFE2D8',
+        'danger-border': '#FFB59F'
       },
       borderRadius: {
         panel: '16px',

@@ -20,7 +20,9 @@ export default function SpeechBubble({ text, visible }: Props) {
 
   return (
     <div
-      className="animate-bubble-in max-w-[200px] rounded-2xl rounded-bl-sm
+      className="relative animate-bubble-in max-w-[220px] max-h-[180px] overflow-y-auto
+                 whitespace-pre-wrap break-words
+                 rounded-2xl rounded-bl-sm
                  bg-white/90 border border-border shadow-panel
                  px-3 py-2 text-sm text-primary leading-snug
                  pointer-events-none select-none"

@@ -1,9 +1,9 @@
-import { app, Tray, Menu, nativeImage, protocol, screen } from 'electron'
+import { app, Tray, Menu, nativeImage, protocol, screen, BrowserWindow } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import { loadSettings, saveSettings, loadCharacters, initDefaultCharacters } from './fileStore'
 import { initState, registerIpcHandlers } from './ipcHandlers'
-import { createCharacterWindow, toggleInputWindow } from './windowManager'
+import { createCharacterWindow, toggleInputWindow, broadcastToAll, hideAuxWindowsRememberingState, restoreAuxWindowsFromRememberedState, isCursorOverInteractiveCharacter, shouldSuppressAuxAutoHide } from './windowManager'
 
 function isOffscreen(pos: { x: number; y: number }, win: { width: number; height: number }): boolean {
   const px = Number.isFinite(pos.x) ? pos.x : 0
@@ -91,6 +91,26 @@ app.on('ready', async () => {
 
   // System tray
   setupTray(appRoot)
+})
+
+// When app loses focus to another application, hide all auxiliary UI to reduce distractions.
+let blurTimer: NodeJS.Timeout | null = null
+app.on('browser-window-blur', () => {
+  if (blurTimer) clearTimeout(blurTimer)
+  blurTimer = setTimeout(() => {
+    // If we still don't have a focused window, the user has switched to another app.
+    const anyFocusedWindow = BrowserWindow.getAllWindows().some(w => !w.isDestroyed() && w.isFocused())
+    if (!anyFocusedWindow && !isCursorOverInteractiveCharacter() && !shouldSuppressAuxAutoHide()) {
+      hideAuxWindowsRememberingState()
+      broadcastToAll('ui:app-focus', { focused: false })
+    }
+  }, 260)
+})
+
+app.on('browser-window-focus', () => {
+  if (blurTimer) { clearTimeout(blurTimer); blurTimer = null }
+  restoreAuxWindowsFromRememberedState()
+  broadcastToAll('ui:app-focus', { focused: true })
 })
 
 app.on('window-all-closed', () => {
