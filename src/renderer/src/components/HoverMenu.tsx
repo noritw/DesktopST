@@ -5,9 +5,10 @@ interface Props {
   visible: boolean
   canRemove: boolean
   isMuted: boolean
+  onButtonsEl?: (el: HTMLDivElement | null) => void
 }
 
-export default function HoverMenu({ characterId, visible, canRemove, isMuted }: Props) {
+export default function HoverMenu({ characterId, visible, canRemove, isMuted, onButtonsEl }: Props) {
   const forceSpeak = useAppStore(s => s.forceSpeak)
   const toggleMute = useAppStore(s => s.toggleMute)
   const removeFromDesktop = useAppStore(s => s.removeFromDesktop)
@@ -51,7 +52,10 @@ export default function HoverMenu({ characterId, visible, canRemove, isMuted }: 
       style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.2s ease' }}
     >
       {/* Buttons anchored to right side of sprite, within the container */}
-      <div className="absolute top-2 right-0 translate-x-full flex flex-col gap-2 pointer-events-auto no-drag pl-1">
+      <div
+        ref={onButtonsEl}
+        className="absolute top-2 right-0 translate-x-full flex flex-col gap-2 pointer-events-auto no-drag pl-1"
+      >
         {buttons.map((btn, i) => (
           <button
             key={i}

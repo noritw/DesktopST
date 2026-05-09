@@ -1,14 +1,23 @@
-import { useRef, useState, useEffect } from 'react'
-import { useAppStore } from '../stores/useAppStore'
+import { useRef, useState, useEffect, useMemo } from 'react'
+import { useAppStore, selectMessages } from '../stores/useAppStore'
 
 export default function InputWindow() {
   const sendMessage = useAppStore(s => s.sendMessage)
   const isSending = useAppStore(s => s.isSending)
+  const messages = useAppStore(selectMessages)
 
   const [text, setText] = useState('')
   const [images, setImages] = useState<string[]>([])
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const lastError = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.role === 'system' && typeof m.content === 'string' && m.content.startsWith('[錯誤]')) return m
+    }
+    return null
+  }, [messages])
 
   useEffect(() => {
     textareaRef.current?.focus()
@@ -50,6 +59,15 @@ export default function InputWindow() {
       <div className="drag-region flex items-center justify-between px-3 pt-2 pb-1">
         <span className="text-xs text-secondary font-medium no-drag select-none">DesktopST</span>
         <div className="flex gap-1 no-drag">
+          {lastError && (
+            <button
+              className="btn-round w-6 h-6 text-xs"
+              onClick={() => window.api.invoke('window:toggle-log')}
+              title={`模型錯誤：${lastError.llmModel ?? ''}`}
+            >
+              ⚠
+            </button>
+          )}
           <button
             className="tab-btn text-xs px-2 py-1"
             onClick={() => window.api.invoke('window:toggle-log')}

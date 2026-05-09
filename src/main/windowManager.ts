@@ -2,11 +2,35 @@ import { BrowserWindow, screen } from 'electron'
 import * as path from 'path'
 
 const VITE_DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL']
+const DEVTOOLS_ENABLED = process.env['DESKTOPST_DEVTOOLS'] === '1'
 
 function makeURL(params: Record<string, string>): string {
   const query = new URLSearchParams(params).toString()
   if (VITE_DEV_SERVER_URL) return `${VITE_DEV_SERVER_URL}?${query}`
   return `file://${path.join(__dirname, '../renderer/index.html')}?${query}`
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, n))
+}
+
+function normalizeWindowPosition(
+  position: { x: number; y: number },
+  size: { width: number; height: number }
+): { x: number; y: number } {
+  const px = Number.isFinite(position.x) ? position.x : 80
+  const py = Number.isFinite(position.y) ? position.y : 80
+
+  const display = screen.getDisplayNearestPoint({ x: px, y: py })
+  const wa = display.workArea
+
+  const maxX = wa.x + Math.max(0, wa.width - size.width)
+  const maxY = wa.y + Math.max(0, wa.height - size.height)
+
+  return {
+    x: clamp(Math.round(px), wa.x, maxX),
+    y: clamp(Math.round(py), wa.y, maxY)
+  }
 }
 
 // ── Character windows ─────────────────────────────────────
@@ -18,11 +42,18 @@ export function createCharacterWindow(
   position: { x: number; y: number },
   size: number
 ): BrowserWindow {
+  const scale = Number.isFinite(size) && size > 0 ? size : 1
+  const winSize = {
+    width: Math.round(220 * scale),
+    height: Math.round(380 * scale)
+  }
+  const pos = normalizeWindowPosition(position, winSize)
+
   const win = new BrowserWindow({
-    x: position.x,
-    y: position.y,
-    width: Math.round(220 * size),
-    height: Math.round(380 * size),
+    x: pos.x,
+    y: pos.y,
+    width: winSize.width,
+    height: winSize.height,
     transparent: true,
     frame: false,
     backgroundColor: '#00000000',
@@ -40,22 +71,32 @@ export function createCharacterWindow(
   win.setIgnoreMouseEvents(false)
 
   if (VITE_DEV_SERVER_URL) {
-    win.loadURL(makeURL({ w: 'character', id: characterId }))
+    win.loadURL(makeURL({ w: 'character', id: characterId, size: String(scale) }))
   } else {
     win.loadFile(path.join(__dirname, '../renderer/index.html'), {
-      query: { w: 'character', id: characterId }
+      query: { w: 'character', id: characterId, size: String(scale) }
     })
   }
 
   characterWindows.set(characterId, win)
   win.on('closed', () => characterWindows.delete(characterId))
-  // Open DevTools for debugging
-  win.webContents.openDevTools({ mode: 'detach' })
+  // DevTools is opt-in to avoid UI overlays (inspect/rulers) interfering with the pet window.
+  if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
+    win.webContents.openDevTools({ mode: 'detach' })
+  }
   return win
 }
 
 export function getCharacterWindow(characterId: string): BrowserWindow | undefined {
   return characterWindows.get(characterId)
+}
+
+export function setCharacterWindowClickThrough(characterId: string, clickThrough: boolean): boolean {
+  const win = getCharacterWindow(characterId)
+  if (!win || win.isDestroyed()) return false
+  // forward: even when ignoring, still forward mouse move for hover effects where supported
+  win.setIgnoreMouseEvents(clickThrough, { forward: true })
+  return true
 }
 
 export function getAllCharacterWindows(): BrowserWindow[] {
@@ -85,7 +126,7 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
     frame: false,
     transparent: false,
     backgroundColor: '#F7FFFC',
-    alwaysOnTop: false,
+    alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
     webPreferences: {
@@ -94,6 +135,8 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
       nodeIntegration: false
     }
   })
+  // Higher than character alwaysOnTop windows
+  inputWindow.setAlwaysOnTop(true, 'pop-up-menu')
 
   if (VITE_DEV_SERVER_URL) {
     inputWindow.loadURL(makeURL({ w: 'input' }))
@@ -104,9 +147,11 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
   }
 
   inputWindow.on('closed', () => { inputWindow = null })
-  if (VITE_DEV_SERVER_URL) {
+  if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
     inputWindow.webContents.openDevTools({ mode: 'detach' })
   }
+  inputWindow.show()
+  inputWindow.focus()
   return inputWindow
 }
 
@@ -144,12 +189,14 @@ export function toggleLogWindow(): void {
       transparent: false,
       backgroundColor: '#F7FFFC',
       skipTaskbar: false,
+      alwaysOnTop: true,
       webPreferences: {
         preload: path.join(__dirname, '../preload/index.js'),
         contextIsolation: true,
         nodeIntegration: false
       }
     })
+    logWindow.setAlwaysOnTop(true, 'pop-up-menu')
     if (VITE_DEV_SERVER_URL) {
       logWindow.loadURL(makeURL({ w: 'log' }))
     } else {
@@ -158,10 +205,16 @@ export function toggleLogWindow(): void {
       })
     }
     logWindow.on('closed', () => { logWindow = null })
+    logWindow.show()
+    logWindow.focus()
     return
   }
   if (logWindow.isVisible()) logWindow.hide()
-  else { logWindow.show(); logWindow.focus() }
+  else {
+    logWindow.show()
+    logWindow.focus()
+    logWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  }
 }
 
 export function getLogWindow(): BrowserWindow | null {
@@ -192,12 +245,14 @@ export function openSettingsWindow(tab?: string): void {
     transparent: false,
     backgroundColor: '#F7FFFC',
     skipTaskbar: false,
+    alwaysOnTop: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false
     }
   })
+  settingsWindow.setAlwaysOnTop(true, 'pop-up-menu')
   const query: Record<string, string> = { w: 'settings' }
   if (tab) query.tab = tab
   if (VITE_DEV_SERVER_URL) {
@@ -206,9 +261,11 @@ export function openSettingsWindow(tab?: string): void {
     settingsWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query })
   }
   settingsWindow.on('closed', () => { settingsWindow = null })
-  if (VITE_DEV_SERVER_URL) {
+  if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
     settingsWindow.webContents.openDevTools({ mode: 'detach' })
   }
+  settingsWindow.show()
+  settingsWindow.focus()
 }
 
 // ── Broadcast to all windows ──────────────────────────────

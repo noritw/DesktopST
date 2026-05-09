@@ -23,6 +23,20 @@ export default function LogWindow() {
     return characters.find(c => c.id === id)?.name ?? '角色'
   }
 
+  const LlmBadge = ({ provider, model }: { provider?: string; model?: string }) => {
+    if (!provider && !model) return null
+    const label = provider === 'openai' ? 'OpenAI' : provider ?? 'LLM'
+    const title = model ? `${label} · ${model}` : label
+    return (
+      <span
+        title={title}
+        className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full border border-border bg-surface text-[9px] text-secondary select-none"
+      >
+        {provider === 'openai' ? 'O' : 'L'}
+      </span>
+    )
+  }
+
   return (
     <div className="w-full h-full flex flex-col bg-bg">
       {/* Title bar */}
@@ -62,6 +76,7 @@ export default function LogWindow() {
               }`}>
                 {msg.role === 'user' ? '【你】' :
                  msg.role === 'character' ? `【${getCharName(msg.characterId)}】` : '【系統】'}
+                <LlmBadge provider={msg.llmProvider} model={msg.llmModel} />
               </span>
               <span className="text-xs text-secondary opacity-0 group-hover:opacity-100 transition-opacity">
                 {formatTime(msg.timestamp)}

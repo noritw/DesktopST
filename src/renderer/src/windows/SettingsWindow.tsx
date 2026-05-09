@@ -1,13 +1,47 @@
 import { useEffect, useState } from 'react'
+import {
+  OPENAI_DATA_SHARING_INCENTIVE_10M_GROUP,
+  OPENAI_DATA_SHARING_INCENTIVE_1M_GROUP
+} from '../constants/openaiDataSharingIncentiveModels'
 import { useAppStore } from '../stores/useAppStore'
 import type { AppSettings, Character } from '../types'
 
+const OPENAI_MODEL_LIST_HELP =
+  'https://help.openai.com/en/articles/10306912-sharing-feedback-evaluation-and-fine-tuning-data-and-api-inputs-and-outputs-with-openai'
+
+type OpenaiModelListMode = 'catalog' | 'incentive-1m' | 'incentive-10m' | 'incentive-all'
+
+function openaiDatalistOptions(mode: OpenaiModelListMode): string[] {
+  switch (mode) {
+    case 'incentive-1m':
+      return [...OPENAI_DATA_SHARING_INCENTIVE_1M_GROUP]
+    case 'incentive-10m':
+      return [...OPENAI_DATA_SHARING_INCENTIVE_10M_GROUP]
+    case 'incentive-all':
+      return [
+        ...OPENAI_DATA_SHARING_INCENTIVE_1M_GROUP,
+        ...OPENAI_DATA_SHARING_INCENTIVE_10M_GROUP
+      ]
+    default:
+      return []
+  }
+}
+
+function openaiModelOptionsFor(mode: OpenaiModelListMode): string[] {
+  return mode === 'catalog' ? (MODELS.openai ?? []) : openaiDatalistOptions(mode)
+}
+
 const PROVIDERS = ['openai', 'claude', 'gemini', 'grok'] as const
+/** 建議值：與官方目錄同步手動維護，或以帳戶可用的 `GET https://api.openai.com/v1/models` 為準 */
 const MODELS: Record<string, string[]> = {
   openai: [
+    'gpt-5.5', 'gpt-5.5-pro',
+    'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano',
+    'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.1',
+    'gpt-5', 'gpt-5-pro', 'gpt-5-mini', 'gpt-5-nano',
     'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
     'gpt-4o', 'gpt-4o-mini',
-    'o4-mini', 'o3', 'o1', 'o1-mini'
+    'o3', 'o3-pro', 'o4-mini', 'o1', 'o1-mini'
   ],
   claude: [
     'claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001',
@@ -36,11 +70,13 @@ export default function SettingsWindow() {
   const [tab, setTab] = useState<Tab>('LLM 設定')
   const [draft, setDraft] = useState<AppSettings | null>(null)
   const [saved, setSaved] = useState(false)
+  const [openaiModelListMode, setOpenaiModelListMode] = useState<OpenaiModelListMode>('catalog')
 
   // Character tab state
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null)
   const [charDraft, setCharDraft] = useState<Character | null>(null)
   const [charSaved, setCharSaved] = useState(false)
+  const [nicknamesText, setNicknamesText] = useState('')
 
   useEffect(() => {
     if (settings) setDraft(JSON.parse(JSON.stringify(settings)))
@@ -53,6 +89,11 @@ export default function SettingsWindow() {
       else { setSelectedCharId(null); setCharDraft(null) }
     }
   }, [selectedCharId, characters])
+
+  useEffect(() => {
+    if (!charDraft) { setNicknamesText(''); return }
+    setNicknamesText((charDraft.nicknames ?? []).join(', '))
+  }, [charDraft?.id])
 
   if (!draft) return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#F7FFFC', gap: 12 }}>
@@ -84,7 +125,12 @@ export default function SettingsWindow() {
 
   const handleSaveChar = async () => {
     if (!charDraft) return
-    await saveCharacter(charDraft)
+    // Commit nickname text → array right before saving
+    const parts = nicknamesText
+      .split(/[,\uFF0C、]/g)
+      .map(s => s.trim())
+      .filter(Boolean)
+    await saveCharacter({ ...charDraft, nicknames: parts })
     setCharSaved(true)
     setTimeout(() => setCharSaved(false), 2000)
   }
@@ -140,11 +186,37 @@ export default function SettingsWindow() {
               <select
                 className="input-field"
                 value={draft.llm.provider}
-                onChange={e => { set('llm.provider', e.target.value); set('llm.model', MODELS[e.target.value]?.[0] ?? '') }}
+                onChange={e => {
+                  set('llm.provider', e.target.value)
+                  set('llm.model', MODELS[e.target.value]?.[0] ?? '')
+                  setOpenaiModelListMode('catalog')
+                }}
               >
                 {PROVIDERS.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
             </Field>
+            {draft.llm.provider === 'openai' && (
+              <Field label="模型建議清單">
+                <select
+                  className="input-field"
+                  value={openaiModelListMode}
+                  onChange={e => setOpenaiModelListMode(e.target.value as OpenaiModelListMode)}
+                >
+                  <option value="catalog">一般（最新常用 ID 捷徑）</option>
+                  <option value="incentive-1m">資料分享贈送額度 · 每日 1M 組（官方快照 ID）</option>
+                  <option value="incentive-10m">資料分享贈送額度 · 每日 10M 組（官方快照 ID）</option>
+                  <option value="incentive-all">資料分享贈送額度 · 兩組合併</option>
+                </select>
+                <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                  贈送額度僅在已於 Platform 開啟「分享輸入／輸出」且帳戶顯示符合資格時適用；兩組額度分開計（tier 1–2 為 250K / 2.5M）。
+                  詳見{' '}
+                  <a className="underline text-[#3D5A52]" href={OPENAI_MODEL_LIST_HELP} target="_blank" rel="noreferrer">
+                    OpenAI 說明
+                  </a>
+                  。微調、eval、工具呼叫不在贈送範圍。
+                </p>
+              </Field>
+            )}
             <Field label="模型（可手動輸入自訂 ID）">
               <input
                 type="text"
@@ -154,8 +226,31 @@ export default function SettingsWindow() {
                 onChange={e => set('llm.model', e.target.value)}
                 placeholder="輸入或選擇模型 ID"
               />
+              {draft.llm.provider === 'openai' && (
+                <div className="mt-2 flex gap-2 items-center">
+                  <select
+                    className="input-field"
+                    value=""
+                    onChange={e => {
+                      const v = e.target.value
+                      if (v) set('llm.model', v)
+                      e.currentTarget.value = ''
+                    }}
+                  >
+                    <option value="">快速挑選（顯示完整清單）</option>
+                    {openaiModelOptionsFor(openaiModelListMode).map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <datalist id="model-list">
-                {(MODELS[draft.llm.provider] ?? []).map(m => <option key={m} value={m} />)}
+                {(draft.llm.provider === 'openai'
+                  ? (openaiModelListMode === 'catalog'
+                      ? (MODELS.openai ?? [])
+                      : openaiDatalistOptions(openaiModelListMode))
+                  : (MODELS[draft.llm.provider] ?? [])
+                ).map(m => <option key={m} value={m} />)}
               </datalist>
             </Field>
             <Field label="API Key">
@@ -312,6 +407,22 @@ export default function SettingsWindow() {
                           <input type="text" className="input-field"
                             value={charDraft.name}
                             onChange={e => setCharField('name', e.target.value)} />
+                        </Field>
+                        <Field label="暱稱（可多個，用逗號分隔；支援 , / ， / 、）">
+                          <input
+                            type="text"
+                            className="input-field"
+                            value={nicknamesText}
+                            onChange={e => setNicknamesText(e.target.value)}
+                            onBlur={() => {
+                              const parts = nicknamesText
+                                .split(/[,\uFF0C、]/g)
+                                .map(s => s.trim())
+                                .filter(Boolean)
+                              setCharDraft(prev => prev ? { ...prev, nicknames: parts } : prev)
+                            }}
+                            placeholder="例如：天行, 阿行, 老紀"
+                          />
                         </Field>
                         <Field label="人格設定">
                           <textarea className="input-field min-h-[80px] resize-none"

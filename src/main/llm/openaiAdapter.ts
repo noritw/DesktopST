@@ -50,6 +50,7 @@ function buildSystemPrompt(
 
   if (settings.injectSystemTime) {
     parts.push(`【目前時間】${timeStr}`)
+    parts.push('規則：若使用者詢問時間，請直接用「【目前時間】」中的時間回答；若未詢問，也請在自然的時機點主動提到一次目前時間（不要每句都提）。')
   }
 
   parts.push(`你的回應必須以 [情緒] 標記開頭，從以下清單選一個：\n${EMOTION_LIST.join(', ')}\n範例：[joy] 今天天氣真好！`)
@@ -61,6 +62,37 @@ function buildSystemPrompt(
   }
 
   return parts.join('\n\n')
+}
+
+function toOpenAIInputContent(text: string, images?: string[]) {
+  if (!images || images.length === 0) return text
+  return [
+    { type: 'input_text' as const, text },
+    ...images.map(url => ({ type: 'input_image' as const, image_url: url }))
+  ]
+}
+
+function shouldOmitTemperature(model: string): boolean {
+  // 部分推理/新模型對 sampling 參數限制較多，先採保守策略避免整個請求被拒。
+  // 後續若要更精細，可依官方文件/實測調整。
+  return /^gpt-5(\.|-|$)/i.test(model) || /^o\d/i.test(model)
+}
+
+function extractResponseText(resp: unknown): string {
+  // The JS SDK exposes `output_text` on Responses objects, but keep a fallback
+  const anyResp = resp as { output_text?: string; output?: unknown[] }
+  if (typeof anyResp?.output_text === 'string') return anyResp.output_text
+
+  const out = Array.isArray(anyResp?.output) ? anyResp.output : []
+  for (const item of out) {
+    const it = item as { type?: string; role?: string; content?: unknown[] }
+    if (it?.type !== 'message' || it?.role !== 'assistant' || !Array.isArray(it.content)) continue
+    for (const c of it.content) {
+      const cc = c as { type?: string; text?: string }
+      if (cc?.type === 'output_text' && typeof cc.text === 'string') return cc.text
+    }
+  }
+  return ''
 }
 
 export async function chatWithOpenAI(params: {
@@ -78,50 +110,43 @@ export async function chatWithOpenAI(params: {
 
   const systemPrompt = buildSystemPrompt(settings, character)
 
-  // Build message history for OpenAI format
-  const history: OpenAI.ChatCompletionMessageParam[] = messages.map(m => {
-    if (m.role === 'user') {
-      if (m.images && m.images.length > 0) {
-        return {
-          role: 'user' as const,
-          content: [
-            { type: 'text' as const, text: m.content },
-            ...m.images.map(img => ({
-              type: 'image_url' as const,
-              image_url: { url: img }
-            }))
-          ]
-        }
-      }
-      return { role: 'user' as const, content: m.content }
-    }
-    return { role: 'assistant' as const, content: m.content }
-  })
+  const input: Array<{
+    role: 'system' | 'user' | 'assistant'
+    content: string | Array<{ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string }>
+  }> = [
+    { role: 'system', content: systemPrompt },
+    ...messages.map(m => {
+      const role: 'user' | 'assistant' = m.role === 'user' ? 'user' : 'assistant'
+      const content =
+        role === 'user'
+          ? toOpenAIInputContent(m.content, m.images && m.images.length > 0 ? m.images : undefined)
+          : m.content
+      return { role, content }
+    })
+  ]
 
-  // Attach latest images to last user message if any
-  if (images && images.length > 0 && history.length > 0) {
-    const last = history[history.length - 1]
-    if (last.role === 'user' && typeof last.content === 'string') {
-      history[history.length - 1] = {
-        role: 'user',
-        content: [
-          { type: 'text', text: last.content as string },
-          ...images.map(img => ({ type: 'image_url' as const, image_url: { url: img } }))
-        ]
+  // If the caller passes fresh images, attach to the last user message (common "send" flow)
+  if (images && images.length > 0 && input.length > 0) {
+    for (let i = input.length - 1; i >= 0; i--) {
+      if (input[i].role === 'user') {
+        const baseText = (typeof input[i].content === 'string' ? input[i].content : '') as string
+        input[i] = { role: 'user', content: toOpenAIInputContent(baseText, images) }
+        break
       }
     }
   }
 
-  const resp = await client.chat.completions.create({
+  const body: Record<string, unknown> = {
     model: settings.llm.model,
-    temperature: settings.llm.temperature,
-    max_tokens: settings.llm.maxResponseTokens * 3,
-    messages: [
-      { role: 'system', content: systemPrompt },
-      ...history
-    ]
-  })
+    input: input as unknown as any,
+    max_output_tokens: settings.llm.maxResponseTokens * 3
+  }
+  if (!shouldOmitTemperature(settings.llm.model)) {
+    body.temperature = settings.llm.temperature
+  }
 
-  const raw = resp.choices[0]?.message?.content ?? ''
+  const resp = await client.responses.create(body as any)
+
+  const raw = extractResponseText(resp)
   return parseEmotion(raw)
 }

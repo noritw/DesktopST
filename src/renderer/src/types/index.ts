@@ -1,6 +1,7 @@
 export interface Character {
   id: string
   name: string
+  nicknames?: string[]
   avatar: string
   description: string
   personality: string
@@ -19,6 +20,8 @@ export interface Message {
   role: 'user' | 'character' | 'system'
   characterId?: string
   content: string
+  llmProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
+  llmModel?: string
   emotion?: string
   images?: string[]
   timestamp: number

@@ -8,6 +8,7 @@ interface AppStore {
   desktopCharacters: DesktopCharacterState[]
   conversation: Conversation | null
   isSending: boolean
+  thinkingByCharacterId: Record<string, boolean>
 
   // Actions
   loadAll: () => Promise<void>
@@ -32,6 +33,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   desktopCharacters: [],
   conversation: null,
   isSending: false,
+  thinkingByCharacterId: {},
 
   loadAll: async () => {
     const data = await window.api.invoke('store:get-all') as {
@@ -53,7 +55,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
       window.api.on('settings:updated', (s) => set({ settings: s as AppSettings })),
       window.api.on('characters:updated', (c) => set({ characters: c as Character[] })),
       window.api.on('desktop:updated', (d) => set({ desktopCharacters: d as DesktopCharacterState[] })),
-      window.api.on('conversation:updated', (c) => set({ conversation: c as Conversation }))
+      window.api.on('conversation:updated', (c) => set({ conversation: c as Conversation })),
+      window.api.on('character:thinking', (payload) => {
+        const p = payload as { characterId: string; thinking: boolean }
+        set(state => ({
+          thinkingByCharacterId: { ...state.thinkingByCharacterId, [p.characterId]: p.thinking }
+        }))
+      })
     ]
     return () => unsubs.forEach(u => u())
   },
@@ -119,8 +127,10 @@ export const selectCharacter = (id: string) => (state: AppStore) =>
 export const selectDesktopChar = (id: string) => (state: AppStore) =>
   state.desktopCharacters.find(d => d.characterId === id) ?? null
 
+const EMPTY_MESSAGES: Message[] = []
+
 export const selectMessages = (state: AppStore): Message[] =>
-  state.conversation?.messages ?? []
+  state.conversation?.messages ?? EMPTY_MESSAGES
 
 export const selectCharacterLastMessage = (characterId: string) => (state: AppStore): Message | null => {
   const msgs = state.conversation?.messages ?? []

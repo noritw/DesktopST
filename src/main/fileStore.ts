@@ -22,7 +22,31 @@ export function loadSettings(): AppSettings {
   ensureDirs()
   if (!fs.existsSync(SETTINGS_FILE)) return { ...DEFAULT_SETTINGS }
   try {
-    return JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8')) as AppSettings
+    const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8')) as Partial<AppSettings> | null
+    const s = raw && typeof raw === 'object' ? raw : {}
+
+    // Backward/forward compatible merge: keep unknown fields but ensure required structure exists.
+    return {
+      ...DEFAULT_SETTINGS,
+      ...s,
+      llm: {
+        ...DEFAULT_SETTINGS.llm,
+        ...(s as Partial<AppSettings>).llm
+      },
+      memory: {
+        ...DEFAULT_SETTINGS.memory,
+        ...(s as Partial<AppSettings>).memory
+      },
+      persona: {
+        ...DEFAULT_SETTINGS.persona,
+        ...(s as Partial<AppSettings>).persona
+      },
+      ui: {
+        ...DEFAULT_SETTINGS.ui,
+        ...(s as Partial<AppSettings>).ui,
+        desktopCharacters: (s as Partial<AppSettings>).ui?.desktopCharacters ?? DEFAULT_SETTINGS.ui.desktopCharacters
+      }
+    }
   } catch {
     return { ...DEFAULT_SETTINGS }
   }
@@ -129,6 +153,7 @@ export function initDefaultCharacters(appRoot: string): { chars: Character[]; de
       const char: Character = {
         id,
         name: data.name ?? raw.name ?? 'Unknown',
+        nicknames: [],
         avatar: fs.existsSync(imgSrc) ? avatarDest : '',
         description: data.description ?? '',
         personality: data.personality ?? '',

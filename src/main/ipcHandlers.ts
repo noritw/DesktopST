@@ -6,7 +6,7 @@ import { chatWithOpenAI } from './llm/openaiAdapter'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow,
   toggleInputWindow, toggleLogWindow, openSettingsWindow,
-  broadcastToAll, getAllCharacterWindows
+  broadcastToAll, getAllCharacterWindows, setCharacterWindowClickThrough
 } from './windowManager'
 
 // ── In-memory state ───────────────────────────────────────
@@ -15,6 +15,25 @@ let settings: AppSettings
 let characters: Character[]
 let activeConversationId: string | null = null
 let conversations: Map<string, Conversation> = new Map()
+
+function normalizeText(s: string): string {
+  return s.toLowerCase()
+}
+
+function characterAliases(char: Character): string[] {
+  const nn = Array.isArray(char.nicknames) ? char.nicknames : []
+  return [char.name, ...nn].map(s => String(s ?? '').trim()).filter(Boolean)
+}
+
+function isAddressed(content: string, char: Character): boolean {
+  const text = normalizeText(content)
+  for (const a of characterAliases(char)) {
+    const aa = normalizeText(a)
+    if (!aa) continue
+    if (text.includes(`@${aa}`) || text.includes(aa)) return true
+  }
+  return false
+}
 
 export function initState(
   s: AppSettings,
@@ -152,6 +171,9 @@ export function registerIpcHandlers() {
   })
 
   // Mouse hit-test IPC removed — click-through is handled via CSS pointer-events
+  ipcMain.handle('desktop:set-click-through', (_, characterId: string, clickThrough: boolean) => {
+    return setCharacterWindowClickThrough(characterId, clickThrough)
+  })
 
   // Window controls
   ipcMain.handle('window:toggle-input', () => {
@@ -215,12 +237,37 @@ export function registerIpcHandlers() {
     conv.messages.push(userMsg)
     broadcastToAll('conversation:updated', conv)
 
-    // Get responding characters (non-muted desktop chars)
-    const respondingIds = settings.ui.desktopCharacters
-      .filter(d => !d.muted)
-      .map(d => d.characterId)
+    const desktopAll = settings.ui.desktopCharacters.map(d => d.characterId)
+    const desktopResponders = settings.ui.desktopCharacters.filter(d => !d.muted).map(d => d.characterId)
+
+    // If user mentioned a name/nickname, that character should respond first (and definitely respond if not muted).
+    const mentionedAll = desktopAll.filter(id => {
+      const c = getCharacter(id)
+      return c ? isAddressed(payload.content, c) : false
+    })
+    const mentionedIds = mentionedAll.filter(id => desktopResponders.includes(id))
+
+    const respondingIds = mentionedIds.length > 0
+      ? [...mentionedIds, ...desktopResponders.filter(id => !mentionedIds.includes(id))]
+      : desktopResponders
 
     if (respondingIds.length === 0) {
+      // If there are desktop characters but all are muted, surface a hint in conversation.
+      if (desktopAll.length > 0) {
+        const hinted = mentionedAll.length > 0
+          ? `你點名的角色目前在禁言狀態（${mentionedAll.map(id => getCharacter(id)?.name ?? '角色').join('、')}）。`
+          : '所有桌面角色目前都在禁言狀態。'
+        const hintMsg: Message = {
+          id: uuidv4(),
+          role: 'system',
+          content: `[提示] ${hinted} 請在角色旁邊點「🔊」解除禁言後再試。`,
+          llmProvider: settings.llm.provider,
+          llmModel: settings.llm.model,
+          timestamp: Date.now()
+        }
+        conv.messages.push(hintMsg)
+        broadcastToAll('conversation:updated', conv)
+      }
       fileStore.saveConversation(conv)
       return { ok: true }
     }
@@ -231,6 +278,7 @@ export function registerIpcHandlers() {
       if (!char) continue
 
       try {
+        broadcastToAll('character:thinking', { characterId: charId, thinking: true })
         const recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
         const { content, emotion } = await chatWithOpenAI({
           settings,
@@ -244,6 +292,8 @@ export function registerIpcHandlers() {
           role: 'character',
           characterId: charId,
           content,
+          llmProvider: settings.llm.provider,
+          llmModel: settings.llm.model,
           emotion,
           timestamp: Date.now()
         }
@@ -251,16 +301,20 @@ export function registerIpcHandlers() {
         conv.updatedAt = Date.now()
         broadcastToAll('conversation:updated', conv)
         broadcastToAll('character:new-message', { characterId: charId, message: charMsg })
+        broadcastToAll('character:thinking', { characterId: charId, thinking: false })
       } catch (e: unknown) {
         const errMsg = e instanceof Error ? e.message : String(e)
         const errMsg2: Message = {
           id: uuidv4(),
           role: 'system',
           content: `[錯誤] ${errMsg}`,
+          llmProvider: settings.llm.provider,
+          llmModel: settings.llm.model,
           timestamp: Date.now()
         }
         conv.messages.push(errMsg2)
         broadcastToAll('conversation:updated', conv)
+        broadcastToAll('character:thinking', { characterId: charId, thinking: false })
       }
     }
 
@@ -282,6 +336,8 @@ export function registerIpcHandlers() {
         role: 'character',
         characterId,
         content,
+        llmProvider: settings.llm.provider,
+        llmModel: settings.llm.model,
         emotion,
         timestamp: Date.now()
       }

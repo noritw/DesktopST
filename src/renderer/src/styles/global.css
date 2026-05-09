@@ -63,3 +63,19 @@
 .window-transparent {
   background: transparent !important;
 }
+
+/* Thinking dots animation */
+.dst-thinking-dots span {
+  display: inline-block;
+  width: 0.35em;
+  text-align: center;
+  animation: dst-thinking 1s infinite ease-in-out;
+  opacity: 0.35;
+}
+.dst-thinking-dots span:nth-child(2) { animation-delay: 0.15s; }
+.dst-thinking-dots span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes dst-thinking {
+  0%, 100% { transform: translateY(0); opacity: 0.35; }
+  50% { transform: translateY(-2px); opacity: 1; }
+}
