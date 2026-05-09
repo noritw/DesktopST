@@ -7,10 +7,11 @@ interface Props {
   canRemove: boolean
   isMuted: boolean
   onScale?: () => void
+  onClose?: () => void
   onButtonsEl?: (el: HTMLDivElement | null) => void
 }
 
-type IconName = 'speak' | 'volume' | 'muted' | 'settings' | 'remove' | 'scale'
+type IconName = 'speak' | 'volume' | 'muted' | 'settings' | 'trash' | 'scale' | 'close'
 
 function Icon({ name }: { name: IconName }) {
   const common = {
@@ -67,6 +68,21 @@ function Icon({ name }: { name: IconName }) {
           <path {...common} d="M4 20l6-6" />
         </>
       )}
+      {name === 'trash' && (
+        <>
+          <path {...common} d="M3 6h18" />
+          <path {...common} d="M8 6V4h8v2" />
+          <path {...common} d="M19 6l-1 14H6L5 6" />
+          <path {...common} d="M10 11v4" />
+          <path {...common} d="M14 11v4" />
+        </>
+      )}
+      {name === 'close' && (
+        <>
+          <path {...common} d="M6 6l12 12" />
+          <path {...common} d="M18 6L6 18" />
+        </>
+      )}
       {name === 'remove' && (
         <>
           <path {...common} d="M6 6l12 12" />
@@ -77,10 +93,9 @@ function Icon({ name }: { name: IconName }) {
   )
 }
 
-export default function HoverMenu({ characterId, visible, canRemove, isMuted, onScale, onButtonsEl }: Props) {
+export default function HoverMenu({ characterId, visible, canRemove, isMuted, onScale, onClose, onButtonsEl }: Props) {
   const forceSpeak = useAppStore(s => s.forceSpeak)
   const toggleMute = useAppStore(s => s.toggleMute)
-  const removeFromDesktop = useAppStore(s => s.removeFromDesktop)
   const addToDesktop = useAppStore(s => s.addToDesktop)
   const characters = useAppStore(s => s.characters)
   const desktopCharacters = useAppStore(s => s.desktopCharacters)
@@ -122,13 +137,7 @@ export default function HoverMenu({ characterId, visible, canRemove, isMuted, on
       icon: <Icon name="scale" />,
       title: '縮放角色',
       onClick: () => onScale?.()
-    },
-    ...(canRemove ? [{
-      icon: <Icon name="remove" />,
-      title: '從桌面移除此角色',
-      onClick: () => removeFromDesktop(characterId),
-      danger: true
-    }] : [])
+    }
   ]
 
   return (
@@ -157,6 +166,17 @@ export default function HoverMenu({ characterId, visible, canRemove, isMuted, on
           {btn.icon}
         </button>
       ))}
+
+      {/* 關閉選單按鈕（最下方） */}
+      <button
+        type="button"
+        title="關閉角色選單（也可用右鍵點角色）"
+        aria-label="關閉角色選單（也可用右鍵點角色）"
+        onClick={() => onClose?.()}
+        className="btn-round text-primary mt-1"
+      >
+        <Icon name="close" />
+      </button>
     </div>
   )
 }

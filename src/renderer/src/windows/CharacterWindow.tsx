@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useAppStore, selectCharacter, selectDesktopChar } from '../stores/useAppStore'
-import CharacterSprite from '../components/CharacterSprite'
+import CharacterSprite, { type CharacterSpriteHandle } from '../components/CharacterSprite'
 import HoverMenu from '../components/HoverMenu'
 
 interface Props {
@@ -11,6 +11,7 @@ export default function CharacterWindow({ characterId }: Props) {
   const character = useAppStore(selectCharacter(characterId))
   const desktopState = useAppStore(selectDesktopChar(characterId))
   const desktopCharacters = useAppStore(s => s.desktopCharacters)
+  const removeFromDesktop = useAppStore(s => s.removeFromDesktop)
   const isThinking = useAppStore(s => !!s.thinkingByCharacterId[characterId])
   const uiAppFocused = useAppStore(s => s.uiAppFocused)
 
@@ -36,15 +37,27 @@ export default function CharacterWindow({ characterId }: Props) {
   const [scaleText, setScaleText] = useState(String(size))
 
   const interactiveRef = useRef<HTMLDivElement>(null)
+  const menuPinnedRef = useRef(menuPinned)
+  useEffect(() => { menuPinnedRef.current = menuPinned }, [menuPinned])
+  const spriteRef = useRef<CharacterSpriteHandle>(null)
+  const spriteDivRef = useRef<HTMLDivElement>(null)
   const hoverMenuButtonsRef = useRef<HTMLDivElement | null>(null)
   const scaleControlsRef = useRef<HTMLDivElement | null>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const didDragRef = useRef(false)
+  // 追蹤游標是否在 sprite 的不透明區域上
+  const [spriteOpaque, setSpriteOpaque] = useState(false)
 
   useEffect(() => {
     if (!uiAppFocused) setHovered(false)
   }, [uiAppFocused])
 
+  // spriteOpaque=true 時觸發 hover；關閉 hover 由 mousemove 的容器邊界判斷
+  useEffect(() => {
+    if (spriteOpaque) {
+      setHovered(true)
+    }
+  }, [spriteOpaque])
   useEffect(() => {
     if (!scaleMode) {
       setScaleDraft(size)
@@ -126,6 +139,57 @@ export default function CharacterWindow({ characterId }: Props) {
     }
   }, [characterId, menuVisible, scaleMode])
 
+  const handleCloseMenu = useCallback(() => {
+    setMenuPinned(false)
+    setHoverSuppressed(true)
+  }, [])
+
+  // 用 window-level mousemove 持續追蹤游標位置
+  // - 游標在整個互動容器內（sprite + 按鈕列）→ hovered=true
+  // - 游標在 sprite 框內且不透明 → spriteOpaque=true（用於初始觸發）
+  // - 游標完全離開容器 → 重置
+  useEffect(() => {
+    const onMove = (event: MouseEvent) => {
+      const containerEl = interactiveRef.current
+      const spriteEl = spriteDivRef.current
+      if (!containerEl || !spriteEl) return
+
+      const containerRect = containerEl.getBoundingClientRect()
+      const inContainer = (
+        event.clientX >= containerRect.left &&
+        event.clientX <= containerRect.right &&
+        event.clientY >= containerRect.top &&
+        event.clientY <= containerRect.bottom
+      )
+
+      if (!inContainer) {
+        // 游標完全離開整個容器
+        setSpriteOpaque(false)
+        if (!menuPinnedRef.current) {
+          setHovered(false)
+          setHoverSuppressed(false)
+        }
+        return
+      }
+
+      // 游標在容器內：檢查是否在 sprite 框的不透明區域
+      const spriteRect = spriteEl.getBoundingClientRect()
+      const localX = event.clientX - spriteRect.left
+      const localY = event.clientY - spriteRect.top
+      const inSpriteBox = localX >= 0 && localY >= 0 && localX <= spriteRect.width && localY <= spriteRect.height
+
+      if (inSpriteBox) {
+        const alpha = spriteRef.current?.getAlphaAt(localX, localY) ?? 255
+        setSpriteOpaque(alpha >= 10)
+      } else {
+        // 游標在容器內但不在 sprite 框（例如在按鈕列）
+        setSpriteOpaque(false)
+      }
+    }
+    window.addEventListener('mousemove', onMove)
+    return () => window.removeEventListener('mousemove', onMove)
+  }, [])
+
   const applyScale = useCallback((next: number) => {
     const clamped = Math.min(maxVisibleScale, Math.max(0.25, next))
     setScaleDraft(clamped)
@@ -177,15 +241,38 @@ export default function CharacterWindow({ characterId }: Props) {
     >
       {/* Character sprite — lifts up in scale mode to leave room for the fixed control panel */}
       <div
-        className={`absolute left-0 flex items-start ${scaleMode ? 'bottom-24' : 'bottom-0'}`}
+        className={`absolute left-0 flex items-end ${scaleMode ? 'bottom-24' : 'bottom-0'}`}
         style={{ pointerEvents: 'auto' }}
         ref={interactiveRef}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => {
-          setHovered(false)
-          setHoverSuppressed(false)
-        }}
       >
+        {/* 左側垃圾桶：從桌面移除此角色 */}
+        {!scaleMode && (
+          <div
+            className="flex items-end pb-1 pr-1 no-drag self-end"
+            style={{
+              opacity: canRemove && menuVisible ? 1 : 0,
+              pointerEvents: canRemove && menuVisible ? 'auto' : 'none',
+              transition: 'opacity 0.2s ease'
+            }}
+          >
+            <button
+              type="button"
+              title="從桌面移除此角色"
+              aria-label="從桌面移除此角色"
+              onClick={() => removeFromDesktop(characterId)}
+              className="btn-round btn-danger"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18" />
+                <path d="M8 6V4h8v2" />
+                <path d="M19 6l-1 14H6L5 6" />
+                <path d="M10 11v4" />
+                <path d="M14 11v4" />
+              </svg>
+            </button>
+          </div>
+        )}
+
         <div className="relative flex-shrink-0">
           {isThinking && (
             <div
@@ -205,13 +292,28 @@ export default function CharacterWindow({ characterId }: Props) {
           )}
 
           <div
+            ref={spriteDivRef}
             className={scaleMode ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}
-            onMouseDown={handleMouseDown}
-            onClick={handleClick}
-            onContextMenu={handleContextMenu}
-            style={{ userSelect: 'none' }}
+            onMouseDown={(event) => {
+              if (!spriteOpaque && !hovered && !scaleMode) return
+              handleMouseDown(event)
+            }}
+            onClick={(event) => {
+              if (!spriteOpaque && !hovered && !scaleMode) return
+              handleClick(event)
+            }}
+            onContextMenu={(event) => {
+              if (!spriteOpaque && !hovered && !scaleMode) return
+              handleContextMenu(event)
+            }}
+            style={{
+              userSelect: 'none',
+              // hovered=true 時整個 sprite 框都感應（方便操作按鈕列時游標掃過透明區域）
+              // hovered=false 時只有不透明像素感應
+              pointerEvents: (spriteOpaque || hovered || scaleMode) ? 'auto' : 'none'
+            }}
           >
-            <CharacterSprite src={avatarSrc} name={character.name} size={renderedSize} />
+            <CharacterSprite ref={spriteRef} src={avatarSrc} name={character.name} size={renderedSize} />
           </div>
         </div>
 
@@ -222,6 +324,7 @@ export default function CharacterWindow({ characterId }: Props) {
             canRemove={canRemove}
             isMuted={isMuted}
             onScale={enterScaleMode}
+            onClose={handleCloseMenu}
             onButtonsEl={(el) => { hoverMenuButtonsRef.current = el }}
           />
         )}
