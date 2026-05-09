@@ -808,6 +808,71 @@ export function openSettingsWindow(tab?: string): void {
   settingsWindow.focus()
 }
 
+// ── Image preview window ──────────────────────────────────
+
+let previewWindow: BrowserWindow | null = null
+
+function sendImageToPreview(win: BrowserWindow, dataUrl: string): void {
+  if (!win.isDestroyed()) win.webContents.send('preview:set-image', dataUrl)
+}
+
+export function showPreviewWindow(dataUrl: string): void {
+  if (previewWindow && !previewWindow.isDestroyed()) {
+    sendImageToPreview(previewWindow, dataUrl)
+    previewWindow.setOpacity(1)
+    previewWindow.show()
+    previewWindow.moveTop()
+    previewWindow.focus()
+    return
+  }
+
+  const wa = screen.getPrimaryDisplay().workArea
+  const winWidth = Math.min(1200, Math.round(wa.width * 0.75))
+  const winHeight = Math.min(840, Math.round(wa.height * 0.75))
+
+  previewWindow = new BrowserWindow({
+    show: false,
+    width: winWidth,
+    height: winHeight,
+    x: Math.round(wa.x + (wa.width - winWidth) / 2),
+    y: Math.round(wa.y + (wa.height - winHeight) / 2),
+    frame: false,
+    transparent: false,
+    backgroundColor: '#2B3A35',
+    skipTaskbar: false,
+    alwaysOnTop: true,
+    resizable: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  previewWindow.setAlwaysOnTop(true, 'pop-up-menu')
+
+  if (VITE_DEV_SERVER_URL) {
+    previewWindow.loadURL(makeURL({ w: 'preview' }))
+  } else {
+    previewWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: { w: 'preview' }
+    })
+  }
+
+  const win = previewWindow
+  // Wait for page + React to be ready, then push the image and show
+  win.webContents.once('did-finish-load', () => {
+    setTimeout(() => {
+      sendImageToPreview(win, dataUrl)
+      win.show()
+      win.moveTop()
+      win.focus()
+    }, 150)
+  })
+
+  previewWindow.on('closed', () => { previewWindow = null })
+}
+
 // ── Broadcast to all windows ──────────────────────────────
 
 export function broadcastToAll(channel: string, data: unknown): void {

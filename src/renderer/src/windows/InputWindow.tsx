@@ -11,7 +11,6 @@ export default function InputWindow() {
   const [text, setText] = useState('')
   const [images, setImages] = useState<string[]>([])
   const [isCapturing, setIsCapturing] = useState(false)
-  const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -113,33 +112,9 @@ export default function InputWindow() {
         background: '#F7FFFC',
         border: '1px solid #D8F5EC',
         borderRadius: 16,
-        overflow: 'hidden',
-        position: 'relative'
+        overflow: 'hidden'
       }}
     >
-      {/* Image preview overlay */}
-      {previewSrc && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 no-drag cursor-pointer"
-          onClick={() => setPreviewSrc(null)}
-        >
-          <div className="relative" onClick={e => e.stopPropagation()}>
-            <img
-              src={previewSrc}
-              className="max-w-full max-h-full object-contain rounded-lg"
-              style={{ maxWidth: 'calc(100vw - 16px)', maxHeight: 'calc(100vh - 16px)' }}
-              alt="截圖預覽"
-            />
-            <button
-              type="button"
-              onClick={() => setPreviewSrc(null)}
-              className="absolute -top-2 -right-2 w-6 h-6 rounded-full flex items-center justify-center border border-[#FFB59F] bg-[#FFE2D8] text-[#E85D3F]"
-            >
-              <MonoIcon name="close" className="w-3 h-3" />
-            </button>
-          </div>
-        </div>
-      )}
 
       <div className="drag-region flex items-center justify-between px-3 pt-2 pb-1">
         <span className="text-xs text-secondary font-medium no-drag select-none">DesktopST</span>
@@ -172,7 +147,7 @@ export default function InputWindow() {
                 src={src}
                 className="w-12 h-12 object-cover rounded-lg border border-border cursor-pointer hover:opacity-80 transition-opacity"
                 alt=""
-                onClick={() => setPreviewSrc(src)}
+                onClick={() => window.api.invoke('desktop:show-image-preview', src)}
                 title="點擊預覽"
               />
               <button

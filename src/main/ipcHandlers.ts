@@ -11,7 +11,8 @@ import {
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
   showSpeechBubble, hideSpeechBubble, updateSpeechBubbleSize, syncSpeechBubblePosition, setCharacterHitRects,
   beginCharacterDrag, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
-  hideAllWindowsForScreenshot, restoreAllWindowsAfterScreenshot
+  hideAllWindowsForScreenshot, restoreAllWindowsAfterScreenshot,
+  showPreviewWindow
 } from './windowManager'
 
 // ── In-memory state ───────────────────────────────────────
@@ -726,6 +727,12 @@ export function registerIpcHandlers() {
     fileStore.saveSettings(settings)
     broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
     return d.muted
+  })
+
+  // Image preview window
+  ipcMain.handle('desktop:show-image-preview', (_, dataUrl: string) => {
+    showPreviewWindow(dataUrl)
+    return true
   })
 
   // Screenshot: hide windows, capture screen, restore, return data URL

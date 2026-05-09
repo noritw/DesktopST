@@ -5,6 +5,7 @@ import InputWindow from './windows/InputWindow'
 import SettingsWindow from './windows/SettingsWindow'
 import LogWindow from './windows/LogWindow'
 import BubbleWindow from './windows/BubbleWindow'
+import PreviewWindow from './windows/PreviewWindow'
 import ErrorBoundary from './components/ErrorBoundary'
 
 const w = typeof window !== 'undefined' && window.windowParams
@@ -32,6 +33,7 @@ export default function App() {
   if (w === 'input') return <ErrorBoundary><InputWindow /></ErrorBoundary>
   if (w === 'settings') return <ErrorBoundary><SettingsWindow /></ErrorBoundary>
   if (w === 'log') return <ErrorBoundary><LogWindow /></ErrorBoundary>
+  if (w === 'preview') return <ErrorBoundary><PreviewWindow /></ErrorBoundary>
 
   // Fallback: show nothing (should not happen)
   return (
