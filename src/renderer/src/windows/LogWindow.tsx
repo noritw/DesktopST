@@ -213,19 +213,34 @@ export default function LogWindow() {
         <div
           className={`rounded-2xl px-3 py-2 text-sm leading-relaxed max-w-[85%] ${
             isUser
-              ? 'bg-teal/20 text-primary self-end ml-auto'
+              ? 'bg-teal/20 text-primary self-end ml-auto cursor-pointer'
               : isCharacter
               ? 'bg-surface border border-border text-primary cursor-pointer'
               : 'bg-butter/40 text-primary text-xs italic'
           }`}
-          title={isCharacter && !isEditing ? '點擊可在角色頭上顯示這句話' : undefined}
+          title={
+            !isEditing && isCharacter
+              ? '點擊可在角色頭上顯示這句話'
+              : !isEditing && isUser
+              ? '點擊可顯示這句使用者對白'
+              : undefined
+          }
           onClick={() => {
-            if (isEditing || !isCharacter || !msg.characterId) return
-            window.api.invoke('bubble:debug-show', {
-              characterId: msg.characterId,
-              speakerName: getCharName(msg.characterId),
-              text: String(msg.content ?? '')
-            })
+            if (isEditing) return
+            if (isCharacter && msg.characterId) {
+              window.api.invoke('bubble:debug-show', {
+                characterId: msg.characterId,
+                speakerName: getCharName(msg.characterId),
+                text: String(msg.content ?? '')
+              })
+              return
+            }
+            if (isUser) {
+              window.api.invoke('user-bubble:debug-show', {
+                speakerName: userName,
+                text: String(displayContent ?? '')
+              })
+            }
           }}
         >
           {isEditing ? (

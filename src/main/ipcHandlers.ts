@@ -14,6 +14,7 @@ import {
   broadcastToAll, getAllCharacterWindows, setCharacterWindowClickThrough,
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
   showSpeechBubble, hideSpeechBubble, updateSpeechBubbleSize, syncSpeechBubblePosition,
+  showUserSpeechBubble, hideUserSpeechBubble, updateUserSpeechBubbleSize,
   reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects,
   beginCharacterDrag, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
   createCharacterLibraryWindow,
@@ -502,6 +503,22 @@ export function registerIpcHandlers() {
     const { characterId, speakerName, text } = payload ?? { characterId: '', speakerName: '', text: '' }
     if (!characterId) return false
     showSpeechBubble(characterId, speakerName || (getCharacter(characterId)?.name ?? '角色'), String(text ?? ''))
+    return true
+  })
+
+  ipcMain.handle('user-bubble:set-size', (_, size: { width: number; height: number }) => {
+    return updateUserSpeechBubbleSize(size)
+  })
+
+  ipcMain.handle('user-bubble:close', () => {
+    return hideUserSpeechBubble()
+  })
+
+  ipcMain.handle('user-bubble:debug-show', (_, payload: { speakerName?: string; text: string }) => {
+    const speakerName = String(payload?.speakerName ?? settings?.persona.displayName ?? settings?.persona.nickname ?? '你')
+    const text = String(payload?.text ?? '')
+    if (!text.trim()) return false
+    showUserSpeechBubble(speakerName, text)
     return true
   })
 

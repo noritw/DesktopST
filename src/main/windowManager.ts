@@ -58,6 +58,26 @@ function getCharacterWindowSize(scale: number): { width: number; height: number 
   }
 }
 
+function defaultUserBubbleBounds(): WindowBoundsState {
+  const input = inputWindow && !inputWindow.isDestroyed() ? inputWindow : null
+  if (input) {
+    const ib = input.getBounds()
+    return {
+      x: ib.x,
+      y: ib.y - 132,
+      width: ib.width,
+      height: 120
+    }
+  }
+  const fallback = defaultInputBounds()
+  return {
+    x: fallback.x,
+    y: fallback.y - 132,
+    width: fallback.width,
+    height: 120
+  }
+}
+
 function defaultInputBounds(): WindowBoundsState {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize
   return { x: Math.round(width / 2 - 200), y: Math.round(height - 200), width: 400, height: 160 }
@@ -157,7 +177,7 @@ let lastShownBubbleCharacterId: string | null = null
 let characterLibraryWindow: BrowserWindow | null = null
 
 function getAuxWindows(): BrowserWindow[] {
-  return [inputWindow, logWindow, settingsWindow, characterLibraryWindow].filter(w => w && !w.isDestroyed()) as BrowserWindow[]
+  return [inputWindow, userBubbleWindow, logWindow, settingsWindow, characterLibraryWindow].filter(w => w && !w.isDestroyed()) as BrowserWindow[]
 }
 
 export function createCharacterLibraryWindow(): BrowserWindow {
@@ -704,6 +724,8 @@ export function reconcileSpeechBubbleAfterCharacterDrag(characterId: string, cha
 // ── Input window ──────────────────────────────────────────
 
 let inputWindow: BrowserWindow | null = null
+let userBubbleWindow: BrowserWindow | null = null
+let userBubbleSize: { width: number; height: number } = { width: 400, height: 120 }
 
 export function createInputWindow(position: { x: number; y: number }): BrowserWindow {
   if (inputWindow && !inputWindow.isDestroyed()) {
@@ -783,6 +805,115 @@ export function getInputWindow(): BrowserWindow | null {
   return inputWindow && !inputWindow.isDestroyed() ? inputWindow : null
 }
 
+export function createUserBubbleWindow(): BrowserWindow {
+  if (userBubbleWindow && !userBubbleWindow.isDestroyed()) return userBubbleWindow
+
+  const initial = defaultUserBubbleBounds()
+  const width = clamp(Math.round(initial.width), 220, 1200)
+  const height = clamp(Math.round(initial.height), 78, BUBBLE_MAX_HEIGHT_PX)
+  const pos = normalizeWindowPosition({ x: initial.x, y: initial.y }, { width, height })
+
+  userBubbleWindow = new BrowserWindow({
+    x: pos.x,
+    y: pos.y,
+    width,
+    height,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  userBubbleWindow.setIgnoreMouseEvents(false)
+  userBubbleWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  userBubbleWindow.setMinimumSize(220, 78)
+
+  if (VITE_DEV_SERVER_URL) {
+    userBubbleWindow.loadURL(makeURL({ w: 'user-bubble' }))
+  } else {
+    userBubbleWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { w: 'user-bubble' } })
+  }
+
+  userBubbleWindow.on('closed', () => {
+    userBubbleWindow = null
+  })
+
+  if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
+    userBubbleWindow.webContents.openDevTools({ mode: 'detach' })
+  }
+
+  return userBubbleWindow
+}
+
+export function showUserSpeechBubble(speakerName: string, text: string): void {
+  const bw = createUserBubbleWindow()
+  if (bw.isDestroyed()) return
+
+  const input = getInputWindow()
+  const targetWidth = clamp(
+    Math.round(input && !input.isDestroyed() ? input.getBounds().width : userBubbleSize.width),
+    220,
+    1200
+  )
+  const current = bw.getBounds()
+  const pos = normalizeWindowPosition(
+    { x: current.x, y: current.y },
+    { width: targetWidth, height: current.height }
+  )
+  bw.setBounds({ x: pos.x, y: pos.y, width: targetWidth, height: current.height }, false)
+
+  const payload = {
+    speakerName,
+    text,
+    persistUntilClosed: true
+  }
+  const dispatchShow = () => {
+    if (bw.isDestroyed()) return
+    bw.setAlwaysOnTop(true, 'pop-up-menu')
+    bw.setOpacity(1)
+    if (!bw.isVisible()) bw.showInactive()
+    bw.moveTop()
+    bw.webContents.send('user-bubble:show', payload)
+  }
+  if (bw.webContents.isLoadingMainFrame()) {
+    bw.webContents.once('did-finish-load', dispatchShow)
+  } else {
+    dispatchShow()
+  }
+  setTimeout(dispatchShow, 80)
+  setTimeout(dispatchShow, 260)
+}
+
+export function updateUserSpeechBubbleSize(size: { width: number; height: number }): boolean {
+  const bw = userBubbleWindow
+  if (!bw || bw.isDestroyed()) return false
+  const current = bw.getBounds()
+  const width = clamp(Math.round(Number(size.width) || current.width), 220, 1200)
+  const height = clamp(Math.round(Number(size.height) || current.height), 78, BUBBLE_MAX_HEIGHT_PX)
+  const pos = normalizeWindowPosition({ x: current.x, y: current.y }, { width, height })
+  userBubbleSize = { width, height }
+  bw.setBounds({ x: pos.x, y: pos.y, width, height }, false)
+  bw.setAlwaysOnTop(true, 'pop-up-menu')
+  if (bw.isVisible()) bw.moveTop()
+  return true
+}
+
+export function hideUserSpeechBubble(): boolean {
+  const bw = userBubbleWindow
+  if (!bw || bw.isDestroyed()) return false
+  bw.hide()
+  return true
+}
+
 export function hideAuxWindowsRememberingState(): void {
   for (const w of getAuxWindows()) {
     if (w.isVisible()) w.setOpacity(0.1)
@@ -801,6 +932,9 @@ export function hideAllWindowsForScreenshot(): { displayId: number; displayWidth
   for (const w of bubbleWindows.values()) {
     if (!w.isDestroyed()) w.setOpacity(0)
   }
+  if (userBubbleWindow && !userBubbleWindow.isDestroyed()) {
+    userBubbleWindow.setOpacity(0)
+  }
   for (const w of getAuxWindows()) {
     w.setOpacity(0)
   }
@@ -815,6 +949,9 @@ export function restoreAllWindowsAfterScreenshot(): void {
   }
   for (const w of bubbleWindows.values()) {
     if (!w.isDestroyed() && w.isVisible()) w.setOpacity(1)
+  }
+  if (userBubbleWindow && !userBubbleWindow.isDestroyed() && userBubbleWindow.isVisible()) {
+    userBubbleWindow.setOpacity(1)
   }
   for (const w of getAuxWindows()) {
     if (w.isVisible()) w.setOpacity(1)
@@ -1065,6 +1202,7 @@ export function broadcastToAll(channel: string, data: unknown): void {
     ...characterWindows.values(),
     ...bubbleWindows.values(),
     inputWindow,
+    userBubbleWindow,
     logWindow,
     settingsWindow,
     characterLibraryWindow
