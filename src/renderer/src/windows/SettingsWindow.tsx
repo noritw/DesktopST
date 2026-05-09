@@ -309,6 +309,16 @@ export default function SettingsWindow() {
                 className="w-full accent-teal"
               />
             </Field>
+            <Field label={`群組對話最多角色回應數（${draft.llm.maxGroupRounds} 則）`}>
+              <input type="range" min={1} max={10} step={1}
+                value={draft.llm.maxGroupRounds}
+                onChange={e => set('llm.maxGroupRounds', Number(e.target.value))}
+                className="w-full accent-teal"
+              />
+              <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                控制每次送出訊息後，群組模式最多追加幾位角色的後續回應；數值越大，對話越熱鬧但 token 消耗也越高。
+              </p>
+            </Field>
             <Field label={`單則訊息圖片上限（${draft.llm.maxImagesPerMessage} 張）`}>
               <input type="range" min={1} max={10} step={1}
                 value={draft.llm.maxImagesPerMessage}

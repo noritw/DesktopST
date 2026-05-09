@@ -39,7 +39,17 @@ function normalizeWindowPosition(
   }
 }
 
-// ── Character windows ─────────────────────────────────────
+function bubbleBoundsNearlyEqual(a: WindowBoundsState, b: WindowBoundsState, eps = 2): boolean {
+  return (
+    Math.abs(a.x - b.x) <= eps &&
+    Math.abs(a.y - b.y) <= eps &&
+    Math.abs(a.width - b.width) <= eps &&
+    Math.abs(a.height - b.height) <= eps
+  )
+}
+
+/** 與上次程式 setBounds 比對時放寬：Windows／高分屏下 getBounds 常有 1～數 px 抖動，過嚴會誤觸 refresh 累積偏移 */
+const BUBBLE_PROGRAMMATIC_BOUNDS_EPS = 28
 
 function getCharacterWindowSize(scale: number): { width: number; height: number } {
   return {
@@ -119,12 +129,26 @@ function clampCharacterScaleForDisplay(scale: number, point: { x: number; y: num
 
 const characterWindows = new Map<string, BrowserWindow>()
 const bubbleWindows = new Map<string, BrowserWindow>()
+/** 使用者拖曳對白視窗後，相對於「預設錨點位置」的像素偏移（跟著角色移動時保留） */
+const bubbleUserOffset = new Map<string, { x: number; y: number }>()
+/** 最近一次由程式 setBounds 寫入的對白視窗矩形；與 moved 比對以區分「程式同步」與「使用者拖對白」 */
+const lastBubbleBoundsProgrammatic = new Map<string, WindowBoundsState>()
+/** 避免異常 IPC 傳入無限大；一般長文仍完整顯示 */
+const BUBBLE_MAX_HEIGHT_PX = 32000
+/** 立體角色立繪頂端（約在視窗高度 120/380 處）與對白框下緣的間距（px） */
+const BUBBLE_GAP_PX = 6
+const BUBBLE_SPRITE_TOP_RATIO = 120 / 380
+/** 對白相對於頭頂錨點：尚無使用者拖過對白時的初始偏移；拖對白放手後由 refreshBubbleUserOffsetFromWindow 寫入並保留，角色拖曳結束不覆寫。 */
+const BUBBLE_USER_OFFSET_DEFAULT: Readonly<{ x: number; y: number }> = { x: 0, y: 0 }
+
 type ScreenRect = { x: number; y: number; w: number; h: number }
 const hitRects = new Map<string, { sprite: ScreenRect | null; buttons: ScreenRect | null }>()
 const draggingCharacters = new Set<string>()
 let hitTestTimer: NodeJS.Timeout | null = null
 let charactersRaisedAboveAux = false
 const lastBubbleSizes = new Map<string, { width: number; height: number }>()
+/** 拖曳角色時曾把對白 hide()，放手後要 show 回來（避免拖曳中對白座標漂移） */
+const bubbleHiddenForCharacterDrag = new Map<string, boolean>()
 const activeDragTimers = new Map<string, NodeJS.Timeout>()
 const activeDragLastPositions = new Map<string, { x: number; y: number }>()
 let suppressAuxAutoHideUntil = 0
@@ -296,12 +320,31 @@ export function beginCharacterDrag(
   const win = getCharacterWindow(characterId)
   if (!win || win.isDestroyed()) return false
 
+  if (bubbleHiddenForCharacterDrag.get(characterId)) {
+    const b = bubbleWindows.get(characterId)
+    if (b && !b.isDestroyed()) {
+      b.setOpacity(1)
+      b.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+      b.showInactive()
+      b.moveTop()
+    }
+    bubbleHiddenForCharacterDrag.delete(characterId)
+  }
+
   endCharacterDrag(characterId)
   setCharacterDragging(characterId, true)
   bringCharacterToFront(characterId)
 
-  const startCursor = screen.getCursorScreenPoint()
   const startBounds = win.getBounds()
+  const bwSnap = bubbleWindows.get(characterId)
+  if (bwSnap && !bwSnap.isDestroyed() && bwSnap.isVisible()) {
+    bwSnap.hide()
+    bubbleHiddenForCharacterDrag.set(characterId, true)
+  } else {
+    bubbleHiddenForCharacterDrag.delete(characterId)
+  }
+
+  const startCursor = screen.getCursorScreenPoint()
   const offset = {
     x: startCursor.x - startBounds.x,
     y: startCursor.y - startBounds.y
@@ -321,7 +364,9 @@ export function beginCharacterDrag(
     if (last && last.x === pos.x && last.y === pos.y) return
     activeDragLastPositions.set(characterId, pos)
     win.setPosition(pos.x, pos.y)
-    syncSpeechBubblePosition(characterId, pos)
+    if (!bubbleHiddenForCharacterDrag.has(characterId)) {
+      syncSpeechBubblePosition(characterId, pos)
+    }
     onMove?.(pos)
   }
 
@@ -361,6 +406,7 @@ export function getAllCharacterWindows(): BrowserWindow[] {
 }
 
 export function closeCharacterWindow(characterId: string): void {
+  bubbleHiddenForCharacterDrag.delete(characterId)
   const win = characterWindows.get(characterId)
   if (win && !win.isDestroyed()) win.close()
 }
@@ -398,6 +444,7 @@ export function createBubbleWindow(characterId: string): BrowserWindow {
   // Keep the bubble clickable so its close button can work.
   win.setIgnoreMouseEvents(false)
   win.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+  win.setMinimumSize(180, 78)
 
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(makeURL({ w: 'bubble', id: characterId }))
@@ -406,7 +453,23 @@ export function createBubbleWindow(characterId: string): BrowserWindow {
   }
 
   bubbleWindows.set(characterId, win)
-  win.on('closed', () => bubbleWindows.delete(characterId))
+  win.on('closed', () => {
+    bubbleWindows.delete(characterId)
+    bubbleUserOffset.delete(characterId)
+    lastBubbleBoundsProgrammatic.delete(characterId)
+    bubbleHiddenForCharacterDrag.delete(characterId)
+  })
+  win.on('moved', () => {
+    if (draggingCharacters.has(characterId)) return
+    const bwMove = bubbleWindows.get(characterId)
+    if (!bwMove || bwMove.isDestroyed()) return
+    const br = bwMove.getBounds()
+    const settled: WindowBoundsState = { x: br.x, y: br.y, width: br.width, height: br.height }
+    const expected = lastBubbleBoundsProgrammatic.get(characterId)
+    if (expected && bubbleBoundsNearlyEqual(settled, expected, BUBBLE_PROGRAMMATIC_BOUNDS_EPS)) return
+    refreshBubbleUserOffsetFromWindow(characterId)
+    lastBubbleBoundsProgrammatic.set(characterId, settled)
+  })
   if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
     win.webContents.openDevTools({ mode: 'detach' })
   }
@@ -440,7 +503,7 @@ export function showSpeechBubble(characterId: string, speakerName: string, text:
   bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
   const cw = characterWindows.get(characterId)
   if (cw && !cw.isDestroyed()) {
-    applyBubbleBounds(bw, lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }, cw.getBounds())
+    applyBubbleBounds(bw, lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }, cw.getBounds(), characterId)
   }
   const payload = {
     characterId,
@@ -471,25 +534,74 @@ export function hideSpeechBubble(characterId: string): boolean {
   const bw = bubbleWindows.get(characterId)
   if (!bw || bw.isDestroyed()) return false
   bw.hide()
+  bubbleHiddenForCharacterDrag.delete(characterId)
   if (lastShownBubbleCharacterId === characterId) lastShownBubbleCharacterId = null
   return true
+}
+
+/** 使用者拖曳對白視窗（moved 與程式預期不符）時，把目前螢幕位置換算成相對錨點的偏移並寫入 bubbleUserOffset；此值之後跟隨角色移動，直到使用者再次拖對白。
+ *  錨點高度必須與 applyBubbleBounds 使用的邏輯高度一致（lastBubbleSizes），不可用 bb.height 混算。 */
+function refreshBubbleUserOffsetFromWindow(characterId: string): void {
+  if (draggingCharacters.has(characterId)) return
+  const bw = bubbleWindows.get(characterId)
+  const cw = characterWindows.get(characterId)
+  if (!bw || bw.isDestroyed() || !cw || cw.isDestroyed()) return
+  const bb = bw.getBounds()
+  const cb = cw.getBounds()
+  const spriteTop = Math.round(cb.y + cb.height * BUBBLE_SPRITE_TOP_RATIO)
+  const defaultX = Math.round(cb.x + 12)
+  const stored = lastBubbleSizes.get(characterId)
+  const anchorH = stored?.height ?? bb.height
+  const defaultY = spriteTop - anchorH - BUBBLE_GAP_PX
+  bubbleUserOffset.set(characterId, { x: bb.x - defaultX, y: bb.y - defaultY })
 }
 
 function applyBubbleBounds(
   bw: BrowserWindow,
   bubbleSize: { width: number; height: number },
-  cb: { x: number; y: number; width: number; height: number }
+  cb: { x: number; y: number; width: number; height: number },
+  characterId: string
 ): void {
   const display = screen.getDisplayNearestPoint({ x: cb.x + Math.round(cb.width / 2), y: cb.y + Math.round(cb.height / 2) })
   const wa = display.workArea
-  const maxH = Math.max(120, Math.round(wa.height * 0.75))
-  const width = Math.max(180, Math.min(420, Math.round(bubbleSize.width)))
-  const height = Math.max(60, Math.min(maxH, Math.round(bubbleSize.height)))
-  // Sprite occupies lower 260/380 of the character window; anchor bubble just above its top.
-  const spriteTop = Math.round(cb.y + cb.height * (120 / 380))
-  const target = { x: Math.round(cb.x + 12), y: spriteTop - height - 8 }
-  const pos = normalizeWindowPosition(target, { width, height })
-  bw.setBounds({ x: pos.x, y: pos.y, width, height }, false)
+
+  const rw = Math.round(Number(bubbleSize.width))
+  const rh = Math.round(Number(bubbleSize.height))
+  const width = Math.max(180, Math.min(420, Number.isFinite(rw) ? rw : 280))
+  const height = Math.max(78, Math.min(BUBBLE_MAX_HEIGHT_PX, Number.isFinite(rh) ? rh : 120))
+
+  const spriteTop = Math.round(cb.y + cb.height * BUBBLE_SPRITE_TOP_RATIO)
+
+  const offset = bubbleUserOffset.get(characterId) ?? {
+    x: BUBBLE_USER_OFFSET_DEFAULT.x,
+    y: BUBBLE_USER_OFFSET_DEFAULT.y
+  }
+  const defaultX = Math.round(cb.x + 12)
+  const defaultY = spriteTop - height - BUBBLE_GAP_PX
+  const idealLeft = defaultX + offset.x
+  const idealTop = Math.round(defaultY + offset.y)
+
+  const minX = wa.x
+  const maxX = wa.x + wa.width - width
+  let x = Math.round(idealLeft)
+  if (maxX >= minX) {
+    x = clamp(x, minX, maxX)
+  } else {
+    x = Math.round(wa.x + Math.max(0, wa.width - width) / 2)
+  }
+
+  // 垂直方向不為了「塞進工作區」而改 y，避免超高對白被配合 OS 裁成細條或看不到內容；蓋到畫面外由使用者拖標題列調整
+  const y = idealTop
+
+  bw.setBounds({ x, y, width, height }, false)
+  const settled = bw.getBounds()
+  lastBubbleSizes.set(characterId, { width: settled.width, height: settled.height })
+  lastBubbleBoundsProgrammatic.set(characterId, {
+    x: settled.x,
+    y: settled.y,
+    width: settled.width,
+    height: settled.height
+  })
 }
 
 export function updateSpeechBubbleSize(characterId: string, size: { width: number; height: number }): boolean {
@@ -497,7 +609,7 @@ export function updateSpeechBubbleSize(characterId: string, size: { width: numbe
   const cw = characterWindows.get(characterId)
   if (!bw || bw.isDestroyed() || !cw || cw.isDestroyed()) return false
   lastBubbleSizes.set(characterId, size)
-  applyBubbleBounds(bw, size, cw.getBounds())
+  applyBubbleBounds(bw, size, cw.getBounds(), characterId)
   bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
   if (bw.isVisible()) bw.moveTop()
   return true
@@ -512,8 +624,26 @@ export function syncSpeechBubblePosition(characterId: string, charPos?: { x: num
   const cb = cw.getBounds()
   const size = lastBubbleSizes.get(characterId) ?? { width: bb.width, height: bb.height }
   const roundedPos = charPos ? { x: Math.round(charPos.x), y: Math.round(charPos.y) } : null
-  applyBubbleBounds(bw, size, roundedPos ? { ...cb, ...roundedPos } : cb)
+  applyBubbleBounds(bw, size, roundedPos ? { ...cb, ...roundedPos } : cb, characterId)
   return true
+}
+
+/** 角色拖曳結束：同步對白錨點（沿用既有 bubbleUserOffset，不重置）；拖曳中曾隱藏對白則再顯示。 */
+export function reconcileSpeechBubbleAfterCharacterDrag(characterId: string, charPos: { x: number; y: number }): void {
+  const reveal = bubbleHiddenForCharacterDrag.get(characterId) === true
+  bubbleHiddenForCharacterDrag.delete(characterId)
+
+  syncSpeechBubblePosition(characterId, charPos)
+
+  if (reveal) {
+    const bw = bubbleWindows.get(characterId)
+    if (bw && !bw.isDestroyed()) {
+      bw.setOpacity(1)
+      bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+      bw.showInactive()
+      bw.moveTop()
+    }
+  }
 }
 
 // ── Input window ──────────────────────────────────────────

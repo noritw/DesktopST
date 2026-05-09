@@ -39,15 +39,25 @@ function buildTimeMoodGuideline(hours: number): string {
 }
 
 function parseEmotion(text: string): { emotion: string; content: string } {
-  const match = text.match(/^\[([a-z_]+)\]\s*/i)
-  if (match) {
-    const emotion = match[1].toLowerCase()
-    return {
-      emotion: EMOTION_LIST.includes(emotion) ? emotion : 'neutral',
-      content: text.slice(match[0].length).trim()
+  const source = sanitizePromptText(text)
+  let detectedEmotion = 'neutral'
+  let hasDetected = false
+
+  const content = source.replace(/\[([a-z_]+)\]\s*/ig, (_, rawEmotion: string) => {
+    if (!hasDetected) {
+      hasDetected = true
+      const normalized = rawEmotion.toLowerCase()
+      if (EMOTION_LIST.includes(normalized)) {
+        detectedEmotion = normalized
+      }
     }
+    return ''
+  }).trim()
+
+  return {
+    emotion: detectedEmotion,
+    content: content || source
   }
-  return { emotion: 'neutral', content: text }
 }
 
 function buildSystemPrompt(settings: AppSettings, char: PromptCharacter): string {
