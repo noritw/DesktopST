@@ -4,6 +4,7 @@ import CharacterWindow from './windows/CharacterWindow'
 import InputWindow from './windows/InputWindow'
 import SettingsWindow from './windows/SettingsWindow'
 import LogWindow from './windows/LogWindow'
+import ErrorBoundary from './components/ErrorBoundary'
 
 const w = typeof window !== 'undefined' && window.windowParams
   ? window.windowParams.get('w')
@@ -14,19 +15,23 @@ export default function App() {
   const subscribeToEvents = useAppStore(s => s.subscribeToEvents)
 
   useEffect(() => {
-    loadAll()
+    loadAll().catch(e => console.error('[DesktopST] loadAll failed:', e))
     const unsub = subscribeToEvents()
     return unsub
   }, [])
 
   if (w === 'character') {
     const id = window.windowParams?.get('id') ?? new URLSearchParams(window.location.search).get('id')
-    return <CharacterWindow characterId={id ?? ''} />
+    return <ErrorBoundary><CharacterWindow characterId={id ?? ''} /></ErrorBoundary>
   }
-  if (w === 'input') return <InputWindow />
-  if (w === 'settings') return <SettingsWindow />
-  if (w === 'log') return <LogWindow />
+  if (w === 'input') return <ErrorBoundary><InputWindow /></ErrorBoundary>
+  if (w === 'settings') return <ErrorBoundary><SettingsWindow /></ErrorBoundary>
+  if (w === 'log') return <ErrorBoundary><LogWindow /></ErrorBoundary>
 
   // Fallback: show nothing (should not happen)
-  return null
+  return (
+    <div style={{ padding: 16, color: '#9B3535', fontFamily: 'monospace', fontSize: 12 }}>
+      Unknown window type: &quot;{w}&quot;
+    </div>
+  )
 }

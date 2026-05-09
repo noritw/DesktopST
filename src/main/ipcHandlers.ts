@@ -137,25 +137,21 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('desktop:update-position', (_, characterId: string, pos: { x: number; y: number }) => {
     const d = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
+    console.log('[update-position] id:', characterId, 'pos:', pos, 'found:', !!d, 'windows:', [...getAllCharacterWindows().map(w => w.id)])
     if (d) {
       d.position = pos
       fileStore.saveSettings(settings)
     }
     // Move the actual window
     const win = getCharacterWindow(characterId)
+    console.log('[update-position] win:', win?.id, 'destroyed:', win?.isDestroyed())
     if (win && !win.isDestroyed()) {
-      win.setPosition(pos.x, pos.y)
+      win.setPosition(Math.round(pos.x), Math.round(pos.y))
     }
     return true
   })
 
-  // Mouse hit-test: toggle click-through on character window
-  ipcMain.on('mouse:set-ignore', (event, ignore: boolean) => {
-    const win = getAllCharacterWindows().find(w => w.webContents === event.sender)
-    if (win && !win.isDestroyed()) {
-      win.setIgnoreMouseEvents(ignore, { forward: true })
-    }
-  })
+  // Mouse hit-test IPC removed — click-through is handled via CSS pointer-events
 
   // Window controls
   ipcMain.handle('window:toggle-input', () => {

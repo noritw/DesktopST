@@ -37,7 +37,7 @@ export function createCharacterWindow(
     }
   })
 
-  win.setIgnoreMouseEvents(true, { forward: true })
+  win.setIgnoreMouseEvents(false)
 
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(makeURL({ w: 'character', id: characterId }))
@@ -49,6 +49,8 @@ export function createCharacterWindow(
 
   characterWindows.set(characterId, win)
   win.on('closed', () => characterWindows.delete(characterId))
+  // Open DevTools for debugging
+  win.webContents.openDevTools({ mode: 'detach' })
   return win
 }
 
@@ -102,6 +104,9 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
   }
 
   inputWindow.on('closed', () => { inputWindow = null })
+  if (VITE_DEV_SERVER_URL) {
+    inputWindow.webContents.openDevTools({ mode: 'detach' })
+  }
   return inputWindow
 }
 
@@ -169,7 +174,12 @@ let settingsWindow: BrowserWindow | null = null
 
 export function openSettingsWindow(tab?: string): void {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.focus()
+    if (settingsWindow.isVisible()) {
+      settingsWindow.hide()
+    } else {
+      settingsWindow.show()
+      settingsWindow.focus()
+    }
     return
   }
   const { width } = screen.getPrimaryDisplay().workAreaSize
@@ -196,6 +206,9 @@ export function openSettingsWindow(tab?: string): void {
     settingsWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query })
   }
   settingsWindow.on('closed', () => { settingsWindow = null })
+  if (VITE_DEV_SERVER_URL) {
+    settingsWindow.webContents.openDevTools({ mode: 'detach' })
+  }
 }
 
 // ── Broadcast to all windows ──────────────────────────────

@@ -49,8 +49,8 @@ app.on('ready', async () => {
   setupTray(appRoot)
 })
 
-app.on('window-all-closed', (e: Event) => {
-  e.preventDefault()
+app.on('window-all-closed', () => {
+  // Do nothing — keep app running in tray
 })
 
 app.on('before-quit', () => {

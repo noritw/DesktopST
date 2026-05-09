@@ -2,10 +2,8 @@ import { useRef, useState, useEffect } from 'react'
 import { useAppStore } from '../stores/useAppStore'
 
 export default function InputWindow() {
-  const { sendMessage, isSending } = useAppStore(s => ({
-    sendMessage: s.sendMessage,
-    isSending: s.isSending
-  }))
+  const sendMessage = useAppStore(s => s.sendMessage)
+  const isSending = useAppStore(s => s.isSending)
 
   const [text, setText] = useState('')
   const [images, setImages] = useState<string[]>([])
@@ -47,7 +45,7 @@ export default function InputWindow() {
   }
 
   return (
-    <div className="w-full h-full flex flex-col bg-bg border border-border rounded-2xl shadow-panel overflow-hidden">
+    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: '#F7FFFC', border: '1px solid #D8F5EC', borderRadius: 16, overflow: 'hidden' }}>
       {/* Title bar / drag region */}
       <div className="drag-region flex items-center justify-between px-3 pt-2 pb-1">
         <span className="text-xs text-secondary font-medium no-drag select-none">Desktop Familiar</span>

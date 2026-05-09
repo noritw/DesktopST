@@ -11,6 +11,11 @@ export default function HoverMenu({ characterId, visible, canRemove, isMuted }: 
   const forceSpeak = useAppStore(s => s.forceSpeak)
   const toggleMute = useAppStore(s => s.toggleMute)
   const removeFromDesktop = useAppStore(s => s.removeFromDesktop)
+  const addToDesktop = useAppStore(s => s.addToDesktop)
+  const characters = useAppStore(s => s.characters)
+  const desktopCharacters = useAppStore(s => s.desktopCharacters)
+
+  const availableChars = characters.filter(c => !desktopCharacters.some(d => d.characterId === c.id))
 
   const buttons = [
     {
@@ -23,6 +28,11 @@ export default function HoverMenu({ characterId, visible, canRemove, isMuted }: 
       title: isMuted ? '取消禁言' : '禁言',
       onClick: () => toggleMute(characterId)
     },
+    ...(availableChars.length > 0 ? [{
+      label: '➕',
+      title: `追加角色：${availableChars[0].name}`,
+      onClick: () => addToDesktop(availableChars[0].id)
+    }] : []),
     {
       label: '⚙️',
       title: '角色設定',
@@ -40,8 +50,8 @@ export default function HoverMenu({ characterId, visible, canRemove, isMuted }: 
       className="absolute inset-0 pointer-events-none"
       style={{ opacity: visible ? 1 : 0, transition: 'opacity 0.2s ease' }}
     >
-      {/* Circular arrangement around character */}
-      <div className="absolute top-2 right-0 flex flex-col gap-2 pointer-events-auto no-drag">
+      {/* Buttons anchored to right side of sprite, within the container */}
+      <div className="absolute top-2 right-0 translate-x-full flex flex-col gap-2 pointer-events-auto no-drag pl-1">
         {buttons.map((btn, i) => (
           <button
             key={i}

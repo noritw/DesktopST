@@ -32,23 +32,8 @@ export default function CharacterWindow({ characterId }: Props) {
     bubbleTimerRef.current = setTimeout(() => setBubbleVisible(false), BUBBLE_DURATION)
   }, [lastMessage?.id])
 
-  // Click-through toggle based on hover
-  const setIgnore = useCallback((ignore: boolean) => {
-    window.api.send('mouse:set-ignore', ignore)
-  }, [])
-
-  const handleMouseEnter = () => {
-    setHovered(true)
-    setIgnore(false)
-  }
-
-  const handleMouseLeave = () => {
-    setHovered(false)
-    setIgnore(true)
-  }
-
   // Drag: move window by dragging the character sprite
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return
     e.preventDefault()
     didDragRef.current = false
@@ -66,20 +51,21 @@ export default function CharacterWindow({ characterId }: Props) {
 
     const onUp = () => {
       dragStartRef.current = null
-      document.removeEventListener('mousemove', onMove)
-      document.removeEventListener('mouseup', onUp)
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
     }
 
-    document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
-  }
+    // Use window instead of document so events are captured even when mouse leaves the window
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [characterId])
 
   // Click (not drag) → toggle input window
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = useCallback((e: React.MouseEvent) => {
     if (didDragRef.current) return
     e.stopPropagation()
     window.api.invoke('window:toggle-input')
-  }
+  }, [])
 
   if (!character) return null
 
@@ -87,32 +73,36 @@ export default function CharacterWindow({ characterId }: Props) {
   const isMuted = desktopState?.muted ?? false
   const canRemove = desktopCharacters.length > 1
 
-  // Build image src: local:// protocol for file paths
   const avatarSrc = character.avatar
     ? `local://${encodeURIComponent(character.avatar)}`
     : ''
 
   return (
-    <div
-      className="window-transparent w-full h-full flex flex-col select-none"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
-      {/* Speech bubble area (top ~30%) */}
+    // The root div covers the full window but is pointer-events:none (click-through)
+    // Only the interactive-zone div has pointer-events:auto
+    <div className="w-full h-full flex flex-col select-none" style={{ background: 'transparent' }}>
+      {/* Speech bubble area — no pointer events */}
       <div className="flex-1 flex items-end px-2 pb-1 pointer-events-none">
         <SpeechBubble text={bubbleText} visible={bubbleVisible} />
       </div>
 
-      {/* Character sprite (bottom ~70%) — draggable */}
+      {/* Interactive zone: sprite + hover menu — pointer events enabled */}
       <div
-        className="cursor-grab active:cursor-grabbing flex-shrink-0 relative"
-        onMouseDown={handleMouseDown}
-        onClick={handleClick}
-        style={{ userSelect: 'none' }}
+        className="flex-shrink-0 relative self-start"
+        style={{ pointerEvents: 'auto' }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
       >
-        <CharacterSprite src={avatarSrc} name={character.name} size={size} />
+        {/* Draggable sprite */}
+        <div
+          className="cursor-grab active:cursor-grabbing"
+          onMouseDown={handleMouseDown}
+          onClick={handleClick}
+          style={{ userSelect: 'none' }}
+        >
+          <CharacterSprite src={avatarSrc} name={character.name} size={size} />
+        </div>
 
-        {/* Hover menu */}
         <HoverMenu
           characterId={characterId}
           visible={hovered}
