@@ -175,8 +175,9 @@ export default function CharacterWindow({ characterId }: Props) {
       className="w-full h-full relative select-none"
       style={{ background: 'transparent', pointerEvents: 'none' }}
     >
+      {/* Character sprite — lifts up in scale mode to leave room for the fixed control panel */}
       <div
-        className={`absolute left-0 flex items-start ${scaleMode ? 'bottom-14' : 'bottom-0'}`}
+        className={`absolute left-0 flex items-start ${scaleMode ? 'bottom-24' : 'bottom-0'}`}
         style={{ pointerEvents: 'auto' }}
         ref={interactiveRef}
         onMouseEnter={() => setHovered(true)}
@@ -185,93 +186,7 @@ export default function CharacterWindow({ characterId }: Props) {
           setHoverSuppressed(false)
         }}
       >
-        <div className={`relative flex-shrink-0 ${scaleMode ? 'w-[260px]' : ''}`}>
-          {scaleMode && (
-            <div
-              ref={scaleControlsRef}
-              className="absolute top-0 left-0 w-[260px] -bottom-14 z-10 pointer-events-auto"
-              onMouseDown={event => event.stopPropagation()}
-              onClick={event => event.stopPropagation()}
-            >
-              <div className="hidden">
-                <button
-                  type="button"
-                  className="w-8 h-8 rounded-full border border-border bg-white/90 text-primary shadow-soft flex items-center justify-center hover:bg-mint"
-                  title="復原原始大小"
-                  onClick={() => applyScale(1)}
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4">
-                    <path d="M4 7v6h6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    <path d="M5 13a7 7 0 1 0 2-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className="w-8 h-8 rounded-full border border-border bg-mint text-primary shadow-soft flex items-center justify-center hover:bg-teal"
-                  title="確定縮放比例"
-                  onClick={exitScaleMode}
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4">
-                    <path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              </div>
-
-              <div className="absolute left-2 right-2 bottom-0 rounded-2xl border border-border bg-white/90 px-3 py-2 shadow-soft">
-                <div className="mb-2 flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="w-8 h-8 rounded-full border border-border bg-white/90 text-primary flex items-center justify-center hover:bg-mint"
-                    title="Reset"
-                    onClick={() => applyScale(1)}
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4">
-                      <path d="M4 7v6h6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                      <path d="M5 13a7 7 0 1 0 2-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                  <div className="flex min-w-0 flex-1 items-center gap-1 text-[11px] font-semibold text-primary">
-                    <span className="shrink-0">{'\u7e2e\u653e\u6bd4\u4f8b\uff1a'}</span>
-                    <input
-                      type="number"
-                      min={0.25}
-                      max={maxVisibleScale}
-                      step={0.05}
-                      value={scaleText}
-                      onChange={event => setScaleText(event.target.value)}
-                      onKeyDown={event => {
-                        if (event.key === 'Enter') applyScaleText()
-                      }}
-                      onBlur={applyScaleText}
-                      className="min-w-0 w-full rounded-full border border-border bg-white px-2 py-1 text-center text-primary outline-none focus:border-teal"
-                      title="Scale"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    className="w-8 h-8 rounded-full border border-border bg-mint text-primary flex items-center justify-center hover:bg-teal"
-                    title="OK"
-                    onClick={exitScaleMode}
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4">
-                      <path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </button>
-                </div>
-                <input
-                  type="range"
-                  min={0.25}
-                  max={maxVisibleScale}
-                  step={0.05}
-                  value={scaleDraft}
-                  onChange={event => applyScale(Number(event.target.value))}
-                  className="w-full accent-teal"
-                  title={`縮放比例 ${scaleDraft.toFixed(2)}`}
-                />
-              </div>
-            </div>
-          )}
-
+        <div className="relative flex-shrink-0">
           {isThinking && (
             <div
               className="absolute -top-8 left-2 pointer-events-none"
@@ -294,7 +209,7 @@ export default function CharacterWindow({ characterId }: Props) {
             onMouseDown={handleMouseDown}
             onClick={handleClick}
             onContextMenu={handleContextMenu}
-            style={{ userSelect: 'none', display: scaleMode ? 'flex' : undefined, justifyContent: scaleMode ? 'center' : undefined }}
+            style={{ userSelect: 'none' }}
           >
             <CharacterSprite src={avatarSrc} name={character.name} size={renderedSize} />
           </div>
@@ -311,6 +226,70 @@ export default function CharacterWindow({ characterId }: Props) {
           />
         )}
       </div>
+
+      {/* Scale control panel — fixed size, anchored to window bottom-left, independent of sprite scale */}
+      {scaleMode && (
+        <div
+          ref={scaleControlsRef}
+          className="absolute left-2 bottom-2 w-[260px] z-10"
+          style={{ pointerEvents: 'auto' }}
+          onMouseDown={event => event.stopPropagation()}
+          onClick={event => event.stopPropagation()}
+        >
+          <div className="rounded-2xl border border-border bg-white/90 px-3 py-2 shadow-soft">
+            <div className="mb-2 flex items-center gap-2">
+              <button
+                type="button"
+                className="w-8 h-8 rounded-full border border-border bg-white/90 text-primary flex items-center justify-center hover:bg-mint"
+                title="Reset"
+                onClick={() => applyScale(1)}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4">
+                  <path d="M4 7v6h6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M5 13a7 7 0 1 0 2-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <div className="flex min-w-0 flex-1 items-center gap-1 text-[11px] font-semibold text-primary">
+                <span className="shrink-0">{'縮放比例：'}</span>
+                <input
+                  type="number"
+                  min={0.25}
+                  max={maxVisibleScale}
+                  step={0.05}
+                  value={scaleText}
+                  onChange={event => setScaleText(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') applyScaleText()
+                  }}
+                  onBlur={applyScaleText}
+                  className="min-w-0 w-full rounded-full border border-border bg-white px-2 py-1 text-center text-primary outline-none focus:border-teal"
+                  title="Scale"
+                />
+              </div>
+              <button
+                type="button"
+                className="w-8 h-8 rounded-full border border-border bg-mint text-primary flex items-center justify-center hover:bg-teal"
+                title="OK"
+                onClick={exitScaleMode}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4">
+                  <path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+            <input
+              type="range"
+              min={0.25}
+              max={maxVisibleScale}
+              step={0.05}
+              value={scaleDraft}
+              onChange={event => applyScale(Number(event.target.value))}
+              className="w-full accent-teal"
+              title={`縮放比例 ${scaleDraft.toFixed(2)}`}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
