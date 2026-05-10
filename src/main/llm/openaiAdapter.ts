@@ -144,6 +144,7 @@ function buildSystemPrompt(settings: AppSettings, char: PromptCharacter): string
     '- Then spoken dialogue only (no narration, no stage directions, no inner monologue).',
     '- 不要輸出「角色名：內容」格式（例如：紀天行：...）。直接輸出台詞內容本身。',
     '- 不要把整段台詞包在外層引號（「」/『』/""). 只有在引用他人原話時才使用引號。',
+    '- 若回覆超過一句，每一句請獨立換行，不要全部擠在同一行。',
     '- Show at least 1 voice trait and 1 relationship attitude from Character DNA.',
     '- Avoid assistant proposals like: "要不要我幫你", "我可以幫你", "你可以試試".',
     '- 不要改成教學、客服、顧問或任務拆解口吻。',

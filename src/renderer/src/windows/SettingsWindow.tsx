@@ -29,31 +29,19 @@ function openaiDatalistOptions(mode: OpenaiModelListMode): string[] {
 }
 
 function openaiModelOptionsFor(mode: OpenaiModelListMode): string[] {
-  return mode === 'catalog' ? (MODELS.openai ?? []) : openaiDatalistOptions(mode)
+  return mode === 'catalog' ? MODELS : openaiDatalistOptions(mode)
 }
 
-const PROVIDERS = ['openai', 'claude', 'gemini', 'grok'] as const
 /** 建議值：與官方目錄同步手動維護，或以帳戶可用的 `GET https://api.openai.com/v1/models` 為準 */
-const MODELS: Record<string, string[]> = {
-  openai: [
-    'gpt-5.5', 'gpt-5.5-pro',
-    'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano',
-    'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.1',
-    'gpt-5', 'gpt-5-pro', 'gpt-5-mini', 'gpt-5-nano',
-    'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
-    'gpt-4o', 'gpt-4o-mini',
-    'o3', 'o3-pro', 'o4-mini', 'o1', 'o1-mini'
-  ],
-  claude: [
-    'claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001',
-    'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'
-  ],
-  gemini: [
-    'gemini-2.5-pro', 'gemini-2.5-flash',
-    'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'
-  ],
-  grok: ['grok-3', 'grok-3-mini', 'grok-2']
-}
+const MODELS = [
+  'gpt-5.5', 'gpt-5.5-pro',
+  'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano',
+  'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.1',
+  'gpt-5', 'gpt-5-pro', 'gpt-5-mini', 'gpt-5-nano',
+  'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
+  'gpt-4o', 'gpt-4o-mini',
+  'o3', 'o3-pro', 'o4-mini', 'o1', 'o1-mini'
+]
 
 const TABS = ['LLM 設定', '世界觀', '使用者', '記憶', '介面', '角色', '資料'] as const
 type Tab = typeof TABS[number]
@@ -90,7 +78,13 @@ export default function SettingsWindow() {
   const [nicknamesText, setNicknamesText] = useState('')
 
   useEffect(() => {
-    if (settings) setDraft(JSON.parse(JSON.stringify(settings)))
+    if (!settings) return
+    const nextDraft = JSON.parse(JSON.stringify(settings)) as AppSettings
+    // 目前只支援 OpenAI，避免舊設定殘留其他 provider 造成 UI/行為不一致。
+    if (nextDraft.llm.provider !== 'openai') {
+      nextDraft.llm.provider = 'openai'
+    }
+    setDraft(nextDraft)
   }, [settings])
 
   useEffect(() => {
@@ -207,40 +201,28 @@ export default function SettingsWindow() {
         {tab === 'LLM 設定' && (
           <>
             <Field label="服務商">
+              <input className="input-field" value="openai" disabled />
+            </Field>
+            <Field label="模型建議清單">
               <select
                 className="input-field"
-                value={draft.llm.provider}
-                onChange={e => {
-                  set('llm.provider', e.target.value)
-                  set('llm.model', MODELS[e.target.value]?.[0] ?? '')
-                  setOpenaiModelListMode('catalog')
-                }}
+                value={openaiModelListMode}
+                onChange={e => setOpenaiModelListMode(e.target.value as OpenaiModelListMode)}
               >
-                {PROVIDERS.map(p => <option key={p} value={p}>{p}</option>)}
+                <option value="catalog">一般（最新常用 ID 捷徑）</option>
+                <option value="incentive-1m">資料分享贈送額度 · 每日 1M 組（官方快照 ID）</option>
+                <option value="incentive-10m">資料分享贈送額度 · 每日 10M 組（官方快照 ID）</option>
+                <option value="incentive-all">資料分享贈送額度 · 兩組合併</option>
               </select>
+              <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                贈送額度僅在已於 Platform 開啟「分享輸入／輸出」且帳戶顯示符合資格時適用；兩組額度分開計（tier 1–2 為 250K / 2.5M）。
+                詳見{' '}
+                <a className="underline text-[#3D5A52]" href={OPENAI_MODEL_LIST_HELP} target="_blank" rel="noreferrer">
+                  OpenAI 說明
+                </a>
+                。微調、eval、工具呼叫不在贈送範圍。
+              </p>
             </Field>
-            {draft.llm.provider === 'openai' && (
-              <Field label="模型建議清單">
-                <select
-                  className="input-field"
-                  value={openaiModelListMode}
-                  onChange={e => setOpenaiModelListMode(e.target.value as OpenaiModelListMode)}
-                >
-                  <option value="catalog">一般（最新常用 ID 捷徑）</option>
-                  <option value="incentive-1m">資料分享贈送額度 · 每日 1M 組（官方快照 ID）</option>
-                  <option value="incentive-10m">資料分享贈送額度 · 每日 10M 組（官方快照 ID）</option>
-                  <option value="incentive-all">資料分享贈送額度 · 兩組合併</option>
-                </select>
-                <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
-                  贈送額度僅在已於 Platform 開啟「分享輸入／輸出」且帳戶顯示符合資格時適用；兩組額度分開計（tier 1–2 為 250K / 2.5M）。
-                  詳見{' '}
-                  <a className="underline text-[#3D5A52]" href={OPENAI_MODEL_LIST_HELP} target="_blank" rel="noreferrer">
-                    OpenAI 說明
-                  </a>
-                  。微調、eval、工具呼叫不在贈送範圍。
-                </p>
-              </Field>
-            )}
             <Field label="模型（可手動輸入自訂 ID）">
               <input
                 type="text"
@@ -250,30 +232,26 @@ export default function SettingsWindow() {
                 onChange={e => set('llm.model', e.target.value)}
                 placeholder="輸入或選擇模型 ID"
               />
-              {draft.llm.provider === 'openai' && (
-                <div className="mt-2 flex gap-2 items-center">
-                  <select
-                    className="input-field"
-                    value=""
-                    onChange={e => {
-                      const v = e.target.value
-                      if (v) set('llm.model', v)
-                      e.currentTarget.value = ''
-                    }}
-                  >
-                    <option value="">快速挑選（顯示完整清單）</option>
-                    {openaiModelOptionsFor(openaiModelListMode).map(m => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div className="mt-2 flex gap-2 items-center">
+                <select
+                  className="input-field"
+                  value=""
+                  onChange={e => {
+                    const v = e.target.value
+                    if (v) set('llm.model', v)
+                    e.currentTarget.value = ''
+                  }}
+                >
+                  <option value="">快速挑選（顯示完整清單）</option>
+                  {openaiModelOptionsFor(openaiModelListMode).map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
               <datalist id="model-list">
-                {(draft.llm.provider === 'openai'
-                  ? (openaiModelListMode === 'catalog'
-                      ? (MODELS.openai ?? [])
-                      : openaiDatalistOptions(openaiModelListMode))
-                  : (MODELS[draft.llm.provider] ?? [])
+                {(openaiModelListMode === 'catalog'
+                  ? MODELS
+                  : openaiDatalistOptions(openaiModelListMode)
                 ).map(m => <option key={m} value={m} />)}
               </datalist>
             </Field>

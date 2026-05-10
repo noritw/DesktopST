@@ -200,6 +200,21 @@ function safeCharacterDir(characterId: string): string | null {
   return fs.existsSync(path.join(dir, 'card.json')) ? dir : null
 }
 
+function cleanupOldAvatarFiles(dir: string, keepPath: string): void {
+  const keep = path.resolve(keepPath)
+  for (const file of fs.readdirSync(dir)) {
+    const full = path.join(dir, file)
+    if (path.resolve(full) === keep) continue
+    if (!file.startsWith('avatar')) continue
+    if (!ALLOWED_IMAGE_EXT.has(path.extname(file).toLowerCase())) continue
+    try {
+      if (fs.statSync(full).isFile()) fs.unlinkSync(full)
+    } catch {
+      // Best-effort cleanup only; saving the new avatar is the important part.
+    }
+  }
+}
+
 export function initState(
   s: AppSettings,
   chars: Character[],
@@ -421,8 +436,9 @@ export function registerIpcHandlers() {
       if (buf.length > MAX_MEDIA_BYTES) return { error: '檔案超過 10 MB 上限' }
       const dir = safeCharacterDir(payload.id)
       if (!dir) return { error: 'Character not found' }
-      const dest = path.join(dir, `avatar${ext}`)
+      const dest = path.join(dir, `avatar-${Date.now()}${ext}`)
       fs.writeFileSync(dest, buf)
+      cleanupOldAvatarFiles(dir, dest)
       return { path: dest }
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) }

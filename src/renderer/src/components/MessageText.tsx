@@ -22,11 +22,41 @@ function renderInline(text: string): ReactNode[] {
 }
 
 function stripLeadingEmotionTag(text: string): string {
-  return String(text ?? '').replace(/^\s*\[[a-z_]+\]\s*/i, '')
+  return String(text ?? '')
+    .replace(/^\s*(?:\[\s*[\p{L}\p{N}_,\-\/\s]{1,40}\s*\]\s*)+/u, '')
+    .replace(/^(?:emotion|mood|feeling|情緒)\s*[:=：]\s*[\p{L}\p{N}_,\-\/\s]{1,40}\s*/iu, '')
+}
+
+function unwrapDialogueQuotes(line: string): string {
+  let out = line.trim()
+  const quotePairs: Array<[string, string]> = [
+    ['「', '」'],
+    ['『', '』'],
+    ['“', '”'],
+    ['"', '"'],
+    ["'", "'"]
+  ]
+
+  while (out.length > 1) {
+    const pair = quotePairs.find(([open, close]) => out.startsWith(open) && out.endsWith(close))
+    if (!pair) break
+    out = out.slice(pair[0].length, out.length - pair[1].length).trim()
+  }
+
+  return out
 }
 
 function normalizeVisibleText(text: string): string {
-  return stripLeadingEmotionTag(text).replace(/\\n/g, '\n')
+  const normalized = stripLeadingEmotionTag(text)
+    .replace(/\\n/g, '\n')
+    .replace(/[」』”"]\s*[「『“"]/g, '\n')
+
+  return normalized
+    .split(/\r?\n/)
+    .map(unwrapDialogueQuotes)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 export default function MessageText({ text, className }: Props) {
