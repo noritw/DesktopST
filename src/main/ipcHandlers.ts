@@ -110,6 +110,39 @@ function safeJsonParse<T>(s: string): T | null {
   }
 }
 
+function parseGuardDecisionText(raw: string): { respond?: boolean; emotion?: string; content?: string } | null {
+  const text = String(raw ?? '').trim()
+  if (!text) return null
+
+  const json = safeJsonParse<{ respond?: boolean; emotion?: string; content?: string }>(text)
+  if (json) return json
+
+  const out: { respond?: boolean; emotion?: string; content?: string } = {}
+
+  const respondMatch = text.match(/\brespond\s*[:=]\s*(true|false|1|0|yes|no|是|否)\b/i)
+  if (respondMatch) {
+    const token = respondMatch[1].toLowerCase()
+    out.respond = token === 'true' || token === '1' || token === 'yes' || token === '是'
+  }
+
+  const emotionMatch = text.match(/\bemotion\s*[:=]\s*["']?([a-z_]+)["']?/i)
+  if (emotionMatch) {
+    out.emotion = String(emotionMatch[1]).toLowerCase()
+  }
+
+  const contentQuoted =
+    text.match(/\bcontent\s*[:=]\s*"([\s\S]*?)"\s*$/i)
+    ?? text.match(/\bcontent\s*[:=]\s*'([\s\S]*?)'\s*$/i)
+  if (contentQuoted) {
+    out.content = contentQuoted[1]
+  } else {
+    const contentPlain = text.match(/\bcontent\s*[:=]\s*([\s\S]+)$/i)
+    if (contentPlain) out.content = contentPlain[1].trim()
+  }
+
+  return (out.respond !== undefined || out.emotion || out.content) ? out : null
+}
+
 function normalizeForCompare(s: string): string {
   return String(s ?? '')
     .trim()
@@ -938,7 +971,7 @@ export function registerIpcHandlers() {
           messages: recentMessages,
           speakerNameById: getSpeakerNameById()
         })
-        const parsed = safeJsonParse<{ respond?: boolean; emotion?: string; content?: string }>(jsonText)
+        const parsed = parseGuardDecisionText(jsonText)
         const fallbackReply = !parsed && jsonText && !/^\s*(false|no|不|不用|沉默)/i.test(jsonText)
           ? String(jsonText).trim()
           : ''
