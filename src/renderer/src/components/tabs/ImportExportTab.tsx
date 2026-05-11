@@ -9,7 +9,8 @@ interface Props {
 }
 
 export default function ImportExportTab({ draft, onError, onNotify }: Props) {
-  const fileRef = useRef<HTMLInputElement>(null)
+  const dstpackFileRef = useRef<HTMLInputElement>(null)
+  const stFileRef = useRef<HTMLInputElement>(null)
   const openEditor = useCharacterLibraryStore(s => s.openEditor)
   const closeEditor = useCharacterLibraryStore(s => s.closeEditor)
 
@@ -69,7 +70,7 @@ export default function ImportExportTab({ draft, onError, onNotify }: Props) {
     const buf = (res as { buffer: ArrayBuffer }).buffer
     const dlg = await window.api.invoke('file:save-dialog', {
       defaultPath: `${draft.name || 'character'}.dstpack`,
-      filters: [{ name: 'DesktopST 搬家包', extensions: ['dstpack'] }]
+      filters: [{ name: 'DesktopST 角色包', extensions: ['dstpack'] }]
     }) as { filePath?: string; error?: string }
     if (dlg && 'error' in dlg && dlg.error) {
       onError(dlg.error)
@@ -79,33 +80,35 @@ export default function ImportExportTab({ draft, onError, onNotify }: Props) {
     if (!fp) return
     const wr = await window.api.invoke('file:write-file', { path: fp, data: buf }) as { ok?: boolean; error?: string }
     if (wr && 'error' in wr && wr.error) onError(wr.error)
-    else onNotify('已匯出搬家包')
+    else onNotify('已匯出角色包')
   }
 
-  const pickImport = () => fileRef.current?.click()
+  const onDstpackFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const buf = await file.arrayBuffer()
+    const res = await window.api.invoke('character:import-dstpack', { buffer: buf }) as {
+      ok?: boolean
+      imported?: number
+      skipped?: number
+      error?: string
+    }
+    if (res && typeof res === 'object' && 'error' in res && res.error) {
+      onError(res.error ?? '匯入失敗')
+      return
+    }
+    const imp = typeof res.imported === 'number' ? res.imported : 0
+    const sk = typeof res.skipped === 'number' ? res.skipped : 0
+    onNotify(`已匯入角色包：${imp} 個角色，略過 ${sk} 個`)
+  }
 
-  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onStFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     e.target.value = ''
     if (!file) return
     const lower = file.name.toLowerCase()
     const buf = await file.arrayBuffer()
-    if (lower.endsWith('.dstpack')) {
-      const res = await window.api.invoke('character:import-dstpack', { buffer: buf }) as {
-        ok?: boolean
-        imported?: number
-        skipped?: number
-        error?: string
-      }
-      if (res && typeof res === 'object' && 'error' in res && res.error) {
-        onError(res.error ?? '匯入失敗')
-        return
-      }
-      const imp = typeof res.imported === 'number' ? res.imported : 0
-      const sk = typeof res.skipped === 'number' ? res.skipped : 0
-      onNotify(`已匯入搬家包：${imp} 個角色，略過 ${sk} 個`)
-      return
-    }
     if (lower.endsWith('.json')) {
       const text = new TextDecoder().decode(buf)
       const res = await window.api.invoke('character:import-json', text) as Character | { error?: string }
@@ -131,29 +134,52 @@ export default function ImportExportTab({ draft, onError, onNotify }: Props) {
       onNotify('已匯入，請確認角色資料')
       return
     }
-    onError('請選擇 JSON、PNG 或 .dstpack 檔案')
+    onError('請選擇 JSON 或 PNG 格式的 SillyTavern 角色卡')
   }
 
   return (
-    <div className="space-y-4">
-      <input ref={fileRef} type="file" accept=".json,.png,.dstpack" className="hidden" onChange={onFile} />
-      <div className="flex flex-wrap gap-2">
-        <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full bg-mint text-primary font-semibold" onClick={exportJson}>
-          匯出 ST JSON
-        </button>
-        <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full bg-mint text-primary font-semibold" onClick={exportPng}>
-          匯出 ST PNG
-        </button>
-        <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full bg-[#AAEEDD] text-primary font-semibold" onClick={exportDstPack}>
-          匯出 DesktopST 搬家包
-        </button>
-        <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full border border-border text-primary" onClick={pickImport}>
-          匯入 ST 角色卡
-        </button>
-      </div>
-      <p className="text-xs text-secondary leading-relaxed">
-        匯入成功後會改為編輯新匯入的角色。若匯入失敗請確認檔案格式。
-      </p>
+    <div className="space-y-5">
+      {/* DesktopST 角色包 */}
+      <section>
+        <h3 className="text-sm font-semibold text-primary mb-1">DesktopST 角色包</h3>
+        <p className="text-xs text-secondary leading-relaxed mb-3">
+          在不同電腦之間轉移角色，包含角色設定與所有情緒圖片。
+        </p>
+        <input ref={dstpackFileRef} type="file" accept=".dstpack" className="hidden" onChange={onDstpackFile} />
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full bg-[#AAEEDD] text-primary font-semibold" onClick={exportDstPack}>
+            匯出 DesktopST 角色包
+          </button>
+          <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full border border-border text-primary" onClick={() => dstpackFileRef.current?.click()}>
+            匯入 DesktopST 角色包
+          </button>
+        </div>
+      </section>
+
+      <hr className="border-border/50" />
+
+      {/* SillyTavern 角色卡 */}
+      <section>
+        <h3 className="text-sm font-semibold text-primary mb-1">SillyTavern 角色卡</h3>
+        <p className="text-xs text-secondary leading-relaxed mb-3">
+          匯入或匯出 SillyTavern 相容格式（JSON / PNG），適合與 ST 使用者交換角色。
+        </p>
+        <input ref={stFileRef} type="file" accept=".json,.png" className="hidden" onChange={onStFile} />
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full bg-mint text-primary font-semibold" onClick={exportJson}>
+            匯出 ST JSON
+          </button>
+          <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full bg-mint text-primary font-semibold" onClick={exportPng}>
+            匯出 ST PNG
+          </button>
+          <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full border border-border text-primary" onClick={() => stFileRef.current?.click()}>
+            匯入 ST 角色卡
+          </button>
+        </div>
+        <p className="text-xs text-secondary leading-relaxed mt-2">
+          匯入成功後會改為編輯新匯入的角色。若匯入失敗請確認檔案格式。
+        </p>
+      </section>
     </div>
   )
 }
