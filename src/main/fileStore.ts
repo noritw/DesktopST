@@ -95,7 +95,14 @@ export function loadSettings(): AppSettings {
       activeWorldId: typed.activeWorldId || migratedWorldId || '',
       llm: {
         ...DEFAULT_SETTINGS.llm,
-        ...typed.llm
+        ...typed.llm,
+        // Migrate: if apiKeys missing but legacy apiKey exists, seed openai key
+        apiKeys: typed.llm?.apiKeys ?? {
+          openai: typed.llm?.apiKey ?? '',
+          claude: '',
+          gemini: '',
+          grok: ''
+        }
       },
       memory: {
         ...DEFAULT_SETTINGS.memory,

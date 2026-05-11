@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset } from './types'
 import * as fileStore from './fileStore'
-import { chatWithOpenAI } from './llm/openaiAdapter'
+import { chatWithLLM, testLLMConnection, testLLMMessage } from './llm/index'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
 import { importStJson, exportToStJson } from './stCardMapper'
 import {
@@ -1196,7 +1196,7 @@ export function registerIpcHandlers() {
     // 1) Primary responder always replies
     try {
       broadcastToAll('character:thinking', { characterId: primaryId, thinking: true })
-      const { content, emotion, debugPrompt } = await chatWithOpenAI({
+      const { content, emotion, debugPrompt } = await chatWithLLM({
         settings,
         character: primaryChar,
         messages: recentMessagesBase,
@@ -1286,7 +1286,7 @@ export function registerIpcHandlers() {
       try {
         broadcastToAll('character:thinking', { characterId: charId, thinking: true })
         const recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
-        const { content: jsonText, debugPrompt } = await chatWithOpenAI({
+        const { content: jsonText, debugPrompt } = await chatWithLLM({
           settings,
           character: secondaryGuardChar,
           messages: recentMessages,
@@ -1370,7 +1370,7 @@ export function registerIpcHandlers() {
         ].join('\n'),
         timestamp: Date.now()
       }
-      const { content, emotion, debugPrompt } = await chatWithOpenAI({
+      const { content, emotion, debugPrompt } = await chatWithLLM({
         settings,
         character: char,
         messages: [...recentMessages, forceInstruction],
@@ -1487,48 +1487,20 @@ export function registerIpcHandlers() {
     }
   })
 
-  // LLM connection test: verify API key by listing models
-  ipcMain.handle('llm:test-connection', async (_, payload?: { apiKey?: string; endpoint?: string }) => {
-    const key = payload?.apiKey?.trim() || settings.llm.apiKey?.trim()
-    if (!key) return { ok: false, error: '尚未填寫 API Key' }
-    const baseURL = payload?.endpoint?.trim() || settings.llm.endpoint?.trim() || undefined
-    try {
-      const client = new (await import('openai')).default({ apiKey: key, baseURL })
-      const resp = await client.models.list()
-      const models: string[] = []
-      for await (const m of resp) {
-        models.push(m.id)
-        if (models.length >= 5) break
-      }
-      return { ok: true, models }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      return { ok: false, error: msg }
-    }
+  // LLM connection test: verify API key (provider-aware)
+  ipcMain.handle('llm:test-connection', async (_, payload?: { apiKey?: string; apiKeys?: Record<string, string>; endpoint?: string; provider?: string }) => {
+    const provider = payload?.provider?.trim() || settings.llm.provider || 'openai'
+    const apiKeys = { ...settings.llm.apiKeys, ...payload?.apiKeys }
+    const apiKey = payload?.apiKey?.trim() || settings.llm.apiKey?.trim() || ''
+    return testLLMConnection({ provider, apiKey, apiKeys, endpoint: payload?.endpoint?.trim() || settings.llm.endpoint?.trim() || undefined })
   })
 
-  // LLM test message: send a minimal prompt and return the reply
-  ipcMain.handle('llm:test-message', async (_, payload?: { apiKey?: string; endpoint?: string; model?: string }) => {
-    const key = payload?.apiKey?.trim() || settings.llm.apiKey?.trim()
-    if (!key) return { ok: false, error: '尚未填寫 API Key' }
-    const model = payload?.model?.trim() || settings.llm.model?.trim()
-    if (!model) return { ok: false, error: '尚未填寫模型名稱' }
-    const baseURL = payload?.endpoint?.trim() || settings.llm.endpoint?.trim() || undefined
-    try {
-      const client = new (await import('openai')).default({ apiKey: key, baseURL })
-      const resp = await client.responses.create({
-        model,
-        input: 'Say "Hello!" in one word.',
-        max_output_tokens: 20
-      } as any)
-      const text = typeof (resp as any)?.output_text === 'string'
-        ? (resp as any).output_text
-        : JSON.stringify(resp).slice(0, 200)
-      return { ok: true, reply: text.trim() || '(empty)' }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      return { ok: false, error: msg }
-    }
+  // LLM test message: send a minimal prompt and return the reply (provider-aware)
+  ipcMain.handle('llm:test-message', async (_, payload?: { apiKey?: string; apiKeys?: Record<string, string>; endpoint?: string; model?: string; provider?: string }) => {
+    const provider = payload?.provider?.trim() || settings.llm.provider || 'openai'
+    const apiKeys = { ...settings.llm.apiKeys, ...payload?.apiKeys }
+    const apiKey = payload?.apiKey?.trim() || settings.llm.apiKey?.trim() || ''
+    return testLLMMessage({ provider, apiKey, apiKeys, model: payload?.model?.trim() || settings.llm.model?.trim() || '', endpoint: payload?.endpoint?.trim() || settings.llm.endpoint?.trim() || undefined })
   })
 
   // Import ST character card (JSON)

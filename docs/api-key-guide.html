@@ -1,0 +1,760 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DesktopST API Key 新手教學</title>
+  <style>
+    :root {
+      --bg: #f7fffc;
+      --surface: #ffffff;
+      --surface-soft: #effcf7;
+      --mint: #cbfbc4;
+      --teal: #aaeedd;
+      --sky: #aaeeff;
+      --yellow: #ffe8aa;
+      --pink: #ffbbbb;
+      --lavender: #f0bbff;
+      --text: #3d5a52;
+      --muted: #6f968a;
+      --border: #d8f5ec;
+      --strong: #267668;
+      --danger: #9b4e58;
+      --warning: #8a6a25;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --radius-sm: 12px;
+      --shadow: 0 10px 30px rgba(170, 238, 221, 0.24);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(203, 251, 196, 0.48), transparent 32rem),
+        radial-gradient(circle at 85% 0%, rgba(170, 238, 255, 0.38), transparent 34rem),
+        var(--bg);
+      color: var(--text);
+      font-family: "Noto Sans TC", "M PLUS Rounded 1c", "Microsoft JhengHei", system-ui, sans-serif;
+      line-height: 1.75;
+    }
+
+    a {
+      color: var(--strong);
+      font-weight: 700;
+      text-decoration: none;
+      border-bottom: 2px solid rgba(170, 238, 221, 0.9);
+    }
+
+    a:hover {
+      background: rgba(203, 251, 196, 0.5);
+      border-radius: 6px;
+    }
+
+    .page {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+
+    .hero {
+      min-height: 68vh;
+      display: grid;
+      align-items: center;
+      padding: 44px 0 28px;
+    }
+
+    .hero-inner {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+      gap: 28px;
+      align-items: center;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      width: fit-content;
+      padding: 6px 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.74);
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+
+    h1,
+    h2,
+    h3 {
+      line-height: 1.22;
+      letter-spacing: 0;
+      color: var(--text);
+    }
+
+    h1 {
+      margin: 18px 0 16px;
+      font-size: clamp(2.35rem, 5vw, 4.6rem);
+      max-width: 820px;
+    }
+
+    h2 {
+      margin: 0 0 18px;
+      font-size: clamp(1.55rem, 3vw, 2.35rem);
+    }
+
+    h3 {
+      margin: 0 0 10px;
+      font-size: 1.18rem;
+    }
+
+    p {
+      margin: 0 0 14px;
+    }
+
+    .lead {
+      max-width: 760px;
+      font-size: 1.18rem;
+      color: #4d7168;
+    }
+
+    .hero-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+
+    .pet-window {
+      aspect-ratio: 1 / 1;
+      display: grid;
+      place-items: center;
+      border-radius: 36px;
+      background:
+        linear-gradient(160deg, rgba(203, 251, 196, 0.8), rgba(170, 238, 255, 0.68)),
+        var(--surface);
+      border: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .pet-face {
+      width: min(72%, 250px);
+      aspect-ratio: 1 / 1;
+      border-radius: 45% 45% 40% 40%;
+      background: #fff8ed;
+      border: 8px solid rgba(255, 255, 255, 0.86);
+      position: relative;
+      box-shadow: inset 0 -18px 0 rgba(255, 187, 187, 0.16);
+    }
+
+    .pet-face::before,
+    .pet-face::after {
+      content: "";
+      position: absolute;
+      top: 43%;
+      width: 15%;
+      aspect-ratio: 1 / 1;
+      border-radius: 50%;
+      background: #3d5a52;
+    }
+
+    .pet-face::before {
+      left: 26%;
+    }
+
+    .pet-face::after {
+      right: 26%;
+    }
+
+    .pet-mouth {
+      position: absolute;
+      left: 50%;
+      top: 62%;
+      width: 54px;
+      height: 24px;
+      transform: translateX(-50%);
+      border-bottom: 5px solid #3d5a52;
+      border-radius: 0 0 999px 999px;
+    }
+
+    .speech {
+      position: absolute;
+      right: 18px;
+      bottom: 18px;
+      max-width: 210px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 0.92rem;
+    }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 22px 0 0;
+    }
+
+    nav a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 42px;
+      padding: 8px 14px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.8);
+      color: var(--text);
+      box-shadow: none;
+    }
+
+    section {
+      margin: 28px 0;
+      padding: 32px;
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid var(--border);
+      box-shadow: 0 6px 20px rgba(170, 238, 221, 0.16);
+    }
+
+    .soft-band {
+      background: linear-gradient(180deg, rgba(239, 252, 247, 0.94), rgba(255, 255, 255, 0.9));
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      padding: 20px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .note,
+    .warning,
+    .success {
+      padding: 16px 18px;
+      border-radius: var(--radius-md);
+      margin: 16px 0;
+      border: 1px solid;
+    }
+
+    .note {
+      background: rgba(170, 238, 255, 0.2);
+      border-color: rgba(170, 238, 255, 0.72);
+    }
+
+    .warning {
+      background: rgba(255, 232, 170, 0.36);
+      border-color: rgba(255, 210, 110, 0.9);
+      color: var(--warning);
+    }
+
+    .success {
+      background: rgba(203, 251, 196, 0.34);
+      border-color: rgba(170, 238, 221, 0.9);
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    .steps {
+      counter-reset: step;
+      display: grid;
+      gap: 12px;
+      margin: 18px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .steps li {
+      counter-increment: step;
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 12px;
+      align-items: start;
+      padding: 16px;
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+
+    .steps li::before {
+      content: counter(step);
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: var(--mint);
+      color: var(--text);
+      font-weight: 900;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+
+    th,
+    td {
+      padding: 14px 16px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      background: var(--surface-soft);
+      color: var(--text);
+      font-size: 0.94rem;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    code {
+      padding: 2px 6px;
+      border-radius: 7px;
+      background: #edf8f4;
+      color: #2f695f;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .checklist {
+      display: grid;
+      gap: 10px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .checklist li {
+      padding: 12px 14px 12px 42px;
+      border-radius: var(--radius-sm);
+      background: rgba(239, 252, 247, 0.75);
+      border: 1px solid var(--border);
+      position: relative;
+    }
+
+    .checklist li::before {
+      content: "";
+      position: absolute;
+      left: 16px;
+      top: 18px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--teal);
+      box-shadow: 0 0 0 4px rgba(170, 238, 221, 0.26);
+    }
+
+    .source-list {
+      columns: 2;
+      column-gap: 24px;
+      padding-left: 18px;
+    }
+
+    .source-list li {
+      break-inside: avoid;
+      margin: 0 0 10px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+
+    .tag-openai { background: rgba(203, 251, 196, 0.48); }
+    .tag-gemini { background: rgba(170, 238, 255, 0.32); }
+    .tag-grok { background: rgba(240, 187, 255, 0.24); }
+    .tag-claude { background: rgba(255, 232, 170, 0.38); }
+
+    @media (max-width: 820px) {
+      .hero {
+        min-height: auto;
+        padding-top: 26px;
+      }
+
+      .hero-inner,
+      .grid,
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+
+      section {
+        padding: 22px;
+      }
+
+      .source-list {
+        columns: 1;
+      }
+
+      table {
+        display: block;
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div class="hero-inner">
+        <div>
+          <span class="eyebrow">DesktopST 使用者教學</span>
+          <h1>API Key 是什麼？新手申請與省錢測試指南</h1>
+          <p class="lead">這份文件給第一次使用 AI 桌面寵物的人。你可以把 API Key 想成「給 AI 服務看的通行證」。有了它，DesktopST 才能幫你的角色連到 OpenAI、Gemini、Grok 或 Claude。</p>
+          <nav aria-label="章節導覽">
+            <a href="#what">先懂觀念</a>
+            <a href="#compare">選哪一家</a>
+            <a href="#steps">申請步驟</a>
+            <a href="#tokens">Token 用量</a>
+            <a href="#safety">安全與省錢</a>
+          </nav>
+        </div>
+        <aside class="hero-card" aria-label="桌面寵物示意">
+          <div class="pet-window">
+            <div class="pet-face"><span class="pet-mouth"></span></div>
+            <div class="speech">把 Key 放進設定，我才能開始聊天。</div>
+          </div>
+        </aside>
+      </div>
+    </header>
+
+    <section id="what" class="soft-band">
+      <h2>1. 先把 API Key 想成一張小門票</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>API 是什麼？</h3>
+          <p>API 就像一個服務窗口。DesktopST 會把你說的話送到 AI 公司的服務窗口，AI 回答後，DesktopST 再把答案顯示給你。</p>
+        </div>
+        <div class="card">
+          <h3>API Key 是什麼？</h3>
+          <p>API Key 是一串很長的密碼。AI 公司看到這串密碼，就知道「這次使用是誰的帳號」，也知道要把用量算在哪個帳號上。</p>
+        </div>
+      </div>
+      <div class="warning">
+        <strong>最重要的一句話：</strong>API Key 要像提款卡密碼一樣保管。不要貼到公開網站、Discord、GitHub、截圖或聊天訊息裡。
+      </div>
+      <p>在 DesktopST 裡，API Key 會由你的電腦保存。你仍然要記得：只在官方網站申請，只貼進你信任的程式，不要交給陌生人。</p>
+    </section>
+
+    <section id="compare">
+      <h2>2. 四家服務快速比較</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>服務</th>
+            <th>適合誰</th>
+            <th>新手免費或測試方式</th>
+            <th>注意事項</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>OpenAI</strong></td>
+            <td>想要穩定、通用、中文英文都常用的人。</td>
+            <td>依帳號 Billing 頁面為準；若有 free credits 會先扣免費額度。許多帳號需要先購買最低預付點數才能繼續使用。</td>
+            <td>建議設定使用上限，並用便宜模型先測試。</td>
+          </tr>
+          <tr>
+            <td><strong>Gemini</strong></td>
+            <td>想先免費測試、希望用 Google 帳號快速開始的人。</td>
+            <td>官方有 Free tier，符合地區的使用者可在限制內免費用部分模型。</td>
+            <td>免費層級有 RPM、TPM、RPD 等限制，超過會出現限速錯誤。</td>
+          </tr>
+          <tr>
+            <td><strong>Grok / xAI</strong></td>
+            <td>想使用 Grok 模型，或想測試 OpenAI 相容介面的人。</td>
+            <td>以 xAI Console 顯示的 free/promotional credits 或 promo code 為準；沒有可用點數時通常要先買 prepaid credits。</td>
+            <td>月結帳單預設通常不開，預付點數用完會停止回應，比較容易控制成本。</td>
+          </tr>
+          <tr>
+            <td><strong>Claude</strong></td>
+            <td>重視長文、角色語氣、寫作與整理能力的人。</td>
+            <td>Claude API 一般採預付 usage credits；本教學不把它列入免費測試。</td>
+            <td>先買點數才能使用 API，購買點數通常不可退款且有期限。</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="small">資訊更新日：2026-05-12。各家方案可能變動，最終仍以官方 Console 與 Billing 頁面顯示為準。</p>
+    </section>
+
+    <section id="steps" class="soft-band">
+      <h2>3. 申請 API Key 前，先準備這三樣</h2>
+      <div class="grid-3">
+        <div class="card">
+          <h3>電子信箱</h3>
+          <p>用來註冊帳號、收驗證信、收到付款或用量提醒。</p>
+        </div>
+        <div class="card">
+          <h3>手機或驗證方式</h3>
+          <p>有些服務會要求額外驗證，這是為了防止濫用。</p>
+        </div>
+        <div class="card">
+          <h3>付款方式</h3>
+          <p>Claude、xAI 或部分 OpenAI 帳號可能需要先加值。Gemini 免費層級不一定需要先綁卡。</p>
+        </div>
+      </div>
+      <div class="note">
+        小朋友版理解：帳號是你的名字，API Key 是你的門票，Billing 是你的零用錢紀錄，Token 是每次聊天用掉的小積木。
+      </div>
+    </section>
+
+    <section id="openai">
+      <span class="pill tag-openai">OpenAI</span>
+      <h2>4. OpenAI API Key 申請方式</h2>
+      <ol class="steps">
+        <li><div>打開 <a href="https://platform.openai.com/" target="_blank" rel="noreferrer">OpenAI Platform</a>，登入或建立帳號。</div></li>
+        <li><div>進入 Dashboard 後，找到 API Keys 或專案設定裡的 Keys 頁面。</div></li>
+        <li><div>按下建立新 Key，取一個容易辨認的名字，例如 <code>DesktopST-test</code>。</div></li>
+        <li><div>把出現的 Key 複製下來，貼進 DesktopST 的 OpenAI API Key 欄位。這串 Key 通常只會完整顯示一次。</div></li>
+        <li><div>到 Billing 或 Usage 頁面確認是否有免費額度、已購買點數、用量上限與付款狀態。</div></li>
+      </ol>
+      <div class="success">
+        新手測試建議：先問一句很短的話，例如「請用一句話自我介紹」。確認成功後，再開始長篇角色對話。
+      </div>
+      <p>OpenAI 官方文件提醒 API Key 是秘密，不應分享或放在前端程式碼中；API 請求會用 <code>Authorization: Bearer</code> 的方式帶上 Key。</p>
+    </section>
+
+    <section id="gemini">
+      <span class="pill tag-gemini">Gemini</span>
+      <h2>5. Gemini API Key 申請方式</h2>
+      <ol class="steps">
+        <li><div>打開 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer">Google AI Studio API Keys</a>，登入 Google 帳號。</div></li>
+        <li><div>如果系統要求接受條款，先看完並接受。新使用者可能會自動建立預設 Project 與 API Key。</div></li>
+        <li><div>在 API Keys 頁面按下建立 Key，選擇或建立一個 Google Cloud Project。</div></li>
+        <li><div>複製 Key，貼進 DesktopST 的 Gemini API Key 欄位。</div></li>
+        <li><div>到 AI Studio 的 Rate limits 或 Billing 頁面確認你的免費限制與是否已升級付費。</div></li>
+      </ol>
+      <div class="note">
+        Gemini 免費層級常見限制包含每分鐘要求數 RPM、每分鐘輸入 Token 數 TPM、每日要求數 RPD。限制是算在 Project 上，不是每一把 Key 各自重新算。
+      </div>
+      <p>Google 官方也提醒：初期測試可以暫時直接填 Key，但正式使用要把 Key 保管好；不要放在公開網站或手機 App 前端裡。</p>
+    </section>
+
+    <section id="grok">
+      <span class="pill tag-grok">Grok / xAI</span>
+      <h2>6. Grok / xAI API Key 申請方式</h2>
+      <ol class="steps">
+        <li><div>打開 <a href="https://console.x.ai/" target="_blank" rel="noreferrer">xAI Console</a>，登入或建立 xAI 帳號。</div></li>
+        <li><div>確認目前選到的 Team 是你要使用的團隊。xAI 的 Key 與付款通常是綁在 Team 上。</div></li>
+        <li><div>進入 API Keys 頁面，建立一把新 Key，名字可填 <code>DesktopST-test</code>。</div></li>
+        <li><div>複製 Key，貼進 DesktopST 的 Grok API Key 欄位。</div></li>
+        <li><div>到 Billing 或 API spend management 查看是否有 free/promotional credits、promo code 或已購買的 prepaid credits。</div></li>
+      </ol>
+      <div class="warning">
+        xAI 文件說明 API 消耗會先扣 free/promotional credits，再扣 prepaid credits。若沒有可用點數，通常需要先購買預付點數。
+      </div>
+      <p>想看花了多少，可以到 xAI Usage Explorer 依日期、模型或 API Key 查看成本與 Token 用量。</p>
+    </section>
+
+    <section id="claude">
+      <span class="pill tag-claude">Claude</span>
+      <h2>7. Claude API Key 申請方式</h2>
+      <ol class="steps">
+        <li><div>打開 <a href="https://console.anthropic.com/" target="_blank" rel="noreferrer">Anthropic Console</a>，登入或建立帳號。</div></li>
+        <li><div>進入 Console 後，可以先在 Workbench 測試提示詞，熟悉 Claude 的回答方式。</div></li>
+        <li><div>到 API Keys 或 Account Settings 建立新 Key，名字可填 <code>DesktopST-test</code>。</div></li>
+        <li><div>複製 Key，貼進 DesktopST 的 Claude API Key 欄位。</div></li>
+        <li><div>到 Billing 頁面購買 usage credits。沒有點數時，Claude API 通常無法呼叫。</div></li>
+      </ol>
+      <div class="warning">
+        Claude API 的 usage credits 需要先購買；官方說點數會用於 API、Workbench 等用量，購買點數通常不可退款，且會過期。
+      </div>
+    </section>
+
+    <section id="free" class="soft-band">
+      <h2>8. 如何在免費額度或小額預算內測試</h2>
+      <ul class="checklist">
+        <li><strong>先從 Gemini 開始。</strong>如果你所在地區符合 Free tier，Gemini 是最容易零成本測試的選項。</li>
+        <li><strong>先問短句。</strong>例如「你好，請用一句話介紹自己」。不要一開始就丟超長角色設定和長篇劇情。</li>
+        <li><strong>先用便宜模型。</strong>每家模型價格不同，先選輕量或 flash/mini 類模型做連線測試。</li>
+        <li><strong>關掉自動續費或設低上限。</strong>還不熟時，不要開太高的自動加值或月結上限。</li>
+        <li><strong>每天看一次用量。</strong>測試期到官方 Console 的 Usage 或 Billing 頁看花費，養成習慣。</li>
+      </ul>
+      <div class="note">
+        免費不等於無限制。免費額度用完、超過每日限制、或請求太頻繁時，AI 可能會回傳錯誤。這不是 DesktopST 壞掉，而是服務端提醒你「今天先休息一下」。
+      </div>
+    </section>
+
+    <section id="tokens">
+      <h2>9. Token 是什麼？為什麼會影響費用？</h2>
+      <p>Token 是 AI 用來計算文字的小單位。你可以把它想成「文字積木」。你送出去的文字會變成一堆積木，AI 回答的文字也會變成一堆積木。服務商通常依照輸入 Token 和輸出 Token 計費。</p>
+      <div class="grid">
+        <div class="card">
+          <h3>輸入 Token</h3>
+          <p>你送給 AI 的內容，例如角色設定、世界觀、過去聊天紀錄、這次打的句子。</p>
+        </div>
+        <div class="card">
+          <h3>輸出 Token</h3>
+          <p>AI 回答你的內容。回答越長，輸出 Token 越多，費用通常越高。</p>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>情境</th>
+            <th>Token 用量會怎樣</th>
+            <th>省錢做法</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>角色設定很長</td>
+            <td>每次對話都可能帶入更多輸入 Token。</td>
+            <td>第一版角色卡先簡短，確認好玩後再慢慢加細節。</td>
+          </tr>
+          <tr>
+            <td>聊天紀錄保留很多</td>
+            <td>AI 需要讀更多舊訊息，輸入 Token 增加。</td>
+            <td>設定只保留最近 N 則，或使用摘要功能。</td>
+          </tr>
+          <tr>
+            <td>要求長篇小說式回答</td>
+            <td>輸出 Token 增加，費用也增加。</td>
+            <td>測試時先要求「100 字內」或「一句話」。</td>
+          </tr>
+          <tr>
+            <td>群組多角色互相說話</td>
+            <td>每個角色都可能產生一次 API 呼叫。</td>
+            <td>先限制回合數，例如每次最多 1 到 3 輪。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="safety" class="soft-band">
+      <h2>10. 安全與省錢檢查表</h2>
+      <div class="grid">
+        <div>
+          <h3>Key 安全</h3>
+          <ul class="checklist">
+            <li>不要把 API Key 貼到公開聊天室、社群、GitHub 或截圖裡。</li>
+            <li>如果懷疑 Key 外洩，立刻到官方 Console 刪掉舊 Key，重新建立新 Key。</li>
+            <li>不同用途用不同 Key，例如測試用一把、正式用一把。</li>
+            <li>如果官方支援限制 Key 權限或來源，盡量打開限制。</li>
+          </ul>
+        </div>
+        <div>
+          <h3>花費控制</h3>
+          <ul class="checklist">
+            <li>先設定低額度預算、通知或自動加值上限。</li>
+            <li>剛開始使用便宜模型，確定效果後再換高階模型。</li>
+            <li>把角色設定、世界觀、歷史訊息控制在真的需要的範圍。</li>
+            <li>測試群聊時降低角色數和回合數。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="troubleshooting">
+      <h2>11. 常見錯誤怎麼看</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>看到的狀況</th>
+            <th>可能原因</th>
+            <th>可以怎麼做</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Invalid API key</td>
+            <td>Key 貼錯、少貼一段、貼到別家的 Key。</td>
+            <td>回官方 Console 重新複製，確認服務商選對。</td>
+          </tr>
+          <tr>
+            <td>Quota exceeded 或 Rate limit</td>
+            <td>免費額度、每日次數或每分鐘限制用完。</td>
+            <td>等限制重置、降低聊天頻率、升級付費或換模型。</td>
+          </tr>
+          <tr>
+            <td>Billing required</td>
+            <td>帳號沒有可用點數或尚未設定付款。</td>
+            <td>到 Billing 頁確認免費額度、預付點數或付款方式。</td>
+          </tr>
+          <tr>
+            <td>回答太貴或用量變高</td>
+            <td>角色設定太長、保留太多歷史、輸出太長或群聊輪數太多。</td>
+            <td>縮短設定、降低 max response tokens、減少保留訊息和群聊回合。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="quick-start" class="soft-band">
+      <h2>12. 給完全新手的推薦路線</h2>
+      <ol class="steps">
+        <li><div>先申請 Gemini API Key，因為它最適合用免費層級測試基本連線。</div></li>
+        <li><div>在 DesktopST 裡貼上 Key，選一個輕量模型，送出一句短短的測試訊息。</div></li>
+        <li><div>成功後再試 OpenAI、Grok 或 Claude。需要付款的服務先小額加值，不要一開始開高上限。</div></li>
+        <li><div>每次新增角色卡或群聊功能時，都先用短對話測試，確認用量正常再長聊。</div></li>
+      </ol>
+    </section>
+
+    <section id="sources">
+      <h2>官方參考資料</h2>
+      <ul class="source-list">
+        <li><a href="https://platform.openai.com/docs/quickstart" target="_blank" rel="noreferrer">OpenAI Developer Quickstart</a></li>
+        <li><a href="https://platform.openai.com/docs/api-reference/authentication" target="_blank" rel="noreferrer">OpenAI API Authentication</a></li>
+        <li><a href="https://help.openai.com/en/articles/8264778-what-is-prepaid-billing" target="_blank" rel="noreferrer">OpenAI Prepaid Billing 說明</a></li>
+        <li><a href="https://ai.google.dev/gemini-api/docs/api-key" target="_blank" rel="noreferrer">Gemini API Key 官方文件</a></li>
+        <li><a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noreferrer">Gemini API Pricing</a></li>
+        <li><a href="https://ai.google.dev/gemini-api/docs/rate-limits" target="_blank" rel="noreferrer">Gemini Rate Limits</a></li>
+        <li><a href="https://docs.x.ai/developers/quickstart" target="_blank" rel="noreferrer">xAI API Quickstart</a></li>
+        <li><a href="https://docs.x.ai/docs/key-information/billing" target="_blank" rel="noreferrer">xAI Manage Billing</a></li>
+        <li><a href="https://docs.x.ai/docs/key-information/usage-explorer" target="_blank" rel="noreferrer">xAI Usage Explorer</a></li>
+        <li><a href="https://docs.claude.com/en/docs/get-started" target="_blank" rel="noreferrer">Claude Get Started</a></li>
+        <li><a href="https://platform.claude.com/docs/en/api/overview" target="_blank" rel="noreferrer">Claude API Overview</a></li>
+        <li><a href="https://support.claude.com/en/articles/8977456-how-do-i-pay-for-my-api-usage" target="_blank" rel="noreferrer">Claude API 付款說明</a></li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>

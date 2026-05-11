@@ -44,6 +44,61 @@ const MODELS = [
   'o3', 'o3-pro', 'o4-mini', 'o1', 'o1-mini'
 ]
 
+const CLAUDE_MODELS = [
+  'claude-sonnet-4-6',
+  'claude-opus-4-7',
+  'claude-haiku-4-5-20251001',
+  'claude-3-7-sonnet-20250219',
+  'claude-3-5-sonnet-20241022',
+  'claude-3-5-haiku-20241022',
+  'claude-3-opus-20240229'
+]
+
+const GEMINI_MODELS = [
+  'gemini-3.1-flash-lite',
+  'gemini-3.1-flash',
+  'gemini-3.1-pro-preview',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-pro'
+]
+
+const GROK_MODELS = [
+  'grok-4-1-fast-reasoning',
+  'grok-4-1-fast-non-reasoning',
+  'grok-4.3',
+  'grok-4.20-reasoning',
+  'grok-4.20-non-reasoning'
+]
+
+const PROVIDER_MODELS: Record<string, string[]> = {
+  openai: MODELS,
+  claude: CLAUDE_MODELS,
+  gemini: GEMINI_MODELS,
+  grok: GROK_MODELS
+}
+
+const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
+  openai: 'gpt-4o',
+  claude: 'claude-sonnet-4-6',
+  gemini: 'gemini-3.1-flash-lite',
+  grok: 'grok-4-1-fast-reasoning'
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  openai: 'OpenAI',
+  claude: 'Anthropic Claude',
+  gemini: 'Google Gemini',
+  grok: 'xAI Grok'
+}
+
+const PROVIDER_KEY_PLACEHOLDER: Record<string, string> = {
+  openai: 'sk-...',
+  claude: 'sk-ant-...',
+  gemini: 'AIza...',
+  grok: 'xai-...'
+}
+
 const LEFT_TABS = ['LLM 設定', '記憶', '資料'] as const
 const RIGHT_TABS = ['世界觀', '使用者', '介面'] as const
 const TABS = [...LEFT_TABS, ...RIGHT_TABS] as const
@@ -160,8 +215,14 @@ export default function SettingsWindow() {
   useEffect(() => {
     if (!settings) return
     const nextDraft = JSON.parse(JSON.stringify(settings)) as AppSettings
-    if (nextDraft.llm.provider !== 'openai') {
-      nextDraft.llm.provider = 'openai'
+    // Ensure apiKeys exists (fallback for old settings)
+    if (!nextDraft.llm.apiKeys) {
+      nextDraft.llm.apiKeys = {
+        openai: nextDraft.llm.apiKey ?? '',
+        claude: '',
+        gemini: '',
+        grok: ''
+      }
     }
     setDraft(nextDraft)
   }, [settings])
@@ -193,10 +254,30 @@ export default function SettingsWindow() {
       const keys = path.split('.')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let obj: any = next
-      for (let i = 0; i < keys.length - 1; i++) obj = obj[keys[i]]
+      for (let i = 0; i < keys.length - 1; i++) {
+        const key = keys[i]
+        if (obj[key] === undefined || obj[key] === null) {
+          obj[key] = {} // Initialize to empty object if undefined
+        }
+        obj = obj[key]
+      }
       obj[keys[keys.length - 1]] = value
       return next
     })
+  }
+
+  // Helper: get current provider's model (from per-provider storage or fallback to global)
+  const getCurrentModel = (): string => {
+    return draft?.llm.models?.[draft.llm.provider] ?? draft?.llm.model ?? ''
+  }
+
+  // Helper: set current provider's model to per-provider storage
+  const setCurrentModel = (m: string) => {
+    if (!draft) return
+    const next = JSON.parse(JSON.stringify(draft)) as AppSettings
+    if (!next.llm.models) next.llm.models = {}
+    next.llm.models[next.llm.provider] = m
+    setDraft(next)
   }
 
   const handleSave = async () => {
@@ -217,7 +298,8 @@ export default function SettingsWindow() {
   const onboardingIncomplete = !!draft && draft.ui.onboardingCompleted === false
   const canFinishOnboarding =
     !!draft &&
-    draft.llm.apiKey.trim().length > 0 &&
+    (draft.llm.apiKeys?.[draft.llm.provider] ?? draft.llm.apiKey ?? '').trim().length > 0 &&
+    getCurrentModel().trim().length > 0 &&
     !!(worldDraft?.worldSetting?.trim()) &&
     !!(personaDraft?.description?.trim()) &&
     characters.length >= 1
@@ -372,7 +454,7 @@ export default function SettingsWindow() {
         <div className="px-4 py-3 border-b border-border bg-[#E8FBF4] no-drag space-y-2 shrink-0">
           <p className="text-sm font-semibold text-primary">歡迎使用 DesktopST · 首次設定</p>
           <ol className="text-xs text-secondary list-decimal pl-4 space-y-1 leading-relaxed">
-            <li>在「LLM 設定」填寫 OpenAI API Key。</li>
+            <li>在「LLM 設定」選擇服務商並填寫對應的 API Key。</li>
             <li>在「世界觀」「使用者」填寫敘事與你的角色設定（至少各有一段內容）。</li>
             <li>到「角色庫」匯入既有角色卡（JSON／PNG）或新增角色；跨電腦搬家請用「匯出 DesktopST 搬家包」。</li>
           </ol>
@@ -410,36 +492,86 @@ export default function SettingsWindow() {
 
         {tab === 'LLM 設定' && (
           <>
+            <div className="px-3 py-3 border border-border rounded-2xl bg-[#E8FBF4] space-y-2">
+              <p className="text-sm font-semibold text-primary">🔑 API Key 入門指南</p>
+              <p className="text-xs text-secondary leading-relaxed">
+                使用 AI 聊天需要費用。你聊越多，花越多錢。大多數 LLM 服務商都提供免費試用額度，但額度和方案不同，建議查看各家說明。
+              </p>
+              <a
+                href="docs/api-key-guide.html"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs inline-block px-3 py-1.5 rounded-full bg-mint font-semibold text-primary hover:bg-teal transition-all"
+              >
+                👉 查看 API Key 申請指南
+              </a>
+            </div>
             <Field label="服務商">
-              <input className="input-field" value="openai" disabled />
-            </Field>
-            <Field label="模型建議清單">
               <select
                 className="input-field"
-                value={openaiModelListMode}
-                onChange={e => setOpenaiModelListMode(e.target.value as OpenaiModelListMode)}
+                value={draft.llm.provider}
+                onChange={e => {
+                  const p = e.target.value as AppSettings['llm']['provider']
+                  set('llm.provider', p)
+                  // Restore per-provider model or use provider default
+                  const savedModel = draft?.llm.models?.[p]
+                  if (savedModel) {
+                    setCurrentModel(savedModel)
+                  } else if (!PROVIDER_MODELS[p]?.includes(draft?.llm.model ?? '')) {
+                    setCurrentModel(PROVIDER_DEFAULT_MODEL[p] ?? '')
+                  }
+                  // Preset Grok endpoint if empty
+                  if (p === 'grok' && !draft?.llm.endpoint?.trim()) {
+                    set('llm.endpoint', 'https://api.x.ai/v1')
+                  }
+                  // Clear test results when switching provider
+                  setConnResult(null)
+                  setMsgResult(null)
+                }}
               >
-                <option value="catalog">一般（最新常用 ID 捷徑）</option>
-                <option value="incentive-1m">資料分享贈送額度 · 每日 1M 組（官方快照 ID）</option>
-                <option value="incentive-10m">資料分享贈送額度 · 每日 10M 組（官方快照 ID）</option>
-                <option value="incentive-all">資料分享贈送額度 · 兩組合併</option>
+                {Object.entries(PROVIDER_LABELS).map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
               </select>
-              <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
-                贈送額度僅在已於 Platform 開啟「分享輸入／輸出」且帳戶顯示符合資格時適用；兩組額度分開計（tier 1–2 為 250K / 2.5M）。
-                詳見{' '}
-                <a className="underline text-[#3D5A52]" href={OPENAI_MODEL_LIST_HELP} target="_blank" rel="noreferrer">
-                  OpenAI 說明
-                </a>
-                。微調、eval、工具呼叫不在贈送範圍。
-              </p>
+              {draft.llm.provider === 'gemini' && (
+                <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                  Gemini 2.0 Flash 每日免費 1500 次請求，不需綁定信用卡。
+                </p>
+              )}
             </Field>
+            {draft.llm.provider === 'openai' && (
+              <Field label="模型建議清單">
+                <select
+                  className="input-field"
+                  value={openaiModelListMode}
+                  onChange={e => {
+                    setOpenaiModelListMode(e.target.value as OpenaiModelListMode)
+                    setConnResult(null)
+                    setMsgResult(null)
+                  }}
+                >
+                  <option value="catalog">一般（最新常用 ID 捷徑）</option>
+                  <option value="incentive-1m">資料分享贈送額度 · 每日 1M 組（官方快照 ID）</option>
+                  <option value="incentive-10m">資料分享贈送額度 · 每日 10M 組（官方快照 ID）</option>
+                  <option value="incentive-all">資料分享贈送額度 · 兩組合併</option>
+                </select>
+                <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                  贈送額度僅在已於 Platform 開啟「分享輸入／輸出」且帳戶顯示符合資格時適用；兩組額度分開計（tier 1–2 為 250K / 2.5M）。
+                  詳見{' '}
+                  <a className="underline text-[#3D5A52]" href={OPENAI_MODEL_LIST_HELP} target="_blank" rel="noreferrer">
+                    OpenAI 說明
+                  </a>
+                  。微調、eval、工具呼叫不在贈送範圍。
+                </p>
+              </Field>
+            )}
             <Field label="模型（可手動輸入自訂 ID）">
               <input
                 type="text"
                 className="input-field"
                 list="model-list"
-                value={draft.llm.model}
-                onChange={e => set('llm.model', e.target.value)}
+                value={getCurrentModel()}
+                onChange={e => setCurrentModel(e.target.value)}
                 placeholder="輸入或選擇模型 ID"
               />
               <div className="mt-2 flex gap-2 items-center">
@@ -448,42 +580,51 @@ export default function SettingsWindow() {
                   value=""
                   onChange={e => {
                     const v = e.target.value
-                    if (v) set('llm.model', v)
+                    if (v) {
+                      set('llm.model', v)
+                      // Clear test results when switching model
+                      setConnResult(null)
+                      setMsgResult(null)
+                    }
                     e.currentTarget.value = ''
                   }}
                 >
                   <option value="">快速挑選（顯示完整清單）</option>
-                  {openaiModelOptionsFor(openaiModelListMode).map(m => (
+                  {(draft?.llm.provider === 'openai'
+                    ? openaiModelOptionsFor(openaiModelListMode)
+                    : PROVIDER_MODELS[draft?.llm.provider ?? 'openai'] ?? MODELS
+                  ).map(m => (
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
               </div>
               <datalist id="model-list">
-                {(openaiModelListMode === 'catalog'
-                  ? MODELS
-                  : openaiDatalistOptions(openaiModelListMode)
+                {(draft?.llm.provider === 'openai'
+                  ? openaiModelOptionsFor(openaiModelListMode)
+                  : PROVIDER_MODELS[draft?.llm.provider ?? 'openai'] ?? MODELS
                 ).map(m => <option key={m} value={m} />)}
               </datalist>
             </Field>
-            <Field label="API Key">
+            <Field label={`API Key（${PROVIDER_LABELS[draft.llm.provider]}）`}>
               <input
                 type="password"
                 className="input-field"
-                value={draft.llm.apiKey}
-                onChange={e => set('llm.apiKey', e.target.value)}
-                placeholder="sk-..."
+                value={draft.llm.apiKeys?.[draft.llm.provider] ?? ''}
+                onChange={e => set(`llm.apiKeys.${draft.llm.provider}`, e.target.value)}
+                placeholder={PROVIDER_KEY_PLACEHOLDER[draft.llm.provider] ?? 'API Key'}
               />
               <div className="flex gap-2 mt-2 items-center flex-wrap">
                 <button
                   type="button"
-                  disabled={connTesting || !draft.llm.apiKey.trim()}
+                  disabled={connTesting || !(draft.llm.apiKeys?.[draft.llm.provider] ?? '').trim()}
                   className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal transition-all"
                   onClick={async () => {
                     setConnTesting(true)
                     setConnResult(null)
                     try {
                       const r = await window.api.invoke('llm:test-connection', {
-                        apiKey: draft.llm.apiKey,
+                        provider: draft.llm.provider,
+                        apiKeys: draft.llm.apiKeys,
                         endpoint: draft.llm.endpoint
                       }) as { ok: boolean; error?: string; models?: string[] }
                       setConnResult(r.ok
@@ -500,16 +641,17 @@ export default function SettingsWindow() {
                 </button>
                 <button
                   type="button"
-                  disabled={msgTesting || !draft.llm.apiKey.trim() || !draft.llm.model.trim()}
+                  disabled={msgTesting || !(draft?.llm.apiKeys?.[draft?.llm.provider ?? 'openai'] ?? '').trim() || !getCurrentModel().trim()}
                   className="text-xs px-3 py-1.5 rounded-full border border-border text-primary disabled:opacity-40 disabled:cursor-not-allowed hover:bg-mint/40 transition-all"
                   onClick={async () => {
                     setMsgTesting(true)
                     setMsgResult(null)
                     try {
                       const r = await window.api.invoke('llm:test-message', {
-                        apiKey: draft.llm.apiKey,
-                        endpoint: draft.llm.endpoint,
-                        model: draft.llm.model
+                        provider: draft?.llm.provider,
+                        apiKeys: draft?.llm.apiKeys,
+                        endpoint: draft?.llm.endpoint,
+                        model: getCurrentModel()
                       }) as { ok: boolean; error?: string; reply?: string }
                       setMsgResult(r.ok
                         ? { ok: true, msg: r.reply || '成功' }
@@ -535,15 +677,22 @@ export default function SettingsWindow() {
                 )}
               </div>
             </Field>
-            <Field label="自訂端點（選填）">
-              <input
-                type="text"
-                className="input-field"
-                value={draft.llm.endpoint ?? ''}
-                onChange={e => set('llm.endpoint', e.target.value)}
-                placeholder="https://api.example.com/v1"
-              />
-            </Field>
+            {(draft.llm.provider === 'openai' || draft.llm.provider === 'grok') && (
+              <Field label={draft.llm.provider === 'grok' ? 'Grok API 端點' : '自訂端點（選填）'}>
+                <input
+                  type="text"
+                  className="input-field"
+                  value={draft.llm.endpoint ?? ''}
+                  onChange={e => set('llm.endpoint', e.target.value)}
+                  placeholder={draft.llm.provider === 'grok' ? 'https://api.x.ai/v1' : 'https://api.example.com/v1'}
+                />
+                {draft.llm.provider === 'grok' && (
+                  <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                    Grok 使用 OpenAI 相容 API，預設端點為 https://api.x.ai/v1。
+                  </p>
+                )}
+              </Field>
+            )}
             <Field label={`最大回應字數（${draft.llm.maxResponseTokens}）`}>
               <input type="range" min={100} max={1000} step={10}
                 value={draft.llm.maxResponseTokens}

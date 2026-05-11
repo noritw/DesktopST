@@ -137,23 +137,50 @@ interface Message {
 ```
 
 ### 3.3 全域設定 `AppSettings`
+
+> v1.4 實作後更新：世界觀與 Persona 已改為多組 Preset 系統，settings.json 改存 activeId；詳見 §14.4 H。
+
 ```typescript
+// Persona 預設組（獨立存於 %APPDATA%\DesktopST\personas\{id}.json）
+interface PersonaPreset {
+  id: string;
+  name: string;             // 預設組名稱（使用者自訂）
+  displayName: string;      // 使用者顯示名稱
+  nickname: string;         // 角色稱呼使用者的方式
+  description: string;      // 使用者自我介紹
+  builtIn?: boolean;        // 內建預設，不可刪除
+  createdAt: number;
+  updatedAt: number;
+}
+
+// 世界觀預設組（獨立存於 %APPDATA%\DesktopST\worlds\{id}.json）
+interface WorldPreset {
+  id: string;
+  name: string;             // 預設組名稱
+  worldSetting: string;     // 全域世界觀
+  interactionExample: string; // 角色互動範例
+  builtIn?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 interface AppSettings {
-  // 世界觀
-  worldSetting: string;          // 全域世界觀
-  interactionExample: string;    // 角色互動範例
-  injectSystemTime: boolean;     // 對話中自動帶入當下系統時間
+  // 啟用中的 Preset（指向 PersonaPreset / WorldPreset 的 id）
+  activePersonaId: string;
+  activeWorldId: string;
+
+  injectSystemTime: boolean;   // 對話中自動帶入當下系統時間
 
   // LLM 設定
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok';
-    apiKey: string;              // 加密儲存
-    model: string;               // e.g. "gpt-4o", "claude-sonnet-4-5"
-    endpoint?: string;           // 自訂端點（OpenAI 相容服務用）
+    apiKey: string;              // 加密儲存（safeStorage，待實作）
+    model: string;               // e.g. "gpt-4o", "claude-sonnet-4-6"
+    endpoint?: string;           // 自訂端點（OpenAI 相容 / Grok 用）
     maxResponseTokens: number;   // 預設 360
     maxGroupRounds: number;      // 群組對話最大輪次，預設 3
-    maxImagesPerMessage: number; // 預設 4
-    temperature: number;         // 預設 0.8
+    maxImagesPerMessage: number; // 預設 5
+    temperature: number;         // 預設 0.8（gpt-5*/o* 系列自動省略）
   };
 
   // 對話記憶
@@ -162,26 +189,25 @@ interface AppSettings {
     autoSummarizeAfter: number;  // 超過 N 則時觸發自動摘要，預設 50
   };
 
-  // 自動發話（待決定，先預留欄位）
+  // 自動發話 / 提醒排程（詳見 §5.5）
   autoSpeak?: {
     enabled: boolean;
-    minIntervalMinutes: number;  // 最小間隔
-    maxIntervalMinutes: number;  // 最大間隔
-    quietHours?: { start: string; end: string }; // 安靜時段
-  };
-
-  // 使用者 Persona
-  persona: {
-    displayName: string;    // 使用者名字
-    nickname: string;       // 角色稱呼使用者的方式（可同 displayName）
-    description: string;    // 使用者自我介紹（選填）
+    quietHours?: { start: string; end: string }; // 適用 frequency 模式的安靜時段
+    reminders: AutoSpeakReminder[];
   };
 
   // UI
   ui: {
-    desktopCharacters: DesktopCharacterState[]; // 桌面上的角色狀態
+    desktopCharacters: DesktopCharacterState[];
     inputWindowPosition: { x: number; y: number };
+    inputWindowBounds?: WindowBoundsState;   // 輸入視窗記憶大小
+    logWindowBounds?: WindowBoundsState;     // 記錄視窗記憶大小
+    unfocusedBubbleOpacity: number;          // 未聚焦泡泡透明度，預設 0.1
+    hoverMenuOnHover: boolean;               // 滑鼠移到角色才顯示選單，預設 true
     theme: 'light' | 'dark' | 'auto';
+    lastActiveConversationId?: string;       // 上次使用的對話，重啟時還原
+    onboardingCompleted?: boolean;
+    pinnedNotes?: PinnedNote[];              // 便利貼（詳見 §5.6）
   };
 }
 
@@ -189,8 +215,13 @@ interface DesktopCharacterState {
   characterId: string;
   position: { x: number; y: number };
   size: number;                  // 縮放比例
+  flipped: boolean;              // 水平翻轉
   muted: boolean;                // 是否禁言（群組用）
   zIndex: number;
+}
+
+interface WindowBoundsState {
+  x: number; y: number; width: number; height: number;
 }
 ```
 
@@ -237,7 +268,7 @@ interface DesktopCharacterState {
 │ ┌──────────────────────────────┐   │
 │ │ 在這裡輸入訊息...              │   │
 │ └──────────────────────────────┘   │
-│ [📸] [🖼️]              [➤ 送出]   │ ← 截圖、上傳、送出
+│ [📸] [🖼️] [📌]         [➤ 送出]   │ ← 截圖、上傳、便利貼、送出
 └────────────────────────────────────┘
 ```
 
@@ -252,6 +283,7 @@ interface DesktopCharacterState {
 - **圖片預覽**：縮圖顯示在輸入框上方，可點擊 ❌ 移除
 - **送出按鈕**：送出訊息（也可按 Ctrl+Enter）
 - **Log 按鈕**：toggle 開關對話記錄視窗
+- **便利貼按鈕**：開啟空白便利貼（詳見 §5.6）
 - 圖片數量上限：依 LLM 設定的 `maxImagesPerMessage`
 
 ### 4.5 對話記錄視窗（Log）
@@ -326,16 +358,16 @@ sadness, surprise, neutral
 - 世界觀（textarea）
 - 角色互動範例（textarea）
 - ☑ 對話中自動帶入當下系統時間
-- 自動發話設定（待決定，預留 UI）
+- 自動發話 / 提醒排程設定（§5.5）
 
 #### 分頁 2：LLM
 - 服務商：OpenAI / Claude / Gemini / Grok（下拉）
-- 模型名稱（下拉，依服務商提供建議清單）
+- 模型名稱（下拉建議清單 + 可手打，依服務商切換清單）
 - API Key（密碼欄位，加密儲存）
-- 自訂端點（選填，OpenAI 相容服務用）
+- 自訂端點（選填，OpenAI 相容服務 / Grok 用）
 - 字數上限：預設 360
 - 群組對話次數上限：預設 3
-- 單訊息圖片上限：預設 4
+- 單訊息圖片上限：預設 5
 - Temperature：預設 0.8
 
 #### 分頁 3：記憶
@@ -426,16 +458,103 @@ sadness, surprise, neutral
 - 該角色立刻發一句話（基於當前對話歷史）
 - 不觸發其他角色連鎖回應
 
-### 5.5 自動發話（待決定）
-**目前狀態：保留欄位但不實作**
+### 5.5 自動發話 / 提醒排程
 
-候選方案：
-- 使用者設定每日活躍時段
-- 角色之間隨機間隔互動（min/max 分鐘）
-- 安靜時段（夜間不發話）
-- 鬧鐘模式（指定時間角色提醒使用者）
+三種模式，共用「關鍵字 → LLM → 符合角色個性的提醒台詞」流程。
 
-需要進一步設計後再實作。
+#### 模式 A：定頻提醒（Frequency Reminder）
+- 使用者設定間隔分鐘數（如每 60 分鐘）與提醒關鍵字（如「起來活動」）
+- 支援「安靜時段」（如 23:00–08:00 不發話）
+- 可設定多條，各自獨立計時
+
+#### 模式 B：時段招呼語（Time-slot Greeting）
+- 使用者設定開始 / 結束時刻（如 12:00–13:00）與關鍵字（如「去吃午餐」）
+- 每天僅在進入該時段時觸發一次
+- 可設定每週哪幾天生效
+
+#### 模式 C：固定時間鬧鐘（Alarm）
+- 使用者設定目標時間（如 20:00）與關鍵字（如「開會」）
+- 支援「提前 N 分鐘通知」
+- 可設定一次性（過後自動停用）或每週重複
+
+#### 共用設定
+```typescript
+interface AutoSpeakReminder {
+  id: string;
+  type: 'frequency' | 'timeslot' | 'alarm';
+  enabled: boolean;
+  label: string;            // 使用者自訂名稱（顯示用）
+  keyword: string;          // 餵給 LLM 的提示詞，e.g. "起來運動"
+  speakerCharacterId?: string;
+  // 未指定 → 從桌面上未禁言的角色隨機選一個
+
+  // type='frequency' 專用
+  intervalMinutes?: number;
+  respectQuietHours?: boolean;
+  lastFiredAt?: number;     // 上次觸發時間（ms），用於間隔計算
+
+  // type='timeslot' 專用
+  startTime?: string;       // "HH:MM"
+  endTime?: string;
+  daysOfWeek?: number[];    // 0=Sun … 6=Sat；空陣列 = 每天
+  lastFiredDate?: string;   // "YYYY-MM-DD"，當天已觸發就不再重複
+  // 重啟程式不重置：只要當天已觸發就算，以 lastFiredDate 為準
+
+  // type='alarm' 專用
+  alarmTime?: string;       // "HH:MM"
+  alarmDaysOfWeek?: number[]; // 空陣列 = 一次性
+  targetDate?: string;      // "YYYY-MM-DD"，一次性用
+  advanceMinutes?: number;  // 提前幾分鐘通知，0 = 準時
+  fired?: boolean;
+  // 一次性鬧鐘觸發後設 fired=true，保留記錄
+  // 使用者可修改 alarmTime/targetDate 後手動重設 fired=false 當下次提醒
+}
+```
+
+#### LLM 呼叫流程
+```
+keyword "起來運動"
+  → system prompt（角色人格）+ 指令「請用一句話提醒使用者：{keyword}」
+  → 取得符合角色個性的提醒台詞
+  → 顯示於 BubbleWindow（顯示時間較長，預設 15 秒）
+```
+
+#### 主程序實作
+- Main process 每 60 秒輪詢一次所有啟用中的 Reminder
+- frequency：記錄 `lastFiredAt`，超過 intervalMinutes 才觸發
+- timeslot：記錄 `lastFiredDate`，同一天同一時段只觸發一次
+- alarm：當前時間 >= (alarmTime - advanceMinutes)，觸發後一次性鬧鐘設 `fired=true`
+
+### 5.6 泡泡便利貼（Pinned Note）
+
+對話泡泡可釘選為「便利貼」，讓使用者把任意文字釘在桌面上，不影響 LLM 對話。
+
+#### 觸發方式
+1. **釘選泡泡**：角色泡泡顯示中，點擊 📌 按鈕 → 該泡泡轉換成便利貼形式，不再自動消失。釘選後視覺樣式改變（與一般對話泡泡明確區分）。
+2. **新建便利貼**：輸入視窗新增「📌」按鈕，開啟空白便利貼可自由輸入文字，直接存檔，不進對話記錄、不送 LLM。
+
+#### 視覺設計
+- 獨立 `PinnedNoteWindow`，視覺上與對話泡泡明確有別（建議：奶油黃 `#FFE8AA` 背景、左上 📌 圖示）。
+- 可拖曳；位置記憶於 `AppSettings`。
+- 右上角 ✕ 關閉（刪除便利貼）、點擊內文可直接編輯。
+
+#### 行為規則
+- 便利貼**不注入 LLM context**，不進對話記錄，純視覺備忘。
+- 之後角色正常對話的新泡泡走一般流程出現 / 消失，不影響已釘選的便利貼。
+- 每個角色目前限 1 張，**資料結構預留陣列以便未來擴充為多張**。
+- 重啟程式後便利貼持續存在，直到使用者主動關閉。
+
+```typescript
+interface PinnedNote {
+  id: string;               // 預留多張用
+  characterId: string;
+  content: string;
+  position: { x: number; y: number };
+  updatedAt: number;
+}
+// 存於 AppSettings.ui.pinnedNotes: PinnedNote[]
+// 目前 UI 限制：每個 characterId 只顯示一張（取最新一張）
+```
 
 ---
 
@@ -522,14 +641,40 @@ interface ChatResponse {
 ```
 
 ### 7.2 各服務 Adapter
-| Provider | API | Image Support | 備註 |
-|---|---|---|---|
-| OpenAI | `/v1/chat/completions` | ✅ | 也支援自訂 endpoint |
-| Anthropic Claude | `/v1/messages` | ✅ | 注意 message 格式不同 |
-| Google Gemini | `generativelanguage.googleapis.com` | ✅ | |
-| xAI Grok | OpenAI 相容 | ✅ | |
+| Provider | API | Image Support | 狀態 | 備註 |
+|---|---|---|---|---|
+| OpenAI | Responses API (`/v1/responses`) | ✅ | ✅ 已實作 | 也支援自訂 endpoint；gpt-5*/o* 省略 temperature |
+| Anthropic Claude | `/v1/messages` | ✅ | ❌ 待實作 | message 格式不同，需獨立 adapter；`@anthropic-ai/sdk` |
+| Google Gemini | `generativelanguage.googleapis.com` | ✅ | ❌ 待實作 | 有免費額度（Gemini 2.0 Flash）；`@google/genai` |
+| xAI Grok | OpenAI 相容 | ✅ | ❌ 低優先 | 可複用 OpenAI adapter 換 baseURL，視需求再做 |
 
-### 7.3 情緒標記格式
+### 7.3 建議模型清單
+
+#### OpenAI
+```
+gpt-4o（預設）、gpt-4o-mini、gpt-4.1、gpt-4.1-mini、gpt-4.1-nano、o3、o4-mini
+```
+
+#### Anthropic Claude
+```
+claude-sonnet-4-6（預設）、claude-opus-4-7、claude-haiku-4-5-20251001、
+claude-3-7-sonnet-20250219、claude-3-5-sonnet-20241022、claude-3-5-haiku-20241022、
+claude-3-opus-20240229
+```
+
+#### Google Gemini
+```
+gemini-2.0-flash（預設）、gemini-3.1-flash-lite、gemini-3-flash-preview、
+gemini-2.5-flash、gemini-2.5-flash-lite、gemini-3.1-pro-preview、gemini-2.5-pro
+```
+
+#### xAI Grok（低優先，endpoint 填 https://api.x.ai/v1）
+```
+grok-4-1-fast-reasoning（預設）、grok-4-1-fast-non-reasoning、grok-4.3、
+grok-4.20-reasoning、grok-4.20-non-reasoning
+```
+
+### 7.4 情緒標記格式
 要求 LLM 在回應**第一行**用方括號標記情緒：
 
 ```
@@ -549,7 +694,7 @@ admiration, amusement, anger, ..., neutral
 範例：[joy] 今天天氣真好！
 ```
 
-### 7.4 字數控制
+### 7.5 字數控制
 - 軟性限制：在 system prompt 中告知「請控制每則回應在 360 字內」
 - 硬性限制：API 的 `max_tokens` 參數（注意 token 不等於字數，中文約 1 字 = 2 tokens）
 
@@ -600,6 +745,10 @@ admiration, amusement, anger, ..., neutral
 │   │       └── ...
 ├── conversations\
 │   ├── {conv_id}.json         # 各 session 的對話記錄
+├── personas\
+│   └── {persona_id}.json      # Persona 預設組
+├── worlds\
+│   └── {world_id}.json        # 世界觀預設組
 └── attachments\
     └── {timestamp}_{name}.png # 使用者上傳圖片快取
 ```
@@ -626,48 +775,53 @@ admiration, amusement, anger, ..., neutral
 ## 11. 開發階段
 
 ### 階段 1：MVP（2-3 週）
-- [ ] Electron + React + TypeScript 專案骨架
-- [ ] 透明角色視窗 + 拖曳
-- [ ] 點擊角色開輸入視窗
-- [ ] OpenAI API 整合（單服務商）
-- [ ] 對話框顯示最新訊息
-- [ ] Log 視窗顯示歷史
-- [ ] 基本角色卡編輯
-- [ ] 設定儲存（不含加密，先純文字）
+- [x] Electron + React + TypeScript 專案骨架
+- [x] 透明角色視窗 + 拖曳
+- [x] 點擊角色開輸入視窗
+- [x] OpenAI API 整合（單服務商）
+- [x] 對話框顯示最新訊息
+- [x] Log 視窗顯示歷史
+- [x] 基本角色卡編輯
+- [x] 設定儲存
 
-**驗收**：能用 OpenAI API 與單一角色對話，介面可運作。
+**驗收**：能用 OpenAI API 與單一角色對話，介面可運作。✅
 
 ### 階段 2：多角色與群組（1-2 週）
-- [ ] 角色庫管理
-- [ ] 桌面同時多角色
-- [ ] 群組對話協調器
-- [ ] 強制發話 / 禁言
-- [ ] 全域世界觀設定
+- [x] 角色庫管理（獨立 CharacterLibraryWindow，卡片 grid）
+- [x] 桌面同時多角色
+- [x] 群組對話協調器
+- [x] 強制發話 / 禁言
+- [x] 全域世界觀設定
 
-**驗收**：兩個角色能在桌面互相對話。
+**驗收**：兩個角色能在桌面互相對話。✅
 
 ### 階段 3：完整 LLM 與素材（1-2 週）
-- [ ] Claude / Gemini / Grok adapter
-- [ ] 28 種情緒圖片切換
-- [ ] 截圖（自製框選 + 全螢幕）
-- [ ] 多圖上傳
-- [ ] SillyTavern 角色卡匯入（JSON + PNG）
-- [ ] 系統時間注入
+- [ ] Claude / Gemini adapter（目前只有 OpenAI）
+- [ ] 28 種情緒圖片切換（資料結構有，CharacterSprite 尚未切換）
+- [x] 截圖（框選 + 全螢幕，Windows only）
+- [ ] 多圖上傳（欄位有，UI 待確認）
+- [x] SillyTavern 角色卡匯入 JSON
+- [ ] SillyTavern 角色卡匯入 PNG（tEXt chunk）
+- [x] 系統時間注入
 
 **驗收**：能匯入 ST 角色卡，所有 LLM 都能用，截圖可附加。
 
 ### 階段 4：拋光（1 週）
-- [ ] 對話記憶摘要
-- [ ] 對話 session 管理
-- [ ] API Key 加密
-- [ ] 開啟資料夾按鈕
-- [ ] 應用程式打包成 .exe 安裝檔
+- [ ] 對話記憶自動摘要（欄位有，邏輯未寫）
+- [x] 對話 session 管理（列出 / 載入 / 改名 / 刪除）
+- [ ] API Key 加密（safeStorage，目前明文）
+- [x] 開啟資料夾按鈕
+- [ ] 應用程式打包成 .exe 安裝檔（待確認 electron-builder build）
 
 **驗收**：可分發給其他使用者安裝使用。
 
-### 階段 5：未來擴充（不在第一版）
-- [ ] 自動發話（鬧鐘式）
+### 階段 5：進行中擴充
+- [ ] 多 LLM 支援（Claude / Gemini，§7.2）
+- [ ] 自動發話 + 提醒排程（§5.5 設計已確定，待實作）
+- [ ] 泡泡便利貼（§5.6 設計已確定，待實作）
 - [ ] 使用者自訂情緒名稱
+
+### 階段 6：未來擴充（不在近期規劃）
 - [ ] Lorebook
 - [ ] TTS 語音
 - [ ] Live2D 動態角色
@@ -677,22 +831,16 @@ admiration, amusement, anger, ..., neutral
 
 ## 12. 待決定 / 開放討論
 
-### 12.1 自動發話機制
-未確定設計。需要進一步思考：
-- 觸發頻率如何控制不擾民？
-- 是否做成「鬧鐘式」由使用者排程？
-- 要不要根據桌面活動偵測（使用者忙碌時不打擾）？
-
-### 12.2 自訂情緒
+### 12.1 自訂情緒
 第一版採用固定 28 種，但後續可能開放自訂。需要解決：
 - 動態 system prompt 告知 LLM 可選情緒
 - UI 怎麼讓使用者新增情緒
 - 跨角色情緒一致性
 
-### 12.3 跨對話的「世界一致性」
+### 12.2 跨對話的「世界一致性」
 若使用者在多個 conversation 中都用同一個世界觀，是否要有「世界記憶」共享？目前設計是各 conversation 獨立。
 
-### 12.4 對話記錄的 ST 相容性
+### 12.3 對話記錄的 ST 相容性
 **第一版不實作，保留擴充空間。**
 設計對話記錄格式時避免與 ST 格式產生根本衝突，未來可加入轉換器。
 方向：優先做「ST → 本程式」單向匯入，雙向相容視社群需求再決定。
@@ -736,7 +884,7 @@ admiration, amusement, anger, ..., neutral
 #### 輔色盤（點綴用）
 | 名稱 | Hex | 用途 |
 |---|---|---|
-| Butter Yellow | `#FFE8AA` | 警告、highlight |
+| Butter Yellow | `#FFE8AA` | 警告、highlight、便利貼背景 |
 | Blush Pink | `#FFBBBB` | 錯誤、刪除確認 |
 | Lavender | `#F0BBFF` | 特殊狀態、標記 |
 
@@ -807,11 +955,11 @@ src/styles/global.css     ← 全域字型載入
 - `uuid` — 產 ID
 - `electron-store` — 設定檔
 - `react-rnd` — 拖曳/縮放
-- `@anthropic-ai/sdk` / `openai` / `@google/generative-ai` — LLM SDK
+- `@anthropic-ai/sdk` / `openai` / `@google/genai` — LLM SDK
 - `sharp` — 圖片處理（角色卡 PNG）
 - `png-chunks-extract` / `png-chunks-encode` — ST 角色卡 PNG 讀寫
 
-### 14.4 v1.3 實作增補（規格外 / 與原規格差異）
+### 14.4 v1.4 實作增補（規格外 / 與原規格差異）
 
 > 本節紀錄已落地、但原規格未明確寫出的行為，供接手者與測試對齊。
 
@@ -836,10 +984,39 @@ src/styles/global.css     ← 全域字型載入
 - 刪除當前對話檔後會自動跳到下一份可用對話；若皆無則建立新空白對話。
 - 記錄中可顯示回覆來源模型（provider/model badge）。
 
-#### E. 泡泡顯示增補（目前實驗中）
+#### E. 泡泡顯示增補
 - 角色泡泡已改為獨立 `BubbleWindow`（與角色視窗脫鉤），可依文字自動調整大小。
 - 提供除錯入口：在記錄視窗點角色訊息可重放泡泡。
-- 注意：hover 控制按鈕顯示穩定性與長文泡泡裁切仍在調整中，請以 `HANDOFF.md` 的「已知問題」為準。
+
+#### F. 角色庫視窗（已實作）
+- 獨立 `CharacterLibraryWindow`，卡片式 grid 佈局（§4.8 規格）。
+- 提供新增、編輯、刪除、匯入、召喚到桌面等功能。
+
+#### G. 截圖功能（已實作）
+- 支援框選截圖（全螢幕半透明覆蓋層）與全螢幕截圖，Windows only。
+- 截圖時隱藏所有視窗 → 等待 → 截圖 → 恢復。
+
+#### H. Persona / World Preset 系統（已實作）
+- 原 `AppSettings.persona` / `.worldSetting` 已改為多組 Preset 系統。
+- Preset 獨立存檔於 `personas/` 和 `worlds/` 子資料夾；`settings.json` 只存 `activePersonaId` / `activeWorldId`。
+- 內建泛用預設，首次啟動自動複製；舊 settings.json 自動遷移。
+- LLM prompt 組裝接收 preset 參數。
+
+#### I. 角色縮放、翻轉與視窗位置記憶（已實作）
+- `DesktopCharacterState` 新增 `flipped: boolean`（水平翻轉）。
+- HoverMenu 新增縮放按鈕，支援即時預覽（`desktop:preview-size`）與確認儲存（`desktop:update-size`）。
+- 縮放自動 clamp 至螢幕可見範圍，視窗最小 280×220 px。
+- 輸入視窗與記錄視窗改為可調整大小（resizable），拖移後防抖 250ms 儲存 bounds。
+
+#### J. 其他 UI 設定欄位（已實作）
+- `ui.unfocusedBubbleOpacity`：未聚焦時泡泡透明度（預設 0.1）。
+- `ui.hoverMenuOnHover`：可關閉「滑鼠移上才顯示 HoverMenu」。
+- `ui.onboardingCompleted`：首次啟動引導完成後標記，避免重複顯示。
+
+#### K. 記錄視窗增補（已實作）
+- 每則角色回覆顯示 `provider/model` badge（回覆來源標記）。
+- 可點選單則訊息刪除。
+- `Message` 型別新增 `llmProvider`、`llmModel`、`debugPrompt` 欄位。
 
 ---
 
@@ -918,5 +1095,5 @@ CHANGELOG.md        # 版本更新記錄
 
 ---
 
-**文件版本**：v1.3
-**最後更新**：2026-05-09
+**文件版本**：v1.4
+**最後更新**：2026-05-12

@@ -93,7 +93,8 @@ npm run typecheck # 型別檢查
 
 ## 開源資訊
 
-- License：MIT
+- **程式碼授權**：MIT License（自由使用、修改、商用）
+- **美術素材授權**：CC BY-NC 4.0（`assets/` 內的角色圖片、App Icon 等，禁止商用）
 - 目標：開源給社群，owner 維護主 repo，其他人 Fork 自行客製
 - 平台：Windows 10/11 優先，保留跨平台擴充空間
 

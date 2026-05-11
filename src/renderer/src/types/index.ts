@@ -84,8 +84,12 @@ export interface AppSettings {
   injectSystemTime: boolean
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok'
+    /** @deprecated use apiKeys[provider] instead */
     apiKey: string
+    apiKeys: Record<string, string>
     model: string
+    /** Per-provider model selection; takes precedence over single `model` field */
+    models?: Record<string, string>
     endpoint?: string
     maxResponseTokens: number
     maxGroupRounds: number
