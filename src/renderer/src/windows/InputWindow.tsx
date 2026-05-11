@@ -172,9 +172,10 @@ export default function InputWindow() {
                   onClick={() => window.api.invoke('window:open-settings', 'persona')}
                   title="前往使用者資訊設定"
                 >
-                  <span className="truncate">{personaName}</span>
+                  <span className="truncate">{personaName}：</span>
                 </button>
                 <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="text-xs text-border select-none">──</span>
                   <button
                     type="button"
                     className="text-xs text-secondary font-medium truncate hover:text-primary transition-colors max-w-[180px] text-right"

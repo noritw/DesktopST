@@ -156,7 +156,7 @@ app.on('before-quit', () => {
 // ── System tray ───────────────────────────────────────────
 
 function setupTray(appRoot: string) {
-  const trayCandidates = ['Icon16x16.png', 'icon.png', 'icon.ico'].map(f => path.join(appRoot, 'assets', f))
+  const trayCandidates = ['AppIcon_16x16.png', 'Icon16x16.png', 'icon.png', 'icon.ico'].map(f => path.join(appRoot, 'assets', f))
   let iconPath = trayCandidates.find(p => fs.existsSync(p)) ?? ''
 
   const icon = iconPath && fs.existsSync(iconPath)
