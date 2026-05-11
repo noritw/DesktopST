@@ -57,6 +57,31 @@ export default function ImportExportTab({ draft, onError, onNotify }: Props) {
     else onNotify('已匯出 PNG 角色卡')
   }
 
+  const exportDstPack = async () => {
+    const res = await window.api.invoke('character:build-dstpack', {
+      characterIds: [draft.id],
+      includeGlobalSettings: false
+    }) as { buffer?: ArrayBuffer; error?: string }
+    if (res && 'error' in res && res.error) {
+      onError(res.error)
+      return
+    }
+    const buf = (res as { buffer: ArrayBuffer }).buffer
+    const dlg = await window.api.invoke('file:save-dialog', {
+      defaultPath: `${draft.name || 'character'}.dstpack`,
+      filters: [{ name: 'DesktopST 搬家包', extensions: ['dstpack'] }]
+    }) as { filePath?: string; error?: string }
+    if (dlg && 'error' in dlg && dlg.error) {
+      onError(dlg.error)
+      return
+    }
+    const fp = (dlg as { filePath?: string }).filePath
+    if (!fp) return
+    const wr = await window.api.invoke('file:write-file', { path: fp, data: buf }) as { ok?: boolean; error?: string }
+    if (wr && 'error' in wr && wr.error) onError(wr.error)
+    else onNotify('已匯出搬家包')
+  }
+
   const pickImport = () => fileRef.current?.click()
 
   const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -65,6 +90,22 @@ export default function ImportExportTab({ draft, onError, onNotify }: Props) {
     if (!file) return
     const lower = file.name.toLowerCase()
     const buf = await file.arrayBuffer()
+    if (lower.endsWith('.dstpack')) {
+      const res = await window.api.invoke('character:import-dstpack', { buffer: buf }) as {
+        ok?: boolean
+        imported?: number
+        skipped?: number
+        error?: string
+      }
+      if (res && typeof res === 'object' && 'error' in res && res.error) {
+        onError(res.error ?? '匯入失敗')
+        return
+      }
+      const imp = typeof res.imported === 'number' ? res.imported : 0
+      const sk = typeof res.skipped === 'number' ? res.skipped : 0
+      onNotify(`已匯入搬家包：${imp} 個角色，略過 ${sk} 個`)
+      return
+    }
     if (lower.endsWith('.json')) {
       const text = new TextDecoder().decode(buf)
       const res = await window.api.invoke('character:import-json', text) as Character | { error?: string }
@@ -90,18 +131,21 @@ export default function ImportExportTab({ draft, onError, onNotify }: Props) {
       onNotify('已匯入，請確認角色資料')
       return
     }
-    onError('請選擇 JSON 或 PNG 檔案')
+    onError('請選擇 JSON、PNG 或 .dstpack 檔案')
   }
 
   return (
     <div className="space-y-4">
-      <input ref={fileRef} type="file" accept=".json,.png" className="hidden" onChange={onFile} />
+      <input ref={fileRef} type="file" accept=".json,.png,.dstpack" className="hidden" onChange={onFile} />
       <div className="flex flex-wrap gap-2">
         <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full bg-mint text-primary font-semibold" onClick={exportJson}>
-          匯出為 JSON
+          匯出 ST JSON
         </button>
         <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full bg-mint text-primary font-semibold" onClick={exportPng}>
-          匯出為 PNG 角色卡
+          匯出 ST PNG
+        </button>
+        <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full bg-[#AAEEDD] text-primary font-semibold" onClick={exportDstPack}>
+          匯出 DesktopST 搬家包
         </button>
         <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full border border-border text-primary" onClick={pickImport}>
           匯入 ST 角色卡

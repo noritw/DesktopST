@@ -53,7 +53,7 @@ const BUBBLE_PROGRAMMATIC_BOUNDS_EPS = 28
 const DEFAULT_UNFOCUSED_BUBBLE_OPACITY = 0.1
 let unfocusedBubbleOpacity = DEFAULT_UNFOCUSED_BUBBLE_OPACITY
 
-function getCharacterWindowSize(scale: number): { width: number; height: number } {
+export function getCharacterWindowSize(scale: number): { width: number; height: number } {
   return {
     width: Math.max(280, Math.round(220 * scale)),
     height: Math.max(220, Math.round(380 * scale))
@@ -946,7 +946,10 @@ export function hideAuxWindowsRememberingState(): void {
     if (w.isVisible()) w.setOpacity(unfocusedBubbleOpacity)
   }
   for (const w of getAuxWindows()) {
-    if (w.isVisible()) w.setOpacity(0.1)
+    if (!w || w.isDestroyed() || !w.isVisible()) continue
+    // 設定／角色庫需長時間對照他處（例如貼 API Key），失焦時勿縮到幾乎看不見
+    if (w === settingsWindow || w === characterLibraryWindow) continue
+    w.setOpacity(0.1)
   }
 }
 
@@ -1125,23 +1128,22 @@ let settingsWindow: BrowserWindow | null = null
 
 export function openSettingsWindow(tab?: string): void {
   if (settingsWindow && !settingsWindow.isDestroyed()) {
-    if (settingsWindow.isVisible()) {
-      settingsWindow.hide()
-    } else {
-      settingsWindow.setOpacity(1)
-      settingsWindow.show()
-      raiseAuxAboveCharacters()
-      settingsWindow.moveTop()
-      settingsWindow.focus()
-    }
+    settingsWindow.setOpacity(1)
+    settingsWindow.show()
+    raiseAuxAboveCharacters()
+    settingsWindow.moveTop()
+    settingsWindow.focus()
+    if (tab) settingsWindow.webContents.send('settings:navigate-tab', tab)
     return
   }
-  const { width } = screen.getPrimaryDisplay().workAreaSize
+  const wa = screen.getPrimaryDisplay().workArea
+  const sw = 680
+  const sh = 580
   settingsWindow = new BrowserWindow({
-    x: Math.round(width / 2 - 340),
-    y: 80,
-    width: 680,
-    height: 580,
+    x: Math.round(wa.x + Math.max(0, (wa.width - sw) / 2)),
+    y: Math.round(wa.y + Math.min(80, Math.max(0, (wa.height - sh) / 4))),
+    width: sw,
+    height: sh,
     frame: false,
     transparent: false,
     backgroundColor: '#F7FFFC',

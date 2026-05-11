@@ -8,6 +8,12 @@ import { chatWithOpenAI } from './llm/openaiAdapter'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
 import { importStJson, exportToStJson } from './stCardMapper'
 import {
+  buildDstPackBuffer,
+  extractCharacterDirFromZip,
+  loadDstPackZip,
+  readCharacterFromZip
+} from './dstPack'
+import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow,
   resizeCharacterWindow,
   toggleInputWindow, toggleLogWindow, openSettingsWindow,
@@ -360,6 +366,37 @@ function pickNextConversationId(excludingId?: string): string | null {
 
 // ── IPC handlers ──────────────────────────────────────────
 
+function fixCharacterPathsAfterImport(char: Character, dir: string): Character {
+  let avatar = (char.avatar || '').trim()
+  if (!avatar || !fs.existsSync(avatar)) {
+    const cand = ['avatar.png', 'avatar.jpg', 'avatar.jpeg', 'avatar.webp', 'avatar.gif']
+      .map(n => path.join(dir, n))
+      .find(p => fs.existsSync(p))
+    avatar = cand ?? ''
+  } else {
+    const resolvedA = path.resolve(avatar)
+    const resolvedD = path.resolve(dir)
+    if (!resolvedA.startsWith(resolvedD)) {
+      const local = path.join(dir, path.basename(avatar))
+      avatar = fs.existsSync(local) ? local : avatar
+    }
+  }
+  const emotions: Record<string, string> = { ...(char.emotions || {}) }
+  for (const k of Object.keys(emotions)) {
+    const v = emotions[k]
+    if (v && fs.existsSync(v)) continue
+    const base = path.basename(v || '')
+    if (!base) {
+      emotions[k] = ''
+      continue
+    }
+    const inEmo = path.join(dir, 'emotions', base)
+    const inRoot = path.join(dir, base)
+    emotions[k] = fs.existsSync(inEmo) ? inEmo : fs.existsSync(inRoot) ? inRoot : ''
+  }
+  return { ...char, avatar, emotions }
+}
+
 export function registerIpcHandlers() {
 
   // Store: get initial snapshot for any renderer
@@ -479,6 +516,160 @@ export function registerIpcHandlers() {
       const out = embedCharaJson(baseBuf, jsonStr)
       const arrayBuffer = out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength)
       return { buffer: arrayBuffer }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('character:build-dstpack', async (_, payload: { characterIds: string[]; includeGlobalSettings: boolean }) => {
+    try {
+      const ids = Array.isArray(payload?.characterIds) ? payload.characterIds.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : []
+      if (ids.length === 0) return { error: '尚未選擇任何角色' }
+      const buf = await buildDstPackBuffer({
+        charsRoot: path.join(fileStore.getDataDir(), 'characters'),
+        characterIds: ids,
+        includeGlobalSettings: !!payload?.includeGlobalSettings,
+        settings
+      })
+      const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
+      return { buffer: arrayBuffer }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('character:import-dstpack', async (event, payload: { buffer: ArrayBuffer }) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const buffer = Buffer.from(payload?.buffer ?? new ArrayBuffer(0))
+      if (buffer.length < 32) return { error: '檔案過小或已損毀' }
+      const { parsed, zip } = await loadDstPackZip(buffer)
+      const charsRoot = path.join(fileStore.getDataDir(), 'characters')
+      let imported = 0
+      let skipped = 0
+
+      const conflictBox = {
+        type: 'question' as const,
+        buttons: ['覆蓋', '建立新角色', '取消匯入此角色'],
+        defaultId: 2,
+        cancelId: 2,
+        title: 'DesktopST'
+      }
+
+      for (const prefix of parsed.characterZipPrefixes) {
+        const segs = prefix.split('/').filter(Boolean)
+        const packFolderId = segs[1] ?? ''
+        if (!packFolderId) continue
+
+        const charPreview = await readCharacterFromZip(zip, prefix)
+        const idHit = characters.find(c => c.id === charPreview.id)
+        const nameHit = characters.find(
+          c => c.name.trim().toLowerCase() === charPreview.name.trim().toLowerCase()
+        )
+
+        let targetDirId = charPreview.id
+
+        if (idHit) {
+          const r = win && !win.isDestroyed()
+            ? await dialog.showMessageBox(win, {
+              ...conflictBox,
+              message: `角色「${charPreview.name}」匯入衝突`,
+              detail: '本機已存在相同角色 ID。要覆蓋、建立成另一個角色，或略過此角色？'
+            })
+            : await dialog.showMessageBox({
+              ...conflictBox,
+              message: `角色「${charPreview.name}」匯入衝突`,
+              detail: '本機已存在相同角色 ID。要覆蓋、建立成另一個角色，或略過此角色？'
+            })
+          if (r.response === 2) {
+            skipped++
+            continue
+          }
+          if (r.response === 1) {
+            targetDirId = uuidv4()
+          } else {
+            targetDirId = charPreview.id
+            fs.rmSync(path.join(charsRoot, targetDirId), { recursive: true, force: true })
+          }
+        } else if (nameHit && nameHit.id !== charPreview.id) {
+          const r = win && !win.isDestroyed()
+            ? await dialog.showMessageBox(win, {
+              ...conflictBox,
+              message: `角色「${charPreview.name}」匯入衝突`,
+              detail: '本機已存在同名但不同 ID 的角色。要覆蓋本機同名角色、建立成另一個角色，或略過此角色？'
+            })
+            : await dialog.showMessageBox({
+              ...conflictBox,
+              message: `角色「${charPreview.name}」匯入衝突`,
+              detail: '本機已存在同名但不同 ID 的角色。要覆蓋本機同名角色、建立成另一個角色，或略過此角色？'
+            })
+          if (r.response === 2) {
+            skipped++
+            continue
+          }
+          if (r.response === 1) {
+            targetDirId = uuidv4()
+          } else {
+            targetDirId = nameHit.id
+            fs.rmSync(path.join(charsRoot, targetDirId), { recursive: true, force: true })
+          }
+        }
+
+        const destDir = path.join(charsRoot, targetDirId)
+        await extractCharacterDirFromZip(zip, prefix, destDir)
+
+        let diskCard: Character
+        try {
+          diskCard = JSON.parse(fs.readFileSync(path.join(destDir, 'card.json'), 'utf-8')) as Character
+        } catch {
+          diskCard = charPreview
+        }
+        diskCard.id = targetDirId
+        diskCard.updatedAt = Date.now()
+        if (!diskCard.createdAt) diskCard.createdAt = Date.now()
+        const fixed = fixCharacterPathsAfterImport(diskCard, destDir)
+        fileStore.saveCharacter(fixed)
+        const idx = characters.findIndex(c => c.id === fixed.id)
+        if (idx >= 0) characters[idx] = fixed
+        else characters.push(fixed)
+        imported++
+      }
+
+      broadcastToAll('characters:updated', characters)
+
+      if (parsed.manifest.includeGlobalSettings && parsed.globalPartial) {
+        const g = parsed.globalPartial
+        const r = win && !win.isDestroyed()
+          ? await dialog.showMessageBox(win, {
+            type: 'question',
+            buttons: ['套用', '不要套用'],
+            defaultId: 1,
+            title: 'DesktopST',
+            message: '此封裝包含世界觀與使用者資訊',
+            detail: '是否套用匯入的世界觀與使用者資訊？（不會變更 API Key）'
+          })
+          : await dialog.showMessageBox({
+            type: 'question',
+            buttons: ['套用', '不要套用'],
+            defaultId: 1,
+            title: 'DesktopST',
+            message: '此封裝包含世界觀與使用者資訊',
+            detail: '是否套用匯入的世界觀與使用者資訊？（不會變更 API Key）'
+          })
+        if (r.response === 0) {
+          settings = {
+            ...settings,
+            worldSetting: g.worldSetting ?? '',
+            interactionExample: g.interactionExample ?? '',
+            injectSystemTime: !!g.injectSystemTime,
+            persona: { ...settings.persona, ...g.persona }
+          }
+          fileStore.saveSettings(settings)
+          broadcastToAll('settings:updated', settings)
+        }
+      }
+
+      return { ok: true as const, imported, skipped }
     } catch (e) {
       return { error: e instanceof Error ? e.message : String(e) }
     }

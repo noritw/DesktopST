@@ -88,6 +88,8 @@ export interface AppSettings {
     hoverMenuOnHover: boolean
     /** 上次在記錄／輸入端使用的作用中對話；重開程式時還原 */
     lastActiveConversationId?: string
+    /** 首次啟動引導完成後為 true，避免重複打擾 */
+    onboardingCompleted?: boolean
   }
 }
 
@@ -118,6 +120,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     inputWindowPosition: { x: 100, y: 100 },
     unfocusedBubbleOpacity: 0.1,
     theme: 'light',
-    hoverMenuOnHover: true
+    hoverMenuOnHover: true,
+    onboardingCompleted: false
   }
 }

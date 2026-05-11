@@ -46,6 +46,42 @@ const MODELS = [
 const TABS = ['LLM 設定', '世界觀', '使用者', '記憶', '介面', '角色', '資料'] as const
 type Tab = typeof TABS[number]
 
+const TAB_PARAM_ALIASES: Record<string, Tab> = {
+  llm: 'LLM 設定',
+  world: '世界觀',
+  user: '使用者',
+  memory: '記憶',
+  ui: '介面',
+  character: '角色',
+  data: '資料',
+  'LLM 設定': 'LLM 設定',
+  世界觀: '世界觀',
+  使用者: '使用者',
+  記憶: '記憶',
+  介面: '介面',
+  角色: '角色',
+  資料: '資料'
+}
+
+function tabFromLocation(): Tab {
+  const raw = new URLSearchParams(window.location.search).get('tab')
+  if (!raw) return 'LLM 設定'
+  const decoded = decodeURIComponent(raw.trim())
+  if (TAB_PARAM_ALIASES[decoded]) return TAB_PARAM_ALIASES[decoded]
+  if (TAB_PARAM_ALIASES[raw]) return TAB_PARAM_ALIASES[raw]
+  if ((TABS as readonly string[]).includes(decoded)) return decoded as Tab
+  return 'LLM 設定'
+}
+
+function tabFromExternalParam(raw: unknown): Tab {
+  if (typeof raw !== 'string' || !raw.trim()) return 'LLM 設定'
+  const decoded = decodeURIComponent(raw.trim())
+  if (TAB_PARAM_ALIASES[decoded]) return TAB_PARAM_ALIASES[decoded]
+  if (TAB_PARAM_ALIASES[raw.trim()]) return TAB_PARAM_ALIASES[raw.trim()]
+  if ((TABS as readonly string[]).includes(decoded)) return decoded as Tab
+  return 'LLM 設定'
+}
+
 export default function SettingsWindow() {
   useEffect(() => {
     const onDown = () => window.api.invoke('ui:aux-activated')
@@ -66,10 +102,17 @@ export default function SettingsWindow() {
   const removeFromDesktop = useAppStore(s => s.removeFromDesktop)
   const importCharacterJson = useAppStore(s => s.importCharacterJson)
 
-  const [tab, setTab] = useState<Tab>('LLM 設定')
+  const [tab, setTab] = useState<Tab>(() => tabFromLocation())
   const [draft, setDraft] = useState<AppSettings | null>(null)
   const [saved, setSaved] = useState(false)
   const [openaiModelListMode, setOpenaiModelListMode] = useState<OpenaiModelListMode>('catalog')
+
+  useEffect(() => {
+    const unsub = window.api.on('settings:navigate-tab', (t: unknown) => {
+      setTab(tabFromExternalParam(t))
+    })
+    return unsub
+  }, [])
 
   // Character tab state
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null)
@@ -126,6 +169,24 @@ export default function SettingsWindow() {
     await saveSettings(draft)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  const onboardingIncomplete = !!draft && draft.ui.onboardingCompleted === false
+  const canFinishOnboarding =
+    !!draft &&
+    draft.llm.apiKey.trim().length > 0 &&
+    draft.worldSetting.trim().length > 0 &&
+    draft.persona.description.trim().length > 0 &&
+    characters.length >= 1
+
+  const finishOnboarding = async () => {
+    if (!draft || !canFinishOnboarding) return
+    const next: AppSettings = {
+      ...draft,
+      ui: { ...draft.ui, onboardingCompleted: true }
+    }
+    await saveSettings(next)
+    setDraft(JSON.parse(JSON.stringify(next)) as AppSettings)
   }
 
   const handleSaveChar = async () => {
@@ -194,6 +255,43 @@ export default function SettingsWindow() {
           </button>
         ))}
       </div>
+
+      {onboardingIncomplete && (
+        <div className="px-4 py-3 border-b border-border bg-[#E8FBF4] no-drag space-y-2 shrink-0">
+          <p className="text-sm font-semibold text-primary">歡迎使用 DesktopST · 首次設定</p>
+          <ol className="text-xs text-secondary list-decimal pl-4 space-y-1 leading-relaxed">
+            <li>在「LLM 設定」填寫 OpenAI API Key。</li>
+            <li>在「世界觀」「使用者」填寫敘事與你的角色設定（至少各有一段內容）。</li>
+            <li>到「角色庫」匯入既有角色卡（JSON／PNG）或新增角色；跨電腦搬家請用「匯出 DesktopST 搬家包」。</li>
+          </ol>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button type="button" className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary" onClick={() => setTab('LLM 設定')}>
+              前往 API Key
+            </button>
+            <button type="button" className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40" onClick={() => setTab('世界觀')}>
+              世界觀
+            </button>
+            <button type="button" className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40" onClick={() => setTab('使用者')}>
+              使用者
+            </button>
+            <button
+              type="button"
+              className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40"
+              onClick={() => void window.api.invoke('character-library:open')}
+            >
+              開啟角色庫
+            </button>
+            <button
+              type="button"
+              disabled={!canFinishOnboarding}
+              className="text-xs px-3 py-1.5 rounded-full bg-[#AAEEDD] font-semibold text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={() => void finishOnboarding()}
+            >
+              完成引導
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-4 py-4 no-drag space-y-4">

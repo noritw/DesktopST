@@ -47,7 +47,12 @@ export function loadSettings(): AppSettings {
         desktopCharacters: ((s as Partial<AppSettings>).ui?.desktopCharacters ?? DEFAULT_SETTINGS.ui.desktopCharacters).map(dc => ({
           ...dc,
           flipped: !!dc?.flipped
-        }))
+        })),
+        ...((() => {
+          const rawUi = (s as Partial<AppSettings>).ui
+          const hadOnboardingKey = !!(rawUi && Object.prototype.hasOwnProperty.call(rawUi, 'onboardingCompleted'))
+          return !hadOnboardingKey ? { onboardingCompleted: true as const } : {}
+        })())
       }
     }
   } catch {

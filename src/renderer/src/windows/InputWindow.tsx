@@ -139,6 +139,19 @@ export default function InputWindow() {
         </div>
       </div>
 
+      {settings && (settings.ui?.onboardingCompleted !== true || !(settings.llm?.apiKey ?? '').trim()) && (
+        <div className="px-3 py-1.5 text-[11px] text-primary bg-[#E8FBF4] border-b border-border no-drag flex items-center justify-between gap-2 shrink-0">
+          <span>尚未完成初始設定或缺少 API Key。</span>
+          <button
+            type="button"
+            className="shrink-0 text-[11px] px-2 py-0.5 rounded-full bg-mint font-semibold"
+            onClick={() => void window.api.invoke('window:open-settings', 'llm')}
+          >
+            開啟設定
+          </button>
+        </div>
+      )}
+
       {images.length > 0 && (
         <div className="flex gap-2 px-3 pb-1 flex-wrap no-drag">
           {images.map((src, i) => (

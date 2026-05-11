@@ -87,6 +87,8 @@ export interface AppSettings {
     hoverMenuOnHover: boolean
     /** 上次在記錄／輸入端使用的作用中對話；重開程式時還原 */
     lastActiveConversationId?: string
+    /** 首次啟動引導完成後為 true */
+    onboardingCompleted?: boolean
   }
 }
 

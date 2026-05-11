@@ -22,6 +22,9 @@ export default function CharacterLibraryWindow() {
 
   const importRef = useRef<HTMLInputElement>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [exportModalOpen, setExportModalOpen] = useState(false)
+  const [exportSelected, setExportSelected] = useState<Record<string, boolean>>({})
+  const [includeGlobalInPack, setIncludeGlobalInPack] = useState(true)
 
   useEffect(() => {
     const onDown = () => window.api.invoke('ui:aux-activated')
@@ -75,6 +78,22 @@ export default function CharacterLibraryWindow() {
     const lower = file.name.toLowerCase()
     const buf = await file.arrayBuffer()
     try {
+      if (lower.endsWith('.dstpack')) {
+        const res = (await window.api.invoke('character:import-dstpack', { buffer: buf })) as {
+          ok?: boolean
+          imported?: number
+          skipped?: number
+          error?: string
+        }
+        if (res && 'error' in res && res.error) {
+          setToast(res.error)
+          return
+        }
+        const imp = typeof res.imported === 'number' ? res.imported : 0
+        const sk = typeof res.skipped === 'number' ? res.skipped : 0
+        setToast(`已匯入搬家包：${imp} 個角色，略過 ${sk} 個`)
+        return
+      }
       if (lower.endsWith('.json')) {
         const text = new TextDecoder().decode(buf)
         const res = await window.api.invoke('character:import-json', text) as Character | { error?: string }
@@ -98,7 +117,7 @@ export default function CharacterLibraryWindow() {
         setToast('已匯入 PNG 角色卡')
         return
       }
-      setToast('請選擇 .json 或 .png')
+      setToast('請選擇 .json、.png 或 .dstpack')
     } catch (err) {
       setToast(err instanceof Error ? err.message : '匯入失敗')
     }
@@ -107,6 +126,49 @@ export default function CharacterLibraryWindow() {
   const openMenuFromEvent = (characterId: string, e: React.MouseEvent) => {
     e.preventDefault()
     openContextMenu(characterId, e.clientX, e.clientY)
+  }
+
+  const exportDstPackOne = async (characterIds: string[], includeGlobalSettings: boolean, defaultStem: string) => {
+    const res = (await window.api.invoke('character:build-dstpack', { characterIds, includeGlobalSettings })) as {
+      buffer?: ArrayBuffer
+      error?: string
+    }
+    if (res && 'error' in res && res.error) {
+      setToast(res.error)
+      return
+    }
+    const buf = (res as { buffer: ArrayBuffer }).buffer
+    const dlg = (await window.api.invoke('file:save-dialog', {
+      defaultPath: `${defaultStem || 'DesktopST'}.dstpack`,
+      filters: [{ name: 'DesktopST 搬家包', extensions: ['dstpack'] }]
+    })) as { filePath?: string; error?: string }
+    if (dlg && 'error' in dlg && dlg.error) {
+      setToast(dlg.error)
+      return
+    }
+    const fp = (dlg as { filePath?: string }).filePath
+    if (!fp) return
+    const wr = (await window.api.invoke('file:write-file', { path: fp, data: buf })) as { ok?: boolean; error?: string }
+    if (wr && 'error' in wr && wr.error) setToast(wr.error)
+    else setToast('已匯出搬家包')
+  }
+
+  const openExportModal = () => {
+    const init: Record<string, boolean> = {}
+    for (const c of characters) init[c.id] = true
+    setExportSelected(init)
+    setIncludeGlobalInPack(true)
+    setExportModalOpen(true)
+  }
+
+  const confirmExportPack = async () => {
+    const ids = Object.keys(exportSelected).filter(id => exportSelected[id])
+    if (ids.length === 0) {
+      setToast('請至少勾選一個角色')
+      return
+    }
+    await exportDstPackOne(ids, includeGlobalInPack, 'DesktopST_characters')
+    setExportModalOpen(false)
   }
 
   const ctxChar = contextMenu ? characters.find(c => c.id === contextMenu.characterId) : undefined
@@ -155,7 +217,7 @@ export default function CharacterLibraryWindow() {
 
   return (
     <div className="h-screen flex flex-col bg-bg text-primary overflow-hidden">
-      <input ref={importRef} type="file" accept=".json,.png" className="hidden" onChange={onImportFile} />
+      <input ref={importRef} type="file" accept=".json,.png,.dstpack" className="hidden" onChange={onImportFile} />
 
       <header className="drag-region flex items-center justify-between gap-2 px-4 py-3 border-b border-border shrink-0 bg-[#F7FFFC]">
         <span className="text-sm font-semibold text-primary">角色庫</span>
@@ -168,7 +230,20 @@ export default function CharacterLibraryWindow() {
             ＋ 新增
           </button>
           <button type="button" className="text-xs px-3 py-1.5 rounded-full border border-border hover:bg-mint/40" onClick={pickImport}>
-            匯入 ST 角色卡
+            匯入角色卡／搬家包
+          </button>
+          <button
+            type="button"
+            className="text-xs px-3 py-1.5 rounded-full border border-border hover:bg-mint/40"
+            onClick={() => {
+              if (characters.length === 0) {
+                setToast('尚無角色可匯出')
+                return
+              }
+              openExportModal()
+            }}
+          >
+            匯出多個角色
           </button>
           <button
             type="button"
@@ -184,7 +259,7 @@ export default function CharacterLibraryWindow() {
       <main className="flex-1 overflow-y-auto p-4">
         {characters.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center px-6 gap-3 text-secondary text-sm">
-            <p>尚無角色。你可以按「＋ 新增」建立空白角色，或使用「匯入 ST 角色卡」載入 JSON／PNG。</p>
+            <p>尚無角色。你可以按「＋ 新增」建立空白角色，或使用「匯入角色卡／搬家包」載入 ST 卡（JSON／PNG）或 DesktopST 搬家包（.dstpack）。</p>
           </div>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-4">
@@ -217,6 +292,7 @@ export default function CharacterLibraryWindow() {
           onDelete={() => void deleteCharacter(contextMenu.characterId)}
           onExportJson={() => void exportJson(ctxChar)}
           onExportPng={() => void exportPng(ctxChar)}
+          onExportDstPack={() => void exportDstPackOne([ctxChar.id], false, ctxChar.name || 'character')}
           onSummon={async () => {
             try {
               await addToDesktop(contextMenu.characterId)
@@ -225,6 +301,57 @@ export default function CharacterLibraryWindow() {
             }
           }}
         />
+      )}
+
+      {exportModalOpen && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/25 p-4 no-drag"
+          onMouseDown={() => setExportModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl border border-border max-w-md w-full p-4 shadow-soft max-h-[85vh] flex flex-col"
+            onMouseDown={e => e.stopPropagation()}
+          >
+            <h3 className="font-semibold text-primary mb-2 shrink-0">匯出 DesktopST 搬家包</h3>
+            <label className="flex items-center gap-2 text-sm mb-3 shrink-0 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeGlobalInPack}
+                onChange={e => setIncludeGlobalInPack(e.target.checked)}
+              />
+              包含世界觀與使用者資訊（不含 API Key）
+            </label>
+            <p className="text-xs text-secondary mb-2 shrink-0">勾選要一併打包的角色：</p>
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-1 mb-4 border border-border rounded-xl p-2">
+              {characters.map(c => (
+                <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!exportSelected[c.id]}
+                    onChange={() => setExportSelected(prev => ({ ...prev, [c.id]: !prev[c.id] }))}
+                  />
+                  <span className="truncate">{c.name}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 shrink-0">
+              <button
+                type="button"
+                className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40"
+                onClick={() => setExportModalOpen(false)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary"
+                onClick={() => void confirmExportPack()}
+              >
+                確定匯出
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {editingCharacterId && (

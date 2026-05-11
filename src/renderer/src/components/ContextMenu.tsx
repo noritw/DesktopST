@@ -9,6 +9,7 @@ interface Props {
   onDelete: () => void
   onExportJson: () => void
   onExportPng: () => void
+  onExportDstPack: () => void
   onSummon: () => void
 }
 
@@ -21,6 +22,7 @@ export default function ContextMenu({
   onDelete,
   onExportJson,
   onExportPng,
+  onExportDstPack,
   onSummon
 }: Props) {
   const [deleteConfirm, setDeleteConfirm] = useState(false)
@@ -93,12 +95,19 @@ export default function ContextMenu({
       </div>
       <div className="border-t border-border my-0" />
       <div className="py-1">
-        <div className="px-3 py-1 text-[10px] text-secondary font-medium">匯出</div>
+        <div className="px-3 py-1 text-[10px] text-secondary font-medium">匯出（SillyTavern）</div>
         <button type="button" className="w-full text-left text-sm px-3 py-1.5 pl-5 text-primary hover:bg-mint/40" onClick={() => { onExportJson(); onClose() }}>
-          匯出為 JSON
+          匯出 ST JSON
         </button>
         <button type="button" className="w-full text-left text-sm px-3 py-1.5 pl-5 text-primary hover:bg-mint/40" onClick={() => { onExportPng(); onClose() }}>
-          匯出為 PNG 角色卡
+          匯出 ST PNG
+        </button>
+      </div>
+      <div className="border-t border-border my-0" />
+      <div className="py-1">
+        <div className="px-3 py-1 text-[10px] text-secondary font-medium">匯出（DesktopST）</div>
+        <button type="button" className="w-full text-left text-sm px-3 py-1.5 pl-5 text-primary hover:bg-mint/40" onClick={() => { onExportDstPack(); onClose() }}>
+          匯出搬家包（.dstpack）
         </button>
       </div>
     </div>

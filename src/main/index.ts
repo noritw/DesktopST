@@ -3,7 +3,18 @@ import * as path from 'path'
 import * as fs from 'fs'
 import { loadSettings, saveSettings, loadCharacters, initDefaultCharacters } from './fileStore'
 import { initState, registerIpcHandlers } from './ipcHandlers'
-import { createCharacterWindow, toggleInputWindow, broadcastToAll, hideAuxWindowsRememberingState, restoreAuxWindowsFromRememberedState, isCursorOverInteractiveCharacter, shouldSuppressAuxAutoHide } from './windowManager'
+import {
+  createCharacterWindow,
+  toggleInputWindow,
+  broadcastToAll,
+  hideAuxWindowsRememberingState,
+  restoreAuxWindowsFromRememberedState,
+  isCursorOverInteractiveCharacter,
+  shouldSuppressAuxAutoHide,
+  openSettingsWindow,
+  getCharacterWindowSize,
+  suppressAuxAutoHide
+} from './windowManager'
 
 function isOffscreen(pos: { x: number; y: number }, win: { width: number; height: number }): boolean {
   const px = Number.isFinite(pos.x) ? pos.x : 0
@@ -81,7 +92,7 @@ app.on('ready', async () => {
   let didFixOffscreen = false
   for (const ds of settings.ui.desktopCharacters) {
     const scale = Number.isFinite(ds.size) && ds.size > 0 ? ds.size : 1
-    const win = { width: Math.round(220 * scale), height: Math.round(380 * scale) }
+    const win = getCharacterWindowSize(scale)
     if (isOffscreen(ds.position, win)) {
       ds.position = centerInPrimary(win)
       didFixOffscreen = true
@@ -89,6 +100,16 @@ app.on('ready', async () => {
     createCharacterWindow(ds.characterId, ds.position, ds.size)
   }
   if (didFixOffscreen) saveSettings(settings)
+
+  const noCharacters = chars.length === 0
+  const onboardingPending = settings.ui.onboardingCompleted === false
+  if (noCharacters || onboardingPending) {
+    suppressAuxAutoHide(5000)
+    const tab = noCharacters ? 'character' : 'llm'
+    setImmediate(() => {
+      openSettingsWindow(tab)
+    })
+  }
 
   // System tray
   setupTray(appRoot)
@@ -137,6 +158,7 @@ function setupTray(appRoot: string) {
 
   const menu = Menu.buildFromTemplate([
     { label: '顯示輸入框', click: () => toggleInputWindow() },
+    { label: '開啟設定', click: () => openSettingsWindow('llm') },
     { type: 'separator' },
     { label: '結束', click: () => app.exit(0) }
   ])
