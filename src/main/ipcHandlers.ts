@@ -30,6 +30,21 @@ let characters: Character[]
 let activeConversationId: string | null = null
 let conversations: Map<string, Conversation> = new Map()
 
+function syncLastActiveConversationToSettings(): void {
+  if (activeConversationId) settings.ui.lastActiveConversationId = activeConversationId
+  else delete settings.ui.lastActiveConversationId
+  fileStore.saveSettings(settings)
+}
+
+function pickStartupConversationId(ids: string[], saved?: string): string {
+  if (saved && ids.includes(saved) && fileStore.loadConversation(saved)) return saved
+  for (let i = ids.length - 1; i >= 0; i--) {
+    const id = ids[i]
+    if (fileStore.loadConversation(id)) return id
+  }
+  return ids[ids.length - 1]
+}
+
 function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n))
 }
@@ -279,9 +294,11 @@ export function initState(
   // Load or create active conversation
   const ids = fileStore.listConversationIds()
   if (ids.length > 0) {
-    activeConversationId = ids[ids.length - 1]
-    const conv = fileStore.loadConversation(activeConversationId)
+    const pick = pickStartupConversationId(ids, settings.ui.lastActiveConversationId)
+    activeConversationId = pick
+    const conv = getOrLoadConversation(pick)
     if (conv) conversations.set(conv.id, conv)
+    syncLastActiveConversationToSettings()
   } else {
     createNewConversation()
   }
@@ -306,6 +323,7 @@ function createNewConversation(): Conversation {
   conversations.set(id, conv)
   activeConversationId = id
   fileStore.saveConversation(conv)
+  syncLastActiveConversationToSettings()
   return conv
 }
 
@@ -359,8 +377,13 @@ export function registerIpcHandlers() {
   ipcMain.handle('settings:save', (_, s: AppSettings) => {
     s.ui.unfocusedBubbleOpacity = normalizeUnfocusedBubbleOpacity(s.ui.unfocusedBubbleOpacity)
     setUnfocusedBubbleOpacity(s.ui.unfocusedBubbleOpacity)
-    settings = s
-    fileStore.saveSettings(s)
+    const prevPointer = settings.ui.lastActiveConversationId
+    const ui = { ...s.ui }
+    if (!Object.prototype.hasOwnProperty.call(ui, 'lastActiveConversationId')) {
+      ui.lastActiveConversationId = prevPointer
+    }
+    settings = { ...s, ui }
+    fileStore.saveSettings(settings)
     broadcastToAll('settings:updated', settings)
     return true
   })
@@ -729,6 +752,7 @@ export function registerIpcHandlers() {
     const conv = getOrLoadConversation(id)
     if (!conv) return { error: 'Not found' }
     activeConversationId = id
+    syncLastActiveConversationToSettings()
     broadcastToAll('conversation:updated', conv)
     return conv
   })
@@ -770,6 +794,7 @@ export function registerIpcHandlers() {
       activeConversationId = nextId
       const next = getOrLoadConversation(nextId)
       if (next) {
+        syncLastActiveConversationToSettings()
         broadcastToAll('conversation:updated', next)
         return true
       }
