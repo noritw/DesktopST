@@ -497,14 +497,12 @@ export default function SettingsWindow() {
               <p className="text-xs text-secondary leading-relaxed">
                 使用 AI 聊天需要費用。你聊越多，花越多錢。大多數 LLM 服務商都提供免費試用額度，但額度和方案不同，建議查看各家說明。
               </p>
-              <a
-                href="docs/api-key-guide.html"
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs inline-block px-3 py-1.5 rounded-full bg-mint font-semibold text-primary hover:bg-teal transition-all"
+              <button
+                onClick={() => window.api.invoke('app:open-api-guide')}
+                className="text-xs inline-block px-3 py-1.5 rounded-full bg-mint font-semibold text-primary hover:bg-teal transition-all cursor-pointer"
               >
                 👉 查看 API Key 申請指南
-              </a>
+              </button>
             </div>
             <Field label="服務商">
               <select

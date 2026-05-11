@@ -1561,4 +1561,14 @@ export function registerIpcHandlers() {
     broadcastToAll('presets:updated', null)
     return true
   })
+
+  ipcMain.handle('shell:open-external', (_, url: string) => {
+    return shell.openExternal(url)
+  })
+
+  ipcMain.handle('app:open-api-guide', () => {
+    const appRoot = app.getAppPath()
+    const guideFile = path.join(appRoot, 'docs/api-key-guide.html')
+    return shell.openPath(guideFile)
+  })
 }
