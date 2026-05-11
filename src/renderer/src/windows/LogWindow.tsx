@@ -87,7 +87,7 @@ export default function LogWindow() {
 
   useEffect(() => {
     listConversations().then(setConvList).catch(() => setConvList([]))
-  }, [conversation?.id, listConversations])
+  }, [conversation?.id, conversation?.title, listConversations])
 
   const userName = useMemo(() => (
     settings?.persona.displayName?.trim()
