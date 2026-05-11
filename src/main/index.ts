@@ -1,7 +1,7 @@
 import { app, Tray, Menu, nativeImage, protocol, screen, BrowserWindow } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
-import { loadSettings, saveSettings, loadCharacters, initDefaultCharacters } from './fileStore'
+import { loadSettings, saveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets } from './fileStore'
 import { initState, registerIpcHandlers } from './ipcHandlers'
 import {
   createCharacterWindow,
@@ -68,6 +68,17 @@ app.on('ready', async () => {
       saveSettings(settings)
     }
   }
+  // Init default presets if first run
+  const { personas, worlds } = initDefaultPresets(appRoot)
+  if (!settings.activePersonaId && personas.length > 0) {
+    settings.activePersonaId = personas[0].id
+    saveSettings(settings)
+  }
+  if (!settings.activeWorldId && worlds.length > 0) {
+    settings.activeWorldId = worlds[0].id
+    saveSettings(settings)
+  }
+
   // Safety: if we have characters but none on desktop, put at least one on.
   if (chars.length > 0 && (!desktopState || desktopState.length === 0)) {
     desktopState = [{
@@ -145,8 +156,8 @@ app.on('before-quit', () => {
 // ── System tray ───────────────────────────────────────────
 
 function setupTray(appRoot: string) {
-  let iconPath = path.join(appRoot, 'assets', 'KT_default.png')
-  if (!fs.existsSync(iconPath)) iconPath = ''
+  const trayCandidates = ['Icon16x16.png', 'icon.png', 'icon.ico'].map(f => path.join(appRoot, 'assets', f))
+  let iconPath = trayCandidates.find(p => fs.existsSync(p)) ?? ''
 
   const icon = iconPath && fs.existsSync(iconPath)
     ? nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 })

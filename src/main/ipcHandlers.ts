@@ -2,7 +2,7 @@ import { ipcMain, shell, BrowserWindow, dialog, app, desktopCapturer, clipboard,
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AppSettings, Character, Conversation, Message } from './types'
+import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset } from './types'
 import * as fileStore from './fileStore'
 import { chatWithOpenAI } from './llm/openaiAdapter'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
@@ -104,6 +104,21 @@ function copyDataUrlImageToClipboard(dataUrl: string): void {
   clipboard.writeImage(image)
 }
 
+function getActivePersona(): PersonaPreset | null {
+  if (!settings.activePersonaId) return null
+  return fileStore.loadPersonaPreset(settings.activePersonaId)
+}
+
+function getActiveWorld(): WorldPreset | null {
+  if (!settings.activeWorldId) return null
+  return fileStore.loadWorldPreset(settings.activeWorldId)
+}
+
+function getPersonaDisplayName(): string {
+  const p = getActivePersona()
+  return p?.displayName?.trim() || p?.nickname?.trim() || '使用者'
+}
+
 function characterAliases(char: Character): string[] {
   const nn = Array.isArray(char.nicknames) ? char.nicknames : []
   return [char.name, ...nn].map(s => String(s ?? '').trim()).filter(Boolean)
@@ -154,6 +169,25 @@ function parseGuardDecisionText(raw: string): { respond?: boolean; emotion?: str
 
   const json = safeJsonParse<{ respond?: boolean; emotion?: string; content?: string }>(text)
   if (json) return json
+
+  // LLM sometimes outputs multiple JSON objects separated by commas or newlines.
+  // Try wrapping in brackets to parse as an array.
+  const asArray = safeJsonParse<Array<{ respond?: boolean; emotion?: string; content?: string }>>(`[${text}]`)
+  if (Array.isArray(asArray) && asArray.length > 0) {
+    const responding = asArray.filter(item => item && item.respond !== false)
+    if (responding.length > 0) {
+      const combined = responding
+        .map(item => String(item.content ?? '').trim())
+        .filter(Boolean)
+        .join('\n')
+      return {
+        respond: true,
+        emotion: responding[0].emotion || 'neutral',
+        content: combined || undefined
+      }
+    }
+    return { respond: false }
+  }
 
   const out: { respond?: boolean; emotion?: string; content?: string } = {}
 
@@ -546,7 +580,9 @@ export function registerIpcHandlers() {
         charsRoot: path.join(fileStore.getDataDir(), 'characters'),
         characterIds: ids,
         includeGlobalSettings: !!payload?.includeGlobalSettings,
-        settings
+        settings,
+        persona: getActivePersona(),
+        world: getActiveWorld()
       })
       const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
       return { buffer: arrayBuffer }
@@ -656,33 +692,52 @@ export function registerIpcHandlers() {
 
       if (parsed.manifest.includeGlobalSettings && parsed.globalPartial) {
         const g = parsed.globalPartial
+        const dialogOpts = {
+          type: 'question' as const,
+          buttons: ['套用', '不要套用'],
+          defaultId: 1,
+          title: 'DesktopST',
+          message: '此封裝包含世界觀與使用者資訊',
+          detail: '是否套用匯入的世界觀與使用者資訊？（不會變更 API Key）'
+        }
         const r = win && !win.isDestroyed()
-          ? await dialog.showMessageBox(win, {
-            type: 'question',
-            buttons: ['套用', '不要套用'],
-            defaultId: 1,
-            title: 'DesktopST',
-            message: '此封裝包含世界觀與使用者資訊',
-            detail: '是否套用匯入的世界觀與使用者資訊？（不會變更 API Key）'
-          })
-          : await dialog.showMessageBox({
-            type: 'question',
-            buttons: ['套用', '不要套用'],
-            defaultId: 1,
-            title: 'DesktopST',
-            message: '此封裝包含世界觀與使用者資訊',
-            detail: '是否套用匯入的世界觀與使用者資訊？（不會變更 API Key）'
-          })
+          ? await dialog.showMessageBox(win, dialogOpts)
+          : await dialog.showMessageBox(dialogOpts)
         if (r.response === 0) {
-          settings = {
-            ...settings,
-            worldSetting: g.worldSetting ?? '',
-            interactionExample: g.interactionExample ?? '',
-            injectSystemTime: !!g.injectSystemTime,
-            persona: { ...settings.persona, ...g.persona }
+          const now = Date.now()
+          if (g.persona) {
+            const pid = uuidv4()
+            const personaPreset: PersonaPreset = {
+              id: pid,
+              name: '匯入的使用者',
+              displayName: g.persona.displayName ?? '使用者',
+              nickname: g.persona.nickname ?? '主人',
+              description: g.persona.description ?? '',
+              builtIn: false,
+              createdAt: now,
+              updatedAt: now
+            }
+            fileStore.savePersonaPreset(personaPreset)
+            settings.activePersonaId = pid
           }
+          if (g.worldSetting || g.interactionExample) {
+            const wid = uuidv4()
+            const worldPreset: WorldPreset = {
+              id: wid,
+              name: '匯入的世界觀',
+              worldSetting: g.worldSetting ?? '',
+              interactionExample: g.interactionExample ?? '',
+              builtIn: false,
+              createdAt: now,
+              updatedAt: now
+            }
+            fileStore.saveWorldPreset(worldPreset)
+            settings.activeWorldId = wid
+          }
+          settings.injectSystemTime = !!g.injectSystemTime
           fileStore.saveSettings(settings)
           broadcastToAll('settings:updated', settings)
+          broadcastToAll('presets:updated', null)
         }
       }
 
@@ -920,7 +975,7 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('user-bubble:debug-show', (_, payload: { speakerName?: string; text: string }) => {
-    const speakerName = String(payload?.speakerName ?? settings?.persona.displayName ?? settings?.persona.nickname ?? '你')
+    const speakerName = String(payload?.speakerName ?? getPersonaDisplayName())
     const text = String(payload?.text ?? '')
     if (!text.trim()) return false
     showUserSpeechBubble(speakerName, text)
@@ -1068,6 +1123,9 @@ export function registerIpcHandlers() {
     const conv = getActiveConversation()
     if (!conv) return { error: 'No active conversation' }
 
+    const activePersona = getActivePersona()
+    const activeWorld = getActiveWorld()
+
     const userContentForPrompt = settings.injectSystemTime
       ? `${payload.content}\n\n【目前時間】${formatSystemTimeStamp(new Date())}`
       : payload.content
@@ -1084,8 +1142,7 @@ export function registerIpcHandlers() {
     broadcastToAll('conversation:updated', conv)
     const shownUserText = String(payload.content ?? '').trim()
     if (shownUserText) {
-      const userSpeaker = String(settings?.persona.displayName || settings?.persona.nickname || '你')
-      showUserSpeechBubble(userSpeaker, shownUserText)
+      showUserSpeechBubble(getPersonaDisplayName(), shownUserText)
     }
     const userMsgForPrompt: Message = { ...userMsg, content: userContentForPrompt }
 
@@ -1144,7 +1201,9 @@ export function registerIpcHandlers() {
         character: primaryChar,
         messages: recentMessagesBase,
         images: payload.images,
-        speakerNameById: getSpeakerNameById()
+        speakerNameById: getSpeakerNameById(),
+        persona: activePersona,
+        world: activeWorld
       })
       const primaryReply = stripOtherCharacterSpeakerLines(
         normalizeCharacterDialogue(content, primaryChar),
@@ -1202,24 +1261,25 @@ export function registerIpcHandlers() {
       const guardChar = {
         ...char,
         systemPromptOverride: [
-          `你是${char.name}，正在群組對話中。`,
-          `規則：你「不一定要回覆」。只有在你真的有新觀點、補充、不同情緒反應、或被點名時才回覆。`,
-          `如果只是重複上一位角色的內容、或沒有要補充，請回覆：[neutral] {"respond":false}`,
-          `如果要回覆，請只輸出 JSON（仍需以情緒標記開頭），格式如下：`,
-          `[neutral] {"respond":true,"emotion":"neutral","content":"你的回覆內容（簡短，不要重複上一位）"}`,
-          `注意：不要輸出任何 JSON 以外的多餘文字。`
+          `You are ${char.name} in a group conversation.`,
+          'Rule: you do NOT have to reply. Only reply when you have a fresh viewpoint, supplementary info, a different emotional reaction, or you are addressed by name.',
+          'If you would just repeat the previous speaker or have nothing to add, reply: [neutral] {"respond":false}',
+          'If you do reply, output EXACTLY ONE JSON object prefixed with an emotion tag:',
+          `[neutral] {"respond":true,"emotion":"neutral","content":"your reply (keep it brief; do not repeat the previous speaker; use \\n for multiple sentences inside the same content string)"}`,
+          'Do NOT output multiple JSON objects, arrays, or any text outside the JSON.'
         ].join('\n'),
       }
       const secondaryGuardChar = {
         ...char,
         systemPromptOverride: [
-          `你正在判斷「${char.name}」是否要接續目前對話發言。`,
-          '如果使用者明確要求大家聊天、某位角色點名你、或你能提供不同角度，請回應。',
-          '如果你只是要重複上一位角色的意思、沒有新反應、或角色個性上會保持沉默，才選擇不回應。',
-          '若要回應，content 必須是角色直接發言，不可包含旁白、動作描寫、括號敘述或舞台指示。',
-          '請只輸出一個 JSON 物件，不要加解釋，不要使用 Markdown。',
-          '格式：{"respond":true,"emotion":"neutral","content":"要說的話"}',
-          '不回應格式：{"respond":false}'
+          `You are deciding whether "${char.name}" should speak next in the current conversation.`,
+          'Respond if: the user explicitly invites everyone to talk, another character addresses you, or you can offer a genuinely different angle.',
+          'Stay silent if: you would merely echo the previous speaker, have no new reaction, or the character would realistically stay quiet.',
+          'If responding, "content" must be direct spoken dialogue — no narration, actions, parenthetical descriptions, or stage directions.',
+          '⚠ Strict rule: output EXACTLY ONE JSON object. No multiple objects, no arrays, no explanations, no Markdown.',
+          'If the reply has multiple sentences, put them all inside the same "content" string separated by \\n.',
+          'Format: {"respond":true,"emotion":"neutral","content":"what to say"}',
+          'Silent format: {"respond":false}'
         ].join('\n'),
       }
 
@@ -1230,7 +1290,9 @@ export function registerIpcHandlers() {
           settings,
           character: secondaryGuardChar,
           messages: recentMessages,
-          speakerNameById: getSpeakerNameById()
+          speakerNameById: getSpeakerNameById(),
+          persona: activePersona,
+          world: activeWorld
         })
         const parsed = parseGuardDecisionText(jsonText)
         const fallbackReply = !parsed && jsonText && !/^\s*(false|no|不|不用|沉默)/i.test(jsonText)
@@ -1288,6 +1350,9 @@ export function registerIpcHandlers() {
     const char = getCharacter(characterId)
     if (!conv || !char) return { error: 'Not found' }
 
+    const activePersona = getActivePersona()
+    const activeWorld = getActiveWorld()
+
     broadcastToAll('character:thinking', { characterId, thinking: true })
     try {
       const recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
@@ -1309,7 +1374,9 @@ export function registerIpcHandlers() {
         settings,
         character: char,
         messages: [...recentMessages, forceInstruction],
-        speakerNameById: getSpeakerNameById()
+        speakerNameById: getSpeakerNameById(),
+        persona: activePersona,
+        world: activeWorld
       })
       const forcedReply = stripOtherCharacterSpeakerLines(
         normalizeCharacterDialogue(content, char),
@@ -1477,5 +1544,49 @@ export function registerIpcHandlers() {
     } catch (e) {
       return { error: String(e) }
     }
+  })
+
+  // ── Persona Presets ──────────────────────────────────────
+  ipcMain.handle('presets:persona:list', () => fileStore.loadPersonaPresets())
+
+  ipcMain.handle('presets:persona:save', (_, preset: PersonaPreset) => {
+    preset.updatedAt = Date.now()
+    fileStore.savePersonaPreset(preset)
+    broadcastToAll('presets:updated', null)
+    return true
+  })
+
+  ipcMain.handle('presets:persona:delete', (_, id: string) => {
+    fileStore.deletePersonaPreset(id)
+    if (settings.activePersonaId === id) {
+      const remaining = fileStore.loadPersonaPresets()
+      settings.activePersonaId = remaining[0]?.id ?? ''
+      fileStore.saveSettings(settings)
+      broadcastToAll('settings:updated', settings)
+    }
+    broadcastToAll('presets:updated', null)
+    return true
+  })
+
+  // ── World Presets ────────────────────────────────────────
+  ipcMain.handle('presets:world:list', () => fileStore.loadWorldPresets())
+
+  ipcMain.handle('presets:world:save', (_, preset: WorldPreset) => {
+    preset.updatedAt = Date.now()
+    fileStore.saveWorldPreset(preset)
+    broadcastToAll('presets:updated', null)
+    return true
+  })
+
+  ipcMain.handle('presets:world:delete', (_, id: string) => {
+    fileStore.deleteWorldPreset(id)
+    if (settings.activeWorldId === id) {
+      const remaining = fileStore.loadWorldPresets()
+      settings.activeWorldId = remaining[0]?.id ?? ''
+      fileStore.saveSettings(settings)
+      broadcastToAll('settings:updated', settings)
+    }
+    broadcastToAll('presets:updated', null)
+    return true
   })
 }

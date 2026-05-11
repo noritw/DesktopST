@@ -58,12 +58,13 @@ export default function LogWindow() {
   const [promptMessage, setPromptMessage] = useState<Message | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
 
+  const focusTitleInputTimer = useRef<number>(0)
   const focusTitleInput = () => {
-    window.api.invoke('ui:aux-activated')
-    window.requestAnimationFrame(() => {
+    clearTimeout(focusTitleInputTimer.current)
+    focusTitleInputTimer.current = window.setTimeout(() => {
       titleInputRef.current?.focus()
       titleInputRef.current?.select()
-    })
+    }, 60)
   }
 
   useEffect(() => {
@@ -94,11 +95,14 @@ export default function LogWindow() {
     listConversations().then(setConvList).catch(() => setConvList([]))
   }, [conversation?.id, conversation?.title, listConversations])
 
+  const personaPresets = useAppStore(s => s.personaPresets)
+  const activePersona = personaPresets.find(p => p.id === settings?.activePersonaId)
+
   const userName = useMemo(() => (
-    settings?.persona.displayName?.trim()
-    || settings?.persona.nickname?.trim()
+    activePersona?.displayName?.trim()
+    || activePersona?.nickname?.trim()
     || '你'
-  ), [settings])
+  ), [activePersona])
 
   const getCharName = (id?: string) => {
     if (!id) return '系統'

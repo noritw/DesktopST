@@ -15,8 +15,11 @@ export default function InputWindow() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const personaPresets = useAppStore(s => s.personaPresets)
+
   const maxImages = settings?.llm?.maxImagesPerMessage ?? 4
-  const personaName = settings?.persona?.displayName || settings?.persona?.nickname || '使用者'
+  const activePersona = personaPresets.find(p => p.id === settings?.activePersonaId)
+  const personaName = activePersona?.displayName || activePersona?.nickname || '使用者'
   const conversationTitle = conversation?.title || '新對話'
 
   const lastError = useMemo(() => {

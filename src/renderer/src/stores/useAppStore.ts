@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AppSettings, Character, Conversation, DesktopCharacterState, Message } from '../types'
+import type { AppSettings, Character, Conversation, DesktopCharacterState, Message, PersonaPreset, WorldPreset } from '../types'
 
 interface AppStore {
   // Data
@@ -10,6 +10,8 @@ interface AppStore {
   isSending: boolean
   thinkingByCharacterId: Record<string, boolean>
   uiAppFocused: boolean
+  personaPresets: PersonaPreset[]
+  worldPresets: WorldPreset[]
 
   // Actions
   loadAll: () => Promise<void>
@@ -32,6 +34,11 @@ interface AppStore {
   clearConversation: () => Promise<void>
   deleteCurrentConversation: () => Promise<void>
   importCharacterJson: (json: string) => Promise<Character | null>
+  loadPresets: () => Promise<void>
+  savePersonaPreset: (p: PersonaPreset) => Promise<void>
+  deletePersonaPreset: (id: string) => Promise<void>
+  saveWorldPreset: (w: WorldPreset) => Promise<void>
+  deleteWorldPreset: (id: string) => Promise<void>
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -42,6 +49,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   isSending: false,
   thinkingByCharacterId: {},
   uiAppFocused: true,
+  personaPresets: [],
+  worldPresets: [],
 
   loadAll: async () => {
     const data = await window.api.invoke('store:get-all') as {
@@ -50,11 +59,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
       desktopCharacters: DesktopCharacterState[]
       conversation: Conversation | null
     }
+    const personas = await window.api.invoke('presets:persona:list') as PersonaPreset[]
+    const worlds = await window.api.invoke('presets:world:list') as WorldPreset[]
     set({
       settings: data.settings,
       characters: data.characters,
       desktopCharacters: data.desktopCharacters,
-      conversation: data.conversation
+      conversation: data.conversation,
+      personaPresets: personas,
+      worldPresets: worlds
     })
   },
 
@@ -73,6 +86,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       window.api.on('ui:app-focus', (payload) => {
         const p = payload as { focused: boolean }
         set({ uiAppFocused: !!p.focused })
+      }),
+      window.api.on('presets:updated', () => {
+        get().loadPresets()
       })
     ]
     return () => unsubs.forEach(u => u())
@@ -162,6 +178,32 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const result = await window.api.invoke('character:import-json', json)
     if (result && typeof result === 'object' && 'error' in (result as object)) return null
     return result as Character
+  },
+
+  loadPresets: async () => {
+    const personas = await window.api.invoke('presets:persona:list') as PersonaPreset[]
+    const worlds = await window.api.invoke('presets:world:list') as WorldPreset[]
+    set({ personaPresets: personas, worldPresets: worlds })
+  },
+
+  savePersonaPreset: async (p) => {
+    await window.api.invoke('presets:persona:save', p)
+    await get().loadPresets()
+  },
+
+  deletePersonaPreset: async (id) => {
+    await window.api.invoke('presets:persona:delete', id)
+    await get().loadPresets()
+  },
+
+  saveWorldPreset: async (w) => {
+    await window.api.invoke('presets:world:save', w)
+    await get().loadPresets()
+  },
+
+  deleteWorldPreset: async (id) => {
+    await window.api.invoke('presets:world:delete', id)
+    await get().loadPresets()
   }
 }))
 

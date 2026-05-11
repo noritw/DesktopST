@@ -2,59 +2,125 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
-import type { AppSettings, Character, Conversation, DesktopCharacterState } from './types'
+import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, LegacyAppSettings } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
 const DATA_DIR = path.join(app.getPath('userData'), 'DesktopST')
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
 const CHARS_DIR = path.join(DATA_DIR, 'characters')
 const CONVS_DIR = path.join(DATA_DIR, 'conversations')
+const PERSONAS_DIR = path.join(DATA_DIR, 'personas')
+const WORLDS_DIR = path.join(DATA_DIR, 'worlds')
 
 function ensureDirs() {
-  for (const dir of [DATA_DIR, CHARS_DIR, CONVS_DIR]) {
+  for (const dir of [DATA_DIR, CHARS_DIR, CONVS_DIR, PERSONAS_DIR, WORLDS_DIR]) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   }
 }
 
 // ── Settings ──────────────────────────────────────────────
 
+function migrateLegacySettings(raw: Record<string, unknown>): { migratedPersonaId: string; migratedWorldId: string } {
+  ensureDirs()
+  let migratedPersonaId = ''
+  let migratedWorldId = ''
+
+  const legacy = raw as unknown as LegacyAppSettings
+
+  if (legacy.persona && typeof legacy.persona === 'object' && 'displayName' in legacy.persona) {
+    const id = uuidv4()
+    const preset: PersonaPreset = {
+      id,
+      name: '我的設定',
+      displayName: legacy.persona.displayName ?? '主人',
+      nickname: legacy.persona.nickname ?? '主人',
+      description: legacy.persona.description ?? '',
+      builtIn: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    }
+    savePersonaPreset(preset)
+    migratedPersonaId = id
+    delete (raw as Record<string, unknown>).persona
+  }
+
+  if (typeof legacy.worldSetting === 'string' || typeof legacy.interactionExample === 'string') {
+    const ws = typeof legacy.worldSetting === 'string' ? legacy.worldSetting : ''
+    const ie = typeof legacy.interactionExample === 'string' ? legacy.interactionExample : ''
+    if (ws.trim() || ie.trim()) {
+      const id = uuidv4()
+      const preset: WorldPreset = {
+        id,
+        name: '我的世界觀',
+        worldSetting: ws,
+        interactionExample: ie,
+        builtIn: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      }
+      saveWorldPreset(preset)
+      migratedWorldId = id
+    }
+    delete (raw as Record<string, unknown>).worldSetting
+    delete (raw as Record<string, unknown>).interactionExample
+  }
+
+  return { migratedPersonaId, migratedWorldId }
+}
+
 export function loadSettings(): AppSettings {
   ensureDirs()
   if (!fs.existsSync(SETTINGS_FILE)) return { ...DEFAULT_SETTINGS }
   try {
-    const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8')) as Partial<AppSettings> | null
-    const s = raw && typeof raw === 'object' ? raw : {}
+    const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8')) as Record<string, unknown> | null
+    const s = raw && typeof raw === 'object' ? raw : {} as Record<string, unknown>
 
-    // Backward/forward compatible merge: keep unknown fields but ensure required structure exists.
-    return {
+    const needsMigration = Object.prototype.hasOwnProperty.call(s, 'persona') ||
+      (Object.prototype.hasOwnProperty.call(s, 'worldSetting') && typeof (s as any).worldSetting === 'string')
+
+    let migratedPersonaId = ''
+    let migratedWorldId = ''
+    if (needsMigration) {
+      const result = migrateLegacySettings(s)
+      migratedPersonaId = result.migratedPersonaId
+      migratedWorldId = result.migratedWorldId
+    }
+
+    const typed = s as Partial<AppSettings>
+
+    const settings: AppSettings = {
       ...DEFAULT_SETTINGS,
-      ...s,
+      ...typed,
+      activePersonaId: typed.activePersonaId || migratedPersonaId || '',
+      activeWorldId: typed.activeWorldId || migratedWorldId || '',
       llm: {
         ...DEFAULT_SETTINGS.llm,
-        ...(s as Partial<AppSettings>).llm
+        ...typed.llm
       },
       memory: {
         ...DEFAULT_SETTINGS.memory,
-        ...(s as Partial<AppSettings>).memory
-      },
-      persona: {
-        ...DEFAULT_SETTINGS.persona,
-        ...(s as Partial<AppSettings>).persona
+        ...typed.memory
       },
       ui: {
         ...DEFAULT_SETTINGS.ui,
-        ...(s as Partial<AppSettings>).ui,
-        desktopCharacters: ((s as Partial<AppSettings>).ui?.desktopCharacters ?? DEFAULT_SETTINGS.ui.desktopCharacters).map(dc => ({
+        ...typed.ui,
+        desktopCharacters: (typed.ui?.desktopCharacters ?? DEFAULT_SETTINGS.ui.desktopCharacters).map(dc => ({
           ...dc,
           flipped: !!dc?.flipped
         })),
         ...((() => {
-          const rawUi = (s as Partial<AppSettings>).ui
+          const rawUi = typed.ui
           const hadOnboardingKey = !!(rawUi && Object.prototype.hasOwnProperty.call(rawUi, 'onboardingCompleted'))
           return !hadOnboardingKey ? { onboardingCompleted: true as const } : {}
         })())
       }
     }
+
+    if (needsMigration) {
+      saveSettings(settings)
+    }
+
+    return settings
   } catch {
     return { ...DEFAULT_SETTINGS }
   }
@@ -63,6 +129,135 @@ export function loadSettings(): AppSettings {
 export function saveSettings(settings: AppSettings): void {
   ensureDirs()
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8')
+}
+
+// ── Persona Presets ──────────────────────────────────────
+
+export function loadPersonaPresets(): PersonaPreset[] {
+  ensureDirs()
+  if (!fs.existsSync(PERSONAS_DIR)) return []
+  return fs.readdirSync(PERSONAS_DIR)
+    .filter(f => f.endsWith('.json'))
+    .map(f => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(PERSONAS_DIR, f), 'utf-8')) as PersonaPreset
+      } catch { return null }
+    })
+    .filter(Boolean) as PersonaPreset[]
+}
+
+export function savePersonaPreset(preset: PersonaPreset): void {
+  ensureDirs()
+  fs.writeFileSync(path.join(PERSONAS_DIR, `${preset.id}.json`), JSON.stringify(preset, null, 2), 'utf-8')
+}
+
+export function deletePersonaPreset(id: string): void {
+  const file = path.join(PERSONAS_DIR, `${id}.json`)
+  if (fs.existsSync(file)) fs.unlinkSync(file)
+}
+
+export function loadPersonaPreset(id: string): PersonaPreset | null {
+  const file = path.join(PERSONAS_DIR, `${id}.json`)
+  if (!fs.existsSync(file)) return null
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as PersonaPreset
+  } catch { return null }
+}
+
+// ── World Presets ────────────────────────────────────────
+
+export function loadWorldPresets(): WorldPreset[] {
+  ensureDirs()
+  if (!fs.existsSync(WORLDS_DIR)) return []
+  return fs.readdirSync(WORLDS_DIR)
+    .filter(f => f.endsWith('.json'))
+    .map(f => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(WORLDS_DIR, f), 'utf-8')) as WorldPreset
+      } catch { return null }
+    })
+    .filter(Boolean) as WorldPreset[]
+}
+
+export function saveWorldPreset(preset: WorldPreset): void {
+  ensureDirs()
+  fs.writeFileSync(path.join(WORLDS_DIR, `${preset.id}.json`), JSON.stringify(preset, null, 2), 'utf-8')
+}
+
+export function deleteWorldPreset(id: string): void {
+  const file = path.join(WORLDS_DIR, `${id}.json`)
+  if (fs.existsSync(file)) fs.unlinkSync(file)
+}
+
+export function loadWorldPreset(id: string): WorldPreset | null {
+  const file = path.join(WORLDS_DIR, `${id}.json`)
+  if (!fs.existsSync(file)) return null
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as WorldPreset
+  } catch { return null }
+}
+
+// ── Init default presets ─────────────────────────────────
+
+export function initDefaultPresets(appRoot: string): { personas: PersonaPreset[]; worlds: WorldPreset[] } {
+  ensureDirs()
+  const existingPersonas = loadPersonaPresets()
+  const existingWorlds = loadWorldPresets()
+
+  const createdPersonas: PersonaPreset[] = []
+  const createdWorlds: WorldPreset[] = []
+
+  if (existingPersonas.length === 0) {
+    const jsonPath = path.join(appRoot, 'assets', 'default-persona.json')
+    if (fs.existsSync(jsonPath)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'))
+        const id = uuidv4()
+        const preset: PersonaPreset = {
+          id,
+          name: raw.name ?? '預設使用者',
+          displayName: raw.displayName ?? '使用者',
+          nickname: raw.nickname ?? '主人',
+          description: raw.description ?? '',
+          builtIn: true,
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        }
+        savePersonaPreset(preset)
+        createdPersonas.push(preset)
+      } catch (e) {
+        console.error('Failed to init default persona preset', e)
+      }
+    }
+  }
+
+  if (existingWorlds.length === 0) {
+    const jsonPath = path.join(appRoot, 'assets', 'default-world.json')
+    if (fs.existsSync(jsonPath)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'))
+        const id = uuidv4()
+        const preset: WorldPreset = {
+          id,
+          name: raw.name ?? '預設世界觀',
+          worldSetting: raw.worldSetting ?? '',
+          interactionExample: raw.interactionExample ?? '',
+          builtIn: true,
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        }
+        saveWorldPreset(preset)
+        createdWorlds.push(preset)
+      } catch (e) {
+        console.error('Failed to init default world preset', e)
+      }
+    }
+  }
+
+  return {
+    personas: createdPersonas.length > 0 ? createdPersonas : existingPersonas,
+    worlds: createdWorlds.length > 0 ? createdWorlds : existingWorlds
+  }
 }
 
 // ── Characters ────────────────────────────────────────────
@@ -136,8 +331,8 @@ export function initDefaultCharacters(appRoot: string): { chars: Character[]; de
   }
 
   const defaultChars: Array<{ jsonFile: string; imgFile: string; imgKey: string }> = [
-    { jsonFile: '紀天行_文本版.json', imgFile: 'KT_default.png', imgKey: 'KT' },
-    { jsonFile: '汪逸彤_文本版.json', imgFile: 'YT_default.png', imgKey: 'YT' }
+    { jsonFile: '星離宸_DesktopST.json', imgFile: 'star_default.png', imgKey: 'star' },
+    { jsonFile: '琉緋璃_DesktopST.json', imgFile: 'liu_default.png', imgKey: 'liu' }
   ]
 
   const created: Character[] = []

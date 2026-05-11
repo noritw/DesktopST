@@ -57,9 +57,30 @@ export interface WindowBoundsState {
   height: number
 }
 
-export interface AppSettings {
+export interface PersonaPreset {
+  id: string
+  name: string
+  displayName: string
+  nickname: string
+  description: string
+  builtIn?: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface WorldPreset {
+  id: string
+  name: string
   worldSetting: string
   interactionExample: string
+  builtIn?: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface AppSettings {
+  activePersonaId: string
+  activeWorldId: string
   injectSystemTime: boolean
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok'
@@ -74,11 +95,6 @@ export interface AppSettings {
   memory: {
     keepRecentN: number
     autoSummarizeAfter: number
-  }
-  persona: {
-    displayName: string
-    nickname: string
-    description: string
   }
   ui: {
     desktopCharacters: DesktopCharacterState[]

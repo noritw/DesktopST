@@ -22,9 +22,9 @@ export function HoverMenuIcon({ name }: { name: HoverMenuIconName }) {
     <svg viewBox="0 0 24 24" aria-hidden="true" className="w-5 h-5">
       {name === 'speak' && (
         <>
-          <path {...common} d="M5 7.5h10a4 4 0 0 1 4 4v.5a4 4 0 0 1-4 4H9l-4 3v-3.5a4 4 0 0 1-2-3.5v-.5a4 4 0 0 1 2-3.5Z" />
-          <path {...common} d="M8 11h6" />
-          <path {...common} d="M8 14h3" />
+          <path {...common} d="M4 5h13a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-7l-3 3v-3H4a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3Z" />
+          <path {...common} d="M6 9h9" />
+          <path {...common} d="M6 12h5" />
         </>
       )}
       {name === 'volume' && (

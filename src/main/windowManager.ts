@@ -1,10 +1,18 @@
-import { BrowserWindow, screen } from 'electron'
+import { BrowserWindow, screen, nativeImage, app } from 'electron'
 import * as path from 'path'
+import * as fs from 'fs'
 
 const VITE_DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL']
 const DEVTOOLS_ENABLED = process.env['DESKTOPST_DEVTOOLS'] === '1'
 const CHARACTER_ALWAYS_ON_TOP_LEVEL = 'floating' as const
 const BUBBLE_ALWAYS_ON_TOP_LEVEL = 'screen-saver' as const
+function getAppIcon(): Electron.NativeImage | undefined {
+  const appRoot = app.getAppPath()
+  const candidates = ['icon.ico', 'icon.png'].map(f => path.join(appRoot, 'assets', f))
+  const found = candidates.find(p => fs.existsSync(p))
+  return found ? nativeImage.createFromPath(found) : undefined
+}
+
 type WindowBoundsState = { x: number; y: number; width: number; height: number }
 type AuxWindowKind = 'input' | 'log'
 let getSavedAuxBounds: ((kind: AuxWindowKind) => WindowBoundsState | null | undefined) | null = null
@@ -220,6 +228,7 @@ export function createCharacterLibraryWindow(options?: CharacterLibraryOpenOptio
     backgroundColor: '#F7FFFC',
     alwaysOnTop: true,
     skipTaskbar: false,
+    icon: getAppIcon(),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -1075,11 +1084,14 @@ export function raiseAuxWindowToFront(target: BrowserWindow): boolean {
 
   target.moveTop()
   target.setOpacity(1)
-  if (target.isVisible()) target.focus()
   for (const w of bubbleWindows.values()) {
     if (w.isDestroyed() || !w.isVisible()) continue
     w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
     w.moveTop()
+  }
+  if (target.isVisible()) {
+    target.focus()
+    target.webContents.focus()
   }
   return true
 }
@@ -1105,6 +1117,7 @@ function ensureLogWindow(): BrowserWindow {
       backgroundColor: '#F7FFFC',
       skipTaskbar: false,
       alwaysOnTop: true,
+      icon: getAppIcon(),
       webPreferences: {
         preload: path.join(__dirname, '../preload/index.js'),
         contextIsolation: true,
@@ -1186,6 +1199,7 @@ export function openSettingsWindow(tab?: string): void {
     backgroundColor: '#F7FFFC',
     skipTaskbar: false,
     alwaysOnTop: true,
+    icon: getAppIcon(),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -1261,6 +1275,7 @@ export function showPreviewWindow(payloadInput: string | PreviewPayload): void {
     backgroundColor: '#2B3A35',
     skipTaskbar: false,
     alwaysOnTop: true,
+    icon: getAppIcon(),
     resizable: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),

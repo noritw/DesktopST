@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import JSZip from 'jszip'
-import type { AppSettings, Character } from './types'
+import type { AppSettings, Character, PersonaPreset, WorldPreset } from './types'
 
 export const DST_PACK_FORMAT = 'desktopst-pack' as const
 export const DST_PACK_VERSION = 1
@@ -18,7 +18,11 @@ export interface DstPackGlobalPartial {
   worldSetting: string
   interactionExample: string
   injectSystemTime: boolean
-  persona: AppSettings['persona']
+  persona: {
+    displayName: string
+    nickname: string
+    description: string
+  }
 }
 
 function addDiskDirToZip(zip: JSZip, diskRoot: string, zipPrefix: string): void {
@@ -37,8 +41,10 @@ export async function buildDstPackBuffer(opts: {
   characterIds: string[]
   includeGlobalSettings: boolean
   settings: AppSettings
+  persona?: PersonaPreset | null
+  world?: WorldPreset | null
 }): Promise<Buffer> {
-  const { charsRoot, characterIds, includeGlobalSettings, settings } = opts
+  const { charsRoot, characterIds, includeGlobalSettings, settings, persona, world } = opts
   const zip = new JSZip()
   const manifest: DstPackManifest = {
     format: DST_PACK_FORMAT,
@@ -51,10 +57,14 @@ export async function buildDstPackBuffer(opts: {
 
   if (includeGlobalSettings) {
     const partial: DstPackGlobalPartial = {
-      worldSetting: settings.worldSetting ?? '',
-      interactionExample: settings.interactionExample ?? '',
+      worldSetting: world?.worldSetting ?? '',
+      interactionExample: world?.interactionExample ?? '',
       injectSystemTime: !!settings.injectSystemTime,
-      persona: { ...settings.persona }
+      persona: {
+        displayName: persona?.displayName ?? '使用者',
+        nickname: persona?.nickname ?? '主人',
+        description: persona?.description ?? ''
+      }
     }
     zip.file('global/settings.partial.json', JSON.stringify(partial, null, 2))
   }

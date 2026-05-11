@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
+import { v4 as uuidv4 } from 'uuid'
 import {
   OPENAI_DATA_SHARING_INCENTIVE_10M_GROUP,
   OPENAI_DATA_SHARING_INCENTIVE_1M_GROUP
 } from '../constants/openaiDataSharingIncentiveModels'
 import { useAppStore } from '../stores/useAppStore'
-import type { AppSettings } from '../types'
+import type { AppSettings, PersonaPreset, WorldPreset } from '../types'
 import MonoIcon from '../components/MonoIcon'
 
 const OPENAI_MODEL_LIST_HELP =
@@ -116,11 +117,21 @@ export default function SettingsWindow() {
   const settings = useAppStore(s => s.settings)
   const saveSettings = useAppStore(s => s.saveSettings)
   const characters = useAppStore(s => s.characters)
+  const personaPresets = useAppStore(s => s.personaPresets)
+  const worldPresets = useAppStore(s => s.worldPresets)
+  const savePersonaPreset = useAppStore(s => s.savePersonaPreset)
+  const deletePersonaPreset = useAppStore(s => s.deletePersonaPreset)
+  const saveWorldPreset = useAppStore(s => s.saveWorldPreset)
+  const deleteWorldPreset = useAppStore(s => s.deleteWorldPreset)
 
   const [tab, setTab] = useState<Tab>(() => tabFromLocation())
   const [draft, setDraft] = useState<AppSettings | null>(null)
   const [saved, setSaved] = useState(false)
   const [openaiModelListMode, setOpenaiModelListMode] = useState<OpenaiModelListMode>('catalog')
+  const [worldDraft, setWorldDraft] = useState<WorldPreset | null>(null)
+  const [personaDraft, setPersonaDraft] = useState<PersonaPreset | null>(null)
+  const [renaming, setRenaming] = useState<'world' | 'persona' | null>(null)
+  const [renameValue, setRenameValue] = useState('')
 
   const changeTab = (nextTab: Tab) => {
     setTab(nextTab)
@@ -149,12 +160,23 @@ export default function SettingsWindow() {
   useEffect(() => {
     if (!settings) return
     const nextDraft = JSON.parse(JSON.stringify(settings)) as AppSettings
-    // 目前只支援 OpenAI，避免舊設定殘留其他 provider 造成 UI/行為不一致。
     if (nextDraft.llm.provider !== 'openai') {
       nextDraft.llm.provider = 'openai'
     }
     setDraft(nextDraft)
   }, [settings])
+
+  useEffect(() => {
+    if (!draft) return
+    const w = worldPresets.find(p => p.id === draft.activeWorldId)
+    setWorldDraft(w ? { ...w } : null)
+  }, [draft?.activeWorldId, worldPresets])
+
+  useEffect(() => {
+    if (!draft) return
+    const p = personaPresets.find(p => p.id === draft.activePersonaId)
+    setPersonaDraft(p ? { ...p } : null)
+  }, [draft?.activePersonaId, personaPresets])
 
   if (!draft) return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#F7FFFC', gap: 12 }}>
@@ -179,6 +201,14 @@ export default function SettingsWindow() {
 
   const handleSave = async () => {
     if (!draft) return
+    if (worldDraft) {
+      worldDraft.updatedAt = Date.now()
+      await saveWorldPreset(worldDraft)
+    }
+    if (personaDraft) {
+      personaDraft.updatedAt = Date.now()
+      await savePersonaPreset(personaDraft)
+    }
     await saveSettings(draft)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -188,9 +218,94 @@ export default function SettingsWindow() {
   const canFinishOnboarding =
     !!draft &&
     draft.llm.apiKey.trim().length > 0 &&
-    draft.worldSetting.trim().length > 0 &&
-    draft.persona.description.trim().length > 0 &&
+    !!(worldDraft?.worldSetting?.trim()) &&
+    !!(personaDraft?.description?.trim()) &&
     characters.length >= 1
+
+  const switchWorld = async (id: string) => {
+    if (worldDraft) {
+      worldDraft.updatedAt = Date.now()
+      await saveWorldPreset(worldDraft)
+    }
+    set('activeWorldId', id)
+  }
+
+  const addWorld = async () => {
+    const now = Date.now()
+    const preset: WorldPreset = {
+      id: uuidv4(),
+      name: `世界觀 ${worldPresets.length + 1}`,
+      worldSetting: '',
+      interactionExample: '',
+      builtIn: false,
+      createdAt: now,
+      updatedAt: now
+    }
+    await saveWorldPreset(preset)
+    set('activeWorldId', preset.id)
+  }
+
+  const deleteCurrentWorld = async () => {
+    if (!worldDraft || worldDraft.builtIn) return
+    await deleteWorldPreset(worldDraft.id)
+    const remaining = worldPresets.filter(w => w.id !== worldDraft.id)
+    set('activeWorldId', remaining[0]?.id ?? '')
+  }
+
+  const switchPersona = async (id: string) => {
+    if (personaDraft) {
+      personaDraft.updatedAt = Date.now()
+      await savePersonaPreset(personaDraft)
+    }
+    set('activePersonaId', id)
+  }
+
+  const addPersona = async () => {
+    const now = Date.now()
+    const preset: PersonaPreset = {
+      id: uuidv4(),
+      name: `使用者 ${personaPresets.length + 1}`,
+      displayName: '',
+      nickname: '',
+      description: '',
+      builtIn: false,
+      createdAt: now,
+      updatedAt: now
+    }
+    await savePersonaPreset(preset)
+    set('activePersonaId', preset.id)
+  }
+
+  const deleteCurrentPersona = async () => {
+    if (!personaDraft || personaDraft.builtIn) return
+    await deletePersonaPreset(personaDraft.id)
+    const remaining = personaPresets.filter(p => p.id !== personaDraft.id)
+    set('activePersonaId', remaining[0]?.id ?? '')
+  }
+
+  const startRename = (kind: 'world' | 'persona') => {
+    const current = kind === 'world' ? worldDraft?.name : personaDraft?.name
+    setRenaming(kind)
+    setRenameValue(current ?? '')
+  }
+
+  const commitRename = async () => {
+    const trimmed = renameValue.trim()
+    if (!trimmed || !renaming) {
+      setRenaming(null)
+      return
+    }
+    if (renaming === 'world' && worldDraft) {
+      const updated = { ...worldDraft, name: trimmed, updatedAt: Date.now() }
+      await saveWorldPreset(updated)
+      setWorldDraft(updated)
+    } else if (renaming === 'persona' && personaDraft) {
+      const updated = { ...personaDraft, name: trimmed, updatedAt: Date.now() }
+      await savePersonaPreset(updated)
+      setPersonaDraft(updated)
+    }
+    setRenaming(null)
+  }
 
   const finishOnboarding = async () => {
     if (!draft || !canFinishOnboarding) return
@@ -468,28 +583,67 @@ export default function SettingsWindow() {
 
         {tab === '世界觀' && (
           <>
-            <Field label="世界觀設定">
-              <textarea
-                className="input-field min-h-[120px] resize-none"
-                value={draft.worldSetting}
-                onChange={e => set('worldSetting', e.target.value)}
-                placeholder="描述這個世界的背景設定..."
-              />
-              <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
-                可用標籤：<code>{'{{user}}'}</code>、<code>{'{{char}}'}</code>
-              </p>
-            </Field>
-            <Field label="角色互動範例">
-              <textarea
-                className="input-field min-h-[80px] resize-none"
-                value={draft.interactionExample}
-                onChange={e => set('interactionExample', e.target.value)}
-                placeholder="角色之間如何互動的範例..."
-              />
-              <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
-                可用標籤：<code>{'{{user}}'}</code>、<code>{'{{char}}'}</code>
-              </p>
-            </Field>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                className="input-field flex-1 min-w-[120px]"
+                value={draft.activeWorldId}
+                onChange={e => switchWorld(e.target.value)}
+              >
+                {worldPresets.map(w => (
+                  <option key={w.id} value={w.id}>{w.name}{w.builtIn ? '（內建）' : ''}</option>
+                ))}
+                {worldPresets.length === 0 && <option value="">（無預設組）</option>}
+              </select>
+              <button type="button" className="text-xs px-2.5 py-1.5 rounded-full bg-mint font-semibold text-primary hover:bg-teal transition-all" onClick={addWorld}>新增</button>
+              {worldDraft && (
+                <>
+                  {renaming === 'world' ? (
+                    <input
+                      type="text"
+                      className="input-field text-xs w-32"
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onBlur={commitRename}
+                      onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenaming(null) }}
+                      autoFocus
+                    />
+                  ) : (
+                    <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40 transition-all" onClick={() => startRename('world')}>重新命名</button>
+                  )}
+                  {!worldDraft.builtIn && (
+                    <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-[#FFBBBB] text-[#E85D3F] hover:bg-[#FFBBBB]/30 transition-all" onClick={deleteCurrentWorld}>刪除</button>
+                  )}
+                </>
+              )}
+            </div>
+            {worldDraft ? (
+              <>
+                <Field label="世界觀設定">
+                  <textarea
+                    className="input-field min-h-[120px] resize-none"
+                    value={worldDraft.worldSetting}
+                    onChange={e => setWorldDraft(prev => prev ? { ...prev, worldSetting: e.target.value } : prev)}
+                    placeholder="描述這個世界的背景設定..."
+                  />
+                  <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                    可用標籤：<code>{'{{user}}'}</code>、<code>{'{{char}}'}</code>
+                  </p>
+                </Field>
+                <Field label="角色互動範例">
+                  <textarea
+                    className="input-field min-h-[80px] resize-none"
+                    value={worldDraft.interactionExample}
+                    onChange={e => setWorldDraft(prev => prev ? { ...prev, interactionExample: e.target.value } : prev)}
+                    placeholder="角色之間如何互動的範例..."
+                  />
+                  <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                    可用標籤：<code>{'{{user}}'}</code>、<code>{'{{char}}'}</code>
+                  </p>
+                </Field>
+              </>
+            ) : (
+              <p className="text-sm text-secondary">尚未選擇世界觀預設組，請點「新增」建立。</p>
+            )}
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -504,27 +658,66 @@ export default function SettingsWindow() {
 
         {tab === '使用者' && (
           <>
-            <Field label="顯示名稱">
-              <input type="text" className="input-field"
-                value={draft.persona.displayName}
-                onChange={e => set('persona.displayName', e.target.value)}
-                placeholder="你的名字"
-              />
-            </Field>
-            <Field label="角色如何稱呼你">
-              <input type="text" className="input-field"
-                value={draft.persona.nickname}
-                onChange={e => set('persona.nickname', e.target.value)}
-                placeholder="主人、大人、小名..."
-              />
-            </Field>
-            <Field label="自我介紹（選填）">
-              <textarea className="input-field min-h-[80px] resize-none"
-                value={draft.persona.description}
-                onChange={e => set('persona.description', e.target.value)}
-                placeholder="讓角色更了解你..."
-              />
-            </Field>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select
+                className="input-field flex-1 min-w-[120px]"
+                value={draft.activePersonaId}
+                onChange={e => switchPersona(e.target.value)}
+              >
+                {personaPresets.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}{p.builtIn ? '（內建）' : ''}</option>
+                ))}
+                {personaPresets.length === 0 && <option value="">（無預設組）</option>}
+              </select>
+              <button type="button" className="text-xs px-2.5 py-1.5 rounded-full bg-mint font-semibold text-primary hover:bg-teal transition-all" onClick={addPersona}>新增</button>
+              {personaDraft && (
+                <>
+                  {renaming === 'persona' ? (
+                    <input
+                      type="text"
+                      className="input-field text-xs w-32"
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onBlur={commitRename}
+                      onKeyDown={e => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') setRenaming(null) }}
+                      autoFocus
+                    />
+                  ) : (
+                    <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40 transition-all" onClick={() => startRename('persona')}>重新命名</button>
+                  )}
+                  {!personaDraft.builtIn && (
+                    <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-[#FFBBBB] text-[#E85D3F] hover:bg-[#FFBBBB]/30 transition-all" onClick={deleteCurrentPersona}>刪除</button>
+                  )}
+                </>
+              )}
+            </div>
+            {personaDraft ? (
+              <>
+                <Field label="顯示名稱">
+                  <input type="text" className="input-field"
+                    value={personaDraft.displayName}
+                    onChange={e => setPersonaDraft(prev => prev ? { ...prev, displayName: e.target.value } : prev)}
+                    placeholder="你的名字"
+                  />
+                </Field>
+                <Field label="角色如何稱呼你">
+                  <input type="text" className="input-field"
+                    value={personaDraft.nickname}
+                    onChange={e => setPersonaDraft(prev => prev ? { ...prev, nickname: e.target.value } : prev)}
+                    placeholder="主人、大人、小名..."
+                  />
+                </Field>
+                <Field label="自我介紹（選填）">
+                  <textarea className="input-field min-h-[80px] resize-none"
+                    value={personaDraft.description}
+                    onChange={e => setPersonaDraft(prev => prev ? { ...prev, description: e.target.value } : prev)}
+                    placeholder="讓角色更了解你..."
+                  />
+                </Field>
+              </>
+            ) : (
+              <p className="text-sm text-secondary">尚未選擇使用者預設組，請點「新增」建立。</p>
+            )}
           </>
         )}
 

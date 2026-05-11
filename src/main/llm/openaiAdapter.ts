@@ -1,5 +1,5 @@
 import OpenAI from 'openai'
-import type { AppSettings, Message } from '../types'
+import type { AppSettings, Message, PersonaPreset, WorldPreset } from '../types'
 
 const EMOTION_LIST = [
   'admiration', 'amusement', 'anger', 'annoyance', 'approval',
@@ -39,13 +39,13 @@ function applyStStyleTags(
 }
 
 function buildTimeMoodGuideline(hours: number): string {
-  if (hours < 5) return '目前是深夜到凌晨，語氣可更貼近陪伴與心疼。'
-  if (hours < 8) return '目前是清晨，可自然回應早起、沒睡或剛醒的狀態。'
-  if (hours < 11) return '目前是早上，語氣可偏向剛開始一天的節奏。'
-  if (hours < 14) return '目前接近中午到午餐時段，可自然聊到吃飯與休息。'
-  if (hours < 18) return '目前是下午，語氣可偏向工作中或日常進行中。'
-  if (hours < 22) return '目前是晚上，語氣可偏向收尾、放鬆或晚間相處感。'
-  return '目前接近深夜，語氣可更親近，但仍保持自然聊天。'
+  if (hours < 5) return 'Late night / early morning — tone may lean toward companionship and tenderness.'
+  if (hours < 8) return 'Early morning — naturally reference waking up or not having slept.'
+  if (hours < 11) return 'Morning — tone may reflect the start of a new day.'
+  if (hours < 14) return 'Around noon / lunchtime — can naturally mention meals or taking a break.'
+  if (hours < 18) return 'Afternoon — tone may reflect being mid-day or busy with routine.'
+  if (hours < 22) return 'Evening — tone may lean toward winding down, relaxing, or spending time together.'
+  return 'Late night — tone may be more intimate, but keep it natural.'
 }
 
 function parseEmotion(text: string): { emotion: string; content: string } {
@@ -94,7 +94,7 @@ function parseEmotion(text: string): { emotion: string; content: string } {
   }
 }
 
-function buildSystemPrompt(settings: AppSettings, char: PromptCharacter): string {
+function buildSystemPrompt(settings: AppSettings, char: PromptCharacter, persona?: PersonaPreset | null, world?: WorldPreset | null): string {
   const now = new Date()
   const hours = now.getHours()
   const timeLabel =
@@ -117,8 +117,8 @@ function buildSystemPrompt(settings: AppSettings, char: PromptCharacter): string
     ].join('\n')
   ]
 
-  const displayName = sanitizePromptText(settings.persona.displayName) || '使用者'
-  const nickname = sanitizePromptText(settings.persona.nickname) || displayName
+  const displayName = sanitizePromptText(persona?.displayName) || '使用者'
+  const nickname = sanitizePromptText(persona?.nickname) || displayName
   const tagVars = {
     userName: nickname || displayName,
     charName: sanitizePromptText(char.name) || '角色'
@@ -142,24 +142,24 @@ function buildSystemPrompt(settings: AppSettings, char: PromptCharacter): string
     '[Output Contract]',
     `- Start with [emotion], allowed: ${EMOTION_LIST.join(', ')}`,
     '- Then spoken dialogue only (no narration, no stage directions, no inner monologue).',
-    '- 不要輸出「角色名：內容」格式（例如：紀天行：...）。直接輸出台詞內容本身。',
-    '- 不要把整段台詞包在外層引號（「」/『』/""). 只有在引用他人原話時才使用引號。',
-    '- 若回覆超過一句，每一句請獨立換行，不要全部擠在同一行。',
+    '- Never prefix lines with the character name (e.g. "Name: …"). Output the dialogue directly.',
+    '- Do not wrap the entire reply in outer quotation marks (「」/『』/""). Use quotes only when quoting someone else.',
+    '- If the reply has multiple sentences, put each on its own line.',
     '- Show at least 1 voice trait and 1 relationship attitude from Character DNA.',
-    '- Avoid assistant proposals like: "要不要我幫你", "我可以幫你", "你可以試試".',
-    '- 不要改成教學、客服、顧問或任務拆解口吻。',
-    `- 你只代表「${tagVars.charName}」發言。禁止替其他角色代言、禁止輸出其他角色名字開頭的台詞（如：紀天行：...）。`,
-    '- 回覆預設 1 到 3 句，除非使用者明確要求展開。',
-    '- 全文使用繁體中文與台灣慣用語。'
+    '- Never use assistant-style offers such as "要不要我幫你", "我可以幫你", "你可以試試".',
+    '- Do not adopt a tutorial, customer-service, consultant, or task-breakdown tone.',
+    `- You speak only as "${tagVars.charName}". Never speak for other characters or output lines starting with another character's name.`,
+    '- Default reply length: 1–3 sentences, unless the user explicitly asks for more.',
+    '- Write entirely in Traditional Chinese (Taiwan usage).'
   ].join('\n'))
 
-  const worldSetting = applyStStyleTags(settings.worldSetting, tagVars)
+  const worldSetting = applyStStyleTags(world?.worldSetting, tagVars)
   if (worldSetting) {
     parts.push(`[World Context]\n${worldSetting}`)
   }
 
-  if (settings.persona.displayName?.trim() || settings.persona.nickname?.trim() || settings.persona.description?.trim()) {
-    const description = sanitizePromptText(settings.persona.description)
+  if (persona?.displayName?.trim() || persona?.nickname?.trim() || persona?.description?.trim()) {
+    const description = sanitizePromptText(persona?.description)
     parts.push([
       '[User Profile]',
       `name: ${displayName}`,
@@ -168,7 +168,7 @@ function buildSystemPrompt(settings: AppSettings, char: PromptCharacter): string
     ].join('\n'))
   }
 
-  const interactionExample = applyStStyleTags(settings.interactionExample, tagVars)
+  const interactionExample = applyStStyleTags(world?.interactionExample, tagVars)
   if (interactionExample) {
     parts.push(`[Interaction Hints]\n${interactionExample}`)
   }
@@ -205,12 +205,12 @@ function extractInputText(
 
 function messageSpeakerLabel(
   message: Message,
-  settings: AppSettings,
+  persona?: PersonaPreset | null,
   speakerNameById?: Record<string, string>
 ): string {
   if (message.role === 'user') {
-    return settings.persona.displayName?.trim()
-      || settings.persona.nickname?.trim()
+    return persona?.displayName?.trim()
+      || persona?.nickname?.trim()
       || '使用者'
   }
   if (message.role === 'character') {
@@ -245,15 +245,17 @@ export async function chatWithOpenAI(params: {
   messages: Message[]
   images?: string[]
   speakerNameById?: Record<string, string>
+  persona?: PersonaPreset | null
+  world?: WorldPreset | null
 }): Promise<{ content: string; emotion: string; debugPrompt: string }> {
-  const { settings, character, messages, images, speakerNameById } = params
+  const { settings, character, messages, images, speakerNameById, persona, world } = params
 
   const client = new OpenAI({
     apiKey: settings.llm.apiKey,
     baseURL: settings.llm.endpoint || undefined
   })
 
-  const systemPrompt = buildSystemPrompt(settings, character)
+  const systemPrompt = buildSystemPrompt(settings, character, persona, world)
 
   const input: Array<{
     role: 'system' | 'user' | 'assistant'
@@ -263,7 +265,7 @@ export async function chatWithOpenAI(params: {
     ...messages.map(m => {
       const isOwnCharacterMessage = m.role === 'character' && !!character.id && m.characterId === character.id
       const role: 'user' | 'assistant' = isOwnCharacterMessage ? 'assistant' : 'user'
-      const label = messageSpeakerLabel(m, settings, speakerNameById)
+      const label = messageSpeakerLabel(m, persona, speakerNameById)
       const cleanContent = sanitizePromptText(m.content)
       const text = isOwnCharacterMessage ? cleanContent : `【${label}】\n${cleanContent}`
       const content = role === 'user'

@@ -58,9 +58,30 @@ export interface WindowBoundsState {
   height: number
 }
 
-export interface AppSettings {
+export interface PersonaPreset {
+  id: string
+  name: string
+  displayName: string
+  nickname: string
+  description: string
+  builtIn?: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface WorldPreset {
+  id: string
+  name: string
   worldSetting: string
   interactionExample: string
+  builtIn?: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+export interface AppSettings {
+  activePersonaId: string
+  activeWorldId: string
   injectSystemTime: boolean
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok'
@@ -75,11 +96,6 @@ export interface AppSettings {
   memory: {
     keepRecentN: number
     autoSummarizeAfter: number
-  }
-  persona: {
-    displayName: string
-    nickname: string
-    description: string
   }
   ui: {
     desktopCharacters: DesktopCharacterState[]
@@ -96,9 +112,22 @@ export interface AppSettings {
   }
 }
 
+/** Legacy shape — used only for migration detection */
+export interface LegacyAppSettings extends Omit<AppSettings, 'activePersonaId' | 'activeWorldId'> {
+  worldSetting?: string
+  interactionExample?: string
+  persona?: {
+    displayName: string
+    nickname: string
+    description: string
+  }
+  activePersonaId?: string
+  activeWorldId?: string
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
-  worldSetting: '',
-  interactionExample: '',
+  activePersonaId: '',
+  activeWorldId: '',
   injectSystemTime: true,
   llm: {
     provider: 'openai',
@@ -112,11 +141,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   memory: {
     keepRecentN: 20,
     autoSummarizeAfter: 50
-  },
-  persona: {
-    displayName: '主人',
-    nickname: '主人',
-    description: ''
   },
   ui: {
     desktopCharacters: [],

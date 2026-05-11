@@ -118,5 +118,15 @@ npm run typecheck # 型別檢查
   - Log window 同樣記憶 bounds
   - 新增 `AppSettings.ui.inputWindowBounds` / `logWindowBounds` 欄位
   - `configureAuxWindowPersistence()` 負責連接存檔邏輯（防抖 250ms）
+- [x] Persona / World Preset 系統
+  - 世界觀和使用者設定從單一值改為多組預設組（`PersonaPreset` / `WorldPreset`）
+  - 設定視窗「世界觀」「使用者」分頁加入下拉選單切換、新增、重新命名、刪除
+  - 預設組獨立存檔於 `%APPDATA%\DesktopST\personas\` 和 `worlds\`
+  - `AppSettings` 改用 `activePersonaId` / `activeWorldId` 指向啟用的組
+  - 內建泛用預設（`assets/default-persona.json`、`assets/default-world.json`），首次啟動自動複製
+  - 舊 settings.json 自動遷移（偵測到舊 `persona` / `worldSetting` 欄位時轉為 preset）
+  - LLM prompt 組裝改為接收 preset 參數
+  - DST 搬家包匯入／匯出配合新結構
+  - App Icon 規格已說明（1024px PNG → .ico），AI 生成參考圖已放置
 
 詳細開發階段見規格書 §11。
