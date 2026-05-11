@@ -4,7 +4,9 @@
   "description": "桌面 AI 角色扮演寵物程式",
   "main": "out/main/index.js",
   "scripts": {
+    "predev": "npm install --prefer-offline --no-audit --no-fund",
     "dev": "electron-vite dev",
+    "prebuild": "npm install --prefer-offline --no-audit --no-fund",
     "build": "electron-vite build && electron-builder",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "eslint src --ext .ts,.tsx"
