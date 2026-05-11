@@ -50,6 +50,15 @@ export default function CharacterEditor({ characterId, onClose }: Props) {
     return () => window.clearTimeout(t)
   }, [saveOk])
 
+  // 自動儲存防抖（800ms）
+  useEffect(() => {
+    if (!dirty || !draft) return
+    const timer = window.setTimeout(() => {
+      void doSave(draft)
+    }, 800)
+    return () => window.clearTimeout(timer)
+  }, [draft, dirty])
+
   const patchDraft = (next: Character | ((prev: Character) => Character)) => {
     setDirty(true)
     setDraft(prev => {
@@ -58,11 +67,10 @@ export default function CharacterEditor({ characterId, onClose }: Props) {
     })
   }
 
-  const handleSave = async () => {
-    if (!draft) return
+  const doSave = async (data: Character) => {
     setIsSaving(true)
     try {
-      const next = { ...draft, updatedAt: Date.now() }
+      const next = { ...data, updatedAt: Date.now() }
       await saveCharacter(next)
       setDraft(next)
       setDirty(false)
@@ -109,22 +117,22 @@ export default function CharacterEditor({ characterId, onClose }: Props) {
 
   return (
     <div className="absolute inset-0 z-50 flex items-stretch justify-center bg-[#3D5A52]/20 p-4">
-      <div className="flex flex-col w-full max-w-lg max-h-full rounded-3xl border border-border bg-[#F7FFFC] shadow-soft overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-          <span className="text-sm font-semibold text-primary truncate pr-2">編輯：{draft.name}</span>
+      <div className="flex flex-col w-full max-w-4xl max-h-full rounded-3xl border border-border bg-[#F7FFFC] shadow-soft overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+          <span className="text-base font-semibold text-primary truncate pr-2">編輯：{draft.name}</span>
           <button type="button" className="btn-round w-8 h-8 text-primary" title="關閉" onClick={onClose}>
             <span className="sr-only">關閉</span>
             ×
           </button>
         </div>
 
-        <div className="flex gap-1 px-2 pt-2 flex-wrap shrink-0">
+        <div className="flex gap-2 px-4 pt-3 flex-wrap shrink-0">
           {(Object.keys(TAB_LABEL) as EditorTab[]).map(tab => (
             <button
               key={tab}
               type="button"
               onClick={() => void changeTab(tab)}
-              className={`text-xs px-3 py-1.5 rounded-full transition-colors ${
+              className={`text-sm px-4 py-2 rounded-full transition-colors ${
                 activeTab === tab ? 'bg-mint text-primary font-semibold' : 'text-secondary hover:bg-mint/30'
               }`}
             >
@@ -133,7 +141,7 @@ export default function CharacterEditor({ characterId, onClose }: Props) {
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-3 min-h-0">
+        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 text-sm [&_span]:text-sm [&_p]:text-sm [&_label]:text-sm [&_input]:text-sm [&_textarea]:text-sm [&_select]:text-sm [&_button]:text-sm">
           {activeTab === 'basic' && <BasicInfoTab draft={draft} setDraft={patchDraft} onError={setToast} />}
           {activeTab === 'emotions' && <EmotionSpritesTab draft={draft} setDraft={patchDraft} onError={setToast} />}
           {activeTab === 'advanced' && <AdvancedTab draft={draft} setDraft={patchDraft} />}
@@ -142,16 +150,10 @@ export default function CharacterEditor({ characterId, onClose }: Props) {
           )}
         </div>
 
-        <div className="px-4 py-3 border-t border-border flex items-center justify-between gap-2 shrink-0">
-          <span className="text-xs text-secondary">{saveOk ? '已儲存' : ''}</span>
-          <button
-            type="button"
-            disabled={isSaving}
-            onClick={() => void handleSave()}
-            className="px-5 py-2 rounded-full text-sm font-semibold bg-mint text-primary shadow-soft hover:bg-teal disabled:opacity-50"
-          >
-            {isSaving ? '儲存中…' : '儲存'}
-          </button>
+        <div className="px-6 py-3 border-t border-border flex items-center justify-between shrink-0">
+          <span className="text-sm text-secondary">
+            {isSaving ? '儲存中…' : dirty ? '有未儲存的變更' : '已儲存'}
+          </span>
         </div>
       </div>
 

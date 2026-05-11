@@ -21,14 +21,30 @@ interface Props {
 export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [entries, setEntries] = useState<SpriteEntry[]>(() => buildSpriteEntries(draft.emotions ?? {}))
+  const [editingImagePath, setEditingImagePath] = useState<string | null>(null)
 
   useEffect(() => {
     setEntries(prev => {
       const base = buildSpriteEntries(draft.emotions ?? {})
-      return base.map(b => {
-        const old = prev.find(p => p.imagePath === b.imagePath)
-        return old ? { ...b, dimensions: old.dimensions } : b
-      })
+      const baseMap = new Map(base.map(b => [b.imagePath, b]))
+      const prevMap = new Map(prev.map(p => [p.imagePath, p]))
+
+      // 保持原有順序，只更新情緒和尺寸
+      const result = prev
+        .filter(p => baseMap.has(p.imagePath))
+        .map(p => {
+          const updated = baseMap.get(p.imagePath)!
+          return { ...updated, dimensions: p.dimensions }
+        })
+
+      // 添加新增的圖片
+      for (const b of base) {
+        if (!prevMap.has(b.imagePath)) {
+          result.push(b)
+        }
+      }
+
+      return result
     })
   }, [draft.emotions])
 
@@ -77,6 +93,14 @@ export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
     setEntries(list => list.map(x => (x.imagePath === imagePath ? { ...x, dimensions: { w, h } } : x)))
   }
 
+  // 計算每個情緒被哪張圖片占用
+  const emotionToImagePath = new Map<string, string>()
+  entries.forEach(entry => {
+    entry.assignedEmotions.forEach(emo => {
+      emotionToImagePath.set(emo, entry.imagePath)
+    })
+  })
+
   return (
     <div className="space-y-4">
       <input ref={fileRef} type="file" accept=".png,.jpg,.jpeg,.gif,.webp" className="hidden" onChange={onPickFile} />
@@ -84,49 +108,107 @@ export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
         新增情緒圖片
       </button>
 
-      <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
+      <div className="space-y-3 pr-1">
         {entries.length === 0 && <p className="text-sm text-secondary">尚未上傳情緒圖片。</p>}
-        {entries.map(entry => (
-          <div key={entry.imagePath} className="rounded-2xl border border-border p-3 flex gap-3 bg-white/80">
-            <div className="w-16 h-16 rounded-xl overflow-hidden bg-mint shrink-0 flex items-center justify-center">
-              <img
-                src={`local://${encodeURIComponent(entry.imagePath)}`}
-                alt=""
-                className="w-full h-full object-cover"
-                draggable={false}
-                onLoad={e => setDims(entry.imagePath, e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)}
-              />
-            </div>
-            <div className="flex-1 min-w-0 space-y-2">
-              <div className="text-xs font-medium text-primary truncate" title={entry.filename}>
-                {entry.filename}
+        {entries.map(entry => {
+          const isEditing = editingImagePath === entry.imagePath
+          return (
+            <div
+              key={entry.imagePath}
+              className="rounded-2xl border border-border p-3 flex gap-3 bg-white/80 relative"
+              onMouseLeave={() => isEditing && setEditingImagePath(null)}
+            >
+              <div className="w-16 h-16 rounded-xl overflow-hidden bg-mint shrink-0 flex items-center justify-center">
+                <img
+                  src={`local://${encodeURIComponent(entry.imagePath)}`}
+                  alt=""
+                  className="w-full h-full object-cover"
+                  draggable={false}
+                  onLoad={e => setDims(entry.imagePath, e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)}
+                />
               </div>
-              <div className="text-[10px] text-secondary" title={entry.dimensions ? `${entry.dimensions.w}×${entry.dimensions.h}` : ''}>
-                {entry.dimensions ? `${entry.dimensions.w}×${entry.dimensions.h} px` : '讀取尺寸中…'}
+              <div className="flex-1 min-w-0 space-y-2">
+                <div className="text-xs font-medium text-primary truncate" title={entry.filename}>
+                  {entry.filename}
+                </div>
+                <div className="text-[10px] text-secondary" title={entry.dimensions ? `${entry.dimensions.w}×${entry.dimensions.h}` : ''}>
+                  {entry.dimensions ? `${entry.dimensions.w}×${entry.dimensions.h} px` : '讀取尺寸中…'}
+                </div>
+
+                {isEditing ? (
+                  <div
+                    className="space-y-2 p-2 rounded-lg bg-mint/10 -mx-2"
+                  >
+                    <div className="flex flex-wrap gap-2">
+                      {EMOTION_OPTIONS.map(opt => {
+                        const isSelected = entry.assignedEmotions.includes(opt.en)
+                        const isUsedByOther = emotionToImagePath.has(opt.en) && emotionToImagePath.get(opt.en) !== entry.imagePath
+                        const isDisabled = isUsedByOther && !isSelected
+
+                        return (
+                          <button
+                            key={opt.en}
+                            type="button"
+                            disabled={isDisabled}
+                            className={`text-[10px] px-2 py-1 rounded-full font-medium transition-all ${
+                              isSelected
+                                ? 'bg-sky text-white border-2 border-sky'
+                                : isDisabled
+                                ? 'bg-gray-200 text-gray-400 border border-gray-300 cursor-not-allowed opacity-50'
+                                : 'bg-mint text-primary border border-mint hover:bg-[#B5E8B1]'
+                            }`}
+                            onClick={() => {
+                              const nextEmotions = isSelected
+                                ? entry.assignedEmotions.filter(e => e !== opt.en)
+                                : [...entry.assignedEmotions, opt.en]
+                              updateEntryEmotions(entry.imagePath, nextEmotions)
+                            }}
+                            onMouseDown={e => e.preventDefault()}
+                          >
+                            {isSelected && '✓ '}
+                            {EMOTION_OPTIONS.find(o => o.en === opt.en)?.zh ?? opt.en}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {entry.assignedEmotions.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {entry.assignedEmotions.map(emo => (
+                          <span
+                            key={emo}
+                            className="inline-block text-[10px] px-2 py-1 rounded-full bg-mint text-primary font-medium"
+                          >
+                            {EMOTION_OPTIONS.find(o => o.en === emo)?.zh ?? emo}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-secondary">尚未分配情緒</p>
+                    )}
+                    <button
+                      type="button"
+                      className="text-xs text-[#4A9D7D] font-semibold hover:underline"
+                      onClick={() => setEditingImagePath(entry.imagePath)}
+                    >
+                      編輯情緒
+                    </button>
+                  </>
+                )}
               </div>
-              <select
-                multiple
-                size={6}
-                className="w-full text-xs rounded-xl border border-border bg-white text-primary px-2 py-1"
-                value={entry.assignedEmotions}
-                onChange={e => {
-                  const sel = Array.from(e.target.selectedOptions).map(o => o.value)
-                  updateEntryEmotions(entry.imagePath, sel)
-                }}
+
+              <button
+                type="button"
+                className="absolute bottom-3 right-3 text-xs text-[#C44B34] hover:underline"
+                onClick={() => removeEntry(entry.imagePath)}
               >
-                {EMOTION_OPTIONS.map(opt => (
-                  <option key={opt.en} value={opt.en}>
-                    {emotionLabel(opt.en)}
-                  </option>
-                ))}
-              </select>
-              <p className="text-[10px] text-secondary">按住 Ctrl／⌘ 可多選情緒。</p>
-              <button type="button" className="text-xs text-[#C44B34] hover:underline" onClick={() => removeEntry(entry.imagePath)}>
                 移除此圖片
               </button>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
