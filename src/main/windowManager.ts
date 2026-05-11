@@ -979,7 +979,7 @@ export function hideAuxWindowsRememberingState(): void {
     if (!w || w.isDestroyed() || !w.isVisible()) continue
     // 設定／角色庫需長時間對照他處（例如貼 API Key），失焦時勿縮到幾乎看不見
     if (w === settingsWindow || w === characterLibraryWindow) continue
-    w.setOpacity(0.1)
+    w.setOpacity(unfocusedBubbleOpacity)
   }
 }
 
