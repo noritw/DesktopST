@@ -1,19 +1,14 @@
 import type { ReactNode } from 'react'
-import { useAppStore } from '../stores/useAppStore'
 
 interface Props {
-  characterId: string
   visible: boolean
-  canRemove: boolean
-  isMuted: boolean
   onScale?: () => void
-  onClose?: () => void
   onButtonsEl?: (el: HTMLDivElement | null) => void
 }
 
-type IconName = 'speak' | 'volume' | 'muted' | 'settings' | 'trash' | 'scale' | 'close'
+export type HoverMenuIconName = 'speak' | 'volume' | 'muted' | 'settings' | 'trash' | 'scale' | 'close'
 
-function Icon({ name }: { name: IconName }) {
+export function HoverMenuIcon({ name }: { name: HoverMenuIconName }) {
   const common = {
     fill: 'none',
     stroke: 'currentColor',
@@ -87,15 +82,7 @@ function Icon({ name }: { name: IconName }) {
   )
 }
 
-export default function HoverMenu({ characterId, visible, canRemove, isMuted, onScale, onClose, onButtonsEl }: Props) {
-  const forceSpeak = useAppStore(s => s.forceSpeak)
-  const toggleMute = useAppStore(s => s.toggleMute)
-  const addToDesktop = useAppStore(s => s.addToDesktop)
-  const characters = useAppStore(s => s.characters)
-  const desktopCharacters = useAppStore(s => s.desktopCharacters)
-
-  const availableChars = characters.filter(c => !desktopCharacters.some(d => d.characterId === c.id))
-
+export default function HoverMenu({ visible, onScale, onButtonsEl }: Props) {
   const buttons: Array<{
     icon: ReactNode
     title: string
@@ -105,42 +92,12 @@ export default function HoverMenu({ characterId, visible, canRemove, isMuted, on
     disabled?: boolean
   }> = [
     {
-      icon: <Icon name="speak" />,
-      title: isMuted ? '角色目前禁言，恢復說話後才能說點什麼' : '說點什麼',
-      onClick: () => forceSpeak(characterId),
-      disabled: isMuted
-    },
-    {
-      icon: <Icon name={isMuted ? 'muted' : 'volume'} />,
-      title: isMuted ? '目前禁言，點一下恢復說話' : '目前會說話，點一下禁言',
-      onClick: () => toggleMute(characterId),
-      pressed: isMuted,
-      danger: isMuted
-    },
-    ...(availableChars.length > 0 ? [{
-      icon: <span className="text-2xl leading-none font-light">+</span>,
-      title: `加入角色：${availableChars[0].name}`,
-      onClick: () => addToDesktop(availableChars[0].id)
-    }] : []),
-    {
-      icon: (
-        <svg viewBox="0 0 24 24" aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-          <path d="M6 4h5l6 6v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" />
-          <path d="M11 4v5h5" />
-          <path d="M8 14h5" />
-          <path d="M8 17h3" />
-        </svg>
-      ),
-      title: '開啟角色庫',
-      onClick: () => window.api.invoke('character-library:open')
-    },
-    {
-      icon: <Icon name="settings" />,
-      title: '角色設定',
+      icon: <HoverMenuIcon name="settings" />,
+      title: '設定',
       onClick: () => window.api.invoke('window:open-settings', 'character')
     },
     {
-      icon: <Icon name="scale" />,
+      icon: <HoverMenuIcon name="scale" />,
       title: '縮放角色',
       onClick: () => onScale?.()
     }
@@ -172,17 +129,6 @@ export default function HoverMenu({ characterId, visible, canRemove, isMuted, on
           {btn.icon}
         </button>
       ))}
-
-      {/* 關閉選單按鈕（最下方） */}
-      <button
-        type="button"
-        title="關閉角色選單（也可用右鍵點角色）"
-        aria-label="關閉角色選單（也可用右鍵點角色）"
-        onClick={() => onClose?.()}
-        className="btn-round text-primary mt-1"
-      >
-        <Icon name="close" />
-      </button>
     </div>
   )
 }

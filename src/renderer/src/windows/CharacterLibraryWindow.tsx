@@ -197,6 +197,9 @@ export default function CharacterLibraryWindow() {
                   isOnDesktop={onDesktop}
                   onClick={e => openMenuFromEvent(char.id, e)}
                   onContextMenu={e => openMenuFromEvent(char.id, e)}
+                  onSummonToDesktop={() => {
+                    void addToDesktop(char.id).catch(() => setToast('召喚到桌面失敗'))
+                  }}
                 />
               )
             })}

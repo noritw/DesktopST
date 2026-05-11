@@ -1,7 +1,35 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useAppStore, selectCharacter, selectDesktopChar, selectCharacterLastMessage } from '../stores/useAppStore'
 import CharacterSprite, { type CharacterSpriteHandle } from '../components/CharacterSprite'
-import HoverMenu from '../components/HoverMenu'
+import HoverMenu, { HoverMenuIcon } from '../components/HoverMenu'
+
+/** CharacterSprite 框高為 260×scale；object-fit:contain 時腳常在框內偏上，左右欄需上移才能與視覺腳底對齊 */
+const SIDE_TOOLBAR_FOOT_LIFT_RATIO = 0.072
+
+function mergeScreenRectsFromElements(elements: (HTMLElement | null)[]): { x: number; y: number; w: number; h: number } | null {
+  let minL = Infinity
+  let minT = Infinity
+  let maxR = -Infinity
+  let maxB = -Infinity
+  let any = false
+  for (const el of elements) {
+    if (!el) continue
+    const r = el.getBoundingClientRect()
+    if (r.width < 1 || r.height < 1) continue
+    any = true
+    minL = Math.min(minL, r.left)
+    minT = Math.min(minT, r.top)
+    maxR = Math.max(maxR, r.right)
+    maxB = Math.max(maxB, r.bottom)
+  }
+  if (!any) return null
+  return {
+    x: Math.round(window.screenX + minL),
+    y: Math.round(window.screenY + minT),
+    w: Math.round(maxR - minL),
+    h: Math.round(maxB - minT)
+  }
+}
 
 interface Props {
   characterId: string
@@ -12,6 +40,10 @@ export default function CharacterWindow({ characterId }: Props) {
   const desktopState = useAppStore(selectDesktopChar(characterId))
   const desktopCharacters = useAppStore(s => s.desktopCharacters)
   const removeFromDesktop = useAppStore(s => s.removeFromDesktop)
+  const forceSpeak = useAppStore(s => s.forceSpeak)
+  const toggleMute = useAppStore(s => s.toggleMute)
+  const addToDesktop = useAppStore(s => s.addToDesktop)
+  const characters = useAppStore(s => s.characters)
   const isThinking = useAppStore(s => !!s.thinkingByCharacterId[characterId])
   const uiAppFocused = useAppStore(s => s.uiAppFocused)
   const hoverMenuOnHover = useAppStore(s => s.settings?.ui.hoverMenuOnHover ?? true)
@@ -22,6 +54,11 @@ export default function CharacterWindow({ characterId }: Props) {
   const flipped = desktopState?.flipped ?? false
   const isMuted = desktopState?.muted ?? false
   const canRemove = desktopCharacters.length > 1
+
+  const availableChars = useMemo(
+    () => characters.filter(c => !desktopCharacters.some(d => d.characterId === c.id)),
+    [characters, desktopCharacters]
+  )
   const maxVisibleScale = Math.max(
     0.25,
     Math.min(
@@ -45,6 +82,9 @@ export default function CharacterWindow({ characterId }: Props) {
   const spriteRef = useRef<CharacterSpriteHandle>(null)
   const spriteDivRef = useRef<HTMLDivElement>(null)
   const hoverMenuButtonsRef = useRef<HTMLDivElement | null>(null)
+  const leftStackRef = useRef<HTMLDivElement | null>(null)
+  const headActionsRef = useRef<HTMLDivElement | null>(null)
+  const closeMenuRef = useRef<HTMLButtonElement | null>(null)
   const scaleControlsRef = useRef<HTMLDivElement | null>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const didDragRef = useRef(false)
@@ -68,31 +108,6 @@ export default function CharacterWindow({ characterId }: Props) {
       setFlipDraft(flipped)
     }
   }, [flipped, scaleMode, size])
-
-  useEffect(() => {
-    const toScreenRect = (r: DOMRect) => ({
-      x: Math.round(window.screenX + r.left),
-      y: Math.round(window.screenY + r.top),
-      w: Math.round(r.width),
-      h: Math.round(r.height)
-    })
-
-    const tick = () => {
-      const spriteEl = interactiveRef.current
-      if (!spriteEl) return
-      const sprite = toScreenRect(spriteEl.getBoundingClientRect())
-      const controlsEl = scaleMode ? scaleControlsRef.current : hoverMenuButtonsRef.current
-      const buttons = controlsEl ? toScreenRect(controlsEl.getBoundingClientRect()) : null
-      window.api.invoke('desktop:update-hit-rects', characterId, { sprite, buttons })
-    }
-
-    tick()
-    const id = window.setInterval(tick, 50)
-    return () => {
-      window.clearInterval(id)
-      window.api.invoke('desktop:update-hit-rects', characterId, null)
-    }
-  }, [characterId, scaleMode])
 
   const handleMouseDown = useCallback((event: React.MouseEvent) => {
     if (event.button !== 0 || scaleMode) return
@@ -128,6 +143,41 @@ export default function CharacterWindow({ characterId }: Props) {
   }, [characterId, scaleMode])
 
   const menuVisible = menuPinned || (hoverMenuOnHover && hovered && !hoverSuppressed)
+
+  useEffect(() => {
+    const toScreenRect = (r: DOMRect) => ({
+      x: Math.round(window.screenX + r.left),
+      y: Math.round(window.screenY + r.top),
+      w: Math.round(r.width),
+      h: Math.round(r.height)
+    })
+
+    const tick = () => {
+      const spriteEl = interactiveRef.current
+      if (!spriteEl) return
+      const sprite = toScreenRect(spriteEl.getBoundingClientRect())
+      let buttons: ReturnType<typeof toScreenRect> | null = null
+      if (scaleMode) {
+        const controlsEl = scaleControlsRef.current
+        buttons = controlsEl ? toScreenRect(controlsEl.getBoundingClientRect()) : null
+      } else if (menuVisible) {
+        buttons = mergeScreenRectsFromElements([
+          hoverMenuButtonsRef.current,
+          leftStackRef.current,
+          headActionsRef.current,
+          closeMenuRef.current
+        ])
+      }
+      window.api.invoke('desktop:update-hit-rects', characterId, { sprite, buttons })
+    }
+
+    tick()
+    const id = window.setInterval(tick, 50)
+    return () => {
+      window.clearInterval(id)
+      window.api.invoke('desktop:update-hit-rects', characterId, null)
+    }
+  }, [characterId, scaleMode, menuVisible])
 
   const handleContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault()
@@ -240,6 +290,7 @@ export default function CharacterWindow({ characterId }: Props) {
 
   const renderedSize = scaleMode ? scaleDraft : Math.min(maxVisibleScale, Math.max(0.25, size))
   const renderedFlipped = scaleMode ? flipDraft : flipped
+  const sideToolbarLiftPx = Math.round(260 * renderedSize * SIDE_TOOLBAR_FOOT_LIFT_RATIO)
 
   return (
     <div
@@ -252,31 +303,60 @@ export default function CharacterWindow({ characterId }: Props) {
         style={{ pointerEvents: 'auto' }}
         ref={interactiveRef}
       >
-        {/* 左側垃圾桶：從桌面移除此角色 */}
+        {/* 左側：加入角色（在垃圾桶上方）、從桌面移除 */}
         {!scaleMode && (
           <div
-            className="flex items-end pb-1 pr-1 no-drag self-end"
+            ref={leftStackRef}
+            className="flex flex-col items-center gap-2 pr-1 no-drag self-end"
             style={{
-              opacity: canRemove && menuVisible ? 1 : 0,
-              pointerEvents: canRemove && menuVisible ? 'auto' : 'none',
-              transition: 'opacity 0.2s ease'
+              opacity: menuVisible ? 1 : 0,
+              pointerEvents: menuVisible ? 'auto' : 'none',
+              transition: 'opacity 0.2s ease',
+              transform: `translateY(-${sideToolbarLiftPx}px)`
             }}
           >
+            {availableChars.length > 0 && (
+              <button
+                type="button"
+                title={`加入角色：${availableChars[0].name}`}
+                aria-label={`加入角色：${availableChars[0].name}`}
+                onClick={() => addToDesktop(availableChars[0].id)}
+                className="btn-round text-primary"
+              >
+                <span className="text-2xl leading-none font-light">+</span>
+              </button>
+            )}
             <button
               type="button"
-              title="從桌面移除此角色"
-              aria-label="從桌面移除此角色"
-              onClick={() => removeFromDesktop(characterId)}
-              className="btn-round btn-danger"
+              title="開啟角色庫"
+              aria-label="開啟角色庫"
+              onClick={() => window.api.invoke('character-library:open')}
+              className="btn-round text-primary"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 6h18" />
-                <path d="M8 6V4h8v2" />
-                <path d="M19 6l-1 14H6L5 6" />
-                <path d="M10 11v4" />
-                <path d="M14 11v4" />
+                <path d="M6 4h5l6 6v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" />
+                <path d="M11 4v5h5" />
+                <path d="M8 14h5" />
+                <path d="M8 17h3" />
               </svg>
             </button>
+            {canRemove && (
+              <button
+                type="button"
+                title="從桌面移除此角色"
+                aria-label="從桌面移除此角色"
+                onClick={() => removeFromDesktop(characterId)}
+                className="btn-round btn-danger"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 6h18" />
+                  <path d="M8 6V4h8v2" />
+                  <path d="M19 6l-1 14H6L5 6" />
+                  <path d="M10 11v4" />
+                  <path d="M14 11v4" />
+                </svg>
+              </button>
+            )}
           </div>
         )}
 
@@ -295,6 +375,35 @@ export default function CharacterWindow({ characterId }: Props) {
               <span className="dst-thinking-dots" aria-label="thinking">
                 <span>.</span><span>.</span><span>.</span>
               </span>
+            </div>
+          )}
+
+          {!scaleMode && menuVisible && (
+            <div
+              ref={headActionsRef}
+              className="absolute left-0 right-0 z-[11] flex justify-center gap-2 no-drag"
+              style={{ bottom: '100%', marginBottom: 4, pointerEvents: 'auto' }}
+            >
+              <button
+                type="button"
+                title={isMuted ? '角色目前禁言，恢復說話後才能說點什麼' : '說點什麼'}
+                aria-label={isMuted ? '角色目前禁言，恢復說話後才能說點什麼' : '說點什麼'}
+                disabled={isMuted}
+                onClick={() => forceSpeak(characterId)}
+                className={`btn-round text-primary ${isMuted ? 'opacity-45 cursor-not-allowed pointer-events-none' : ''}`}
+              >
+                <HoverMenuIcon name="speak" />
+              </button>
+              <button
+                type="button"
+                title={isMuted ? '目前禁言，點一下恢復說話' : '目前會說話，點一下禁言'}
+                aria-label={isMuted ? '目前禁言，點一下恢復說話' : '目前會說話，點一下禁言'}
+                aria-pressed={isMuted}
+                onClick={() => toggleMute(characterId)}
+                className={`btn-round ${isMuted ? 'btn-danger opacity-85 ring-1 ring-[#FFB59F]' : 'text-primary'}`}
+              >
+                <HoverMenuIcon name={isMuted ? 'muted' : 'volume'} />
+              </button>
             </div>
           )}
 
@@ -330,18 +439,30 @@ export default function CharacterWindow({ characterId }: Props) {
               flipped={renderedFlipped}
             />
           </div>
+
+          {!scaleMode && menuVisible && (
+            <button
+              ref={closeMenuRef}
+              type="button"
+              title="關閉角色選單（也可用右鍵點角色）"
+              aria-label="關閉角色選單（也可用右鍵點角色）"
+              onClick={() => handleCloseMenu()}
+              className="btn-round text-primary absolute left-1/2 z-[12] -translate-x-1/2 no-drag"
+              style={{ top: '100%', marginTop: 6, pointerEvents: 'auto' }}
+            >
+              <HoverMenuIcon name="close" />
+            </button>
+          )}
         </div>
 
         {!scaleMode && (
-          <HoverMenu
-            characterId={characterId}
-            visible={menuVisible}
-            canRemove={canRemove}
-            isMuted={isMuted}
-            onScale={enterScaleMode}
-            onClose={handleCloseMenu}
-            onButtonsEl={(el) => { hoverMenuButtonsRef.current = el }}
-          />
+          <div className="self-end" style={{ transform: `translateY(-${sideToolbarLiftPx}px)` }}>
+            <HoverMenu
+              visible={menuVisible}
+              onScale={enterScaleMode}
+              onButtonsEl={(el) => { hoverMenuButtonsRef.current = el }}
+            />
+          </div>
         )}
       </div>
 

@@ -39,7 +39,7 @@ export default function ContextMenu({
   const style: React.CSSProperties = {
     position: 'fixed',
     left: Math.min(position.x, typeof window !== 'undefined' ? window.innerWidth - 200 : position.x),
-    top: Math.min(position.y, typeof window !== 'undefined' ? window.innerHeight - 280 : position.y),
+    top: Math.min(position.y, typeof window !== 'undefined' ? window.innerHeight - 300 : position.y),
     zIndex: 80
   }
 
@@ -68,26 +68,11 @@ export default function ContextMenu({
   }
 
   return (
-    <div id={`ctx-${characterId}`} style={style} className="rounded-2xl border border-border bg-white shadow-soft py-1 min-w-[168px]">
-      <button type="button" className="w-full text-left text-sm px-3 py-2 text-primary hover:bg-mint/40" onClick={() => { onEdit(); onClose() }}>
-        編輯
-      </button>
-      <button type="button" className="w-full text-left text-sm px-3 py-2 text-[#C44B34] hover:bg-[#FFEAE5]" onClick={() => setDeleteConfirm(true)}>
-        刪除
-      </button>
-      <div className="border-t border-border my-1" />
-      <div className="px-3 py-1 text-[10px] text-secondary font-medium">匯出</div>
-      <button type="button" className="w-full text-left text-sm px-3 py-1.5 pl-5 text-primary hover:bg-mint/40" onClick={() => { onExportJson(); onClose() }}>
-        匯出為 JSON
-      </button>
-      <button type="button" className="w-full text-left text-sm px-3 py-1.5 pl-5 text-primary hover:bg-mint/40" onClick={() => { onExportPng(); onClose() }}>
-        匯出為 PNG 角色卡
-      </button>
-      <div className="border-t border-border my-1" />
+    <div id={`ctx-${characterId}`} style={style} className="rounded-2xl border border-border bg-white shadow-soft overflow-hidden min-w-[184px]">
       <button
         type="button"
         disabled={isOnDesktop}
-        className={`w-full text-left text-sm px-3 py-2 ${isOnDesktop ? 'text-secondary opacity-50 cursor-not-allowed' : 'text-primary hover:bg-mint/40'}`}
+        className={`w-full text-left text-sm px-3 py-3 font-semibold ${isOnDesktop ? 'text-secondary opacity-60 cursor-not-allowed bg-surface/80' : 'text-primary bg-mint/55 hover:bg-mint/80 active:bg-mint'}`}
         onClick={() => {
           if (!isOnDesktop) {
             onSummon()
@@ -97,6 +82,25 @@ export default function ContextMenu({
       >
         召喚到桌面
       </button>
+      <div className="border-t border-border" />
+      <div className="py-1">
+        <button type="button" className="w-full text-left text-sm px-3 py-2 text-primary hover:bg-mint/40" onClick={() => { onEdit(); onClose() }}>
+          編輯
+        </button>
+        <button type="button" className="w-full text-left text-sm px-3 py-2 text-[#C44B34] hover:bg-[#FFEAE5]" onClick={() => setDeleteConfirm(true)}>
+          刪除
+        </button>
+      </div>
+      <div className="border-t border-border my-0" />
+      <div className="py-1">
+        <div className="px-3 py-1 text-[10px] text-secondary font-medium">匯出</div>
+        <button type="button" className="w-full text-left text-sm px-3 py-1.5 pl-5 text-primary hover:bg-mint/40" onClick={() => { onExportJson(); onClose() }}>
+          匯出為 JSON
+        </button>
+        <button type="button" className="w-full text-left text-sm px-3 py-1.5 pl-5 text-primary hover:bg-mint/40" onClick={() => { onExportPng(); onClose() }}>
+          匯出為 PNG 角色卡
+        </button>
+      </div>
     </div>
   )
 }
