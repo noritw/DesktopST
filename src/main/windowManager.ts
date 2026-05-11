@@ -606,7 +606,7 @@ function shouldKeepBubbleUntilClosed(text: string): boolean {
   return charCount >= 220 || lineCount >= 6
 }
 
-export function showSpeechBubble(characterId: string, speakerName: string, text: string): void {
+export function showSpeechBubble(characterId: string, speakerName: string, text: string, emotion?: string): void {
   if (lastShownBubbleCharacterId && lastShownBubbleCharacterId !== characterId) {
     const previous = bubbleWindows.get(lastShownBubbleCharacterId)
     if (previous && !previous.isDestroyed() && previous.isVisible()) {
@@ -625,6 +625,7 @@ export function showSpeechBubble(characterId: string, speakerName: string, text:
     characterId,
     speakerName,
     text,
+    emotion: emotion ?? 'neutral',
     autoCloseMs: getBubbleAutoCloseMs(text),
     persistUntilClosed: shouldKeepBubbleUntilClosed(text)
   }

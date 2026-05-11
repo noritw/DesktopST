@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import {
   buildSystemPrompt, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
-  type ChatLLMParams, type ChatLLMResult
+  resolveModel, type ChatLLMParams, type ChatLLMResult
 } from './promptUtils'
 
 type GeminiPart =
@@ -40,12 +40,13 @@ function imageToGeminiPart(imgPath: string): GeminiPart {
 
 export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResult> {
   const { settings, character, messages, images, speakerNameById, persona, world } = params
+  const modelName = resolveModel(settings)
 
   const genAI = new GoogleGenerativeAI(resolveApiKey(settings))
   const systemPrompt = buildSystemPrompt(settings, character, persona, world)
 
   const model = genAI.getGenerativeModel({
-    model: settings.llm.model,
+    model: modelName,
     systemInstruction: systemPrompt
   })
 
@@ -96,7 +97,7 @@ export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResu
 
   const debugPrompt = JSON.stringify({
     provider: 'gemini',
-    model: settings.llm.model,
+    model: modelName,
     systemInstruction: systemPrompt.slice(0, 200) + '...',
     historyLength: history.length,
     currentParts: currentParts.length
@@ -107,7 +108,7 @@ export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResu
   const raw = result.response.text().trim()
 
   if (!raw) {
-    throw new Error(`Empty response from model: ${settings.llm.model}`)
+    throw new Error(`Empty response from model: ${modelName}`)
   }
   return { ...parseEmotion(raw), debugPrompt }
 }

@@ -5,6 +5,7 @@ import * as path from 'path'
 import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage } from './llm/index'
+import { resolveModel } from './llm/promptUtils'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
 import { importStJson, exportToStJson } from './stCardMapper'
 import {
@@ -959,10 +960,10 @@ export function registerIpcHandlers() {
     return hideSpeechBubble(characterId)
   })
 
-  ipcMain.handle('bubble:debug-show', (_, payload: { characterId: string; speakerName: string; text: string }) => {
-    const { characterId, speakerName, text } = payload ?? { characterId: '', speakerName: '', text: '' }
+  ipcMain.handle('bubble:debug-show', (_, payload: { characterId: string; speakerName: string; text: string; emotion?: string }) => {
+    const { characterId, speakerName, text, emotion } = payload ?? { characterId: '', speakerName: '', text: '' }
     if (!characterId) return false
-    showSpeechBubble(characterId, speakerName || (getCharacter(characterId)?.name ?? '角色'), String(text ?? ''))
+    showSpeechBubble(characterId, speakerName || (getCharacter(characterId)?.name ?? '角色'), String(text ?? ''), emotion)
     return true
   })
 
@@ -979,6 +980,16 @@ export function registerIpcHandlers() {
     const text = String(payload?.text ?? '')
     if (!text.trim()) return false
     showUserSpeechBubble(speakerName, text)
+    return true
+  })
+
+  ipcMain.handle('character:set-emotion', (_, payload: { characterId: string; emotion: string }) => {
+    const { characterId, emotion } = payload ?? {}
+    if (!characterId) return false
+    const cw = getCharacterWindow(characterId)
+    if (cw && !cw.isDestroyed()) {
+      cw.webContents.send('character:display-emotion', { emotion })
+    }
     return true
   })
 
@@ -1106,12 +1117,15 @@ export function registerIpcHandlers() {
     return true
   })
 
-  ipcMain.handle('conversation:edit-message', (_, payload: { messageId: string; content: string }) => {
+  ipcMain.handle('conversation:edit-message', (_, payload: { messageId: string; content: string; emotion?: string }) => {
     const conv = getActiveConversation()
     if (!conv) return false
     const msg = conv.messages.find(m => m.id === payload.messageId)
     if (!msg) return false
     msg.content = String(payload.content ?? '')
+    if (payload.emotion !== undefined) {
+      msg.emotion = payload.emotion
+    }
     conv.updatedAt = Date.now()
     fileStore.saveConversation(conv)
     broadcastToAll('conversation:updated', conv)
@@ -1174,7 +1188,7 @@ export function registerIpcHandlers() {
           role: 'system',
           content: `[提示] ${hinted} 請在角色旁邊點「🔊」解除禁言後再試。`,
           llmProvider: settings.llm.provider,
-          llmModel: settings.llm.model,
+          llmModel: resolveModel(settings),
           timestamp: Date.now()
         }
         conv.messages.push(hintMsg)
@@ -1220,7 +1234,7 @@ export function registerIpcHandlers() {
         characterId: primaryId,
         content: primaryReply,
         llmProvider: settings.llm.provider,
-        llmModel: settings.llm.model,
+        llmModel: resolveModel(settings),
         debugPrompt,
         emotion,
         timestamp: Date.now()
@@ -1238,7 +1252,7 @@ export function registerIpcHandlers() {
         role: 'system',
         content: `[錯誤] ${errMsg}`,
         llmProvider: settings.llm.provider,
-        llmModel: settings.llm.model,
+        llmModel: resolveModel(settings),
         timestamp: Date.now()
       }
       conv.messages.push(errMsg2)
@@ -1322,7 +1336,7 @@ export function registerIpcHandlers() {
           characterId: charId,
           content: reply,
           llmProvider: settings.llm.provider,
-          llmModel: settings.llm.model,
+          llmModel: resolveModel(settings),
           debugPrompt,
           emotion: parsed?.emotion || 'neutral',
           timestamp: Date.now()
@@ -1391,7 +1405,7 @@ export function registerIpcHandlers() {
         characterId,
         content: forcedReply,
         llmProvider: settings.llm.provider,
-        llmModel: settings.llm.model,
+        llmModel: resolveModel(settings),
         debugPrompt,
         emotion,
         timestamp: Date.now()
@@ -1500,7 +1514,7 @@ export function registerIpcHandlers() {
     const provider = payload?.provider?.trim() || settings.llm.provider || 'openai'
     const apiKeys = { ...settings.llm.apiKeys, ...payload?.apiKeys }
     const apiKey = payload?.apiKey?.trim() || settings.llm.apiKey?.trim() || ''
-    return testLLMMessage({ provider, apiKey, apiKeys, model: payload?.model?.trim() || settings.llm.model?.trim() || '', endpoint: payload?.endpoint?.trim() || settings.llm.endpoint?.trim() || undefined })
+    return testLLMMessage({ provider, apiKey, apiKeys, model: payload?.model?.trim() || resolveModel(settings).trim(), endpoint: payload?.endpoint?.trim() || settings.llm.endpoint?.trim() || undefined })
   })
 
   // Import ST character card (JSON)

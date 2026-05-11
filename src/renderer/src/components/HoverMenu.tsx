@@ -7,7 +7,7 @@ interface Props {
   onButtonsEl?: (el: HTMLDivElement | null) => void
 }
 
-export type HoverMenuIconName = 'speak' | 'volume' | 'muted' | 'settings' | 'trash' | 'scale' | 'close'
+export type HoverMenuIconName = 'speak' | 'volume' | 'muted' | 'settings' | 'trash' | 'scale' | 'close' | 'person'
 
 export function HoverMenuIcon({ name }: { name: HoverMenuIconName }) {
   const common = {
@@ -74,6 +74,12 @@ export function HoverMenuIcon({ name }: { name: HoverMenuIconName }) {
           <path {...common} d="M18 6L6 18" />
         </>
       )}
+      {name === 'person' && (
+        <>
+          <path {...common} d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <circle {...common} cx="12" cy="7" r="4" />
+        </>
+      )}
     </svg>
   )
 }
@@ -88,7 +94,7 @@ export default function HoverMenu({ visible, onSettings, onScale, onButtonsEl }:
     disabled?: boolean
   }> = [
     {
-      icon: <HoverMenuIcon name="settings" />,
+      icon: <HoverMenuIcon name="person" />,
       title: '角色設定',
       onClick: () => (onSettings ? onSettings() : window.api.invoke('character-library:open'))
     },
@@ -96,6 +102,11 @@ export default function HoverMenu({ visible, onSettings, onScale, onButtonsEl }:
       icon: <HoverMenuIcon name="scale" />,
       title: '縮放角色',
       onClick: () => onScale?.()
+    },
+    {
+      icon: <HoverMenuIcon name="settings" />,
+      title: '共通設定',
+      onClick: () => window.api.invoke('window:open-settings')
     }
   ]
 

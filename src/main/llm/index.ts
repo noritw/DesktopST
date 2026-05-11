@@ -5,6 +5,13 @@ import type { ChatLLMParams, ChatLLMResult } from './promptUtils'
 
 export { type ChatLLMParams, type ChatLLMResult }
 
+function endpointForProvider(provider: string, endpoint?: string): string | undefined {
+  const trimmed = endpoint?.trim()
+  if (provider === 'grok') return trimmed || 'https://api.x.ai/v1'
+  if (provider === 'openai' && trimmed?.includes('api.x.ai')) return undefined
+  return trimmed || undefined
+}
+
 export async function chatWithLLM(params: ChatLLMParams): Promise<ChatLLMResult> {
   const { provider } = params.settings.llm
   switch (provider) {
@@ -18,12 +25,21 @@ export async function chatWithLLM(params: ChatLLMParams): Promise<ChatLLMResult>
         ...params.settings,
         llm: {
           ...params.settings.llm,
-          endpoint: params.settings.llm.endpoint || 'https://api.x.ai/v1'
+          endpoint: endpointForProvider('grok', params.settings.llm.endpoint)
         }
       }
       return chatWithOpenAI({ ...params, settings: grokSettings })
     }
-    case 'openai':
+    case 'openai': {
+      const openAISettings = {
+        ...params.settings,
+        llm: {
+          ...params.settings.llm,
+          endpoint: endpointForProvider('openai', params.settings.llm.endpoint)
+        }
+      }
+      return chatWithOpenAI({ ...params, settings: openAISettings })
+    }
     default:
       return chatWithOpenAI(params)
   }
@@ -64,9 +80,7 @@ export async function testLLMConnection(params: {
 
     // OpenAI / Grok: list models
     const { default: OpenAI } = await import('openai')
-    const baseURL = provider === 'grok'
-      ? (endpoint?.trim() || 'https://api.x.ai/v1')
-      : endpoint?.trim() || undefined
+    const baseURL = endpointForProvider(provider, endpoint)
     const client = new OpenAI({ apiKey, baseURL })
     const resp = await client.models.list()
     const models: string[] = []
@@ -117,9 +131,7 @@ export async function testLLMMessage(params: {
 
     // OpenAI / Grok: use Responses API
     const { default: OpenAI } = await import('openai')
-    const baseURL = provider === 'grok'
-      ? (endpoint?.trim() || 'https://api.x.ai/v1')
-      : endpoint?.trim() || undefined
+    const baseURL = endpointForProvider(provider, endpoint)
     const client = new OpenAI({ apiKey, baseURL })
     const resp = await client.responses.create({
       model,

@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import {
   buildSystemPrompt, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
-  type ChatLLMParams, type ChatLLMResult
+  resolveModel, type ChatLLMParams, type ChatLLMResult
 } from './promptUtils'
 
 type ClaudeContentBlock =
@@ -37,6 +37,7 @@ function imageToClaudePart(imgPath: string): ClaudeContentBlock {
 
 export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResult> {
   const { settings, character, messages, images, speakerNameById, persona, world } = params
+  const model = resolveModel(settings)
 
   const client = new Anthropic({ apiKey: resolveApiKey(settings) })
   const systemPrompt = buildSystemPrompt(settings, character, persona, world)
@@ -106,7 +107,7 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
 
   const debugPrompt = JSON.stringify({
     provider: 'claude',
-    model: settings.llm.model,
+    model,
     system: systemPrompt.slice(0, 200) + '...',
     messages: claudeMessages.map(m => ({
       role: m.role,
@@ -115,7 +116,7 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
   }, null, 2)
 
   const response = await client.messages.create({
-    model: settings.llm.model,
+    model,
     max_tokens: settings.llm.maxResponseTokens * 3,
     temperature: settings.llm.temperature,
     system: systemPrompt,
@@ -129,7 +130,7 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
     .trim()
 
   if (!raw) {
-    throw new Error(`Empty response from model: ${settings.llm.model}`)
+    throw new Error(`Empty response from model: ${model}`)
   }
   return { ...parseEmotion(raw), debugPrompt }
 }

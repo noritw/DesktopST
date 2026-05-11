@@ -5,6 +5,11 @@ export function resolveApiKey(settings: AppSettings): string {
   return settings.llm.apiKeys?.[settings.llm.provider] || settings.llm.apiKey || ''
 }
 
+/** Returns the model for the active provider, falling back to the legacy single model field */
+export function resolveModel(settings: AppSettings): string {
+  return settings.llm.models?.[settings.llm.provider] || settings.llm.model || ''
+}
+
 export const EMOTION_LIST = [
   'admiration', 'amusement', 'anger', 'annoyance', 'approval',
   'caring', 'confusion', 'curiosity', 'desire', 'disappointment',
@@ -78,30 +83,12 @@ export function parseEmotion(text: string): { emotion: string; content: string }
     return EMOTION_LIST.includes(normalized) ? normalized : null
   }
 
-  const bracketMatch = content.match(/^\[\s*([a-z_]+)\s*\]\s*/i)
-  const bracketEmotion = pickEmotion(bracketMatch?.[1])
-  if (bracketMatch && bracketEmotion) {
-    detectedEmotion = bracketEmotion
-    content = content.slice(bracketMatch[0].length).trim()
-  }
-
-  if (!content || detectedEmotion === 'neutral') {
-    const kvMatch = content.match(/^(?:emotion|mood|feeling|情緒)\s*[:=：]\s*([a-z_]+)\s*/i)
-    const kvEmotion = pickEmotion(kvMatch?.[1])
-    if (kvMatch && kvEmotion) {
-      detectedEmotion = kvEmotion
-      content = content.slice(kvMatch[0].length).trim()
-    }
-  }
-
-  if (!content || detectedEmotion === 'neutral') {
-    const bareMatch = content.match(/^([a-z_]+)(?=\s|$|[：:,.!?，。！？])/i)
-    const bareEmotion = pickEmotion(bareMatch?.[1])
-    if (bareMatch && bareEmotion) {
-      detectedEmotion = bareEmotion
-      content = content.slice(bareMatch[0].length).trim()
-      content = content.replace(/^[：:,\-–—\s]+/, '').trim()
-    }
+  // Match "emotion: xxx" on first line
+  const kvMatch = content.match(/^emotion\s*:\s*([a-z_]+)\s*(?:\n|$)/i)
+  const kvEmotion = pickEmotion(kvMatch?.[1])
+  if (kvMatch && kvEmotion) {
+    detectedEmotion = kvEmotion
+    content = content.slice(kvMatch[0].length).trim()
   }
 
   return {
@@ -175,7 +162,7 @@ export function buildSystemPrompt(
 
   parts.push([
     '[Output Contract]',
-    `- Start with [emotion], allowed: ${EMOTION_LIST.join(', ')}`,
+    `- First line MUST be "emotion: {emotion_name}" where emotion_name is one of: ${EMOTION_LIST.join(', ')}`,
     '- Then spoken dialogue only (no narration, no stage directions, no inner monologue).',
     '- Never prefix lines with the character name (e.g. "Name: …"). Output the dialogue directly.',
     '- Do not wrap the entire reply in outer quotation marks (「」/『』/""). Use quotes only when quoting someone else.',

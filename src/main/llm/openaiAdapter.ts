@@ -1,7 +1,7 @@
 import OpenAI from 'openai'
 import {
   buildSystemPrompt, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
-  type PromptCharacter, type ChatLLMParams, type ChatLLMResult
+  resolveModel, type PromptCharacter, type ChatLLMParams, type ChatLLMResult
 } from './promptUtils'
 
 function toOpenAIInputContent(text: string, images?: string[]) {
@@ -45,6 +45,7 @@ export { type PromptCharacter, type ChatLLMParams, type ChatLLMResult }
 
 export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResult> {
   const { settings, character, messages, images, speakerNameById, persona, world } = params
+  const model = resolveModel(settings)
 
   const client = new OpenAI({
     apiKey: resolveApiKey(settings),
@@ -83,17 +84,17 @@ export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResu
   }
 
   const body: Record<string, unknown> = {
-    model: settings.llm.model,
+    model,
     input: input as unknown as any,
     max_output_tokens: settings.llm.maxResponseTokens * 3
   }
-  if (!shouldOmitTemperature(settings.llm.model)) {
+  if (!shouldOmitTemperature(model)) {
     body.temperature = settings.llm.temperature
   }
 
   const debugPrompt = JSON.stringify({
     provider: 'openai',
-    model: settings.llm.model,
+    model,
     endpoint: settings.llm.endpoint || 'default',
     max_output_tokens: body.max_output_tokens,
     temperature: body.temperature,
@@ -103,7 +104,7 @@ export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResu
   const resp = await client.responses.create(body as any)
   const raw = extractResponseText(resp)
   if (!raw || raw.trim().length === 0) {
-    throw new Error(`Empty response from model: ${settings.llm.model}`)
+    throw new Error(`Empty response from model: ${model}`)
   }
   return { ...parseEmotion(raw), debugPrompt }
 }

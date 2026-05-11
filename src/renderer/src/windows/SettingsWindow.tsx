@@ -277,11 +277,14 @@ export default function SettingsWindow() {
     const next = JSON.parse(JSON.stringify(draft)) as AppSettings
     if (!next.llm.models) next.llm.models = {}
     next.llm.models[next.llm.provider] = m
+    next.llm.model = m
     setDraft(next)
   }
 
   const handleSave = async () => {
     if (!draft) return
+    const settingsToSave = JSON.parse(JSON.stringify(draft)) as AppSettings
+    settingsToSave.llm.model = settingsToSave.llm.models?.[settingsToSave.llm.provider] ?? settingsToSave.llm.model
     if (worldDraft) {
       worldDraft.updatedAt = Date.now()
       await saveWorldPreset(worldDraft)
@@ -290,7 +293,8 @@ export default function SettingsWindow() {
       personaDraft.updatedAt = Date.now()
       await savePersonaPreset(personaDraft)
     }
-    await saveSettings(draft)
+    await saveSettings(settingsToSave)
+    setDraft(settingsToSave)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -510,18 +514,25 @@ export default function SettingsWindow() {
                 value={draft.llm.provider}
                 onChange={e => {
                   const p = e.target.value as AppSettings['llm']['provider']
-                  set('llm.provider', p)
-                  // Restore per-provider model or use provider default
-                  const savedModel = draft?.llm.models?.[p]
-                  if (savedModel) {
-                    setCurrentModel(savedModel)
-                  } else if (!PROVIDER_MODELS[p]?.includes(draft?.llm.model ?? '')) {
-                    setCurrentModel(PROVIDER_DEFAULT_MODEL[p] ?? '')
-                  }
-                  // Preset Grok endpoint if empty
-                  if (p === 'grok' && !draft?.llm.endpoint?.trim()) {
-                    set('llm.endpoint', 'https://api.x.ai/v1')
-                  }
+                  setDraft(prev => {
+                    if (!prev) return prev
+                    const next = JSON.parse(JSON.stringify(prev)) as AppSettings
+                    next.llm.provider = p
+                    if (!next.llm.models) next.llm.models = {}
+                    const savedModel = next.llm.models[p]
+                    const fallbackModel = PROVIDER_MODELS[p]?.includes(next.llm.model ?? '')
+                      ? next.llm.model
+                      : (PROVIDER_DEFAULT_MODEL[p] ?? '')
+                    const nextModel = savedModel || fallbackModel
+                    next.llm.models[p] = nextModel
+                    next.llm.model = nextModel
+                    if (p === 'grok' && !next.llm.endpoint?.trim()) {
+                      next.llm.endpoint = 'https://api.x.ai/v1'
+                    } else if (p === 'openai' && next.llm.endpoint?.includes('api.x.ai')) {
+                      next.llm.endpoint = ''
+                    }
+                    return next
+                  })
                   // Clear test results when switching provider
                   setConnResult(null)
                   setMsgResult(null)
@@ -579,7 +590,7 @@ export default function SettingsWindow() {
                   onChange={e => {
                     const v = e.target.value
                     if (v) {
-                      set('llm.model', v)
+                      setCurrentModel(v)
                       // Clear test results when switching model
                       setConnResult(null)
                       setMsgResult(null)

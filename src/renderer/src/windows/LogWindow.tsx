@@ -55,6 +55,7 @@ export default function LogWindow() {
   const [titleDraft, setTitleDraft] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState('')
+  const [editEmotion, setEditEmotion] = useState<string>('neutral')
   const [promptMessage, setPromptMessage] = useState<Message | null>(null)
   const [previewImage, setPreviewImage] = useState<string | null>(null)
 
@@ -113,13 +114,22 @@ export default function LogWindow() {
     setPromptMessage(null)
     setEditingId(msg.id)
     setEditDraft(msg.role === 'user' ? stripInjectedTime(msg.content) : msg.content)
+    setEditEmotion(msg.emotion ?? 'neutral')
   }
 
   const saveEdit = async () => {
     if (!editingId) return
-    await editMessage(editingId, editDraft.trim())
+    const msg = messages.find(m => m.id === editingId)
+    if (msg?.role === 'character' || msg?.role === 'system') {
+      // 只有角色和系統訊息才能有表情
+      await editMessage(editingId, editDraft.trim(), editEmotion)
+    } else {
+      // 使用者訊息只編輯內容
+      await editMessage(editingId, editDraft.trim())
+    }
     setEditingId(null)
     setEditDraft('')
+    setEditEmotion('neutral')
   }
 
   const openPrompt = (msg: Message) => {
@@ -209,6 +219,11 @@ export default function LogWindow() {
                 {isCharacter ? `【${getCharName(msg.characterId)}】` : '【系統】'}
                 <LlmBadge provider={msg.llmProvider} model={msg.llmModel} />
               </span>
+              {isCharacter && msg.emotion && (
+                <span className="text-xs px-1.5 py-0.5 rounded-full bg-teal/20 text-teal font-medium">
+                  {msg.emotion}
+                </span>
+              )}
               <span className="text-xs text-secondary opacity-0 group-hover:opacity-100 transition-opacity">
                 {formatTime(msg.timestamp)}
               </span>
@@ -233,7 +248,7 @@ export default function LogWindow() {
           }`}
           title={
             !isEditing && isCharacter
-              ? '點擊可在角色頭上顯示這句話'
+              ? '點擊可在角色頭上顯示這句話及表情'
               : !isEditing && isUser
               ? '點擊可顯示這句使用者對白'
               : undefined
@@ -244,8 +259,16 @@ export default function LogWindow() {
               window.api.invoke('bubble:debug-show', {
                 characterId: msg.characterId,
                 speakerName: getCharName(msg.characterId),
-                text: String(msg.content ?? '')
+                text: String(msg.content ?? ''),
+                emotion: msg.emotion ?? 'neutral'
               })
+              // 同時切換角色視窗的表情
+              if (msg.emotion) {
+                window.api.invoke('character:set-emotion', {
+                  characterId: msg.characterId,
+                  emotion: msg.emotion
+                })
+              }
               return
             }
             if (isUser) {
@@ -264,6 +287,35 @@ export default function LogWindow() {
                 onChange={event => setEditDraft(event.target.value)}
                 autoFocus
               />
+              {isCharacter && (
+                <div>
+                  <label className="text-xs text-secondary block mb-1">表情：</label>
+                  <select
+                    className="input-field !py-1.5 !px-2 !text-xs w-full"
+                    value={editEmotion}
+                    onChange={event => {
+                      const newEmotion = event.target.value
+                      setEditEmotion(newEmotion)
+                      // 即時預覽表情
+                      if (msg.characterId) {
+                        window.api.invoke('character:set-emotion', {
+                          characterId: msg.characterId,
+                          emotion: newEmotion
+                        })
+                      }
+                    }}
+                  >
+                    {['admiration', 'amusement', 'anger', 'annoyance', 'approval',
+                      'caring', 'confusion', 'curiosity', 'desire', 'disappointment',
+                      'disapproval', 'disgust', 'embarrassment', 'excitement', 'fear',
+                      'gratitude', 'grief', 'joy', 'love', 'nervousness',
+                      'optimism', 'pride', 'realization', 'relief', 'remorse',
+                      'sadness', 'surprise', 'neutral'].map(emo => (
+                      <option key={emo} value={emo}>{emo}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="flex justify-end gap-2">
                 <button type="button" className="tab-btn text-xs" onClick={() => setEditingId(null)}>取消</button>
                 <button type="button" className="tab-btn text-xs active" onClick={saveEdit}>儲存</button>

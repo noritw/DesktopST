@@ -75,6 +75,7 @@ export default function CharacterWindow({ characterId }: Props) {
   const [scaleDraft, setScaleDraft] = useState(size)
   const [scaleText, setScaleText] = useState(String(size))
   const [flipDraft, setFlipDraft] = useState(flipped)
+  const [overrideEmotion, setOverrideEmotion] = useState<string | null>(null)
 
   const interactiveRef = useRef<HTMLDivElement>(null)
   const menuPinnedRef = useRef(menuPinned)
@@ -88,12 +89,33 @@ export default function CharacterWindow({ characterId }: Props) {
   const scaleControlsRef = useRef<HTMLDivElement | null>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const didDragRef = useRef(false)
+  const lastMsgIdRef = useRef<string | undefined>(undefined)
   // 追蹤游標是否在 sprite 的不透明區域上
   const [spriteOpaque, setSpriteOpaque] = useState(false)
 
   useEffect(() => {
     if (!uiAppFocused) setHovered(false)
   }, [uiAppFocused])
+
+  // 監聽表情切換事件（來自對話記錄點擊）— 保持顯示直到新訊息到來或新的選擇
+  useEffect(() => {
+    const unsubscribe = window.api.on('character:display-emotion', (payload) => {
+      const { emotion } = payload as { emotion: string }
+      setOverrideEmotion(emotion)
+    })
+    return () => unsubscribe()
+  }, [])
+
+  // 追蹤最後訊息 ID 變化，當新訊息到來時清除 override
+  useEffect(() => {
+    const lastMsg = useAppStore.getState().conversation?.messages
+      .filter(m => m.characterId === characterId)
+      .pop()
+    if (lastMsg?.id && lastMsg.id !== lastMsgIdRef.current) {
+      lastMsgIdRef.current = lastMsg.id
+      setOverrideEmotion(null)
+    }
+  })
 
   // spriteOpaque=true 時觸發 hover；關閉 hover 由 mousemove 的容器邊界判斷
   useEffect(() => {
@@ -284,7 +306,7 @@ export default function CharacterWindow({ characterId }: Props) {
   }, [characterId, flipDraft, maxVisibleScale, scaleDraft, scaleText])
 
   const lastMsg = useAppStore(selectCharacterLastMessage(characterId))
-  const emotionTag = lastMsg?.emotion
+  const emotionTag = overrideEmotion ?? lastMsg?.emotion
 
   if (!character) return null
 
