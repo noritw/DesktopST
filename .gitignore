@@ -8,3 +8,4 @@ dist/
 .env.*
 !.env.example
 .claude/settings.local.json
+DesktopST-dev.bat
