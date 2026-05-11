@@ -121,7 +121,7 @@ export default function InputWindow() {
       }}
     >
       <div className="relative w-full h-full pt-2">
-        <div className="drag-region absolute left-0 right-0 top-0 h-7 z-20 cursor-move" />
+        <div className="drag-region absolute left-0 right-0 top-0 h-7 z-20" />
         <div className="absolute left-0 right-0 top-0 h-7 z-30 pointer-events-none">
           <div className="absolute left-3 top-0 rounded-full bg-[#3D7D70] border border-[#2E665A] px-3 py-0.5 text-xs text-white font-semibold leading-tight select-none">
             DesktopST
@@ -139,14 +139,14 @@ export default function InputWindow() {
               type="button"
               className="w-6 h-6 rounded-full border border-border bg-white text-secondary hover:text-primary hover:bg-mint transition-colors flex items-center justify-center cursor-pointer"
               onClick={() => window.api.invoke('window:close-self')}
-              title="關閉輸入視窗"
+              title="關閉輸入視窗（點角色可重新開啟）"
             >
               <MonoIcon name="close" className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
 
-        <div className="h-full flex flex-col bg-[#F7FFFC] border border-[#D8F5EC] rounded-2xl overflow-hidden pt-2">
+        <div className="h-full flex flex-col bg-[#F7FFFC] border border-[#D8F5EC] rounded-2xl overflow-hidden pt-4">
           {settings && (settings.ui?.onboardingCompleted !== true || !(settings.llm?.apiKey ?? '').trim()) && (
             <div className="px-3 py-1.5 text-[11px] text-primary bg-[#E8FBF4] border-b border-border no-drag flex items-center justify-between gap-2 shrink-0">
               <span>尚未完成初始設定或缺少 API Key。</span>
@@ -265,7 +265,7 @@ export default function InputWindow() {
                   <button
                     type="button"
                     className="block rounded-lg border border-border overflow-hidden hover:border-teal transition-colors"
-                    onClick={() => window.api.invoke('desktop:show-image-preview', src)}
+                    onClick={() => window.api.invoke('desktop:show-image-preview', { images, index: i })}
                     title="點擊預覽圖片"
                   >
                     <img src={src} className="w-7 h-7 object-cover" alt="" />

@@ -1354,8 +1354,17 @@ export function registerIpcHandlers() {
   })
 
   // Image preview window
-  ipcMain.handle('desktop:show-image-preview', (_, dataUrl: string) => {
-    showPreviewWindow(dataUrl)
+  ipcMain.handle('desktop:show-image-preview', (_, payload: string | { images?: string[]; index?: number }) => {
+    if (typeof payload === 'string') {
+      showPreviewWindow(payload)
+      return true
+    }
+    const images = Array.isArray(payload?.images)
+      ? payload.images.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+      : []
+    const indexRaw = Number(payload?.index ?? 0)
+    const index = Number.isFinite(indexRaw) ? Math.max(0, Math.floor(indexRaw)) : 0
+    showPreviewWindow({ images, index })
     return true
   })
 

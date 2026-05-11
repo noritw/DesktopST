@@ -1215,13 +1215,30 @@ export function openSettingsWindow(tab?: string): void {
 
 let previewWindow: BrowserWindow | null = null
 
-function sendImageToPreview(win: BrowserWindow, dataUrl: string): void {
-  if (!win.isDestroyed()) win.webContents.send('preview:set-image', dataUrl)
+type PreviewPayload = { images: string[]; index: number }
+
+function normalizePreviewPayload(payload: string | PreviewPayload): PreviewPayload {
+  if (typeof payload === 'string') {
+    return { images: payload ? [payload] : [], index: 0 }
+  }
+  const images = Array.isArray(payload.images)
+    ? payload.images.filter(x => typeof x === 'string' && x.trim().length > 0)
+    : []
+  const maxIndex = Math.max(0, images.length - 1)
+  const index = Math.min(maxIndex, Math.max(0, Math.floor(Number(payload.index) || 0)))
+  return { images, index }
 }
 
-export function showPreviewWindow(dataUrl: string): void {
+function sendImageToPreview(win: BrowserWindow, payload: PreviewPayload): void {
+  if (!win.isDestroyed()) win.webContents.send('preview:set-image', payload)
+}
+
+export function showPreviewWindow(payloadInput: string | PreviewPayload): void {
+  const payload = normalizePreviewPayload(payloadInput)
+  if (payload.images.length === 0) return
+
   if (previewWindow && !previewWindow.isDestroyed()) {
-    sendImageToPreview(previewWindow, dataUrl)
+    sendImageToPreview(previewWindow, payload)
     previewWindow.setOpacity(1)
     previewWindow.show()
     previewWindow.moveTop()
@@ -1266,7 +1283,7 @@ export function showPreviewWindow(dataUrl: string): void {
   // Wait for page + React to be ready, then push the image and show
   win.webContents.once('did-finish-load', () => {
     setTimeout(() => {
-      sendImageToPreview(win, dataUrl)
+      sendImageToPreview(win, payload)
       win.show()
       win.moveTop()
       win.focus()

@@ -2,13 +2,31 @@ import { useEffect, useState } from 'react'
 import MonoIcon from '../components/MonoIcon'
 
 export default function PreviewWindow() {
-  const [src, setSrc] = useState<string | null>(null)
+  const [images, setImages] = useState<string[]>([])
+  const [index, setIndex] = useState(0)
 
   useEffect(() => {
-    return window.api.on('preview:set-image', (dataUrl) => {
-      setSrc(dataUrl as string)
+    return window.api.on('preview:set-image', (payload) => {
+      if (typeof payload === 'string') {
+        setImages(payload ? [payload] : [])
+        setIndex(0)
+        return
+      }
+      const data = payload as { images?: string[]; index?: number }
+      const nextImages = Array.isArray(data?.images) ? data.images : []
+      const maxIndex = Math.max(0, nextImages.length - 1)
+      const nextIndexRaw = Number(data?.index ?? 0)
+      const nextIndex = Number.isFinite(nextIndexRaw)
+        ? Math.min(maxIndex, Math.max(0, Math.floor(nextIndexRaw)))
+        : 0
+      setImages(nextImages)
+      setIndex(nextIndex)
     })
   }, [])
+
+  const src = images[index] ?? null
+  const canPrev = index > 0
+  const canNext = index < images.length - 1
 
   return (
     <div
@@ -59,9 +77,35 @@ export default function PreviewWindow() {
           alignItems: 'center',
           justifyContent: 'center',
           padding: 12,
-          overflow: 'hidden'
+          overflow: 'hidden',
+          position: 'relative'
         }}
       >
+        {images.length > 1 && (
+          <button
+            type="button"
+            className="no-drag"
+            onClick={() => setIndex(i => Math.max(0, i - 1))}
+            disabled={!canPrev}
+            style={{
+              position: 'absolute',
+              left: 12,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              width: 28,
+              height: 28,
+              borderRadius: 999,
+              border: '1px solid #6B8F80',
+              background: '#243028',
+              color: '#AAEEDD',
+              opacity: canPrev ? 1 : 0.35,
+              cursor: canPrev ? 'pointer' : 'default'
+            }}
+            title="上一張"
+          >
+            {'<'}
+          </button>
+        )}
         {src ? (
           <img
             src={src}
@@ -76,6 +120,49 @@ export default function PreviewWindow() {
           />
         ) : (
           <span style={{ color: '#6B8F80', fontSize: 13 }}>載入中...</span>
+        )}
+        {images.length > 1 && (
+          <button
+            type="button"
+            className="no-drag"
+            onClick={() => setIndex(i => Math.min(images.length - 1, i + 1))}
+            disabled={!canNext}
+            style={{
+              position: 'absolute',
+              right: 12,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              width: 28,
+              height: 28,
+              borderRadius: 999,
+              border: '1px solid #6B8F80',
+              background: '#243028',
+              color: '#AAEEDD',
+              opacity: canNext ? 1 : 0.35,
+              cursor: canNext ? 'pointer' : 'default'
+            }}
+            title="下一張"
+          >
+            {'>'}
+          </button>
+        )}
+        {images.length > 1 && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 8,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              fontSize: 12,
+              color: '#AAEEDD',
+              background: '#243028CC',
+              border: '1px solid #3A4D44',
+              borderRadius: 999,
+              padding: '2px 8px'
+            }}
+          >
+            {index + 1} / {images.length}
+          </div>
         )}
       </div>
     </div>
