@@ -7,6 +7,7 @@ export default function InputWindow() {
   const isSending = useAppStore(s => s.isSending)
   const messages = useAppStore(selectMessages)
   const settings = useAppStore(s => s.settings)
+  const conversation = useAppStore(s => s.conversation)
 
   const [text, setText] = useState('')
   const [images, setImages] = useState<string[]>([])
@@ -15,6 +16,8 @@ export default function InputWindow() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const maxImages = settings?.llm?.maxImagesPerMessage ?? 4
+  const personaName = settings?.persona?.displayName || settings?.persona?.nickname || '使用者'
+  const conversationTitle = conversation?.title || '新對話'
 
   const lastError = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -102,6 +105,10 @@ export default function InputWindow() {
     }
   }
 
+  const openLogWindow = (focusTitleInput = false) => {
+    window.api.invoke('window:open-log', { focusTitleInput })
+  }
+
   return (
     <div
       style={{
@@ -109,138 +116,173 @@ export default function InputWindow() {
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        background: '#F7FFFC',
-        border: '1px solid #D8F5EC',
-        borderRadius: 16,
+        background: 'transparent',
         overflow: 'hidden'
       }}
     >
-
-      <div className="drag-region flex items-center justify-between px-3 pt-2 pb-1">
-        <span className="text-xs text-secondary font-medium no-drag select-none">DesktopST</span>
-        <div className="flex gap-1 no-drag">
-          <button
-            type="button"
-            className="tab-btn text-xs px-2 py-1 inline-flex items-center gap-1.5"
-            onClick={() => window.api.invoke('window:toggle-log')}
-            title={lastError ? `最近錯誤：${lastError.llmModel ?? ''}` : '開啟對話記錄'}
-          >
-            <MonoIcon name="log" className="w-3.5 h-3.5" />
-            記錄
-          </button>
-          <button
-            type="button"
-            className="w-5 h-5 rounded-full border border-border bg-white/80 text-secondary hover:text-primary hover:bg-mint transition-colors flex items-center justify-center"
-            onClick={() => window.api.invoke('window:close-self')}
-            title="關閉輸入視窗"
-          >
-            <MonoIcon name="close" className="w-3 h-3" />
-          </button>
+      <div className="relative w-full h-full pt-2">
+        <div className="drag-region absolute left-0 right-0 top-0 h-7 z-20 cursor-move" />
+        <div className="absolute left-0 right-0 top-0 h-7 z-30 pointer-events-none">
+          <div className="absolute left-3 top-0 rounded-full bg-[#3D7D70] border border-[#2E665A] px-3 py-0.5 text-xs text-white font-semibold leading-tight select-none">
+            DesktopST
+          </div>
+          <div className="absolute right-3 top-0 flex gap-1 no-drag shrink-0 pointer-events-auto">
+            <button
+              type="button"
+              className="w-6 h-6 rounded-full border border-border bg-white text-secondary hover:text-primary hover:bg-mint transition-colors flex items-center justify-center cursor-pointer"
+              onClick={() => window.api.invoke('window:open-settings')}
+              title="開啟詳細設定"
+            >
+              <MonoIcon name="settings" className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              className="w-6 h-6 rounded-full border border-border bg-white text-secondary hover:text-primary hover:bg-mint transition-colors flex items-center justify-center cursor-pointer"
+              onClick={() => window.api.invoke('window:close-self')}
+              title="關閉輸入視窗"
+            >
+              <MonoIcon name="close" className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
-      </div>
 
-      {settings && (settings.ui?.onboardingCompleted !== true || !(settings.llm?.apiKey ?? '').trim()) && (
-        <div className="px-3 py-1.5 text-[11px] text-primary bg-[#E8FBF4] border-b border-border no-drag flex items-center justify-between gap-2 shrink-0">
-          <span>尚未完成初始設定或缺少 API Key。</span>
-          <button
-            type="button"
-            className="shrink-0 text-[11px] px-2 py-0.5 rounded-full bg-mint font-semibold"
-            onClick={() => void window.api.invoke('window:open-settings', 'llm')}
-          >
-            開啟設定
-          </button>
-        </div>
-      )}
+        <div className="h-full flex flex-col bg-[#F7FFFC] border border-[#D8F5EC] rounded-2xl overflow-hidden pt-2">
+          {settings && (settings.ui?.onboardingCompleted !== true || !(settings.llm?.apiKey ?? '').trim()) && (
+            <div className="px-3 py-1.5 text-[11px] text-primary bg-[#E8FBF4] border-b border-border no-drag flex items-center justify-between gap-2 shrink-0">
+              <span>尚未完成初始設定或缺少 API Key。</span>
+              <button
+                type="button"
+                className="shrink-0 text-[11px] px-2 py-0.5 rounded-full bg-mint font-semibold"
+                onClick={() => void window.api.invoke('window:open-settings', 'llm')}
+              >
+                開啟設定
+              </button>
+            </div>
+          )}
 
-      {images.length > 0 && (
-        <div className="flex gap-2 px-3 pb-1 flex-wrap no-drag">
-          {images.map((src, i) => (
-            <div key={i} className="relative">
-              <img
-                src={src}
-                className="w-12 h-12 object-cover rounded-lg border border-border cursor-pointer hover:opacity-80 transition-opacity"
-                alt=""
-                onClick={() => window.api.invoke('desktop:show-image-preview', src)}
-                title="點擊預覽"
+          <div className="flex-1 min-h-0 px-3 pb-1 overflow-hidden">
+            <div className="h-full min-w-0 min-h-0 flex flex-col no-drag">
+              <div className="flex items-center justify-between px-1 py-0.5 pr-[4.5rem]">
+                <button
+                  type="button"
+                  className="inline-flex items-center text-xs text-secondary font-medium hover:text-primary transition-colors min-w-0"
+                  onClick={() => window.api.invoke('window:open-settings', 'persona')}
+                  title="前往使用者資訊設定"
+                >
+                  <span className="truncate">{personaName}</span>
+                </button>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <button
+                    type="button"
+                    className="text-xs text-secondary font-medium truncate hover:text-primary transition-colors max-w-[180px] text-right"
+                    onClick={() => openLogWindow(true)}
+                    title="開啟對話記錄並聚焦對話名稱"
+                  >
+                    {conversationTitle}
+                  </button>
+                  <button
+                    type="button"
+                    className="w-5 h-5 rounded-full border border-border bg-surface text-secondary hover:text-primary hover:bg-mint transition-colors flex items-center justify-center"
+                    onClick={() => openLogWindow(false)}
+                    title={lastError ? `最近錯誤：${lastError.llmModel ?? ''}` : '開啟對話記錄'}
+                  >
+                    <MonoIcon name="log" className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 min-h-0">
+                <div className="h-full min-h-[34px] flex items-stretch gap-2">
+                  <textarea
+                    ref={textareaRef}
+                    value={text}
+                    onChange={event => setText(event.target.value)}
+                    onKeyDown={handleKeyDown}
+                    onPaste={handlePaste}
+                    placeholder="在這裡輸入訊息... (Ctrl+Enter 送出)"
+                    disabled={isSending}
+                    className="input-field flex-1 h-full min-h-[34px] resize-none py-1.5"
+                    rows={1}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSend}
+                    disabled={isSending || (!text.trim() && images.length === 0)}
+                    className="shrink-0 w-14 h-full min-h-[34px] rounded-2xl text-primary border border-[#61C9AE]
+                           bg-[#8DF1D4] shadow-soft transition-colors
+                           hover:bg-[#79E7C7] active:bg-[#69D8B8]
+                           disabled:opacity-40 disabled:pointer-events-none
+                           no-drag flex items-center justify-center"
+                    title={isSending ? '送出中...' : '送出訊息'}
+                  >
+                    <MonoIcon name="send" className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-1.5 px-3 pb-1.5 no-drag items-center">
+            <div className="flex gap-1.5 items-center shrink-0">
+              <button
+                type="button"
+                className="btn-round w-7 h-7 text-xs"
+                title="附加圖片"
+                disabled={images.length >= maxImages}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <MonoIcon name="image" className="w-3.5 h-3.5" />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleFileSelect}
               />
               <button
                 type="button"
-                onClick={() => removeImage(i)}
-                className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center border border-[#FFB59F] bg-[#FFE2D8] text-[#E85D3F]"
-                title="移除圖片"
+                className="btn-round w-7 h-7 text-xs"
+                title={isCapturing ? '截圖中...' : images.length >= maxImages ? `已達圖片上限 (${maxImages})` : '截取螢幕畫面'}
+                disabled={images.length >= maxImages || isCapturing}
+                onClick={() => handleScreenshot('desktop:capture-screenshot')}
               >
-                <MonoIcon name="close" className="w-3 h-3" />
+                <MonoIcon name="screenshot" className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                className="btn-round w-7 h-7 text-xs"
+                title={isCapturing ? '截圖中...' : images.length >= maxImages ? `已達圖片上限 (${maxImages})` : '保留角色與對白框截圖'}
+                disabled={images.length >= maxImages || isCapturing}
+                onClick={() => handleScreenshot('desktop:capture-screenshot-with-characters')}
+              >
+                <MonoIcon name="screenshot-character" className="w-3.5 h-3.5" />
               </button>
             </div>
-          ))}
+            <div className="flex-1 min-w-0 flex gap-1.5 items-center overflow-x-auto py-0.5">
+              {images.map((src, i) => (
+                <div key={i} className="relative shrink-0">
+                  <button
+                    type="button"
+                    className="block rounded-lg border border-border overflow-hidden hover:border-teal transition-colors"
+                    onClick={() => window.api.invoke('desktop:show-image-preview', src)}
+                    title="點擊預覽圖片"
+                  >
+                    <img src={src} className="w-7 h-7 object-cover" alt="" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeImage(i)}
+                    className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full flex items-center justify-center border border-[#FFB59F] bg-[#FFE2D8] text-[#E85D3F]"
+                    title="移除圖片"
+                  >
+                    <MonoIcon name="close" className="w-2 h-2" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-      )}
-
-      <div className="flex-1 px-3 no-drag">
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={event => setText(event.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder="在這裡輸入訊息... (Ctrl+Enter 送出)"
-          disabled={isSending}
-          className="input-field h-full resize-none py-2 min-h-0"
-          rows={1}
-        />
-      </div>
-
-      <div className="flex items-center justify-between px-3 py-2 no-drag">
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="btn-round w-8 h-8 text-sm"
-            title="附加圖片"
-            disabled={images.length >= maxImages}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <MonoIcon name="image" className="w-4 h-4" />
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={handleFileSelect}
-          />
-          <button
-            type="button"
-            className="btn-round w-8 h-8 text-sm"
-            title={isCapturing ? '截圖中...' : images.length >= maxImages ? `已達圖片上限 (${maxImages})` : '截取螢幕畫面'}
-            disabled={images.length >= maxImages || isCapturing}
-            onClick={() => handleScreenshot('desktop:capture-screenshot')}
-          >
-            <MonoIcon name="screenshot" className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            className="btn-round w-8 h-8 text-sm"
-            title={isCapturing ? '截圖中...' : images.length >= maxImages ? `已達圖片上限 (${maxImages})` : '保留角色與對白框截圖'}
-            disabled={images.length >= maxImages || isCapturing}
-            onClick={() => handleScreenshot('desktop:capture-screenshot-with-characters')}
-          >
-            <MonoIcon name="screenshot-character" className="w-4 h-4" />
-          </button>
-        </div>
-
-        <button
-          type="button"
-          onClick={handleSend}
-          disabled={isSending || (!text.trim() && images.length === 0)}
-          className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-semibold
-                     bg-mint text-primary shadow-soft transition-colors
-                     hover:bg-teal active:bg-teal/70
-                     disabled:opacity-40 disabled:pointer-events-none"
-        >
-          <MonoIcon name="send" className="w-4 h-4" />
-          {isSending ? '送出中...' : '送出'}
-        </button>
       </div>
     </div>
   )

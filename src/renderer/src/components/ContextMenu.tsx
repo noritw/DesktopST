@@ -10,7 +10,7 @@ interface Props {
   onExportJson: () => void
   onExportPng: () => void
   onExportDstPack: () => void
-  onSummon: () => void
+  onToggleDesktop: () => void
 }
 
 export default function ContextMenu({
@@ -23,7 +23,7 @@ export default function ContextMenu({
   onExportJson,
   onExportPng,
   onExportDstPack,
-  onSummon
+  onToggleDesktop
 }: Props) {
   const [deleteConfirm, setDeleteConfirm] = useState(false)
 
@@ -73,24 +73,18 @@ export default function ContextMenu({
     <div id={`ctx-${characterId}`} style={style} className="rounded-2xl border border-border bg-white shadow-soft overflow-hidden min-w-[184px]">
       <button
         type="button"
-        disabled={isOnDesktop}
-        className={`w-full text-left text-sm px-3 py-3 font-semibold ${isOnDesktop ? 'text-secondary opacity-60 cursor-not-allowed bg-surface/80' : 'text-primary bg-mint/55 hover:bg-mint/80 active:bg-mint'}`}
+        className={`w-full text-left text-sm px-3 py-3 font-semibold ${isOnDesktop ? 'text-[#C44B34] bg-[#FFEAE5] hover:bg-[#FFE2D8]' : 'text-primary bg-mint/55 hover:bg-mint/80 active:bg-mint'}`}
         onClick={() => {
-          if (!isOnDesktop) {
-            onSummon()
-            onClose()
-          }
+          onToggleDesktop()
+          onClose()
         }}
       >
-        召喚到桌面
+        {isOnDesktop ? '從桌面收回' : '召喚到桌面'}
       </button>
       <div className="border-t border-border" />
       <div className="py-1">
         <button type="button" className="w-full text-left text-sm px-3 py-2 text-primary hover:bg-mint/40" onClick={() => { onEdit(); onClose() }}>
           編輯
-        </button>
-        <button type="button" className="w-full text-left text-sm px-3 py-2 text-[#C44B34] hover:bg-[#FFEAE5]" onClick={() => setDeleteConfirm(true)}>
-          刪除
         </button>
       </div>
       <div className="border-t border-border my-0" />
@@ -108,6 +102,12 @@ export default function ContextMenu({
         <div className="px-3 py-1 text-[10px] text-secondary font-medium">匯出（DesktopST）</div>
         <button type="button" className="w-full text-left text-sm px-3 py-1.5 pl-5 text-primary hover:bg-mint/40" onClick={() => { onExportDstPack(); onClose() }}>
           匯出搬家包（.dstpack）
+        </button>
+      </div>
+      <div className="border-t border-border my-0" />
+      <div className="py-1">
+        <button type="button" className="w-full text-left text-sm px-3 py-2 text-[#C44B34] hover:bg-[#FFEAE5] flex items-center gap-1.5" onClick={() => setDeleteConfirm(true)}>
+          <span className="text-base leading-none">⚠️</span> 刪除角色
         </button>
       </div>
     </div>

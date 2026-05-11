@@ -81,6 +81,11 @@ export default function LogWindow() {
   }, [])
 
   useEffect(() => {
+    const unsub = window.api.on('log:focus-title-input', () => focusTitleInput())
+    return () => unsub()
+  }, [])
+
+  useEffect(() => {
     setTitleDraft(conversation?.title ?? '新對話')
     focusTitleInput()
   }, [conversation?.id, conversation?.title])

@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 
 interface Props {
   visible: boolean
+  onSettings?: () => void
   onScale?: () => void
   onButtonsEl?: (el: HTMLDivElement | null) => void
 }
@@ -82,7 +83,7 @@ export function HoverMenuIcon({ name }: { name: HoverMenuIconName }) {
   )
 }
 
-export default function HoverMenu({ visible, onScale, onButtonsEl }: Props) {
+export default function HoverMenu({ visible, onSettings, onScale, onButtonsEl }: Props) {
   const buttons: Array<{
     icon: ReactNode
     title: string
@@ -93,8 +94,8 @@ export default function HoverMenu({ visible, onScale, onButtonsEl }: Props) {
   }> = [
     {
       icon: <HoverMenuIcon name="settings" />,
-      title: '設定',
-      onClick: () => window.api.invoke('window:open-settings', 'character')
+      title: '角色設定',
+      onClick: () => (onSettings ? onSettings() : window.api.invoke('character-library:open'))
     },
     {
       icon: <HoverMenuIcon name="scale" />,

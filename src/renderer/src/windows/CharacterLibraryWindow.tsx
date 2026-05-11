@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Character } from '../types'
 import { useAppStore } from '../stores/useAppStore'
 import { useCharacterLibraryStore } from '../stores/useCharacterLibraryStore'
@@ -6,11 +6,25 @@ import CharacterCard from '../components/CharacterCard'
 import ContextMenu from '../components/ContextMenu'
 import CharacterEditor from '../components/CharacterEditor'
 
+type CharacterLibraryNavigatePayload = {
+  mode?: 'home' | 'edit'
+  characterId?: string
+}
+
+function parseInitialNavigatePayload(): CharacterLibraryNavigatePayload {
+  const read = (key: string) => window.windowParams?.get(key) ?? new URLSearchParams(window.location.search).get(key)
+  const mode = read('mode')
+  const characterId = read('characterId')
+  if (mode === 'edit' && characterId) return { mode: 'edit', characterId }
+  return { mode: 'home' }
+}
+
 export default function CharacterLibraryWindow() {
   const characters = useAppStore(s => s.characters)
   const desktopCharacters = useAppStore(s => s.desktopCharacters)
   const saveCharacter = useAppStore(s => s.saveCharacter)
   const addToDesktop = useAppStore(s => s.addToDesktop)
+  const removeFromDesktop = useAppStore(s => s.removeFromDesktop)
   const deleteCharacter = useAppStore(s => s.deleteCharacter)
 
   const editingCharacterId = useCharacterLibraryStore(s => s.editingCharacterId)
@@ -25,6 +39,16 @@ export default function CharacterLibraryWindow() {
   const [exportModalOpen, setExportModalOpen] = useState(false)
   const [exportSelected, setExportSelected] = useState<Record<string, boolean>>({})
   const [includeGlobalInPack, setIncludeGlobalInPack] = useState(true)
+
+  const navigate = useCallback((payload?: CharacterLibraryNavigatePayload) => {
+    if (payload?.mode === 'edit' && payload.characterId) {
+      closeContextMenu()
+      openEditor(payload.characterId)
+      return
+    }
+    closeContextMenu()
+    closeEditor()
+  }, [closeContextMenu, closeEditor, openEditor])
 
   useEffect(() => {
     const onDown = () => window.api.invoke('ui:aux-activated')
@@ -41,6 +65,15 @@ export default function CharacterLibraryWindow() {
     const t = window.setTimeout(() => setToast(null), 3000)
     return () => window.clearTimeout(t)
   }, [toast])
+
+  useEffect(() => {
+    const unsub = window.api.on('character-library:navigate', (raw: unknown) => {
+      const payload = (raw ?? {}) as CharacterLibraryNavigatePayload
+      navigate(payload)
+    })
+    navigate(parseInitialNavigatePayload())
+    return unsub
+  }, [navigate])
 
   const handleNew = async () => {
     const id = crypto.randomUUID()
@@ -293,7 +326,12 @@ export default function CharacterLibraryWindow() {
           onExportJson={() => void exportJson(ctxChar)}
           onExportPng={() => void exportPng(ctxChar)}
           onExportDstPack={() => void exportDstPackOne([ctxChar.id], false, ctxChar.name || 'character')}
-          onSummon={async () => {
+          onToggleDesktop={async () => {
+            const onDesktop = desktopCharacters.some(d => d.characterId === contextMenu.characterId)
+            if (onDesktop) {
+              removeFromDesktop(contextMenu.characterId)
+              return
+            }
             try {
               await addToDesktop(contextMenu.characterId)
             } catch {

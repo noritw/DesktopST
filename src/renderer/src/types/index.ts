@@ -11,6 +11,9 @@ export interface Character {
   scenario?: string
   systemPromptOverride?: string
   creatorNotes?: string
+  lastDesktopSize?: number
+  lastDesktopFlipped?: boolean
+  lastDesktopPosition?: { x: number; y: number }
   createdAt: number
   updatedAt: number
 }

@@ -74,7 +74,7 @@ function defaultUserBubbleBounds(): WindowBoundsState {
     const ib = input.getBounds()
     return {
       x: ib.x,
-      y: ib.y - 132,
+      y: ib.y - 104,
       width: ib.width,
       height: 120
     }
@@ -82,7 +82,7 @@ function defaultUserBubbleBounds(): WindowBoundsState {
   const fallback = defaultInputBounds()
   return {
     x: fallback.x,
-    y: fallback.y - 132,
+    y: fallback.y - 104,
     width: fallback.width,
     height: 120
   }
@@ -185,17 +185,31 @@ let suppressAuxAutoHideUntil = 0
 let lastShownBubbleCharacterId: string | null = null
 
 let characterLibraryWindow: BrowserWindow | null = null
+type CharacterLibraryNavigateMode = 'home' | 'edit'
+type CharacterLibraryOpenOptions = {
+  mode?: CharacterLibraryNavigateMode
+  characterId?: string
+}
+
+function sendCharacterLibraryNavigate(win: BrowserWindow, options?: CharacterLibraryOpenOptions): void {
+  const mode: CharacterLibraryNavigateMode = options?.mode === 'edit' ? 'edit' : 'home'
+  win.webContents.send('character-library:navigate', {
+    mode,
+    characterId: mode === 'edit' ? (options?.characterId ?? '') : ''
+  })
+}
 
 function getAuxWindows(): BrowserWindow[] {
   return [inputWindow, userBubbleWindow, logWindow, settingsWindow, characterLibraryWindow].filter(w => w && !w.isDestroyed()) as BrowserWindow[]
 }
 
-export function createCharacterLibraryWindow(): BrowserWindow {
+export function createCharacterLibraryWindow(options?: CharacterLibraryOpenOptions): BrowserWindow {
   if (characterLibraryWindow && !characterLibraryWindow.isDestroyed()) {
     characterLibraryWindow.show()
     characterLibraryWindow.focus()
     raiseAuxAboveCharacters()
     characterLibraryWindow.moveTop()
+    sendCharacterLibraryNavigate(characterLibraryWindow, options)
     return characterLibraryWindow
   }
 
@@ -215,16 +229,23 @@ export function createCharacterLibraryWindow(): BrowserWindow {
 
   characterLibraryWindow.setAlwaysOnTop(true, 'pop-up-menu')
 
+  const query: Record<string, string> = { w: 'library' }
+  if (options?.mode === 'edit' && options.characterId) {
+    query.mode = 'edit'
+    query.characterId = options.characterId
+  }
   if (VITE_DEV_SERVER_URL) {
-    characterLibraryWindow.loadURL(makeURL({ w: 'library' }))
+    characterLibraryWindow.loadURL(makeURL(query))
   } else {
-    characterLibraryWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
-      query: { w: 'library' }
-    })
+    characterLibraryWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { query })
   }
 
   characterLibraryWindow.on('closed', () => {
     characterLibraryWindow = null
+  })
+  characterLibraryWindow.webContents.once('did-finish-load', () => {
+    if (!characterLibraryWindow || characterLibraryWindow.isDestroyed()) return
+    sendCharacterLibraryNavigate(characterLibraryWindow, options)
   })
 
   if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
@@ -758,7 +779,7 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
   if (inputWindow && !inputWindow.isDestroyed()) {
     inputWindow.setOpacity(1)
     inputWindow.setResizable(true)
-    inputWindow.setMinimumSize(280, 106)
+    inputWindow.setMinimumSize(280, 104)
     raiseAuxAboveCharacters()
     inputWindow.moveTop()
     inputWindow.focus()
@@ -773,8 +794,8 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
     width: initialBounds.width,
     height: initialBounds.height,
     frame: false,
-    transparent: false,
-    backgroundColor: '#F7FFFC',
+    transparent: true,
+    backgroundColor: '#00000000',
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: true,
@@ -787,7 +808,7 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
   rememberAuxBounds('input', inputWindow)
   // Higher than character alwaysOnTop windows
   inputWindow.setAlwaysOnTop(true, 'pop-up-menu')
-  inputWindow.setMinimumSize(280, 106)
+  inputWindow.setMinimumSize(280, 104)
 
   if (VITE_DEV_SERVER_URL) {
     inputWindow.loadURL(makeURL({ w: 'input' }))
@@ -820,7 +841,7 @@ export function toggleInputWindow(position?: { x: number; y: number }): void {
   } else {
     inputWindow.setOpacity(1)
     inputWindow.setResizable(true)
-    inputWindow.setMinimumSize(280, 106)
+    inputWindow.setMinimumSize(280, 104)
     inputWindow.show()
     raiseAuxAboveCharacters()
     inputWindow.moveTop()
@@ -1071,7 +1092,7 @@ export function areCharactersRaisedAboveAux(): boolean {
 
 let logWindow: BrowserWindow | null = null
 
-export function toggleLogWindow(): void {
+function ensureLogWindow(): BrowserWindow {
   if (!logWindow || logWindow.isDestroyed()) {
     const initialBounds = getInitialAuxBounds('log')
     logWindow = new BrowserWindow({
@@ -1100,22 +1121,38 @@ export function toggleLogWindow(): void {
       })
     }
     logWindow.on('closed', () => { logWindow = null })
-    logWindow.show()
-    logWindow.setOpacity(1)
-    raiseAuxAboveCharacters()
-    logWindow.moveTop()
-    logWindow.focus()
+  }
+  return logWindow
+}
+
+function focusLogTitleInput(win: BrowserWindow): void {
+  if (win.webContents.isLoading()) {
+    win.webContents.once('did-finish-load', () => {
+      if (!win.isDestroyed()) win.webContents.send('log:focus-title-input')
+    })
+  } else {
+    win.webContents.send('log:focus-title-input')
+  }
+}
+
+export function openLogWindow(options?: { focusTitleInput?: boolean }): void {
+  const win = ensureLogWindow()
+  win.setOpacity(1)
+  if (!win.isVisible()) win.show()
+  raiseAuxAboveCharacters()
+  win.moveTop()
+  win.focus()
+  win.setAlwaysOnTop(true, 'pop-up-menu')
+  if (options?.focusTitleInput) focusLogTitleInput(win)
+}
+
+export function toggleLogWindow(): void {
+  const win = ensureLogWindow()
+  if (win.isVisible()) {
+    win.hide()
     return
   }
-  if (logWindow.isVisible()) logWindow.hide()
-  else {
-    logWindow.setOpacity(1)
-    logWindow.show()
-    raiseAuxAboveCharacters()
-    logWindow.moveTop()
-    logWindow.focus()
-    logWindow.setAlwaysOnTop(true, 'pop-up-menu')
-  }
+  openLogWindow()
 }
 
 export function getLogWindow(): BrowserWindow | null {

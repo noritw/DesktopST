@@ -4,7 +4,7 @@ import {
   OPENAI_DATA_SHARING_INCENTIVE_1M_GROUP
 } from '../constants/openaiDataSharingIncentiveModels'
 import { useAppStore } from '../stores/useAppStore'
-import type { AppSettings, Character } from '../types'
+import type { AppSettings } from '../types'
 import MonoIcon from '../components/MonoIcon'
 
 const OPENAI_MODEL_LIST_HELP =
@@ -43,43 +43,63 @@ const MODELS = [
   'o3', 'o3-pro', 'o4-mini', 'o1', 'o1-mini'
 ]
 
-const TABS = ['LLM 設定', '世界觀', '使用者', '記憶', '介面', '角色', '資料'] as const
+const LEFT_TABS = ['LLM 設定', '記憶', '資料'] as const
+const RIGHT_TABS = ['世界觀', '使用者', '介面'] as const
+const TABS = [...LEFT_TABS, ...RIGHT_TABS] as const
 type Tab = typeof TABS[number]
+const SETTINGS_LAST_TAB_KEY = 'desktopst.settings.lastTab'
+
+function readLastSettingsTab(): Tab | null {
+  try {
+    const raw = localStorage.getItem(SETTINGS_LAST_TAB_KEY)
+    if (!raw) return null
+    return (TABS as readonly string[]).includes(raw) ? (raw as Tab) : null
+  } catch {
+    return null
+  }
+}
+
+function persistLastSettingsTab(tab: Tab): void {
+  try {
+    localStorage.setItem(SETTINGS_LAST_TAB_KEY, tab)
+  } catch {
+    // Ignore persistence errors (private mode / storage disabled).
+  }
+}
 
 const TAB_PARAM_ALIASES: Record<string, Tab> = {
   llm: 'LLM 設定',
   world: '世界觀',
   user: '使用者',
+  persona: '使用者',
   memory: '記憶',
   ui: '介面',
-  character: '角色',
   data: '資料',
   'LLM 設定': 'LLM 設定',
   世界觀: '世界觀',
   使用者: '使用者',
   記憶: '記憶',
   介面: '介面',
-  角色: '角色',
   資料: '資料'
 }
 
 function tabFromLocation(): Tab {
   const raw = new URLSearchParams(window.location.search).get('tab')
-  if (!raw) return 'LLM 設定'
+  if (!raw) return readLastSettingsTab() ?? 'LLM 設定'
   const decoded = decodeURIComponent(raw.trim())
   if (TAB_PARAM_ALIASES[decoded]) return TAB_PARAM_ALIASES[decoded]
   if (TAB_PARAM_ALIASES[raw]) return TAB_PARAM_ALIASES[raw]
   if ((TABS as readonly string[]).includes(decoded)) return decoded as Tab
-  return 'LLM 設定'
+  return readLastSettingsTab() ?? 'LLM 設定'
 }
 
 function tabFromExternalParam(raw: unknown): Tab {
-  if (typeof raw !== 'string' || !raw.trim()) return 'LLM 設定'
+  if (typeof raw !== 'string' || !raw.trim()) return readLastSettingsTab() ?? 'LLM 設定'
   const decoded = decodeURIComponent(raw.trim())
   if (TAB_PARAM_ALIASES[decoded]) return TAB_PARAM_ALIASES[decoded]
   if (TAB_PARAM_ALIASES[raw.trim()]) return TAB_PARAM_ALIASES[raw.trim()]
   if ((TABS as readonly string[]).includes(decoded)) return decoded as Tab
-  return 'LLM 設定'
+  return readLastSettingsTab() ?? 'LLM 設定'
 }
 
 export default function SettingsWindow() {
@@ -96,29 +116,35 @@ export default function SettingsWindow() {
   const settings = useAppStore(s => s.settings)
   const saveSettings = useAppStore(s => s.saveSettings)
   const characters = useAppStore(s => s.characters)
-  const desktopCharacters = useAppStore(s => s.desktopCharacters)
-  const saveCharacter = useAppStore(s => s.saveCharacter)
-  const addToDesktop = useAppStore(s => s.addToDesktop)
-  const removeFromDesktop = useAppStore(s => s.removeFromDesktop)
-  const importCharacterJson = useAppStore(s => s.importCharacterJson)
 
   const [tab, setTab] = useState<Tab>(() => tabFromLocation())
   const [draft, setDraft] = useState<AppSettings | null>(null)
   const [saved, setSaved] = useState(false)
   const [openaiModelListMode, setOpenaiModelListMode] = useState<OpenaiModelListMode>('catalog')
 
+  const changeTab = (nextTab: Tab) => {
+    setTab(nextTab)
+    persistLastSettingsTab(nextTab)
+  }
+
+  // API test state
+  const [connTesting, setConnTesting] = useState(false)
+  const [connResult, setConnResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [msgTesting, setMsgTesting] = useState(false)
+  const [msgResult, setMsgResult] = useState<{ ok: boolean; msg: string } | null>(null)
+
+  useEffect(() => {
+    persistLastSettingsTab(tab)
+  }, [tab])
+
   useEffect(() => {
     const unsub = window.api.on('settings:navigate-tab', (t: unknown) => {
-      setTab(tabFromExternalParam(t))
+      const nextTab = tabFromExternalParam(t)
+      setTab(nextTab)
+      persistLastSettingsTab(nextTab)
     })
     return unsub
   }, [])
-
-  // Character tab state
-  const [selectedCharId, setSelectedCharId] = useState<string | null>(null)
-  const [charDraft, setCharDraft] = useState<Character | null>(null)
-  const [charSaved, setCharSaved] = useState(false)
-  const [nicknamesText, setNicknamesText] = useState('')
 
   useEffect(() => {
     if (!settings) return
@@ -129,19 +155,6 @@ export default function SettingsWindow() {
     }
     setDraft(nextDraft)
   }, [settings])
-
-  useEffect(() => {
-    if (selectedCharId) {
-      const char = characters.find(c => c.id === selectedCharId)
-      if (char) setCharDraft(JSON.parse(JSON.stringify(char)))
-      else { setSelectedCharId(null); setCharDraft(null) }
-    }
-  }, [selectedCharId, characters])
-
-  useEffect(() => {
-    if (!charDraft) { setNicknamesText(''); return }
-    setNicknamesText((charDraft.nicknames ?? []).join(', '))
-  }, [charDraft?.id])
 
   if (!draft) return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#F7FFFC', gap: 12 }}>
@@ -189,36 +202,6 @@ export default function SettingsWindow() {
     setDraft(JSON.parse(JSON.stringify(next)) as AppSettings)
   }
 
-  const handleSaveChar = async () => {
-    if (!charDraft) return
-    // Commit nickname text → array right before saving
-    const parts = nicknamesText
-      .split(/[,\uFF0C、]/g)
-      .map(s => s.trim())
-      .filter(Boolean)
-    await saveCharacter({ ...charDraft, nicknames: parts })
-    setCharSaved(true)
-    setTimeout(() => setCharSaved(false), 2000)
-  }
-
-  const handleImportJson = async () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = '.json'
-    input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return
-      const text = await file.text()
-      const char = await importCharacterJson(text)
-      if (char) setSelectedCharId(char.id)
-    }
-    input.click()
-  }
-
-  const setCharField = (key: keyof Character, value: string) => {
-    setCharDraft(prev => prev ? { ...prev, [key]: value } : prev)
-  }
-
   return (
     <div className="w-full h-full flex flex-col bg-bg">
       {/* Title bar */}
@@ -244,16 +227,30 @@ export default function SettingsWindow() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 px-4 py-2 border-b border-border no-drag">
-        {TABS.map(t => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`tab-btn text-xs ${tab === t ? 'active' : ''}`}
-          >
-            {t}
-          </button>
-        ))}
+      <div className="flex items-center gap-3 px-4 py-2 border-b border-border no-drag">
+        <div className="flex gap-1 flex-wrap">
+          {LEFT_TABS.map(t => (
+            <button
+              key={t}
+              onClick={() => changeTab(t)}
+              className={`tab-btn text-xs ${tab === t ? 'active' : ''}`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        <div className="h-6 w-px bg-border shrink-0" aria-hidden="true" />
+        <div className="flex gap-1 flex-wrap ml-auto justify-end">
+          {RIGHT_TABS.map(t => (
+            <button
+              key={t}
+              onClick={() => changeTab(t)}
+              className={`tab-btn text-xs ${tab === t ? 'active' : ''}`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
       </div>
 
       {onboardingIncomplete && (
@@ -265,13 +262,13 @@ export default function SettingsWindow() {
             <li>到「角色庫」匯入既有角色卡（JSON／PNG）或新增角色；跨電腦搬家請用「匯出 DesktopST 搬家包」。</li>
           </ol>
           <div className="flex flex-wrap gap-2 pt-1">
-            <button type="button" className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary" onClick={() => setTab('LLM 設定')}>
+            <button type="button" className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary" onClick={() => changeTab('LLM 設定')}>
               前往 API Key
             </button>
-            <button type="button" className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40" onClick={() => setTab('世界觀')}>
+            <button type="button" className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40" onClick={() => changeTab('世界觀')}>
               世界觀
             </button>
-            <button type="button" className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40" onClick={() => setTab('使用者')}>
+            <button type="button" className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40" onClick={() => changeTab('使用者')}>
               使用者
             </button>
             <button
@@ -361,6 +358,67 @@ export default function SettingsWindow() {
                 onChange={e => set('llm.apiKey', e.target.value)}
                 placeholder="sk-..."
               />
+              <div className="flex gap-2 mt-2 items-center flex-wrap">
+                <button
+                  type="button"
+                  disabled={connTesting || !draft.llm.apiKey.trim()}
+                  className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal transition-all"
+                  onClick={async () => {
+                    setConnTesting(true)
+                    setConnResult(null)
+                    try {
+                      const r = await window.api.invoke('llm:test-connection', {
+                        apiKey: draft.llm.apiKey,
+                        endpoint: draft.llm.endpoint
+                      }) as { ok: boolean; error?: string; models?: string[] }
+                      setConnResult(r.ok
+                        ? { ok: true, msg: '已驗證' }
+                        : { ok: false, msg: r.error || '連線失敗' })
+                    } catch (e: any) {
+                      setConnResult({ ok: false, msg: e?.message || '未知錯誤' })
+                    } finally {
+                      setConnTesting(false)
+                    }
+                  }}
+                >
+                  {connTesting ? '驗證中...' : '連線'}
+                </button>
+                <button
+                  type="button"
+                  disabled={msgTesting || !draft.llm.apiKey.trim() || !draft.llm.model.trim()}
+                  className="text-xs px-3 py-1.5 rounded-full border border-border text-primary disabled:opacity-40 disabled:cursor-not-allowed hover:bg-mint/40 transition-all"
+                  onClick={async () => {
+                    setMsgTesting(true)
+                    setMsgResult(null)
+                    try {
+                      const r = await window.api.invoke('llm:test-message', {
+                        apiKey: draft.llm.apiKey,
+                        endpoint: draft.llm.endpoint,
+                        model: draft.llm.model
+                      }) as { ok: boolean; error?: string; reply?: string }
+                      setMsgResult(r.ok
+                        ? { ok: true, msg: r.reply || '成功' }
+                        : { ok: false, msg: r.error || '測試失敗' })
+                    } catch (e: any) {
+                      setMsgResult({ ok: false, msg: e?.message || '未知錯誤' })
+                    } finally {
+                      setMsgTesting(false)
+                    }
+                  }}
+                >
+                  {msgTesting ? '測試中...' : '測試訊息'}
+                </button>
+                {connResult && (
+                  <span className={`text-xs ${connResult.ok ? 'text-[#4CAF50]' : 'text-[#E85D3F]'}`}>
+                    {connResult.ok ? '\u25CF' : '\u25CF'} {connResult.msg}
+                  </span>
+                )}
+                {msgResult && (
+                  <span className={`text-xs ${msgResult.ok ? 'text-[#4CAF50]' : 'text-[#E85D3F]'}`}>
+                    {msgResult.ok ? '\u25CF' : '\u25CF'} {msgResult.msg}
+                  </span>
+                )}
+              </div>
             </Field>
             <Field label="自訂端點（選填）">
               <input
@@ -489,107 +547,6 @@ export default function SettingsWindow() {
           </>
         )}
 
-        {tab === '角色' && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-secondary">角色列表</span>
-              <div className="flex gap-2">
-                <button className="tab-btn text-xs" type="button" onClick={() => window.api.invoke('character-library:open')}>
-                  角色庫
-                </button>
-                <button className="tab-btn text-xs" type="button" onClick={handleImportJson}>
-                  匯入 JSON
-                </button>
-              </div>
-            </div>
-
-            {/* Character list */}
-            <div className="space-y-2">
-              {characters.map(char => {
-                const onDesktop = desktopCharacters.some(d => d.characterId === char.id)
-                const isSelected = selectedCharId === char.id
-                return (
-                  <div key={char.id} className="border border-border rounded-xl overflow-hidden">
-                    <div
-                      className={`flex items-center gap-3 px-3 py-2 cursor-pointer transition-colors ${isSelected ? 'bg-mint/40' : 'bg-surface hover:bg-teal/10'}`}
-                      onClick={() => setSelectedCharId(isSelected ? null : char.id)}
-                    >
-                      <div className="w-8 h-8 rounded-full bg-mint flex items-center justify-center text-sm shrink-0 overflow-hidden">
-                        {char.avatar
-                          ? <img src={`local://${encodeURIComponent(char.avatar)}`} className="w-full h-full object-cover" alt="" />
-                          : ''}
-                      </div>
-                      <span className="flex-1 text-sm font-medium text-primary">{char.name}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${onDesktop ? 'bg-teal/30 text-primary' : 'bg-surface text-secondary border border-border'}`}>
-                        {onDesktop ? '桌面中' : '未上桌'}
-                      </span>
-                      <button
-                        className={`text-xs tab-btn py-1 px-2 ${onDesktop ? 'text-[#E85D3F] hover:text-[#E85D3F] hover:bg-[#FFE2D8]' : ''}`}
-                        onClick={e => { e.stopPropagation(); onDesktop ? removeFromDesktop(char.id) : addToDesktop(char.id) }}
-                      >
-                        {onDesktop ? '移出' : '上桌'}
-                      </button>
-                    </div>
-
-                    {/* Inline edit form */}
-                    {isSelected && charDraft && (
-                      <div className="px-3 pb-3 pt-1 border-t border-border bg-bg space-y-3">
-                        <Field label="名稱">
-                          <input type="text" className="input-field"
-                            value={charDraft.name}
-                            onChange={e => setCharField('name', e.target.value)} />
-                        </Field>
-                        <Field label="暱稱（可多個，用逗號分隔；支援 , / ， / 、）">
-                          <input
-                            type="text"
-                            className="input-field"
-                            value={nicknamesText}
-                            onChange={e => setNicknamesText(e.target.value)}
-                            onBlur={() => {
-                              const parts = nicknamesText
-                                .split(/[,\uFF0C、]/g)
-                                .map(s => s.trim())
-                                .filter(Boolean)
-                              setCharDraft(prev => prev ? { ...prev, nicknames: parts } : prev)
-                            }}
-                            placeholder="例如：天行, 阿行, 老紀"
-                          />
-                        </Field>
-                        <Field label="人格設定">
-                          <textarea className="input-field min-h-[80px] resize-none"
-                            value={charDraft.personality}
-                            onChange={e => setCharField('personality', e.target.value)}
-                            placeholder="角色的個性、說話方式..." />
-                        </Field>
-                        <Field label="角色描述">
-                          <textarea className="input-field min-h-[60px] resize-none"
-                            value={charDraft.description}
-                            onChange={e => setCharField('description', e.target.value)}
-                            placeholder="角色的外貌、背景..." />
-                        </Field>
-                        <Field label="開場白">
-                          <textarea className="input-field min-h-[60px] resize-none"
-                            value={charDraft.firstMessage}
-                            onChange={e => setCharField('firstMessage', e.target.value)}
-                            placeholder="首次見面說的話..." />
-                        </Field>
-                        <div className="flex justify-end">
-                          <button
-                            onClick={handleSaveChar}
-                            className="px-4 py-1.5 rounded-full text-sm font-semibold bg-mint text-primary shadow-soft hover:bg-teal transition-all"
-                          >
-                            {charSaved ? ' 已儲存' : '儲存角色'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
         {tab === '介面' && (
           <>
             <p className="text-xs font-medium text-secondary">互動方式</p>
@@ -638,18 +595,15 @@ export default function SettingsWindow() {
         )}
       </div>
 
-      {/* Save button — hide on character tab (has its own save) */}
-      {tab !== '角色' && (
-        <div className="px-4 py-3 border-t border-border no-drag flex justify-end">
-          <button
-            onClick={handleSave}
-            className="px-6 py-2 rounded-full text-sm font-semibold bg-mint text-primary
-                       shadow-soft hover:bg-teal transition-all"
-          >
-            {saved ? ' 已儲存' : '儲存'}
-          </button>
-        </div>
-      )}
+      <div className="px-4 py-3 border-t border-border no-drag flex justify-end">
+        <button
+          onClick={handleSave}
+          className="px-6 py-2 rounded-full text-sm font-semibold bg-mint text-primary
+                     shadow-soft hover:bg-teal transition-all"
+        >
+          {saved ? ' 已儲存' : '儲存'}
+        </button>
+      </div>
     </div>
   )
 }

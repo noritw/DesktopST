@@ -328,9 +328,9 @@ export default function CharacterWindow({ characterId }: Props) {
             )}
             <button
               type="button"
-              title="開啟角色庫"
-              aria-label="開啟角色庫"
-              onClick={() => window.api.invoke('character-library:open')}
+              title="開啟角色庫首頁"
+              aria-label="開啟角色庫首頁"
+              onClick={() => window.api.invoke('character-library:open', { mode: 'home' })}
               className="btn-round text-primary"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -410,6 +410,7 @@ export default function CharacterWindow({ characterId }: Props) {
           <div
             ref={spriteDivRef}
             className={scaleMode ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}
+            title={scaleMode ? undefined : '點擊角色可開啟發話視窗'}
             onMouseDown={(event) => {
               if (!spriteOpaque && !hovered && !scaleMode) return
               handleMouseDown(event)
@@ -459,6 +460,7 @@ export default function CharacterWindow({ characterId }: Props) {
           <div className="self-end" style={{ transform: `translateY(-${sideToolbarLiftPx}px)` }}>
             <HoverMenu
               visible={menuVisible}
+              onSettings={() => window.api.invoke('character-library:open', { mode: 'edit', characterId })}
               onScale={enterScaleMode}
               onButtonsEl={(el) => { hoverMenuButtonsRef.current = el }}
             />

@@ -105,9 +105,8 @@ app.on('ready', async () => {
   const onboardingPending = settings.ui.onboardingCompleted === false
   if (noCharacters || onboardingPending) {
     suppressAuxAutoHide(5000)
-    const tab = noCharacters ? 'character' : 'llm'
     setImmediate(() => {
-      openSettingsWindow(tab)
+      openSettingsWindow('llm')
     })
   }
 

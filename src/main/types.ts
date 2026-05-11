@@ -12,6 +12,9 @@ export interface Character {
   systemPromptOverride?: string
   creatorNotes?: string
   lorebook?: null
+  lastDesktopSize?: number
+  lastDesktopFlipped?: boolean
+  lastDesktopPosition?: { x: number; y: number }
   createdAt: number
   updatedAt: number
 }

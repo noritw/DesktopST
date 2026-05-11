@@ -33,7 +33,7 @@ export default function CharacterCard({ character, isOnDesktop, onClick, onConte
       </button>
       <div className="flex shrink-0 flex-col items-center justify-center gap-1 px-2 pb-2 pt-1">
         {isOnDesktop ? (
-          <span className="rounded-full bg-teal/25 px-2 py-0.5 text-[10px] font-medium text-primary">桌面中</span>
+          <span className="rounded-full bg-teal/25 px-2 py-0.5 text-[10px] font-medium text-primary" title="點右鍵可收回">桌面中</span>
         ) : (
           <button
             type="button"

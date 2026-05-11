@@ -1,4 +1,4 @@
-import { ipcMain, shell, BrowserWindow, dialog, app, desktopCapturer, clipboard, nativeImage } from 'electron'
+import { ipcMain, shell, BrowserWindow, dialog, app, desktopCapturer, clipboard, nativeImage, screen } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -15,8 +15,8 @@ import {
 } from './dstPack'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow,
-  resizeCharacterWindow,
-  toggleInputWindow, toggleLogWindow, openSettingsWindow,
+  resizeCharacterWindow, getCharacterWindowSize,
+  toggleInputWindow, toggleLogWindow, openLogWindow, openSettingsWindow,
   broadcastToAll, getAllCharacterWindows, setCharacterWindowClickThrough,
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
   showSpeechBubble, hideSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition,
@@ -28,6 +28,23 @@ import {
   hideAllWindowsForScreenshot, hideAuxWindowsForScreenshotKeepingCharacters, restoreAllWindowsAfterScreenshot,
   showPreviewWindow
 } from './windowManager'
+
+// ── Helpers ──────────────────────────────────────────────
+
+function isPositionOffscreen(pos: { x: number; y: number }, winSize: { width: number; height: number }): boolean {
+  const px = Number.isFinite(pos.x) ? pos.x : 0
+  const py = Number.isFinite(pos.y) ? pos.y : 0
+  const rect = { x: px, y: py, w: winSize.width, h: winSize.height }
+  const displays = screen.getAllDisplays()
+  return !displays.some(d => {
+    const wa = d.workArea
+    const x1 = Math.max(rect.x, wa.x)
+    const y1 = Math.max(rect.y, wa.y)
+    const x2 = Math.min(rect.x + rect.w, wa.x + wa.width)
+    const y2 = Math.min(rect.y + rect.h, wa.y + wa.height)
+    return x2 > x1 && y2 > y1
+  })
+}
 
 // ── In-memory state ───────────────────────────────────────
 
@@ -450,9 +467,9 @@ export function registerIpcHandlers() {
     return true
   })
 
-  ipcMain.handle('character-library:open', () => {
+  ipcMain.handle('character-library:open', (_, payload?: { mode?: 'home' | 'edit'; characterId?: string }) => {
     try {
-      createCharacterLibraryWindow()
+      createCharacterLibraryWindow(payload)
       return true
     } catch (e) {
       console.error(e)
@@ -750,7 +767,19 @@ export function registerIpcHandlers() {
   // Desktop characters
   ipcMain.handle('desktop:add-character', (_, characterId: string) => {
     if (settings.ui.desktopCharacters.some(d => d.characterId === characterId)) return false
-    const state = { characterId, position: { x: 100, y: 400 }, size: 1, flipped: false, muted: false, zIndex: Date.now() }
+    const char = getCharacter(characterId)
+    const size = (char?.lastDesktopSize && Number.isFinite(char.lastDesktopSize) && char.lastDesktopSize > 0)
+      ? char.lastDesktopSize : 1
+    const flipped = char?.lastDesktopFlipped ?? false
+    const defaultPos = { x: 100, y: 400 }
+    let position = defaultPos
+    if (char?.lastDesktopPosition) {
+      const winSize = getCharacterWindowSize(size)
+      if (!isPositionOffscreen(char.lastDesktopPosition, winSize)) {
+        position = char.lastDesktopPosition
+      }
+    }
+    const state = { characterId, position, size, flipped, muted: false, zIndex: Date.now() }
     settings.ui.desktopCharacters.push(state)
     fileStore.saveSettings(settings)
     createCharacterWindow(characterId, state.position, state.size)
@@ -760,6 +789,17 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('desktop:remove-character', (_, characterId: string) => {
     if (settings.ui.desktopCharacters.length <= 1) return false
+    const removing = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
+    if (removing) {
+      const char = getCharacter(characterId)
+      if (char) {
+        char.lastDesktopSize = removing.size
+        char.lastDesktopFlipped = removing.flipped
+        char.lastDesktopPosition = removing.position
+        fileStore.saveCharacter(char)
+        broadcastToAll('characters:updated', characters)
+      }
+    }
     settings.ui.desktopCharacters = settings.ui.desktopCharacters.filter(d => d.characterId !== characterId)
     fileStore.saveSettings(settings)
     closeCharacterWindow(characterId)
@@ -895,6 +935,11 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('window:toggle-log', () => {
     toggleLogWindow()
+    return true
+  })
+
+  ipcMain.handle('window:open-log', (_, options?: { focusTitleInput?: boolean }) => {
+    openLogWindow(options)
     return true
   })
 
@@ -1363,6 +1408,50 @@ export function registerIpcHandlers() {
       return { ok: false, error: String(err) }
     } finally {
       restoreAllWindowsAfterScreenshot()
+    }
+  })
+
+  // LLM connection test: verify API key by listing models
+  ipcMain.handle('llm:test-connection', async (_, payload?: { apiKey?: string; endpoint?: string }) => {
+    const key = payload?.apiKey?.trim() || settings.llm.apiKey?.trim()
+    if (!key) return { ok: false, error: '尚未填寫 API Key' }
+    const baseURL = payload?.endpoint?.trim() || settings.llm.endpoint?.trim() || undefined
+    try {
+      const client = new (await import('openai')).default({ apiKey: key, baseURL })
+      const resp = await client.models.list()
+      const models: string[] = []
+      for await (const m of resp) {
+        models.push(m.id)
+        if (models.length >= 5) break
+      }
+      return { ok: true, models }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return { ok: false, error: msg }
+    }
+  })
+
+  // LLM test message: send a minimal prompt and return the reply
+  ipcMain.handle('llm:test-message', async (_, payload?: { apiKey?: string; endpoint?: string; model?: string }) => {
+    const key = payload?.apiKey?.trim() || settings.llm.apiKey?.trim()
+    if (!key) return { ok: false, error: '尚未填寫 API Key' }
+    const model = payload?.model?.trim() || settings.llm.model?.trim()
+    if (!model) return { ok: false, error: '尚未填寫模型名稱' }
+    const baseURL = payload?.endpoint?.trim() || settings.llm.endpoint?.trim() || undefined
+    try {
+      const client = new (await import('openai')).default({ apiKey: key, baseURL })
+      const resp = await client.responses.create({
+        model,
+        input: 'Say "Hello!" in one word.',
+        max_output_tokens: 20
+      } as any)
+      const text = typeof (resp as any)?.output_text === 'string'
+        ? (resp as any).output_text
+        : JSON.stringify(resp).slice(0, 200)
+      return { ok: true, reply: text.trim() || '(empty)' }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      return { ok: false, error: msg }
     }
   })
 
