@@ -967,7 +967,7 @@ export function registerIpcHandlers() {
     return true
   })
 
-  ipcMain.handle('user-bubble:set-size', (_, size: { width: number; height: number }) => {
+  ipcMain.handle('user-bubble:set-size', (_, size: { width?: number; height: number }) => {
     return updateUserSpeechBubbleSize(size)
   })
 

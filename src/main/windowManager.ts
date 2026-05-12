@@ -951,11 +951,11 @@ export function showUserSpeechBubble(speakerName: string, text: string): void {
   setTimeout(dispatchShow, 260)
 }
 
-export function updateUserSpeechBubbleSize(size: { width: number; height: number }): boolean {
+export function updateUserSpeechBubbleSize(size: { width?: number; height: number }): boolean {
   const bw = userBubbleWindow
   if (!bw || bw.isDestroyed()) return false
   const current = bw.getBounds()
-  const width = clamp(Math.round(Number(size.width) || current.width), 220, 1200)
+  const width = current.width
   const height = clamp(Math.round(Number(size.height) || current.height), 78, BUBBLE_MAX_HEIGHT_PX)
   const pos = normalizeWindowPosition({ x: current.x, y: current.y }, { width, height })
   userBubbleSize = { width, height }

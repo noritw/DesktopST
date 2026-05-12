@@ -2,10 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import MessageText from '../components/MessageText'
 import MonoIcon from '../components/MonoIcon'
 
-function clamp(n: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, n))
-}
-
 export default function UserBubbleWindow() {
   const [visible, setVisible] = useState(false)
   const [speakerName, setSpeakerName] = useState('你')
@@ -58,10 +54,9 @@ export default function UserBubbleWindow() {
     if (!el) return
 
     const measure = () => {
-      const width = clamp(Math.round(window.innerWidth), 220, 1200)
       const contentH = el.scrollHeight
       const height = Math.min(32000, Math.max(78, Math.ceil(contentH + 50)))
-      window.api.invoke('user-bubble:set-size', { width, height })
+      window.api.invoke('user-bubble:set-size', { height })
     }
 
     const raf1 = window.requestAnimationFrame(() => {
