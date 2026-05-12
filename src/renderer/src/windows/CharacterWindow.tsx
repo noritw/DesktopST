@@ -132,7 +132,7 @@ export default function CharacterWindow({ characterId }: Props) {
   }, [flipped, scaleMode, size])
 
   const handleMouseDown = useCallback((event: React.MouseEvent) => {
-    if (event.button !== 0) return
+    if (event.button !== 0 || scaleMode) return
     event.preventDefault()
     window.api.invoke('ui:character-activated', characterId)
     window.api.invoke('desktop:drag-start', characterId)
@@ -155,7 +155,7 @@ export default function CharacterWindow({ characterId }: Props) {
 
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
-  }, [characterId])
+  }, [characterId, scaleMode])
 
   const handleClick = useCallback((event: React.MouseEvent) => {
     if (scaleMode || didDragRef.current) return
@@ -177,16 +177,12 @@ export default function CharacterWindow({ characterId }: Props) {
     const tick = () => {
       const spriteEl = interactiveRef.current
       if (!spriteEl) return
-      if (scaleMode) {
-        window.api.invoke('desktop:update-hit-rects', characterId, {
-          sprite: toScreenRect(document.documentElement.getBoundingClientRect()),
-          buttons: null
-        })
-        return
-      }
       const sprite = toScreenRect(spriteEl.getBoundingClientRect())
       let buttons: ReturnType<typeof toScreenRect> | null = null
-      if (menuVisible) {
+      if (scaleMode) {
+        const controlsEl = scaleControlsRef.current
+        buttons = controlsEl ? toScreenRect(controlsEl.getBoundingClientRect()) : null
+      } else if (menuVisible) {
         buttons = mergeScreenRectsFromElements([
           hoverMenuButtonsRef.current,
           leftStackRef.current,
@@ -432,7 +428,7 @@ export default function CharacterWindow({ characterId }: Props) {
 
           <div
             ref={spriteDivRef}
-            className="cursor-grab active:cursor-grabbing"
+            className={scaleMode ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}
             title={scaleMode ? undefined : '點擊角色可開啟發話視窗'}
             onMouseDown={(event) => {
               if (!spriteOpaque && !hovered && !scaleMode) return
@@ -534,11 +530,6 @@ export default function CharacterWindow({ characterId }: Props) {
                 type="button"
                 className="w-8 h-8 rounded-full border border-border bg-mint text-primary flex items-center justify-center hover:bg-teal"
                 title="OK"
-                onMouseDown={event => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  exitScaleMode()
-                }}
                 onClick={exitScaleMode}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true" className="w-4 h-4">

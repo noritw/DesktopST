@@ -176,7 +176,6 @@ const BUBBLE_MAX_HEIGHT_PX = 32000
 /** 立體角色立繪頂端（約在視窗高度 120/380 處）與對白框下緣的間距（px） */
 const BUBBLE_GAP_PX = 6
 const BUBBLE_SPRITE_TOP_RATIO = 120 / 380
-const BUBBLE_MIN_VISIBLE_DRAG_PX = 32
 /** 對白相對於頭頂錨點：尚無使用者拖過對白時的初始偏移；拖對白放手後由 refreshBubbleUserOffsetFromWindow 寫入並保留，角色拖曳結束不覆寫。 */
 const BUBBLE_USER_OFFSET_DEFAULT: Readonly<{ x: number; y: number }> = { x: 0, y: 0 }
 
@@ -293,8 +292,7 @@ export function shouldSuppressAuxAutoHide(): boolean {
 
 function pointInRect(p: { x: number; y: number }, r: ScreenRect | null): boolean {
   if (!r) return false
-  const pad = 12
-  return p.x >= r.x - pad && p.x <= r.x + r.w + pad && p.y >= r.y - pad && p.y <= r.y + r.h + pad
+  return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h
 }
 
 export function isCursorOverInteractiveCharacter(): boolean {
@@ -630,7 +628,6 @@ export function showSpeechBubble(characterId: string, speakerName: string, text:
   bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
   const cw = characterWindows.get(characterId)
   if (cw && !cw.isDestroyed()) {
-    cw.moveTop()
     applyBubbleBounds(bw, lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }, cw.getBounds(), characterId)
   }
   const payload = {
@@ -646,7 +643,6 @@ export function showSpeechBubble(characterId: string, speakerName: string, text:
     bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
     bw.setOpacity(1)
     if (!bw.isVisible()) bw.showInactive()
-    if (cw && !cw.isDestroyed()) cw.moveTop()
     bw.moveTop()
     bw.webContents.send('bubble:show', payload)
   }
@@ -658,12 +654,6 @@ export function showSpeechBubble(characterId: string, speakerName: string, text:
   setTimeout(dispatchShow, 80)
   setTimeout(dispatchShow, 260)
   lastShownBubbleCharacterId = characterId
-}
-
-export function persistSpeechBubble(characterId: string): void {
-  const bw = bubbleWindows.get(characterId)
-  if (!bw || bw.isDestroyed()) return
-  bw.webContents.send('bubble:persist', { characterId })
 }
 
 export function hideSpeechBubble(characterId: string): boolean {
@@ -742,9 +732,8 @@ function applyBubbleBounds(
     x = Math.round(wa.x + Math.max(0, wa.width - width) / 2)
   }
 
-  // Keep the top drag area on-screen so an oversized or edge-positioned bubble is always recoverable.
-  const maxY = wa.y + Math.max(0, wa.height - BUBBLE_MIN_VISIBLE_DRAG_PX)
-  const y = clamp(idealTop, wa.y, maxY)
+  // 垂直方向不為了「塞進工作區」而改 y，避免超高對白被配合 OS 裁成細條或看不到內容；蓋到畫面外由使用者拖標題列調整
+  const y = idealTop
 
   bw.setBounds({ x, y, width, height }, false)
   const settled = bw.getBounds()
@@ -857,7 +846,6 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
   raiseAuxAboveCharacters()
   inputWindow.moveTop()
   inputWindow.focus()
-  raiseCharactersAbovePinnedNotes()
   return inputWindow
 }
 
@@ -877,7 +865,6 @@ export function toggleInputWindow(position?: { x: number; y: number }): void {
     raiseAuxAboveCharacters()
     inputWindow.moveTop()
     inputWindow.focus()
-    raiseCharactersAbovePinnedNotes()
   }
 }
 
@@ -1348,8 +1335,8 @@ export function createPinnedNoteWindow(
     pinnedNoteWindows.delete(noteId)
   }
 
-  const winW = clamp(size?.width ?? 280, 100, 800)
-  const winH = clamp(size?.height ?? 200, 60, 800)
+  const winW = clamp(size?.width ?? 280, 200, 800)
+  const winH = clamp(size?.height ?? 200, 120, 800)
   const normalizedPos = normalizeWindowPosition(position, { width: winW, height: winH })
 
   const win = new BrowserWindow({
@@ -1370,7 +1357,7 @@ export function createPinnedNoteWindow(
     }
   })
 
-  win.setMinimumSize(100, 60)
+  win.setMinimumSize(200, 120)
   win.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
 
   // 監聽移動/縮放，防抖 300ms 後回存
@@ -1412,12 +1399,6 @@ export function createPinnedNoteWindow(
     pinnedNoteWindows.delete(noteId)
   })
 
-  // When a pinned note receives focus, keep it above other notes but below characters.
-  win.on('focus', () => {
-    win.moveTop()
-    raiseCharactersAbovePinnedNotes()
-  })
-
   if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
     win.webContents.openDevTools({ mode: 'detach' })
   }
@@ -1426,7 +1407,6 @@ export function createPinnedNoteWindow(
   win.show()
   raiseAuxAboveCharacters()
   win.moveTop()
-  raiseCharactersAbovePinnedNotes()
   return win
 }
 
@@ -1452,23 +1432,6 @@ export function closePinnedNote(noteId: string): void {
   pinnedNoteWindows.delete(noteId)
 }
 
-export function focusPinnedNoteWindow(noteId: string): boolean {
-  const win = pinnedNoteWindows.get(noteId)
-  if (!win || win.isDestroyed()) return false
-  win.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
-  if (!win.isVisible()) win.showInactive()
-  win.moveTop()
-  if (win.isFocusable()) win.focus()
-  raiseCharactersAbovePinnedNotes()
-  setTimeout(() => {
-    if (!win.isDestroyed()) {
-      win.moveTop()
-      raiseCharactersAbovePinnedNotes()
-    }
-  }, 40)
-  return true
-}
-
 export function getPinnedNoteWindow(noteId: string): BrowserWindow | undefined {
   const win = pinnedNoteWindows.get(noteId)
   return win && !win.isDestroyed() ? win : undefined
@@ -1477,59 +1440,6 @@ export function getPinnedNoteWindow(noteId: string): BrowserWindow | undefined {
 // ── Pinned Notes Manager ──────────────────────────────────
 
 let pinnedNotesManagerWindow: BrowserWindow | null = null
-let pinnedNoteColorMenuWindow: BrowserWindow | null = null
-
-export function showPinnedNoteColorMenu(noteId: string, currentColor: string): boolean {
-  const noteWin = getPinnedNoteWindow(noteId)
-  if (!noteWin || noteWin.isDestroyed()) return false
-  if (pinnedNoteColorMenuWindow && !pinnedNoteColorMenuWindow.isDestroyed()) {
-    pinnedNoteColorMenuWindow.destroy()
-    pinnedNoteColorMenuWindow = null
-  }
-
-  const nb = noteWin.getBounds()
-  const menuSize = { width: 168, height: 330 }
-  const display = screen.getDisplayNearestPoint({ x: nb.x + nb.width, y: nb.y })
-  const wa = display.workArea
-  const rightX = nb.x + nb.width + 8
-  const leftX = nb.x - menuSize.width - 8
-  const x = rightX + menuSize.width <= wa.x + wa.width
-    ? rightX
-    : Math.max(wa.x, leftX)
-  const y = clamp(nb.y, wa.y, wa.y + Math.max(0, wa.height - menuSize.height))
-
-  pinnedNoteColorMenuWindow = new BrowserWindow({
-    x,
-    y,
-    width: menuSize.width,
-    height: menuSize.height,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  })
-
-  pinnedNoteColorMenuWindow.setAlwaysOnTop(true, 'pop-up-menu')
-  pinnedNoteColorMenuWindow.loadURL(makeURL({ w: 'pinned-note-color-menu', noteId, color: currentColor }))
-  pinnedNoteColorMenuWindow.on('blur', () => {
-    if (pinnedNoteColorMenuWindow && !pinnedNoteColorMenuWindow.isDestroyed()) {
-      pinnedNoteColorMenuWindow.destroy()
-    }
-  })
-  pinnedNoteColorMenuWindow.on('closed', () => {
-    pinnedNoteColorMenuWindow = null
-  })
-  pinnedNoteColorMenuWindow.show()
-  pinnedNoteColorMenuWindow.moveTop()
-  return true
-}
 
 export function openPinnedNotesManager(): BrowserWindow {
   if (pinnedNotesManagerWindow && !pinnedNotesManagerWindow.isDestroyed()) {
@@ -1580,26 +1490,6 @@ export function openPinnedNotesManager(): BrowserWindow {
   pinnedNotesManagerWindow.moveTop()
   pinnedNotesManagerWindow.focus()
   return pinnedNotesManagerWindow
-}
-
-// ── Hide all auxiliary windows (non-pinned-note, used by dismissAllAuxWindows) ──
-
-export function hideAllAuxWindowsExceptPinnedNotes(): void {
-  for (const w of [inputWindow, userBubbleWindow, logWindow, settingsWindow, characterLibraryWindow, previewWindow, pinnedNotesManagerWindow]) {
-    if (w && !w.isDestroyed() && w.isVisible()) w.hide()
-  }
-  for (const w of bubbleWindows.values()) {
-    if (!w.isDestroyed() && w.isVisible()) w.hide()
-  }
-  lastShownBubbleCharacterId = null
-}
-
-// ── Raise character windows above pinned notes ────────────
-
-export function raiseCharactersAbovePinnedNotes(): void {
-  for (const w of characterWindows.values()) {
-    if (!w.isDestroyed()) w.moveTop()
-  }
 }
 
 // ── Broadcast to all windows ──────────────────────────────

@@ -5,7 +5,7 @@ import * as path from 'path'
 import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, PinnedNote } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage } from './llm/index'
-import { normalizeEmotion, parseEmotion, resolveModel } from './llm/promptUtils'
+import { resolveModel } from './llm/promptUtils'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
 import { importStJson, exportToStJson } from './stCardMapper'
 import {
@@ -20,7 +20,7 @@ import {
   toggleInputWindow, toggleLogWindow, openLogWindow, openSettingsWindow,
   broadcastToAll, getAllCharacterWindows, setCharacterWindowClickThrough,
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
-  showSpeechBubble, hideSpeechBubble, persistSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition,
+  showSpeechBubble, hideSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition,
   showUserSpeechBubble, hideUserSpeechBubble, updateUserSpeechBubbleSize,
   reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects,
   beginCharacterDrag, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
@@ -29,8 +29,7 @@ import {
   hideAllWindowsForScreenshot, hideAuxWindowsForScreenshotKeepingCharacters, restoreAllWindowsAfterScreenshot,
   showPreviewWindow,
   createPinnedNoteWindow, updatePinnedNoteContent, updatePinnedNoteColor, closePinnedNote, getPinnedNoteWindow,
-  openPinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
-  hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu
+  openPinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow
 } from './windowManager'
 
 // ── Helpers ──────────────────────────────────────────────
@@ -261,7 +260,7 @@ function stripSpeakerPrefixFromLine(line: string, aliases: string[]): string {
 }
 
 function normalizeCharacterDialogue(raw: string, char: Character): string {
-  const text = parseEmotion(String(raw ?? '')).content.trim()
+  const text = String(raw ?? '').trim()
   if (!text) return ''
   const aliases = characterAliases(char)
   const normalizedLines = text
@@ -469,27 +468,6 @@ function fixCharacterPathsAfterImport(char: Character, dir: string): Character {
     emotions[k] = fs.existsSync(inEmo) ? inEmo : fs.existsSync(inRoot) ? inRoot : ''
   }
   return { ...char, avatar, emotions }
-}
-
-export function dismissAllAuxWindows(): void {
-  const notes = settings?.ui?.pinnedNotes ?? []
-  for (const note of notes) {
-    if (!note.visible) continue
-    const win = getPinnedNoteWindow(note.id)
-    if (win && !win.isDestroyed()) {
-      const b = win.getBounds()
-      note.position = { x: b.x, y: b.y }
-      note.size = { width: b.width, height: b.height }
-    }
-    note.visible = false
-    note.updatedAt = Date.now()
-    closePinnedNote(note.id)
-  }
-  if (settings) {
-    fileStore.saveSettings(settings)
-    broadcastToAll('settings:updated', settings)
-  }
-  hideAllAuxWindowsExceptPinnedNotes()
 }
 
 export function registerIpcHandlers() {
@@ -1308,10 +1286,6 @@ export function registerIpcHandlers() {
     }
 
     // 2) Others: only reply if they have a distinct thought
-    // Persist the primary character's bubble so it doesn't auto-close while waiting for secondaries.
-    // Delay ensures the renderer has already processed bubble:show and started the close timer.
-    setTimeout(() => persistSpeechBubble(primaryId), 350)
-
     // maxGroupRounds controls how many additional (non-primary) character replies can be appended.
     const maxAdditionalReplies = Math.max(0, Math.floor(Number(settings.llm.maxGroupRounds) || 0))
     const others = respondingIds
@@ -1387,7 +1361,7 @@ export function registerIpcHandlers() {
           llmProvider: settings.llm.provider,
           llmModel: resolveModel(settings),
           debugPrompt,
-          emotion: normalizeEmotion(parsed?.emotion) || 'neutral',
+          emotion: parsed?.emotion || 'neutral',
           timestamp: Date.now()
         }
         lastReplyText = reply
@@ -1643,25 +1617,8 @@ export function registerIpcHandlers() {
     broadcastToAll('settings:updated', settings)
   }
 
-  const PINNED_NOTE_WARN_LIMIT = 50
-  const PINNED_NOTE_DOUBLE_CONFIRM_LIMIT = 100
-
-  function getPinnedNoteLimitWarning(force: unknown): { needsConfirm: true; level: 'warn' | 'double'; count: number } | null {
-    if (force === true) return null
-    const count = settings.ui.pinnedNotes?.length ?? 0
-    if (count >= PINNED_NOTE_DOUBLE_CONFIRM_LIMIT) return { needsConfirm: true, level: 'double', count }
-    if (count >= PINNED_NOTE_WARN_LIMIT) return { needsConfirm: true, level: 'warn', count }
-    return null
-  }
-
-  // 建立便利貼（角色便利貼每角色上限 10 張，超出需 force=true 才清理最舊的）
-  ipcMain.handle('pinned-note:create', (_, characterId: string, title: string, position: { x: number; y: number }, content: string, force?: boolean) => {
-    if (!settings.ui.pinnedNotes) settings.ui.pinnedNotes = []
-
-    const limitWarning = getPinnedNoteLimitWarning(force)
-    if (limitWarning) return limitWarning
-
-        // force=true：刪最舊的幾張，讓總數降到 limit-1 以空出位置
+  // 建立便利貼（自動關閉同 characterId 的舊便利貼視窗）
+  ipcMain.handle('pinned-note:create', (_, characterId: string, title: string, position: { x: number; y: number }, content: string) => {
     const id = uuidv4()
     // 如果有 characterId，嘗試從泡泡視窗取得真實螢幕座標與大小
     let notePos = position
@@ -1674,22 +1631,30 @@ export function registerIpcHandlers() {
         noteSize = { width: b.width, height: b.height }
       }
     }
-    const noteContent = characterId ? parseEmotion(content).content : content
     const note: PinnedNote = {
       id,
       characterId,
       title: title || '便利貼',
-      content: noteContent,
+      content,
       color: DEFAULT_NOTE_COLOR,
       visible: true,
       position: notePos,
       size: noteSize,
       updatedAt: Date.now()
     }
+    if (!settings.ui.pinnedNotes) settings.ui.pinnedNotes = []
+    // 同 characterId 舊便利貼若正顯示，先關掉視窗
+    if (characterId) {
+      settings.ui.pinnedNotes
+        .filter(n => n.characterId === characterId && n.visible)
+        .forEach(n => closePinnedNote(n.id))
+      // 移除同 characterId 的舊資料（每角色最多保留一張）
+      settings.ui.pinnedNotes = settings.ui.pinnedNotes.filter(n => n.characterId !== characterId)
+    }
     settings.ui.pinnedNotes.push(note)
-    createPinnedNoteWindow(id, notePos, noteContent, title, note.color, noteSize)
+    createPinnedNoteWindow(id, notePos, content, title, note.color, noteSize)
     savePinnedNotes()
-    return { noteId: id }
+    return id
   })
 
   // 收起便利貼：關閉視窗，但保留資料（visible=false）
@@ -1717,50 +1682,11 @@ export function registerIpcHandlers() {
     note.visible = true
     note.updatedAt = Date.now()
     createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size)
-    focusPinnedNoteWindow(note.id)
     savePinnedNotes()
     return true
   })
 
   // 真正刪除便利貼
-  ipcMain.handle('pinned-note:focus', (_, noteId: string) => {
-    const note = settings.ui.pinnedNotes?.find(n => n.id === noteId)
-    if (!note) return false
-    if (!note.visible) {
-      note.visible = true
-      note.updatedAt = Date.now()
-      createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size)
-      savePinnedNotes()
-    }
-    return focusPinnedNoteWindow(note.id)
-  })
-
-  ipcMain.handle('pinned-note:hide-all', () => {
-    const notes = settings.ui.pinnedNotes ?? []
-    for (const note of notes) {
-      if (!note.visible) continue
-      const win = getPinnedNoteWindow(note.id)
-      if (win && !win.isDestroyed()) {
-        const b = win.getBounds()
-        note.position = { x: b.x, y: b.y }
-        note.size = { width: b.width, height: b.height }
-      }
-      note.visible = false
-      note.updatedAt = Date.now()
-      closePinnedNote(note.id)
-    }
-    savePinnedNotes()
-    return true
-  })
-
-  ipcMain.handle('pinned-note:delete-all', () => {
-    const notes = settings.ui.pinnedNotes ?? []
-    for (const note of notes) closePinnedNote(note.id)
-    settings.ui.pinnedNotes = []
-    savePinnedNotes()
-    return true
-  })
-
   ipcMain.handle('pinned-note:delete', (_, noteId: string) => {
     closePinnedNote(noteId)
     if (settings.ui.pinnedNotes) {
@@ -1800,12 +1726,6 @@ export function registerIpcHandlers() {
       savePinnedNotes()
     }
     return true
-  })
-
-  ipcMain.handle('pinned-note:show-color-menu', (_, noteId: string) => {
-    const note = settings.ui.pinnedNotes?.find(n => n.id === noteId)
-    if (!note) return false
-    return showPinnedNoteColorMenu(noteId, note.color)
   })
 
   ipcMain.handle('pinned-note:update-position', (_, noteId: string, position: { x: number; y: number }) => {
