@@ -6,6 +6,13 @@ interface Props {
   characterId: string
 }
 
+interface BubbleSourceRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n))
 }
@@ -51,8 +58,14 @@ export default function BubbleWindow({ characterId }: Props) {
     if (!containerEl || !textToCopy) { closeBubble(); return }
     const rect = containerEl.getBoundingClientRect()
     const pos = { x: rect.x, y: rect.y }
+    const sourceRect: BubbleSourceRect = {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.ceil(rect.width),
+      height: Math.ceil(rect.height)
+    }
     try {
-      const result = await window.api.invoke('pinned-note:create', characterId, titleToCopy, pos, textToCopy, force) as { needsConfirm?: boolean; level?: string; count?: number; noteId?: string }
+      const result = await window.api.invoke('pinned-note:create', characterId, titleToCopy, pos, textToCopy, force, sourceRect) as { needsConfirm?: boolean; level?: string; count?: number; noteId?: string }
       if (result?.needsConfirm) {
         clearTimer()
         if (confirmLimitWarning(result.level, result.count)) {

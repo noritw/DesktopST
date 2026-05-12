@@ -1655,7 +1655,7 @@ export function registerIpcHandlers() {
   }
 
   // 建立便利貼（角色便利貼每角色上限 10 張，超出需 force=true 才清理最舊的）
-  ipcMain.handle('pinned-note:create', (_, characterId: string, title: string, position: { x: number; y: number }, content: string, force?: boolean) => {
+  ipcMain.handle('pinned-note:create', (_, characterId: string, title: string, position: { x: number; y: number }, content: string, force?: boolean, sourceRect?: { x: number; y: number; width: number; height: number }) => {
     if (!settings.ui.pinnedNotes) settings.ui.pinnedNotes = []
 
     const limitWarning = getPinnedNoteLimitWarning(force)
@@ -1670,8 +1670,15 @@ export function registerIpcHandlers() {
       const bubbleWin = getBubbleWindow(characterId)
       if (bubbleWin && !bubbleWin.isDestroyed()) {
         const b = bubbleWin.getBounds()
-        notePos = { x: b.x, y: b.y }
-        noteSize = { width: b.width, height: b.height }
+        const rect = sourceRect && Number.isFinite(sourceRect.width) && Number.isFinite(sourceRect.height)
+          ? sourceRect
+          : null
+        notePos = rect
+          ? { x: b.x + Math.round(rect.x), y: b.y + Math.round(rect.y) }
+          : { x: b.x, y: b.y }
+        noteSize = rect
+          ? { width: Math.ceil(rect.width), height: Math.ceil(rect.height) }
+          : { width: b.width, height: b.height }
       }
     }
     const noteContent = characterId ? parseEmotion(content).content : content
