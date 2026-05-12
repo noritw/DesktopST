@@ -199,6 +199,15 @@ type CharacterLibraryOpenOptions = {
   characterId?: string
 }
 
+/** 便利貼視窗；key = noteId，同一 characterId 目前只顯示最新的一張 */
+const pinnedNoteWindows = new Map<string, BrowserWindow>()
+type NotesBoundsCallback = (noteId: string, bounds: { x: number; y: number; width: number; height: number }) => void
+let onPinnedNoteBoundsChanged: NotesBoundsCallback | null = null
+
+export function configurePinnedNotePersistence(cb: NotesBoundsCallback): void {
+  onPinnedNoteBoundsChanged = cb
+}
+
 function sendCharacterLibraryNavigate(win: BrowserWindow, options?: CharacterLibraryOpenOptions): void {
   const mode: CharacterLibraryNavigateMode = options?.mode === 'edit' ? 'edit' : 'home'
   win.webContents.send('character-library:navigate', {
@@ -1052,10 +1061,11 @@ export function raiseAllCharactersAboveAux(): void {
 
 export function raiseAuxAboveCharacters(): void {
   charactersRaisedAboveAux = false
-  // Restore character windows to their normal level.
+  // Restore character windows to their normal level, and keep them above same-level windows (pinned notes).
   for (const w of characterWindows.values()) {
     if (w.isDestroyed()) continue
     w.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+    w.moveTop()
   }
   for (const w of bubbleWindows.values()) {
     if (w.isDestroyed()) continue
@@ -1309,17 +1319,192 @@ export function showPreviewWindow(payloadInput: string | PreviewPayload): void {
   previewWindow.on('closed', () => { previewWindow = null })
 }
 
+// ── Pinned Notes ──────────────────────────────────────────
+
+export function createPinnedNoteWindow(
+  noteId: string,
+  position: { x: number; y: number },
+  content: string,
+  title = '便利貼',
+  color = '#FFE8AA',
+  size?: { width: number; height: number }
+): BrowserWindow {
+  if (pinnedNoteWindows.has(noteId)) {
+    const old = pinnedNoteWindows.get(noteId)
+    if (old && !old.isDestroyed()) old.destroy()
+    pinnedNoteWindows.delete(noteId)
+  }
+
+  const winW = clamp(size?.width ?? 280, 200, 800)
+  const winH = clamp(size?.height ?? 200, 120, 800)
+  const normalizedPos = normalizeWindowPosition(position, { width: winW, height: winH })
+
+  const win = new BrowserWindow({
+    x: normalizedPos.x,
+    y: normalizedPos.y,
+    width: winW,
+    height: winH,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    resizable: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  win.setMinimumSize(200, 120)
+  win.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+
+  // 監聽移動/縮放，防抖 300ms 後回存
+  let boundsTimer: NodeJS.Timeout | null = null
+  const saveBounds = () => {
+    if (boundsTimer) clearTimeout(boundsTimer)
+    boundsTimer = setTimeout(() => {
+      if (!win.isDestroyed()) {
+        const b = win.getBounds()
+        onPinnedNoteBoundsChanged?.(noteId, b)
+      }
+    }, 300)
+  }
+  win.on('moved', saveBounds)
+  win.on('resized', saveBounds)
+  win.on('close', () => {
+    if (boundsTimer) clearTimeout(boundsTimer)
+  })
+
+  if (VITE_DEV_SERVER_URL) {
+    win.loadURL(makeURL({ w: 'pinned-note', noteId }))
+  } else {
+    win.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: { w: 'pinned-note', noteId }
+    })
+  }
+
+  win.webContents.once('did-finish-load', () => {
+    if (!win.isDestroyed()) {
+      setTimeout(() => {
+        if (!win.isDestroyed()) {
+          win.webContents.send('pinned-note:init', { noteId, content, title, color })
+        }
+      }, 100)
+    }
+  })
+
+  win.on('closed', () => {
+    pinnedNoteWindows.delete(noteId)
+  })
+
+  if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
+    win.webContents.openDevTools({ mode: 'detach' })
+  }
+
+  pinnedNoteWindows.set(noteId, win)
+  win.show()
+  raiseAuxAboveCharacters()
+  win.moveTop()
+  return win
+}
+
+export function updatePinnedNoteContent(noteId: string, content: string): void {
+  const win = pinnedNoteWindows.get(noteId)
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('pinned-note:update-content', { noteId, content })
+  }
+}
+
+export function updatePinnedNoteColor(noteId: string, color: string): void {
+  const win = pinnedNoteWindows.get(noteId)
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('pinned-note:update-color', { noteId, color })
+  }
+}
+
+export function closePinnedNote(noteId: string): void {
+  const win = pinnedNoteWindows.get(noteId)
+  if (win && !win.isDestroyed()) {
+    win.destroy()
+  }
+  pinnedNoteWindows.delete(noteId)
+}
+
+export function getPinnedNoteWindow(noteId: string): BrowserWindow | undefined {
+  const win = pinnedNoteWindows.get(noteId)
+  return win && !win.isDestroyed() ? win : undefined
+}
+
+// ── Pinned Notes Manager ──────────────────────────────────
+
+let pinnedNotesManagerWindow: BrowserWindow | null = null
+
+export function openPinnedNotesManager(): BrowserWindow {
+  if (pinnedNotesManagerWindow && !pinnedNotesManagerWindow.isDestroyed()) {
+    pinnedNotesManagerWindow.show()
+    pinnedNotesManagerWindow.focus()
+    pinnedNotesManagerWindow.moveTop()
+    return pinnedNotesManagerWindow
+  }
+
+  const wa = screen.getPrimaryDisplay().workArea
+  const w = 380, h = 520
+  pinnedNotesManagerWindow = new BrowserWindow({
+    x: Math.round(wa.x + (wa.width - w) / 2),
+    y: Math.round(wa.y + (wa.height - h) / 2),
+    width: w,
+    height: h,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  pinnedNotesManagerWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  pinnedNotesManagerWindow.setMinimumSize(300, 300)
+
+  if (VITE_DEV_SERVER_URL) {
+    pinnedNotesManagerWindow.loadURL(makeURL({ w: 'pinned-notes-manager' }))
+  } else {
+    pinnedNotesManagerWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: { w: 'pinned-notes-manager' }
+    })
+  }
+
+  if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
+    pinnedNotesManagerWindow.webContents.openDevTools({ mode: 'detach' })
+  }
+
+  pinnedNotesManagerWindow.on('closed', () => { pinnedNotesManagerWindow = null })
+  pinnedNotesManagerWindow.show()
+  raiseAuxAboveCharacters()
+  pinnedNotesManagerWindow.moveTop()
+  pinnedNotesManagerWindow.focus()
+  return pinnedNotesManagerWindow
+}
+
 // ── Broadcast to all windows ──────────────────────────────
 
 export function broadcastToAll(channel: string, data: unknown): void {
   const wins = [
     ...characterWindows.values(),
     ...bubbleWindows.values(),
+    ...pinnedNoteWindows.values(),
     inputWindow,
     userBubbleWindow,
     logWindow,
     settingsWindow,
-    characterLibraryWindow
+    characterLibraryWindow,
+    pinnedNotesManagerWindow
   ].filter(w => w && !w.isDestroyed()) as BrowserWindow[]
   for (const w of wins) w.webContents.send(channel, data)
 }

@@ -112,6 +112,14 @@ export default function InputWindow() {
     window.api.invoke('window:open-log', { focusTitleInput })
   }
 
+  const createNewNote = () => {
+    window.api.invoke('pinned-note:create', '', '便利貼', { x: 300, y: 100 }, '')
+  }
+
+  const openNotesManager = () => {
+    window.api.invoke('pinned-note:open-manager')
+  }
+
   return (
     <div
       style={{
@@ -225,7 +233,8 @@ export default function InputWindow() {
             </div>
           </div>
 
-          <div className="flex gap-1.5 px-3 pb-1.5 no-drag items-center">
+          <div className="flex gap-1.5 px-3 pr-[4.75rem] pb-1.5 no-drag items-center">
+            {/* 左側：圖片 / 截圖按鈕 */}
             <div className="flex gap-1.5 items-center shrink-0">
               <button
                 type="button"
@@ -284,6 +293,26 @@ export default function InputWindow() {
                   </button>
                 </div>
               ))}
+            </div>
+
+            {/* 右側：便利貼按鈕組，貼齊右下角 */}
+            <div className="flex gap-1 items-center shrink-0 ml-auto pl-1 border-l border-border">
+              <button
+                type="button"
+                className="btn-round w-7 h-7 text-xs"
+                title="新建便利貼"
+                onClick={createNewNote}
+              >
+                <MonoIcon name="pin" className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                className="btn-round w-7 h-7 text-xs"
+                title="管理便利貼"
+                onClick={openNotesManager}
+              >
+                <MonoIcon name="log" className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
         </div>

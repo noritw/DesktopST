@@ -33,6 +33,18 @@ export default function BubbleWindow({ characterId }: Props) {
     window.api.invoke('bubble:close', characterId)
   }
 
+  const pinBubble = () => {
+    const textToCopy = displayText
+    const titleToCopy = speakerName || '便利貼'
+    const containerEl = containerRef.current
+    if (containerEl && textToCopy) {
+      const rect = containerEl.getBoundingClientRect()
+      window.api.invoke('pinned-note:create', characterId, titleToCopy, { x: rect.x, y: rect.y }, textToCopy)
+        .catch(e => console.error('[Pin bubble error]', e))
+    }
+    closeBubble()
+  }
+
   useEffect(() => {
     const unsubShow = window.api.on('bubble:show', (payload) => {
       const p = payload as {
@@ -108,14 +120,24 @@ export default function BubbleWindow({ characterId }: Props) {
           <div className="text-[10px] font-medium text-secondary">
             {speakerName || '角色'}
           </div>
-          <button
-            type="button"
-            className="no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-white/80 text-secondary transition-colors hover:bg-mint hover:text-primary"
-            title="關閉對話泡泡"
-            onClick={closeBubble}
-          >
-            <MonoIcon name="close" className="w-3 h-3" />
-          </button>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              className="no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-white/80 text-secondary transition-colors hover:bg-[#FFE8AA] hover:text-[#E8A600]"
+              title="釘選為便利貼"
+              onClick={pinBubble}
+            >
+              <MonoIcon name="pin" className="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              className="no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-white/80 text-secondary transition-colors hover:bg-mint hover:text-primary"
+              title="關閉對話泡泡"
+              onClick={closeBubble}
+            >
+              <MonoIcon name="close" className="w-3 h-3" />
+            </button>
+          </div>
         </div>
         <div ref={contentRef} className="no-drag min-h-0 flex-1 overflow-y-auto break-words">
           <MessageText text={displayText} />

@@ -8,6 +8,8 @@ import LogWindow from './windows/LogWindow'
 import BubbleWindow from './windows/BubbleWindow'
 import PreviewWindow from './windows/PreviewWindow'
 import UserBubbleWindow from './windows/UserBubbleWindow'
+import PinnedNoteWindow from './windows/PinnedNoteWindow'
+import PinnedNotesManagerWindow from './windows/PinnedNotesManagerWindow'
 import ErrorBoundary from './components/ErrorBoundary'
 
 const w = typeof window !== 'undefined' && window.windowParams
@@ -32,6 +34,8 @@ export default function App() {
     const id = window.windowParams?.get('id') ?? new URLSearchParams(window.location.search).get('id')
     return <ErrorBoundary><BubbleWindow characterId={id ?? ''} /></ErrorBoundary>
   }
+  if (w === 'pinned-note') return <ErrorBoundary><PinnedNoteWindow /></ErrorBoundary>
+  if (w === 'pinned-notes-manager') return <ErrorBoundary><PinnedNotesManagerWindow /></ErrorBoundary>
   if (w === 'user-bubble') return <ErrorBoundary><UserBubbleWindow /></ErrorBoundary>
   if (w === 'input') return <ErrorBoundary><InputWindow /></ErrorBoundary>
   if (w === 'settings') return <ErrorBoundary><SettingsWindow /></ErrorBoundary>

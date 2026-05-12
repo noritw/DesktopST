@@ -58,6 +58,18 @@ export interface WindowBoundsState {
   height: number
 }
 
+export interface PinnedNote {
+  id: string
+  characterId: string
+  title: string
+  content: string
+  color: string           // 便利貼背景色，e.g. '#FFE8AA'
+  visible: boolean        // true=貼在桌面；false=收回管理介面
+  position: { x: number; y: number }
+  size?: { width: number; height: number }
+  updatedAt: number
+}
+
 export interface PersonaPreset {
   id: string
   name: string
@@ -113,6 +125,8 @@ export interface AppSettings {
     lastActiveConversationId?: string
     /** 首次啟動引導完成後為 true，避免重複打擾 */
     onboardingCompleted?: boolean
+    /** 便利貼資料 */
+    pinnedNotes?: PinnedNote[]
   }
 }
 

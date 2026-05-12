@@ -1,5 +1,6 @@
 export type MonoIconName =
   | 'close'
+  | 'check'
   | 'edit'
   | 'trash'
   | 'prompt'
@@ -13,6 +14,7 @@ export type MonoIconName =
   | 'import'
   | 'screenshot'
   | 'screenshot-character'
+  | 'pin'
 
 export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIconName; className?: string }) {
   const common = {
@@ -25,6 +27,9 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
 
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className={className}>
+      {name === 'check' && (
+        <path {...common} d="M4 13l5 5L20 7" />
+      )}
       {name === 'close' && (
         <>
           <path {...common} d="M6 6l12 12" />
@@ -124,6 +129,16 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <path {...common} d="M19 14v5h-5" />
           <circle {...common} cx="12" cy="10.5" r="2" />
           <path {...common} d="M8.5 17c.9-2 2.2-3 3.5-3s2.6 1 3.5 3" />
+        </>
+      )}
+      {name === 'pin' && (
+        <>
+          {/* 圖釘針身 */}
+          <line {...common} x1="12" y1="12" x2="6" y2="20" />
+          {/* 圖釘頭（圓形） */}
+          <circle {...common} cx="15" cy="9" r="4" />
+          {/* 限位桿 */}
+          <line {...common} x1="12" y1="12" x2="18" y2="6" />
         </>
       )}
     </svg>

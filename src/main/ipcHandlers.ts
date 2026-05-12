@@ -2,7 +2,7 @@ import { ipcMain, shell, BrowserWindow, dialog, app, desktopCapturer, clipboard,
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset } from './types'
+import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, PinnedNote } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage } from './llm/index'
 import { resolveModel } from './llm/promptUtils'
@@ -27,7 +27,9 @@ import {
   setUnfocusedBubbleOpacity,
   createCharacterLibraryWindow,
   hideAllWindowsForScreenshot, hideAuxWindowsForScreenshotKeepingCharacters, restoreAllWindowsAfterScreenshot,
-  showPreviewWindow
+  showPreviewWindow,
+  createPinnedNoteWindow, updatePinnedNoteContent, updatePinnedNoteColor, closePinnedNote, getPinnedNoteWindow,
+  openPinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow
 } from './windowManager'
 
 // ── Helpers ──────────────────────────────────────────────
@@ -342,6 +344,15 @@ export function initState(
       fileStore.saveSettings(settings)
     }
   )
+  configurePinnedNotePersistence((noteId, bounds) => {
+    const note = settings.ui.pinnedNotes?.find(n => n.id === noteId)
+    if (note) {
+      note.position = { x: bounds.x, y: bounds.y }
+      note.size = { width: bounds.width, height: bounds.height }
+      note.updatedAt = Date.now()
+      fileStore.saveSettings(settings)
+    }
+  })
 
   // Ensure desktop characters are set
   if (desktopState.length > 0 && s.ui.desktopCharacters.length === 0) {
@@ -359,6 +370,16 @@ export function initState(
     syncLastActiveConversationToSettings()
   } else {
     createNewConversation()
+  }
+
+  // 恢復已保存的便利貼（只恢復 visible=true 的）
+  const visibleNotes = (settings.ui.pinnedNotes ?? []).filter(n => n.visible)
+  if (visibleNotes.length > 0) {
+    setImmediate(() => {
+      for (const note of visibleNotes) {
+        createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size)
+      }
+    })
   }
 }
 
@@ -925,6 +946,8 @@ export function registerIpcHandlers() {
       fileStore.saveSettings(settings)
       broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
     }
+    // 拖曳結束後確保角色保持在便利貼之上（同 z 層）
+    bringCharacterToFront(characterId)
     return true
   })
 
@@ -1584,5 +1607,159 @@ export function registerIpcHandlers() {
     const appRoot = app.getAppPath()
     const guideFile = path.join(appRoot, 'docs/api-key-guide.html')
     return shell.openPath(guideFile)
+  })
+
+  // ── Pinned Notes ──────────────────────────────────────────
+  const DEFAULT_NOTE_COLOR = '#FFE8AA'
+
+  function savePinnedNotes() {
+    fileStore.saveSettings(settings)
+    broadcastToAll('settings:updated', settings)
+  }
+
+  // 建立便利貼（自動關閉同 characterId 的舊便利貼視窗）
+  ipcMain.handle('pinned-note:create', (_, characterId: string, title: string, position: { x: number; y: number }, content: string) => {
+    const id = uuidv4()
+    // 如果有 characterId，嘗試從泡泡視窗取得真實螢幕座標與大小
+    let notePos = position
+    let noteSize: { width: number; height: number } | undefined
+    if (characterId) {
+      const bubbleWin = getBubbleWindow(characterId)
+      if (bubbleWin && !bubbleWin.isDestroyed()) {
+        const b = bubbleWin.getBounds()
+        notePos = { x: b.x, y: b.y }
+        noteSize = { width: b.width, height: b.height }
+      }
+    }
+    const note: PinnedNote = {
+      id,
+      characterId,
+      title: title || '便利貼',
+      content,
+      color: DEFAULT_NOTE_COLOR,
+      visible: true,
+      position: notePos,
+      size: noteSize,
+      updatedAt: Date.now()
+    }
+    if (!settings.ui.pinnedNotes) settings.ui.pinnedNotes = []
+    // 同 characterId 舊便利貼若正顯示，先關掉視窗
+    if (characterId) {
+      settings.ui.pinnedNotes
+        .filter(n => n.characterId === characterId && n.visible)
+        .forEach(n => closePinnedNote(n.id))
+      // 移除同 characterId 的舊資料（每角色最多保留一張）
+      settings.ui.pinnedNotes = settings.ui.pinnedNotes.filter(n => n.characterId !== characterId)
+    }
+    settings.ui.pinnedNotes.push(note)
+    createPinnedNoteWindow(id, notePos, content, title, note.color, noteSize)
+    savePinnedNotes()
+    return id
+  })
+
+  // 收起便利貼：關閉視窗，但保留資料（visible=false）
+  ipcMain.handle('pinned-note:hide', (_, noteId: string) => {
+    const note = settings.ui.pinnedNotes?.find(n => n.id === noteId)
+    if (!note) return false
+    // 記住最新位置與大小再關窗
+    const win = getPinnedNoteWindow(noteId)
+    if (win && !win.isDestroyed()) {
+      const b = win.getBounds()
+      note.position = { x: b.x, y: b.y }
+      note.size = { width: b.width, height: b.height }
+    }
+    note.visible = false
+    note.updatedAt = Date.now()
+    closePinnedNote(noteId)
+    savePinnedNotes()
+    return true
+  })
+
+  // 還原便利貼到桌面（從管理介面貼回）
+  ipcMain.handle('pinned-note:restore', (_, noteId: string) => {
+    const note = settings.ui.pinnedNotes?.find(n => n.id === noteId)
+    if (!note) return false
+    note.visible = true
+    note.updatedAt = Date.now()
+    createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size)
+    savePinnedNotes()
+    return true
+  })
+
+  // 真正刪除便利貼
+  ipcMain.handle('pinned-note:delete', (_, noteId: string) => {
+    closePinnedNote(noteId)
+    if (settings.ui.pinnedNotes) {
+      settings.ui.pinnedNotes = settings.ui.pinnedNotes.filter(n => n.id !== noteId)
+      savePinnedNotes()
+    }
+    return true
+  })
+
+  ipcMain.handle('pinned-note:update-content', (_, noteId: string, content: string) => {
+    const note = settings.ui.pinnedNotes?.find(n => n.id === noteId)
+    if (note) {
+      note.content = content
+      note.updatedAt = Date.now()
+      updatePinnedNoteContent(noteId, content)
+      savePinnedNotes()
+    }
+    return true
+  })
+
+  ipcMain.handle('pinned-note:update-title', (_, noteId: string, title: string) => {
+    const note = settings.ui.pinnedNotes?.find(n => n.id === noteId)
+    if (note) {
+      note.title = title
+      note.updatedAt = Date.now()
+      savePinnedNotes()
+    }
+    return true
+  })
+
+  ipcMain.handle('pinned-note:update-color', (_, noteId: string, color: string) => {
+    const note = settings.ui.pinnedNotes?.find(n => n.id === noteId)
+    if (note) {
+      note.color = color
+      note.updatedAt = Date.now()
+      updatePinnedNoteColor(noteId, color)
+      savePinnedNotes()
+    }
+    return true
+  })
+
+  ipcMain.handle('pinned-note:update-position', (_, noteId: string, position: { x: number; y: number }) => {
+    const note = settings.ui.pinnedNotes?.find(n => n.id === noteId)
+    if (note) {
+      note.position = position
+      note.updatedAt = Date.now()
+      fileStore.saveSettings(settings)
+    }
+    return true
+  })
+
+  ipcMain.handle('pinned-note:get-position', (_, noteId: string) => {
+    const win = getPinnedNoteWindow(noteId)
+    if (win && !win.isDestroyed()) {
+      const bounds = win.getBounds()
+      return { x: bounds.x, y: bounds.y }
+    }
+    return null
+  })
+
+  ipcMain.handle('pinned-note:list', () => {
+    // 清洗舊版資料，防止欄位型別錯誤（e.g. title 被存成 {x,y} position）
+    return (settings.ui.pinnedNotes ?? []).map(n => ({
+      ...n,
+      title: typeof n.title === 'string' ? n.title : '便利貼',
+      content: typeof n.content === 'string' ? n.content : '',
+      color: typeof n.color === 'string' ? n.color : '#FFE8AA',
+      visible: typeof n.visible === 'boolean' ? n.visible : true,
+    }))
+  })
+
+  ipcMain.handle('pinned-note:open-manager', () => {
+    openPinnedNotesManager()
+    return true
   })
 }
