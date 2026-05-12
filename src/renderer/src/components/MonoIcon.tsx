@@ -14,6 +14,7 @@ export type MonoIconName =
   | 'import'
   | 'screenshot'
   | 'screenshot-character'
+  | 'notes'
   | 'pin'
 
 export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIconName; className?: string }) {
@@ -129,6 +130,13 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <path {...common} d="M19 14v5h-5" />
           <circle {...common} cx="12" cy="10.5" r="2" />
           <path {...common} d="M8.5 17c.9-2 2.2-3 3.5-3s2.6 1 3.5 3" />
+        </>
+      )}
+      {name === 'notes' && (
+        <>
+          <rect {...common} x="8" y="6" width="10" height="12" rx="2" />
+          <path {...common} d="M5 9v8a2 2 0 0 0 2 2h8" />
+          <path {...common} d="M10 6l1.4-2h3.2L16 6" />
         </>
       )}
       {name === 'pin' && (

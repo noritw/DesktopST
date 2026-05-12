@@ -9,6 +9,7 @@ import BubbleWindow from './windows/BubbleWindow'
 import PreviewWindow from './windows/PreviewWindow'
 import UserBubbleWindow from './windows/UserBubbleWindow'
 import PinnedNoteWindow from './windows/PinnedNoteWindow'
+import PinnedNoteColorMenuWindow from './windows/PinnedNoteColorMenuWindow'
 import PinnedNotesManagerWindow from './windows/PinnedNotesManagerWindow'
 import ErrorBoundary from './components/ErrorBoundary'
 
@@ -35,6 +36,7 @@ export default function App() {
     return <ErrorBoundary><BubbleWindow characterId={id ?? ''} /></ErrorBoundary>
   }
   if (w === 'pinned-note') return <ErrorBoundary><PinnedNoteWindow /></ErrorBoundary>
+  if (w === 'pinned-note-color-menu') return <ErrorBoundary><PinnedNoteColorMenuWindow /></ErrorBoundary>
   if (w === 'pinned-notes-manager') return <ErrorBoundary><PinnedNotesManagerWindow /></ErrorBoundary>
   if (w === 'user-bubble') return <ErrorBoundary><UserBubbleWindow /></ErrorBoundary>
   if (w === 'input') return <ErrorBoundary><InputWindow /></ErrorBoundary>

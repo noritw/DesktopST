@@ -112,8 +112,20 @@ export default function InputWindow() {
     window.api.invoke('window:open-log', { focusTitleInput })
   }
 
-  const createNewNote = () => {
-    window.api.invoke('pinned-note:create', '', '便利貼', { x: 300, y: 100 }, '')
+  const confirmNoteLimit = (level?: string, count?: number) => {
+    const n = Number.isFinite(count) ? count : 0
+    if (level === 'double') {
+      return window.confirm(`目前已有 ${n} 張便利貼，繼續新增可能讓桌面變慢。確定還要新增嗎？`) &&
+        window.confirm('再次確認：便利貼不會被自動清理，電腦撐不住就要自己收拾喔。')
+    }
+    return window.confirm(`目前已有 ${n} 張便利貼。可以繼續新增，但太多會影響效能。要繼續嗎？`)
+  }
+
+  const createNewNote = async (force = false) => {
+    const result = await window.api.invoke('pinned-note:create', '', '便利貼', { x: 300, y: 100 }, '', force) as { needsConfirm?: boolean; level?: string; count?: number }
+    if (result?.needsConfirm && confirmNoteLimit(result.level, result.count)) {
+      await createNewNote(true)
+    }
   }
 
   const openNotesManager = () => {
@@ -157,7 +169,7 @@ export default function InputWindow() {
           </div>
         </div>
 
-        <div className="h-full flex flex-col bg-[#F7FFFC] border border-[#D8F5EC] rounded-2xl overflow-hidden pt-4">
+        <div className="h-full flex flex-col bg-[#F7FFFC] border border-border rounded-2xl overflow-hidden pt-4 shadow-panel">
           {settings && (settings.ui?.onboardingCompleted !== true || !(settings.llm?.apiKey ?? '').trim()) && (
             <div className="px-3 py-1.5 text-[11px] text-primary bg-[#E8FBF4] border-b border-border no-drag flex items-center justify-between gap-2 shrink-0">
               <span>尚未完成初始設定或缺少 API Key。</span>
@@ -301,7 +313,7 @@ export default function InputWindow() {
                 type="button"
                 className="btn-round w-7 h-7 text-xs"
                 title="新建便利貼"
-                onClick={createNewNote}
+                onClick={() => createNewNote()}
               >
                 <MonoIcon name="pin" className="w-3.5 h-3.5" />
               </button>
@@ -311,7 +323,7 @@ export default function InputWindow() {
                 title="管理便利貼"
                 onClick={openNotesManager}
               >
-                <MonoIcon name="log" className="w-3.5 h-3.5" />
+                <MonoIcon name="notes" className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>

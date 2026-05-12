@@ -5,6 +5,37 @@ interface Props {
   className?: string
 }
 
+const KNOWN_EMOTION_MARKERS = new Set([
+  'admiration', 'admire', 'admired',
+  'amusement', 'amused',
+  'anger', 'angry',
+  'annoyance', 'annoyed',
+  'approval', 'approving',
+  'caring',
+  'confusion', 'confused',
+  'curiosity', 'curious',
+  'desire',
+  'disappointment', 'disappointed',
+  'disapproval', 'disapproving',
+  'disgust', 'disgusted',
+  'embarrassment', 'embarrassed',
+  'excitement', 'excited',
+  'fear', 'fearful', 'afraid',
+  'gratitude', 'grateful',
+  'grief', 'grieving',
+  'joy', 'joyful',
+  'love', 'loving',
+  'nervousness', 'nervous',
+  'optimism', 'optimistic',
+  'pride', 'proud',
+  'realization', 'realized',
+  'relief', 'relieved',
+  'remorse', 'remorseful',
+  'sadness', 'sad',
+  'surprise', 'surprised',
+  'neutral', 'calm', 'normal'
+])
+
 function renderInline(text: string): ReactNode[] {
   const nodes: ReactNode[] = []
   const re = /\*\*([^*]+)\*\*/g
@@ -21,10 +52,25 @@ function renderInline(text: string): ReactNode[] {
   return nodes
 }
 
-function stripLeadingEmotionTag(text: string): string {
-  return String(text ?? '')
-    .replace(/^\s*(?:\[\s*[\p{L}\p{N}_,\-\/\s]{1,40}\s*\]\s*)+/u, '')
-    .replace(/^(?:emotion|mood|feeling|情緒)\s*[:=：]\s*[\p{L}\p{N}_,\-\/\s]{1,40}\s*/iu, '')
+function stripLeadingEmotionMarker(text: string): string {
+  let out = String(text ?? '').trimStart()
+
+  for (let i = 0; i < 3; i++) {
+    const before = out
+    out = out.replace(/^\[\s*(?:(?:emotion|mood|feeling|情緒)\s*[:=：]\s*)?([a-z_]+)\s*\]\s*/i, (all, raw: string) => (
+      KNOWN_EMOTION_MARKERS.has(raw.toLowerCase()) ? '' : all
+    ))
+    out = out.replace(/^(?:emotion|mood|feeling|情緒)\s*[:=：]\s*([a-z_]+)\s*(?:\r?\n|$)/i, (all, raw: string) => (
+      KNOWN_EMOTION_MARKERS.has(raw.toLowerCase()) ? '' : all
+    ))
+    out = out.replace(/^([a-z_]+)(?=$|[\s:：,，.。!！?？;；\-]|[\u3400-\u9fff])/i, (all, raw: string) => (
+      KNOWN_EMOTION_MARKERS.has(raw.toLowerCase()) ? all.slice(raw.length).replace(/^\s*[:=：,，.。!！?？;；\-]?\s*/, '') : all
+    ))
+    out = out.trimStart()
+    if (out === before) break
+  }
+
+  return out
 }
 
 function unwrapDialogueQuotes(line: string): string {
@@ -47,7 +93,7 @@ function unwrapDialogueQuotes(line: string): string {
 }
 
 function normalizeVisibleText(text: string): string {
-  const normalized = stripLeadingEmotionTag(text)
+  const normalized = stripLeadingEmotionMarker(text)
     .replace(/\\n/g, '\n')
     .replace(/[」』”"]\s*[「『“"]/g, '\n')
 

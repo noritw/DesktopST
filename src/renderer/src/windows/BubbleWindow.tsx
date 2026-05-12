@@ -14,7 +14,9 @@ export default function BubbleWindow({ characterId }: Props) {
   const [visible, setVisible] = useState(false)
   const [speakerName, setSpeakerName] = useState('')
   const [text, setText] = useState('')
+  const [confirmPin, setConfirmPin] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingPinArgsRef = useRef<{ title: string; pos: { x: number; y: number }; content: string } | null>(null)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -33,16 +35,48 @@ export default function BubbleWindow({ characterId }: Props) {
     window.api.invoke('bubble:close', characterId)
   }
 
-  const pinBubble = () => {
+  const confirmLimitWarning = (level?: string, count?: number) => {
+    const n = Number.isFinite(count) ? count : 0
+    if (level === 'double') {
+      return window.confirm(`目前已有 ${n} 張便利貼，繼續新增可能讓桌面變慢。確定還要新增嗎？`) &&
+        window.confirm('再次確認：便利貼不會被自動清理，電腦撐不住就要自己收拾喔。')
+    }
+    return window.confirm(`目前已有 ${n} 張便利貼。可以繼續新增，但太多會影響效能。要繼續嗎？`)
+  }
+
+  const pinBubble = async (force = false) => {
     const textToCopy = displayText
     const titleToCopy = speakerName || '便利貼'
     const containerEl = containerRef.current
-    if (containerEl && textToCopy) {
-      const rect = containerEl.getBoundingClientRect()
-      window.api.invoke('pinned-note:create', characterId, titleToCopy, { x: rect.x, y: rect.y }, textToCopy)
-        .catch(e => console.error('[Pin bubble error]', e))
+    if (!containerEl || !textToCopy) { closeBubble(); return }
+    const rect = containerEl.getBoundingClientRect()
+    const pos = { x: rect.x, y: rect.y }
+    try {
+      const result = await window.api.invoke('pinned-note:create', characterId, titleToCopy, pos, textToCopy, force) as { needsConfirm?: boolean; level?: string; count?: number; noteId?: string }
+      if (result?.needsConfirm) {
+        clearTimer()
+        if (confirmLimitWarning(result.level, result.count)) {
+          pinBubble(true)
+        } else {
+          timerRef.current = setTimeout(closeBubble, 8000)
+        }
+        return
+      }
+    } catch (e) {
+      console.error('[Pin bubble error]', e)
     }
     closeBubble()
+  }
+
+  const confirmPinAndClose = () => {
+    setConfirmPin(false)
+    pinBubble(true)
+  }
+
+  const cancelConfirmPin = () => {
+    setConfirmPin(false)
+    // 重啟自動關閉計時器（8 秒）
+    timerRef.current = setTimeout(closeBubble, 8000)
   }
 
   useEffect(() => {
@@ -57,6 +91,7 @@ export default function BubbleWindow({ characterId }: Props) {
       if (p.characterId !== characterId) return
 
       clearTimer()
+      setConfirmPin(false)
       setSpeakerName(p.speakerName ?? '')
       setText(p.text ?? '')
       setVisible(true)
@@ -106,7 +141,7 @@ export default function BubbleWindow({ characterId }: Props) {
       window.cancelAnimationFrame(raf1)
       ro.disconnect()
     }
-  }, [characterId, visible, displayText])
+  }, [characterId, visible, displayText, confirmPin])
 
   if (!visible) return null
 
@@ -125,7 +160,7 @@ export default function BubbleWindow({ characterId }: Props) {
               type="button"
               className="no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-white/80 text-secondary transition-colors hover:bg-[#FFE8AA] hover:text-[#E8A600]"
               title="釘選為便利貼"
-              onClick={pinBubble}
+              onClick={() => pinBubble()}
             >
               <MonoIcon name="pin" className="w-3 h-3" />
             </button>
@@ -139,9 +174,27 @@ export default function BubbleWindow({ characterId }: Props) {
             </button>
           </div>
         </div>
-        <div ref={contentRef} className="no-drag min-h-0 flex-1 overflow-y-auto break-words">
-          <MessageText text={displayText} />
-        </div>
+        {confirmPin ? (
+          <div className="no-drag mt-1 rounded-xl border border-[#FFE8AA] bg-[#FFFBEF] px-3 py-2 text-xs text-[#3D5A52]">
+            <p className="mb-2 leading-snug">此角色的便利貼已達上限（10 張）。<br />確定釘選後，將清理最舊的幾張。</p>
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                className="rounded-full border border-border bg-white/80 px-3 py-0.5 text-xs text-secondary transition-colors hover:bg-[#F0F0F0]"
+                onClick={cancelConfirmPin}
+              >取消</button>
+              <button
+                type="button"
+                className="rounded-full bg-[#FFE8AA] px-3 py-0.5 text-xs font-medium text-[#8B6914] transition-colors hover:bg-[#FFD966]"
+                onClick={confirmPinAndClose}
+              >確定清理</button>
+            </div>
+          </div>
+        ) : (
+          <div ref={contentRef} className="no-drag min-h-0 flex-1 overflow-y-auto break-words">
+            <MessageText text={displayText} />
+          </div>
+        )}
         <div
           className="absolute -bottom-2 left-4 w-3 h-3 overflow-hidden"
           style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.05))' }}
