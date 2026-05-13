@@ -53,10 +53,11 @@ export default function InputWindow() {
   }
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === 'Enter' && event.ctrlKey) {
-      event.preventDefault()
-      handleSend()
-    }
+    if (event.key !== 'Enter') return
+    if (event.shiftKey) return
+    if (event.nativeEvent.isComposing) return
+    event.preventDefault()
+    void handleSend()
   }
 
   const appendImageFiles = (files: File[]) => {
@@ -222,7 +223,7 @@ export default function InputWindow() {
                     onChange={event => setText(event.target.value)}
                     onKeyDown={handleKeyDown}
                     onPaste={handlePaste}
-                    placeholder="在這裡輸入訊息... (Ctrl+Enter 送出)"
+                    placeholder="在這裡輸入訊息... (Enter 送出，Shift+Enter 換行)"
                     disabled={isSending}
                     className="input-field flex-1 h-full min-h-[34px] resize-none py-1.5"
                     rows={1}
