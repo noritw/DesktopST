@@ -65,6 +65,8 @@ export type PromptCharacter = {
   scenario?: string
   systemPromptOverride?: string
   exampleDialogue?: string
+  emotions?: Record<string, string>
+  spriteIds?: Record<string, string>
 }
 
 export type ChatLLMParams = {
@@ -103,6 +105,44 @@ export function applyStStyleTags(
     .replace(/\{\{\s*char\s*\}\}/gi, vars.charName)
 }
 
+function stemFromFilename(filename: string): string {
+  return filename.replace(/\.[^.]+$/, '')
+}
+
+/**
+ * Builds the emotion ID list for the Output Contract.
+ * If the character has sprites with assigned emotions, returns custom IDs with descriptions.
+ * Otherwise returns the default 28-emotion list string.
+ */
+export function buildEmotionContract(char: PromptCharacter): { ids: string; descriptions: string[] } {
+  const emotions = char.emotions ?? {}
+  const spriteIds = char.spriteIds ?? {}
+
+  // Group emotions by imagePath
+  const pathToEmotions = new Map<string, string[]>()
+  for (const [emo, p] of Object.entries(emotions)) {
+    if (!p?.trim()) continue
+    const list = pathToEmotions.get(p) ?? []
+    list.push(emo)
+    pathToEmotions.set(p, list)
+  }
+
+  if (pathToEmotions.size === 0) {
+    return { ids: EMOTION_LIST.join(', '), descriptions: [] }
+  }
+
+  const entries: { id: string; emotions: string[] }[] = []
+  for (const [imagePath, assignedEmotions] of pathToEmotions) {
+    const filename = imagePath.split(/[/\\]/).pop() ?? imagePath
+    const id = spriteIds[imagePath]?.trim() || stemFromFilename(filename)
+    entries.push({ id, emotions: assignedEmotions })
+  }
+
+  const ids = entries.map(e => e.id).join(', ')
+  const descriptions = entries.map(e => `  - ${e.id}: use for ${e.emotions.join(', ')}`)
+  return { ids, descriptions }
+}
+
 export function buildTimeMoodGuideline(hours: number): string {
   if (hours < 5) return 'Late night / early morning — tone may lean toward companionship and tenderness.'
   if (hours < 8) return 'Early morning — naturally reference waking up or not having slept.'
@@ -110,8 +150,11 @@ export function buildTimeMoodGuideline(hours: number): string {
   if (hours < 14) return 'Around noon / lunchtime — can naturally mention meals or taking a break.'
   if (hours < 18) return 'Afternoon — tone may reflect being mid-day or busy with routine.'
   if (hours < 22) return 'Evening — tone may lean toward winding down, relaxing, or spending time together.'
-  return 'Late night — tone may be more intimate, but keep it natural.'
+  return 'Late evening (around 10–11 PM) — tone may relax slightly, but keep it natural.'
 }
+
+// Matches ASCII word chars or CJK unified ideographs — used for custom emotion IDs
+const EMOTION_TOKEN = /[a-z_一-鿿㐀-䶿]+/i
 
 export function parseEmotion(text: string): { emotion: string; content: string } {
   const source = sanitizePromptText(text)
@@ -121,32 +164,41 @@ export function parseEmotion(text: string): { emotion: string; content: string }
   for (let i = 0; i < 3; i++) {
     const before = content
 
-    // Match one or more leading tags such as "[amused]" or "[emotion: anger]".
-    const bracketMatch = content.match(/^\s*\[\s*(?:(?:emotion|mood|feeling|情緒)\s*[:=：]\s*)?([a-z_]+)\s*\]\s*/i)
-    const bracketEmotion = normalizeEmotion(bracketMatch?.[1])
-    if (bracketMatch && bracketEmotion) {
-      detectedEmotion = bracketEmotion
+    // Match "[amused]" or "[emotion: 微笑]" etc.
+    const bracketRe = new RegExp(
+      `^\\s*\\[\\s*(?:(?:emotion|mood|feeling|情緒)\\s*[:=：]\\s*)?(${EMOTION_TOKEN.source})\\s*\\]\\s*`,
+      'i'
+    )
+    const bracketMatch = content.match(bracketRe)
+    if (bracketMatch) {
+      const raw = bracketMatch[1]
+      detectedEmotion = normalizeEmotion(raw) ?? raw
       content = content.slice(bracketMatch[0].length).trim()
       continue
     }
 
-    // Match "emotion: xxx", "mood: xxx", etc. on the first line.
-    const kvMatch = content.match(/^\s*(?:emotion|mood|feeling|情緒)\s*[:=：]\s*([a-z_]+)\s*(?:\r?\n|$)/i)
-    const kvEmotion = normalizeEmotion(kvMatch?.[1])
-    if (kvMatch && kvEmotion) {
-      detectedEmotion = kvEmotion
+    // Match "emotion: xxx" or "emotion: 微笑" on the first line.
+    const kvRe = new RegExp(
+      `^\\s*(?:emotion|mood|feeling|情緒)\\s*[:=：]\\s*(${EMOTION_TOKEN.source})\\s*(?:\\r?\\n|$)`,
+      'i'
+    )
+    const kvMatch = content.match(kvRe)
+    if (kvMatch) {
+      const raw = kvMatch[1]
+      detectedEmotion = normalizeEmotion(raw) ?? raw
       content = content.slice(kvMatch[0].length).trim()
       continue
     }
 
-    // Match a bare leading emotion token, including models that glue it to CJK text: "amused會。"
-    const bareMatch = content.match(/^\s*([a-z_]+)(?=$|[\s:：,，.。!！?？;；\-]|[\u3400-\u9fff])/i)
+    // Match a bare leading ASCII emotion token (e.g. "amused會。") — intentionally no CJK
+    // to avoid consuming the start of Chinese dialogue.
+    const bareMatch = content.match(/^\s*([a-z_]+)(?=$|[\s:=,，.。!！?？;；\-]|[㐀-鿿])/i)
     const bareEmotion = normalizeEmotion(bareMatch?.[1])
     if (bareMatch && bareEmotion) {
       detectedEmotion = bareEmotion
       content = content
         .slice(bareMatch[0].length)
-        .replace(/^\s*[:=：,，.。!！?？;；\-]?\s*/, '')
+        .replace(/^\s*[:=,，.。!！?？;；\-]?\s*/, '')
         .trim()
       continue
     }
@@ -224,10 +276,16 @@ export function buildSystemPrompt(
     ].join('\n\n'))
   }
 
+  const { ids: emotionIds, descriptions: emotionDescs } = buildEmotionContract(char)
+  const emotionLine = emotionDescs.length > 0
+    ? `- First line MUST be a bracket tag "[{emotion_id}]" where emotion_id is one of: ${emotionIds}\n  Emotion guide:\n${emotionDescs.join('\n')}\n  Example first line: [${emotionIds.split(',')[0].trim()}]`
+    : `- First line MUST be "emotion: {emotion_name}" where emotion_name is one of: ${emotionIds}`
+
   parts.push([
     '[Output Contract]',
-    `- First line MUST be "emotion: {emotion_name}" where emotion_name is one of: ${EMOTION_LIST.join(', ')}`,
+    emotionLine,
     '- Then spoken dialogue only (no narration, no stage directions, no inner monologue).',
+    '- Do NOT write long narrative paragraphs. Do NOT include environmental descriptions (e.g. no "陽光灑落", no "魔法粒子在空中飛舞"). Desktop pets speak in quick, casual bursts, not roleplay novels.',
     '- Never prefix lines with the character name (e.g. "Name: …"). Output the dialogue directly.',
     '- Do not wrap the entire reply in outer quotation marks (「」/『』/""). Use quotes only when quoting someone else.',
     '- If the reply has multiple sentences, put each on its own line.',

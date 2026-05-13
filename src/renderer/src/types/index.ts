@@ -8,6 +8,7 @@ export interface Character {
   firstMessage: string
   exampleDialogue: string
   emotions: Record<string, string>
+  spriteIds?: Record<string, string>
   scenario?: string
   systemPromptOverride?: string
   creatorNotes?: string

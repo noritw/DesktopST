@@ -458,6 +458,7 @@ export default function CharacterWindow({ characterId }: Props) {
               avatarPath={character.avatar}
               emotion={emotionTag}
               emotions={character.emotions}
+              spriteIds={character.spriteIds}
               name={character.name}
               size={renderedSize}
               flipped={renderedFlipped}

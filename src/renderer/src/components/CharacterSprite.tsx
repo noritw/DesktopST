@@ -1,11 +1,13 @@
 import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react'
 import MonoIcon from './MonoIcon'
+import { buildSpriteIdMap, stemFromFilename } from '../utils/emotionUtils'
 
 interface Props {
   /** 主圖本機路徑（未編碼） */
   avatarPath: string
   emotion?: string
   emotions?: Record<string, string>
+  spriteIds?: Record<string, string>
   name: string
   size?: number
   flipped?: boolean
@@ -15,19 +17,35 @@ export interface CharacterSpriteHandle {
   getAlphaAt: (x: number, y: number) => number
 }
 
-function resolveDisplayPath(avatarPath: string, emotion: string | undefined, emotions: Record<string, string> | undefined): string {
+function resolveDisplayPath(
+  avatarPath: string,
+  emotion: string | undefined,
+  emotions: Record<string, string> | undefined,
+  spriteIds?: Record<string, string>
+): string {
   const map = emotions ?? {}
   const em = emotion?.trim()
-  if (em && map[em]?.trim()) return map[em].trim()
+  if (!em) return avatarPath ?? ''
+  // Standard lookup (28-emotion keys)
+  if (map[em]?.trim()) return map[em].trim()
+  // Custom ID lookup via spriteIds or filename stem
+  const idMap = buildSpriteIdMap(map, spriteIds)
+  const byId = idMap.get(em)
+  if (byId) return byId
+  // Fallback: match by filename stem
+  for (const [imagePath] of Object.entries(map).filter(([, p]) => p)) {
+    const filename = imagePath.split(/[/\\]/).pop() ?? imagePath
+    if (stemFromFilename(filename) === em) return imagePath
+  }
   return avatarPath ?? ''
 }
 
 const CharacterSprite = forwardRef<CharacterSpriteHandle, Props>(
-  function CharacterSprite({ avatarPath, emotion, emotions, name, size = 1, flipped = false }, ref) {
+  function CharacterSprite({ avatarPath, emotion, emotions, spriteIds, name, size = 1, flipped = false }, ref) {
     const w = Math.round(180 * size)
     const h = Math.round(260 * size)
 
-    const displayPath = resolveDisplayPath(avatarPath, emotion, emotions)
+    const displayPath = resolveDisplayPath(avatarPath, emotion, emotions, spriteIds)
     const src = displayPath ? `local://${encodeURIComponent(displayPath)}` : ''
 
     const pixelDataRef = useRef<{ data: Uint8ClampedArray; width: number; height: number } | null>(null)

@@ -3,6 +3,7 @@ export interface SpriteEntry {
   filename: string
   dimensions: { w: number; h: number } | null
   assignedEmotions: string[]
+  customId?: string
 }
 
 export const EMOTION_OPTIONS: Array<{ en: string; zh: string }> = [
@@ -41,7 +42,14 @@ export function emotionLabel(en: string): string {
   return row ? `${row.en}（${row.zh}）` : en
 }
 
-export function buildSpriteEntries(emotions: Record<string, string>): SpriteEntry[] {
+export function stemFromFilename(filename: string): string {
+  return filename.replace(/\.[^.]+$/, '')
+}
+
+export function buildSpriteEntries(
+  emotions: Record<string, string>,
+  spriteIds?: Record<string, string>
+): SpriteEntry[] {
   const pathToEmotions = new Map<string, string[]>()
   for (const [emo, p] of Object.entries(emotions)) {
     if (!p?.trim()) continue
@@ -51,14 +59,37 @@ export function buildSpriteEntries(emotions: Record<string, string>): SpriteEntr
   }
   const entries: SpriteEntry[] = []
   for (const [imagePath, assignedEmotions] of pathToEmotions) {
+    const filename = imagePath.split(/[/\\]/).pop() ?? imagePath
     entries.push({
       imagePath,
-      filename: imagePath.split(/[/\\]/).pop() ?? imagePath,
+      filename,
       dimensions: null,
-      assignedEmotions
+      assignedEmotions,
+      customId: spriteIds?.[imagePath] ?? undefined
     })
   }
   return entries
+}
+
+/** Returns a map of effectiveId → imagePath for resolving LLM emotion output. */
+export function buildSpriteIdMap(
+  emotions: Record<string, string>,
+  spriteIds?: Record<string, string>
+): Map<string, string> {
+  const map = new Map<string, string>()
+  const pathToEmotions = new Map<string, string[]>()
+  for (const [emo, p] of Object.entries(emotions)) {
+    if (!p?.trim()) continue
+    const list = pathToEmotions.get(p) ?? []
+    list.push(emo)
+    pathToEmotions.set(p, list)
+  }
+  for (const [imagePath] of pathToEmotions) {
+    const filename = imagePath.split(/[/\\]/).pop() ?? imagePath
+    const id = spriteIds?.[imagePath]?.trim() || stemFromFilename(filename)
+    map.set(id, imagePath)
+  }
+  return map
 }
 
 export function updateEmotionAssignment(

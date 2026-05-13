@@ -5,6 +5,7 @@ import {
   buildSpriteEntries,
   emotionLabel,
   removeEmotionSprite,
+  stemFromFilename,
   updateEmotionAssignment,
   type SpriteEntry
 } from '../../utils/emotionUtils'
@@ -20,12 +21,12 @@ interface Props {
 
 export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
-  const [entries, setEntries] = useState<SpriteEntry[]>(() => buildSpriteEntries(draft.emotions ?? {}))
+  const [entries, setEntries] = useState<SpriteEntry[]>(() => buildSpriteEntries(draft.emotions ?? {}, draft.spriteIds))
   const [editingImagePath, setEditingImagePath] = useState<string | null>(null)
 
   useEffect(() => {
     setEntries(prev => {
-      const base = buildSpriteEntries(draft.emotions ?? {})
+      const base = buildSpriteEntries(draft.emotions ?? {}, draft.spriteIds)
       const baseMap = new Map(base.map(b => [b.imagePath, b]))
       const prevMap = new Map(prev.map(p => [p.imagePath, p]))
 
@@ -85,8 +86,25 @@ export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
   }
 
   const removeEntry = (imagePath: string) => {
-    setDraft(prev => ({ ...prev, emotions: removeEmotionSprite(prev.emotions ?? {}, imagePath) }))
+    setDraft(prev => {
+      const nextSpriteIds = { ...(prev.spriteIds ?? {}) }
+      delete nextSpriteIds[imagePath]
+      return { ...prev, emotions: removeEmotionSprite(prev.emotions ?? {}, imagePath), spriteIds: nextSpriteIds }
+    })
     setEntries(prev => prev.filter(e => e.imagePath !== imagePath))
+  }
+
+  const updateSpriteId = (imagePath: string, id: string) => {
+    setDraft(prev => {
+      const nextSpriteIds = { ...(prev.spriteIds ?? {}) }
+      if (id.trim()) {
+        nextSpriteIds[imagePath] = id.trim()
+      } else {
+        delete nextSpriteIds[imagePath]
+      }
+      return { ...prev, spriteIds: nextSpriteIds }
+    })
+    setEntries(prev => prev.map(e => e.imagePath === imagePath ? { ...e, customId: id.trim() || undefined } : e))
   }
 
   const setDims = (imagePath: string, w: number, h: number) => {
@@ -133,6 +151,16 @@ export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
                 </div>
                 <div className="text-[10px] text-secondary" title={entry.dimensions ? `${entry.dimensions.w}×${entry.dimensions.h}` : ''}>
                   {entry.dimensions ? `${entry.dimensions.w}×${entry.dimensions.h} px` : '讀取尺寸中…'}
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-secondary shrink-0">ID</span>
+                  <input
+                    type="text"
+                    className="text-[10px] bg-surface border border-border rounded-lg px-2 py-0.5 text-primary w-32 focus:outline-none focus:border-sky"
+                    placeholder={stemFromFilename(entry.filename)}
+                    value={entry.customId ?? ''}
+                    onChange={e => updateSpriteId(entry.imagePath, e.target.value)}
+                  />
                 </div>
 
                 {isEditing ? (

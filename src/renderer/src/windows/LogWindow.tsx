@@ -3,6 +3,7 @@ import { useAppStore, selectMessages } from '../stores/useAppStore'
 import type { Message } from '../types'
 import MessageText from '../components/MessageText'
 import MonoIcon, { type MonoIconName } from '../components/MonoIcon'
+import { buildSpriteEntries, EMOTION_OPTIONS, stemFromFilename } from '../utils/emotionUtils'
 
 function formatTime(ts: number): string {
   const d = new Date(ts)
@@ -17,8 +18,8 @@ function stripInjectedTime(content: string): string {
 
 function stripLeadingEmotionTag(content: string): string {
   return String(content ?? '')
-    .replace(/^\[\s*[a-z_]+\s*\]\s*/i, '')
-    .replace(/^(?:emotion|mood|feeling|情緒)\s*[:=：]\s*[a-z_]+\s*/i, '')
+    .replace(/^\[\s*[a-z_一-鿿㐀-䶿]+\s*\]\s*/i, '')
+    .replace(/^(?:emotion|mood|feeling|情緒)\s*[:=：]\s*[a-z_一-鿿㐀-䶿]+\s*/i, '')
     .replace(/^([a-z_]+)(?=\s|$|[：:,.!?，。！？])\s*/i, (_, raw: string) => {
       const emo = raw.toLowerCase()
       const known = new Set([
@@ -62,9 +63,12 @@ export default function LogWindow() {
   const focusTitleInputTimer = useRef<number>(0)
   const focusTitleInput = () => {
     clearTimeout(focusTitleInputTimer.current)
-    focusTitleInputTimer.current = window.setTimeout(() => {
-      titleInputRef.current?.focus()
-      titleInputRef.current?.select()
+    focusTitleInputTimer.current = window.setTimeout(async () => {
+      await window.api.invoke('log:focus-window')
+      requestAnimationFrame(() => {
+        titleInputRef.current?.focus()
+        titleInputRef.current?.select()
+      })
     }, 60)
   }
 
@@ -287,35 +291,39 @@ export default function LogWindow() {
                 onChange={event => setEditDraft(event.target.value)}
                 autoFocus
               />
-              {isCharacter && (
-                <div>
-                  <label className="text-xs text-secondary block mb-1">表情：</label>
-                  <select
-                    className="input-field !py-1.5 !px-2 !text-xs w-full"
-                    value={editEmotion}
-                    onChange={event => {
-                      const newEmotion = event.target.value
-                      setEditEmotion(newEmotion)
-                      // 即時預覽表情
-                      if (msg.characterId) {
-                        window.api.invoke('character:set-emotion', {
-                          characterId: msg.characterId,
-                          emotion: newEmotion
-                        })
-                      }
-                    }}
-                  >
-                    {['admiration', 'amusement', 'anger', 'annoyance', 'approval',
-                      'caring', 'confusion', 'curiosity', 'desire', 'disappointment',
-                      'disapproval', 'disgust', 'embarrassment', 'excitement', 'fear',
-                      'gratitude', 'grief', 'joy', 'love', 'nervousness',
-                      'optimism', 'pride', 'realization', 'relief', 'remorse',
-                      'sadness', 'surprise', 'neutral'].map(emo => (
-                      <option key={emo} value={emo}>{emo}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              {isCharacter && (() => {
+                const char = characters.find(c => c.id === msg.characterId)
+                const entries = char ? buildSpriteEntries(char.emotions ?? {}, char.spriteIds) : []
+                const spriteOptions = entries.length > 0
+                  ? entries.map(e => ({
+                      value: char?.spriteIds?.[e.imagePath]?.trim() || stemFromFilename(e.filename),
+                      label: char?.spriteIds?.[e.imagePath]?.trim() || stemFromFilename(e.filename)
+                    }))
+                  : EMOTION_OPTIONS.map(o => ({ value: o.en, label: `${o.zh}（${o.en}）` }))
+                return (
+                  <div>
+                    <label className="text-xs text-secondary block mb-1">表情：</label>
+                    <select
+                      className="input-field !py-1.5 !px-2 !text-xs w-full"
+                      value={editEmotion}
+                      onChange={event => {
+                        const newEmotion = event.target.value
+                        setEditEmotion(newEmotion)
+                        if (msg.characterId) {
+                          window.api.invoke('character:set-emotion', {
+                            characterId: msg.characterId,
+                            emotion: newEmotion
+                          })
+                        }
+                      }}
+                    >
+                      {spriteOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )
+              })()}
               <div className="flex justify-end gap-2">
                 <button type="button" className="tab-btn text-xs" onClick={() => setEditingId(null)}>取消</button>
                 <button type="button" className="tab-btn text-xs active" onClick={saveEdit}>儲存</button>
@@ -410,7 +418,6 @@ export default function LogWindow() {
             onKeyDown={async event => {
               if (event.key === 'Enter') {
                 await renameConversation(titleDraft.trim())
-                titleInputRef.current?.blur()
               }
             }}
             placeholder="對話名稱..."

@@ -31,7 +31,8 @@ import {
   createPinnedNoteWindow, updatePinnedNoteContent, updatePinnedNoteColor, closePinnedNote, getPinnedNoteWindow, getPinnedNoteWindowState,
   openPinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
   hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu,
-  createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow, getInputWindow
+  createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow, getInputWindow,
+  getLogWindow
 } from './windowManager'
 
 // ── Helpers ──────────────────────────────────────────────
@@ -1087,6 +1088,12 @@ export function registerIpcHandlers() {
     return true
   })
 
+  ipcMain.handle('log:focus-window', () => {
+    const win = getLogWindow()
+    if (win && !win.isDestroyed()) win.focus()
+    return true
+  })
+
   ipcMain.handle('window:open-settings', (_, tab?: string) => {
     openSettingsWindow(tab)
     return true
@@ -1218,9 +1225,7 @@ export function registerIpcHandlers() {
     const activePersona = getActivePersona()
     const activeWorld = getActiveWorld()
 
-    const userContentForPrompt = settings.injectSystemTime
-      ? `${payload.content}\n\n【目前時間】${formatSystemTimeStamp(new Date())}`
-      : payload.content
+    const userContentForPrompt = payload.content
 
     // Add user message
     const userMsg: Message = {
