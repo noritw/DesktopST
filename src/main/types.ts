@@ -119,6 +119,7 @@ export interface AppSettings {
     inputWindowPosition: { x: number; y: number }
     inputWindowBounds?: WindowBoundsState
     logWindowBounds?: WindowBoundsState
+    emojiPickerOffset?: { x: number; y: number }
     unfocusedBubbleOpacity: number
     theme: 'light' | 'dark' | 'auto'
     hoverMenuOnHover: boolean

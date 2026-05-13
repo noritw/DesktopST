@@ -30,7 +30,8 @@ import {
   showPreviewWindow,
   createPinnedNoteWindow, updatePinnedNoteContent, updatePinnedNoteColor, closePinnedNote, getPinnedNoteWindow, getPinnedNoteWindowState,
   openPinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
-  hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu
+  hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu,
+  createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow, getInputWindow
 } from './windowManager'
 
 // ── Helpers ──────────────────────────────────────────────
@@ -1239,6 +1240,7 @@ export function registerIpcHandlers() {
 
     const desktopAll = settings.ui.desktopCharacters.map(d => d.characterId)
     const desktopResponders = settings.ui.desktopCharacters.filter(d => !d.muted).map(d => d.characterId)
+    const desktopCharacterNames = desktopAll.map(id => getCharacter(id)?.name ?? '').filter(Boolean)
 
     // If user mentioned a name/nickname, that character should respond first (and definitely respond if not muted).
     const mentionedAll = desktopAll.filter(id => {
@@ -1294,7 +1296,8 @@ export function registerIpcHandlers() {
         images: payload.images,
         speakerNameById: getSpeakerNameById(),
         persona: activePersona,
-        world: activeWorld
+        world: activeWorld,
+        desktopCharacterNames
       })
       const primaryReply = stripOtherCharacterSpeakerLines(
         normalizeCharacterDialogue(content, primaryChar),
@@ -1387,7 +1390,8 @@ export function registerIpcHandlers() {
           messages: recentMessages,
           speakerNameById: getSpeakerNameById(),
           persona: activePersona,
-          world: activeWorld
+          world: activeWorld,
+          desktopCharacterNames
         })
         const parsed = parseGuardDecisionText(jsonText)
         const fallbackReply = !parsed && jsonText && !/^\s*(false|no|不|不用|沉默)/i.test(jsonText)
@@ -1465,13 +1469,15 @@ export function registerIpcHandlers() {
         ].join('\n'),
         timestamp: Date.now()
       }
+      const desktopCharNamesForce = settings.ui.desktopCharacters.map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
       const { content, emotion, debugPrompt } = await chatWithLLM({
         settings,
         character: char,
         messages: [...recentMessages, forceInstruction],
         speakerNameById: getSpeakerNameById(),
         persona: activePersona,
-        world: activeWorld
+        world: activeWorld,
+        desktopCharacterNames: desktopCharNamesForce
       })
       const forcedReply = stripOtherCharacterSpeakerLines(
         normalizeCharacterDialogue(content, char),
@@ -1513,6 +1519,42 @@ export function registerIpcHandlers() {
     fileStore.saveSettings(settings)
     broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
     return d.muted
+  })
+
+  // Emoji picker window
+  ipcMain.handle('emoji-picker:open', (_, buttonScreenX: number, buttonScreenY: number) => {
+    const W = 352
+    const H = 460
+    const iw = getInputWindow()
+    const offset = settings.ui.emojiPickerOffset
+    let x: number
+    let y: number
+    if (iw && offset) {
+      // Restore relative position to input window
+      const ib = iw.getBounds()
+      x = ib.x + offset.x
+      y = ib.y + offset.y
+    } else {
+      // First time: open above and right-aligned to the button
+      x = Math.round(buttonScreenX) - W
+      y = Math.round(buttonScreenY) - H - 10
+    }
+    createEmojiPickerWindow(x, y, (newOffset) => {
+      settings.ui.emojiPickerOffset = newOffset
+      fileStore.saveSettings(settings)
+    })
+    return true
+  })
+
+  ipcMain.handle('emoji-picker:close', () => {
+    closeEmojiPickerWindow()
+    return true
+  })
+
+  ipcMain.handle('emoji-picker:select', (_, unicode: string) => {
+    closeEmojiPickerWindow()
+    broadcastToAll('emoji-picker:selected', unicode)
+    return true
   })
 
   // Image preview window

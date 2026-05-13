@@ -174,8 +174,10 @@ interface AppSettings {
   // LLM 設定
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok';
-    apiKey: string;              // 加密儲存（safeStorage，待實作）
-    model: string;               // e.g. "gpt-4o", "claude-sonnet-4-6"
+    apiKey: string;              // 舊欄位，已由 apiKeys 取代（保留供向下相容）
+    apiKeys: Record<string, string>; // 每個 provider 各自的 API Key（已實作）
+    model: string;               // 最近一次儲存的模型（與 models[provider] 同步）
+    models?: Record<string, string>; // 每個 provider 各自記憶的模型選擇（已實作）
     endpoint?: string;           // 自訂端點（OpenAI 相容 / Grok 用）
     maxResponseTokens: number;   // 預設 360
     maxGroupRounds: number;      // 群組對話最大輪次，預設 3
@@ -205,6 +207,8 @@ interface AppSettings {
     unfocusedBubbleOpacity: number;          // 未聚焦泡泡透明度，預設 0.1
     hoverMenuOnHover: boolean;               // 滑鼠移到角色才顯示選單，預設 true
     theme: 'light' | 'dark' | 'auto';
+    colorTheme?: 'mint' | 'butter' | 'peach' | 'aqua' | 'sky' | 'blush' | 'lavender' | 'white' | 'dark'; // 介面配色（已實作，詳見 §14.5 L）
+    chatFontSize?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'; // 全 App 文字大小（已實作）
     lastActiveConversationId?: string;       // 上次使用的對話，重啟時還原
     onboardingCompleted?: boolean;
     pinnedNotes?: PinnedNote[];              // 便利貼（詳見 §5.6）
@@ -549,11 +553,15 @@ interface PinnedNote {
   id: string;               // 預留多張用
   characterId: string;
   content: string;
+  title?: string;           // 便利貼標題（已實作，允許空白）
+  color?: string;           // 便利貼顏色 hex（已實作，詳見 §14.5 M）
+  fontSize?: number;        // 字型大小（已實作，可個別調整）
   position: { x: number; y: number };
   updatedAt: number;
 }
 // 存於 AppSettings.ui.pinnedNotes: PinnedNote[]
-// 目前 UI 限制：每個 characterId 只顯示一張（取最新一張）
+// 目前已移除「每個角色限 1 張」限制，可無限新增（多張時有確認警告）
+// 便利貼管理器（PinnedNotesManagerWindow）提供集中管理介面
 ```
 
 ---
@@ -644,9 +652,9 @@ interface ChatResponse {
 | Provider | API | Image Support | 狀態 | 備註 |
 |---|---|---|---|---|
 | OpenAI | Responses API (`/v1/responses`) | ✅ | ✅ 已實作 | 也支援自訂 endpoint；gpt-5*/o* 省略 temperature |
-| Anthropic Claude | `/v1/messages` | ✅ | ❌ 待實作 | message 格式不同，需獨立 adapter；`@anthropic-ai/sdk` |
-| Google Gemini | `generativelanguage.googleapis.com` | ✅ | ❌ 待實作 | 有免費額度（Gemini 2.0 Flash）；`@google/genai` |
-| xAI Grok | OpenAI 相容 | ✅ | ❌ 低優先 | 可複用 OpenAI adapter 換 baseURL，視需求再做 |
+| Anthropic Claude | `/v1/messages` | ✅ | ✅ 已實作 | `@anthropic-ai/sdk`；連續同 role 訊息自動合併 |
+| Google Gemini | `generativelanguage.googleapis.com` | ✅ | ✅ 已實作 | `@google/generativeai`；history 格式嚴格交替處理 |
+| xAI Grok | OpenAI 相容 | ✅ | ✅ 已實作 | 複用 OpenAI adapter，endpoint 預設填 `https://api.x.ai/v1` |
 
 ### 7.3 建議模型清單
 
@@ -796,20 +804,20 @@ admiration, amusement, anger, ..., neutral
 **驗收**：兩個角色能在桌面互相對話。✅
 
 ### 階段 3：完整 LLM 與素材（1-2 週）
-- [ ] Claude / Gemini adapter（目前只有 OpenAI）
-- [ ] 28 種情緒圖片切換（資料結構有，CharacterSprite 尚未切換）
+- [x] Claude / Gemini adapter（全部四個 provider 已實作）
+- [ ] 28 種情緒圖片切換（資料結構有，CharacterSprite 尚未依情緒切換圖片）
 - [x] 截圖（框選 + 全螢幕，Windows only）
-- [ ] 多圖上傳（欄位有，UI 待確認）
+- [x] 多圖上傳（UI 已完成；支援檔案選擇、剪貼簿貼上、截圖附加）
 - [x] SillyTavern 角色卡匯入 JSON
-- [ ] SillyTavern 角色卡匯入 PNG（tEXt chunk）
+- [x] SillyTavern 角色卡匯入 / 匯出 PNG（tEXt chunk，使用 png-chunks-extract）
 - [x] 系統時間注入
 
-**驗收**：能匯入 ST 角色卡，所有 LLM 都能用，截圖可附加。
+**驗收**：能匯入 ST 角色卡，所有 LLM 都能用，截圖可附加。✅
 
 ### 階段 4：拋光（1 週）
 - [ ] 對話記憶自動摘要（欄位有，邏輯未寫）
 - [x] 對話 session 管理（列出 / 載入 / 改名 / 刪除）
-- [ ] API Key 加密（safeStorage，目前明文）
+- [ ] API Key 加密（safeStorage，目前明文存於 settings.json）
 - [x] 開啟資料夾按鈕
 - [ ] 應用程式打包成 .exe 安裝檔（待確認 electron-builder build）
 
@@ -1018,6 +1026,75 @@ src/styles/global.css     ← 全域字型載入
 - 可點選單則訊息刪除。
 - `Message` 型別新增 `llmProvider`、`llmModel`、`debugPrompt` 欄位。
 
+#### L. 介面配色與文字大小（已實作）
+
+- 設定 → 介面分頁新增「**介面配色**」功能，共 9 種主題：
+  - 薄荷綠（預設）、奶油黃、粉橘、粉藍綠、天藍、粉紅、薰衣草、純白、黑底白字（dark）
+  - 切換後即時套用（`data-color-theme` attribute on `<html>`），存於 `ui.colorTheme`
+- 新增「**文字大小**」設定，分 5 級（xs=12px、sm=13px、md=14px、lg=16px、xl=18px），存於 `ui.chatFontSize`
+
+#### M. 便利貼增補（已實作）
+
+原規格設計的基本便利貼已擴充：
+
+- **標題欄位**：每張便利貼有可編輯標題（允許空白）
+- **顏色自選**：每張便利貼可獨立選色（透過 `PinnedNoteColorMenuWindow`）
+- **字型大小**：每張便利貼可調整文字大小
+- **多張無限制**：已移除「每角色限 1 張」限制；3 張起顯示警告對話框，再多需二次確認
+- **集中管理**：新增 `PinnedNotesManagerWindow`，可列出所有便利貼並統一管理
+- 輸入視窗底列新增「管理便利貼」按鈕（列表圖示），與「新建便利貼」（圖釘）並列
+
+#### N. LLM 設定增補（已實作）
+
+- **每 provider 獨立 API Key**：`llm.apiKeys: Record<string, string>`，切換 provider 不會清空已填的 Key
+- **每 provider 獨立模型記憶**：`llm.models: Record<string, string>`，切換 provider 後再切回仍記得上次用的模型
+- **連線測試**：設定 LLM 分頁有「連線」（驗證 API Key）和「測試訊息」（送一句話）兩個按鈕
+- **OpenAI 資料分享贈送額度清單**：可切換顯示「一般」/ 「贈送額度 1M 組」/ 「10M 組」/ 「兩組合併」模型清單
+- **API Key 申請指南**：LLM 分頁頂部有「查看 API Key 申請指南」外部連結按鈕
+
+#### O. 截圖增補（已實作）
+
+輸入視窗有**兩個截圖按鈕**：
+1. 隱藏全部視窗後截圖（原規格描述）
+2. **保留角色與對白框截圖**（`desktop:capture-screenshot-with-characters`）—— 角色/泡泡可見的截圖
+
+#### P. 圖片貼上（已實作）
+
+輸入視窗的文字框支援直接 **Ctrl+V 貼上剪貼簿圖片**，與截圖、上傳並用。
+
+#### Q. 圖片預覽彈窗（已實作）
+
+輸入視窗的圖片縮圖可點擊開啟 `PreviewWindow`，以較大尺寸預覽完整圖片。
+
+#### R. 角色選單結構調整（已實作）
+
+原規格描述的「環狀按鈕」已實際採用以下佈局（非環狀）：
+
+- **角色頭部上方**（浮動）：強制發話 💬、禁言切換 🔇/🔊
+- **角色左側**（垂直排列）：快速加入下一個可用角色（+）、開啟角色庫（資料夾圖示）、從桌面移除（垃圾桶，只有桌面 ≥ 2 角色才顯示）
+- **角色右側**（HoverMenu，垂直排列）：角色設定（人像圖示）、縮放角色（四向箭頭）、共通設定（齒輪）
+- **角色下方**（選單展開時）：關閉選單 ✕
+
+選單觸發方式：
+- `hoverMenuOnHover=true`（預設）：滑鼠移到角色的不透明像素觸發
+- **右鍵點角色**：釘選 / 取消釘選選單（即使 `hoverMenuOnHover=false` 也適用）
+
+#### S. 情緒覆寫（已實作）
+
+對話記錄（Log）視窗中，點選某則角色訊息旁的情緒按鈕，可將角色桌面圖片**暫時切換**到對應情緒圖，直到下一則新訊息到來時自動恢復。
+
+#### T. DSTPack 搬家格式（已實作）
+
+新增 `.dstpack` 自訂封裝格式（ZIP 結構），可包含：
+- 指定的角色資料（含情緒圖片）
+- 選填的全域設定（Persona / World Preset）
+
+用途：在不同電腦或裝置之間搬移角色包，不依賴 ST 格式。角色設定 → 匯入/匯出分頁以及設定資料分頁均提供操作入口。
+
+#### U. Alpha 感應點擊（已實作）
+
+角色視窗的點擊穿透精確到**像素透明度**：游標在角色圖片的透明區域（alpha < 10）不會觸發 hover 或拖曳，只有在不透明區域才感應。選單展開後，整個角色框區域才全面感應（方便操作左右按鈕時游標掃過透明處）。
+
 ---
 
 ## 附錄 A：部署與執行說明
@@ -1095,5 +1172,5 @@ CHANGELOG.md        # 版本更新記錄
 
 ---
 
-**文件版本**：v1.4
-**最後更新**：2026-05-12
+**文件版本**：v1.5
+**最後更新**：2026-05-13

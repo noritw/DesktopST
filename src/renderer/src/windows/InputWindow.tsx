@@ -12,8 +12,10 @@ export default function InputWindow() {
   const [text, setText] = useState('')
   const [images, setImages] = useState<string[]>([])
   const [isCapturing, setIsCapturing] = useState(false)
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const emojiButtonRef = useRef<HTMLButtonElement>(null)
 
   const personaPresets = useAppStore(s => s.personaPresets)
 
@@ -33,6 +35,29 @@ export default function InputWindow() {
   useEffect(() => {
     textareaRef.current?.focus()
   }, [])
+
+  const insertEmoji = (emoji: string) => {
+    const el = textareaRef.current
+    if (!el) { setText(t => t + emoji); return }
+    const start = el.selectionStart ?? text.length
+    const end = el.selectionEnd ?? text.length
+    const next = text.slice(0, start) + emoji + text.slice(end)
+    setText(next)
+    requestAnimationFrame(() => {
+      el.focus()
+      const pos = start + emoji.length
+      el.setSelectionRange(pos, pos)
+    })
+  }
+
+  // Receive selected emoji from the picker window
+  useEffect(() => {
+    const unsub = window.api.on('emoji-picker:selected', (unicode: unknown) => {
+      if (typeof unicode === 'string') insertEmoji(unicode)
+      setEmojiPickerOpen(false)
+    })
+    return unsub
+  })
 
   useEffect(() => {
     const onDown = () => window.api.invoke('ui:aux-activated')
@@ -308,8 +333,35 @@ export default function InputWindow() {
               ))}
             </div>
 
+            {/* Emoji picker */}
+            <div className="relative shrink-0">
+              <button
+                ref={emojiButtonRef}
+                type="button"
+                className={`btn-round w-7 h-7 text-sm ${emojiPickerOpen ? 'bg-mint' : ''}`}
+                title="表情符號"
+                onClick={() => {
+                  if (emojiPickerOpen) {
+                    window.api.invoke('emoji-picker:close')
+                    setEmojiPickerOpen(false)
+                    return
+                  }
+                  const btn = emojiButtonRef.current
+                  if (!btn) return
+                  const r = btn.getBoundingClientRect()
+                  // Convert to screen coords (window.screenX/Y are the window's screen offset)
+                  const screenX = Math.round(window.screenX + r.right)
+                  const screenY = Math.round(window.screenY + r.top)
+                  window.api.invoke('emoji-picker:open', screenX, screenY)
+                  setEmojiPickerOpen(true)
+                }}
+              >
+                😊
+              </button>
+            </div>
+
             {/* 右側：便利貼按鈕組，貼齊右下角 */}
-            <div className="flex gap-1 items-center shrink-0 ml-auto pl-1 border-l border-border">
+            <div className="flex gap-1 items-center shrink-0 pl-1 border-l border-border">
               <button
                 type="button"
                 className="btn-round w-7 h-7 text-xs"

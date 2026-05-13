@@ -11,6 +11,7 @@ import UserBubbleWindow from './windows/UserBubbleWindow'
 import PinnedNoteWindow from './windows/PinnedNoteWindow'
 import PinnedNoteColorMenuWindow from './windows/PinnedNoteColorMenuWindow'
 import PinnedNotesManagerWindow from './windows/PinnedNotesManagerWindow'
+import EmojiPickerWindow from './windows/EmojiPickerWindow'
 import ErrorBoundary from './components/ErrorBoundary'
 
 const w = typeof window !== 'undefined' && window.windowParams
@@ -64,6 +65,7 @@ export default function App() {
   if (w === 'library') return <ErrorBoundary><CharacterLibraryWindow /></ErrorBoundary>
   if (w === 'log') return <ErrorBoundary><LogWindow /></ErrorBoundary>
   if (w === 'preview') return <ErrorBoundary><PreviewWindow /></ErrorBoundary>
+  if (w === 'emoji-picker') return <ErrorBoundary><EmojiPickerWindow /></ErrorBoundary>
 
   // Fallback: show nothing (should not happen)
   return (

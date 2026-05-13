@@ -75,6 +75,7 @@ export type ChatLLMParams = {
   speakerNameById?: Record<string, string>
   persona?: PersonaPreset | null
   world?: WorldPreset | null
+  desktopCharacterNames?: string[]  // names of all characters currently on desktop
 }
 
 export type ChatLLMResult = {
@@ -177,7 +178,8 @@ export function buildSystemPrompt(
   settings: AppSettings,
   char: PromptCharacter,
   persona?: PersonaPreset | null,
-  world?: WorldPreset | null
+  world?: WorldPreset | null,
+  desktopCharacterNames?: string[]
 ): string {
   const now = new Date()
   const hours = now.getHours()
@@ -264,6 +266,18 @@ export function buildSystemPrompt(
       `- ${buildTimeMoodGuideline(hours)}`,
       '- Keep time references brief (1-2 short lines), natural, and in character.',
       '- Never turn time cues into workflow advice or coaching tone.'
+    ].join('\n'))
+  }
+
+  if (desktopCharacterNames && desktopCharacterNames.length > 0) {
+    const others = desktopCharacterNames.filter(n => n !== char.name)
+    const selfLine = `- ${char.name}（你）`
+    const otherLines = others.map(n => `- ${n}`)
+    parts.push([
+      '[Co-present Characters]',
+      'Characters currently on the desktop (visible together):',
+      selfLine,
+      ...otherLines
     ].join('\n'))
   }
 

@@ -407,6 +407,12 @@ export default function LogWindow() {
             className="input-field !py-1.5 no-drag"
             value={titleDraft}
             onChange={event => setTitleDraft(event.target.value)}
+            onKeyDown={async event => {
+              if (event.key === 'Enter') {
+                await renameConversation(titleDraft.trim())
+                titleInputRef.current?.blur()
+              }
+            }}
             placeholder="對話名稱..."
           />
           <button

@@ -15,6 +15,7 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@google/generative-ai": "^0.21.0",
     "electron-store": "^8.2.0",
+    "emoji-picker-element": "^1.29.1",
     "jszip": "^3.10.1",
     "openai": "^4.98.0",
     "png-chunk-text": "^1.0.0",

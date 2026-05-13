@@ -1354,6 +1354,88 @@ export function showPreviewWindow(payloadInput: string | PreviewPayload): void {
   previewWindow.on('closed', () => { previewWindow = null })
 }
 
+// ── Emoji Picker ──────────────────────────────────────────
+
+let emojiPickerWindow: BrowserWindow | null = null
+
+export function createEmojiPickerWindow(
+  x: number,
+  y: number,
+  onMoved?: (offset: { x: number; y: number }) => void
+): BrowserWindow {
+  if (emojiPickerWindow && !emojiPickerWindow.isDestroyed()) {
+    emojiPickerWindow.destroy()
+    emojiPickerWindow = null
+  }
+
+  const W = 352
+  const H = 460
+  const display = screen.getDisplayNearestPoint({ x, y })
+  const wa = display.workArea
+  // Clamp into visible work area
+  x = Math.max(wa.x, Math.min(x, wa.x + wa.width - W))
+  y = Math.max(wa.y, Math.min(y, wa.y + wa.height - H))
+
+  const targetBounds = { x, y, width: W, height: H }
+  emojiPickerWindow = new BrowserWindow({
+    ...targetBounds,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    resizable: false,
+    hasShadow: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  emojiPickerWindow.setAlwaysOnTop(true, 'pop-up-menu')
+
+  if (VITE_DEV_SERVER_URL) {
+    emojiPickerWindow.loadURL(makeURL({ w: 'emoji-picker' }))
+  } else {
+    emojiPickerWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: { w: 'emoji-picker' }
+    })
+  }
+
+  emojiPickerWindow.once('ready-to-show', () => {
+    if (emojiPickerWindow && !emojiPickerWindow.isDestroyed()) {
+      emojiPickerWindow.show()
+      emojiPickerWindow.setBounds(targetBounds)
+    }
+  })
+
+  if (onMoved) {
+    emojiPickerWindow.on('moved', () => {
+      const ep = emojiPickerWindow
+      const iw = inputWindow
+      if (!ep || ep.isDestroyed() || !iw || iw.isDestroyed()) return
+      const eb = ep.getBounds()
+      const ib = iw.getBounds()
+      onMoved({ x: eb.x - ib.x, y: eb.y - ib.y })
+    })
+  }
+
+  emojiPickerWindow.on('closed', () => { emojiPickerWindow = null })
+  return emojiPickerWindow
+}
+
+export function closeEmojiPickerWindow(): void {
+  if (emojiPickerWindow && !emojiPickerWindow.isDestroyed()) {
+    emojiPickerWindow.destroy()
+    emojiPickerWindow = null
+  }
+}
+
+export function getEmojiPickerWindow(): BrowserWindow | null {
+  return emojiPickerWindow && !emojiPickerWindow.isDestroyed() ? emojiPickerWindow : null
+}
+
 // ── Pinned Notes ──────────────────────────────────────────
 
 export function createPinnedNoteWindow(
