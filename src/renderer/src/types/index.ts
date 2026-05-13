@@ -129,6 +129,8 @@ export interface AppSettings {
     onboardingCompleted?: boolean
     /** 便利貼資料 */
     pinnedNotes?: PinnedNote[]
+    /** 介面配色主題 */
+    colorTheme?: 'mint' | 'butter' | 'peach' | 'aqua' | 'sky' | 'blush' | 'lavender' | 'white' | 'dark'
   }
 }
 

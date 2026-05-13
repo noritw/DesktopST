@@ -1,42 +1,154 @@
+/* ── 主題顏色以 CSS 變數定義，Tailwind 透過 var() 引用 ── */
+
 :root {
-  --color-mint: #CBFBC4;
-  --color-teal: #AAEEDD;
-  --color-sky: #AAEEFF;
-  --color-butter: #FFE8AA;
-  --color-blush: #FFBBBB;
-  --color-lavender: #F0BBFF;
-
-  --color-bg: #F7FFFC;
-  --color-surface: #FFFFFF;
-  --color-border: #A9DED2;
-  --color-text-primary: #3D5A52;
+  /* ── 薄荷綠（預設主題）── */
+  --color-mint:           #CBFBC4;
+  --color-teal:           #AAEEDD;
+  --color-bg:             #F7FFFC;
+  --color-surface:        #FFFFFF;
+  --color-border:         #A9DED2;
+  --color-text-primary:   #3D5A52;
   --color-text-secondary: #7BA898;
-  --color-text-user: #247566;
-  --color-danger: #E85D3F;
-  --color-danger-soft: #FFE2D8;
-  --color-danger-border: #FFB59F;
+  --color-text-user:      #247566;
 
-  /* Font size presets — applied via data-font-size on <html> */
-  --font-size-base: 14px;
+  /* 固定色（不隨主題）*/
+  --color-sky-fixed:      #AAEEFF;
+  --color-danger:         #E85D3F;
+  --color-danger-soft:    #FFE2D8;
+  --color-danger-border:  #FFB59F;
+
+  /* 半透明變體（自動跟隨主題，Electron Chromium 支援 color-mix）*/
+  --color-mint-20:        color-mix(in srgb, var(--color-mint) 20%, transparent);
+  --color-mint-30:        color-mix(in srgb, var(--color-mint) 30%, transparent);
+  --color-mint-40:        color-mix(in srgb, var(--color-mint) 40%, transparent);
+  --color-teal-20:        color-mix(in srgb, var(--color-teal) 20%, transparent);
+  --color-teal-30:        color-mix(in srgb, var(--color-teal) 30%, transparent);
+  --color-teal-40:        color-mix(in srgb, var(--color-teal) 40%, transparent);
+  --color-mint-10:        color-mix(in srgb, var(--color-mint) 10%, transparent);
+  --color-mint-55:        color-mix(in srgb, var(--color-mint) 55%, transparent);
+  --color-mint-80:        color-mix(in srgb, var(--color-mint) 80%, transparent);
+  --color-teal-25:        color-mix(in srgb, var(--color-teal) 25%, transparent);
+  --color-teal-80:        color-mix(in srgb, var(--color-teal) 80%, transparent);
+  --color-surface-45:     color-mix(in srgb, var(--color-surface) 45%, transparent);
+  --color-surface-60:     color-mix(in srgb, var(--color-surface) 60%, transparent);
+  --color-surface-80:     color-mix(in srgb, var(--color-surface) 80%, transparent);
+  --color-surface-85:     color-mix(in srgb, var(--color-surface) 85%, transparent);
+  --color-surface-90:     color-mix(in srgb, var(--color-surface) 90%, transparent);
+  --color-surface-95:     color-mix(in srgb, var(--color-surface) 95%, transparent);
+  --color-danger-soft-80: color-mix(in srgb, var(--color-danger-soft) 80%, transparent);
+  --color-border-60:      color-mix(in srgb, var(--color-border) 60%, transparent);
 }
 
-:root[data-font-size="xs"] { --font-size-base: 12px; }
-:root[data-font-size="sm"] { --font-size-base: 13px; }
-:root[data-font-size="md"] { --font-size-base: 14px; }
-:root[data-font-size="lg"] { --font-size-base: 16px; }
-:root[data-font-size="xl"] { --font-size-base: 18px; }
+/* Font size presets */
+:root                     { --font-size-base: 14px; }
+:root[data-font-size="xs"]{ --font-size-base: 12px; }
+:root[data-font-size="sm"]{ --font-size-base: 13px; }
+:root[data-font-size="md"]{ --font-size-base: 14px; }
+:root[data-font-size="lg"]{ --font-size-base: 16px; }
+:root[data-font-size="xl"]{ --font-size-base: 18px; }
 
 :root {
-  /* Theme extension space: future presets/custom palettes can override these aliases. */
-  --theme-accent: var(--color-teal);
-  --theme-accent-soft: var(--color-mint);
-  --theme-danger: var(--color-danger);
-  --theme-danger-soft: var(--color-danger-soft);
-
   --radius-panel: 16px;
   --radius-panel-lg: 24px;
   --radius-btn: 50%;
-
   --shadow-soft: 0 3px 12px rgba(61, 90, 82, 0.18);
   --shadow-panel: 0 6px 20px rgba(61, 90, 82, 0.2);
+}
+
+/* ── 奶油黃 ── */
+:root[data-color-theme="butter"] {
+  --color-mint:           #FFE8AA;
+  --color-teal:           #F0D080;
+  --color-bg:             #FFFDF0;
+  --color-surface:        #FFFFFF;
+  --color-border:         #E8CC88;
+  --color-text-primary:   #5A4A2A;
+  --color-text-secondary: #9A8A5A;
+  --color-text-user:      #7A6030;
+}
+
+/* ── 粉橘 ── */
+:root[data-color-theme="peach"] {
+  --color-mint:           #FFD6B8;
+  --color-teal:           #F0C0A0;
+  --color-bg:             #FFF8F4;
+  --color-surface:        #FFFFFF;
+  --color-border:         #E8B898;
+  --color-text-primary:   #5A3A2A;
+  --color-text-secondary: #9A7A6A;
+  --color-text-user:      #7A5030;
+}
+
+/* ── 粉藍綠 ── */
+:root[data-color-theme="aqua"] {
+  --color-mint:           #B8F4EA;
+  --color-teal:           #88E8D8;
+  --color-bg:             #F0FFFE;
+  --color-surface:        #FFFFFF;
+  --color-border:         #88D8CC;
+  --color-text-primary:   #2A5050;
+  --color-text-secondary: #6A9A98;
+  --color-text-user:      #247566;
+}
+
+/* ── 天藍 ── */
+:root[data-color-theme="sky"] {
+  --color-mint:           #AAEEFF;
+  --color-teal:           #88CCEE;
+  --color-bg:             #F0FAFF;
+  --color-surface:        #FFFFFF;
+  --color-border:         #88CCEE;
+  --color-text-primary:   #2A4A6A;
+  --color-text-secondary: #6A8AAA;
+  --color-text-user:      #2A5A88;
+}
+
+/* ── 粉紅 ── */
+:root[data-color-theme="blush"] {
+  --color-mint:           #FFBBBB;
+  --color-teal:           #F0A0B0;
+  --color-bg:             #FFF5F5;
+  --color-surface:        #FFFFFF;
+  --color-border:         #E898A8;
+  --color-text-primary:   #5A2A3A;
+  --color-text-secondary: #9A7A88;
+  --color-text-user:      #882A44;
+}
+
+/* ── 薰衣草 ── */
+:root[data-color-theme="lavender"] {
+  --color-mint:           #F0BBFF;
+  --color-teal:           #DDA0EE;
+  --color-bg:             #FDF5FF;
+  --color-surface:        #FFFFFF;
+  --color-border:         #D088E8;
+  --color-text-primary:   #4A2A5A;
+  --color-text-secondary: #8A6A9A;
+  --color-text-user:      #6A2A88;
+}
+
+/* ── 純白 ── */
+:root[data-color-theme="white"] {
+  --color-mint:           #E8E8E8;
+  --color-teal:           #CCCCCC;
+  --color-bg:             #FFFFFF;
+  --color-surface:        #F8F8F8;
+  --color-border:         #CCCCCC;
+  --color-text-primary:   #3D5A52;
+  --color-text-secondary: #7BA898;
+  --color-text-user:      #247566;
+}
+
+/* ── 黑底白字 ── */
+:root[data-color-theme="dark"] {
+  --color-mint:           #252525;
+  --color-teal:           #333333;
+  --color-bg:             #111111;
+  --color-surface:        #1A1A1A;
+  --color-border:         #2E2E2E;
+  --color-text-primary:   #EEEEEE;
+  --color-text-secondary: #888888;
+  --color-text-user:      #AAAAAA;
+  --color-danger-soft:    #3A1515;
+  --color-danger-border:  #6A2020;
 }

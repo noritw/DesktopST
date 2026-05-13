@@ -76,7 +76,7 @@ export default function UserBubbleWindow() {
   return (
     <div className="flex h-full min-h-0 w-full flex-col select-none" style={{ background: 'transparent' }}>
       <div
-        className="relative flex min-h-0 w-full flex-col rounded-2xl rounded-bl-sm border border-border bg-white/95 px-3 py-2 text-sm leading-snug text-primary shadow-panel"
+        className="relative flex min-h-0 w-full flex-col rounded-2xl rounded-bl-sm border border-border bg-surface-95 px-3 py-2 text-sm leading-snug text-primary shadow-panel"
       >
         <div className="drag-region mb-1 flex shrink-0 items-center justify-between gap-2">
           <div className="text-[10px] font-medium text-secondary">
@@ -84,7 +84,7 @@ export default function UserBubbleWindow() {
           </div>
           <button
             type="button"
-            className="no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-white/80 text-secondary transition-colors hover:bg-mint hover:text-primary"
+            className="no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-surface-80 text-secondary transition-colors hover:bg-mint hover:text-primary"
             title="關閉對話泡泡"
             onClick={closeBubble}
           >
@@ -98,7 +98,7 @@ export default function UserBubbleWindow() {
           className="absolute -bottom-2 left-4 w-3 h-3 overflow-hidden"
           style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.05))' }}
         >
-          <div className="w-3 h-3 bg-white border-b border-r border-border rotate-45 -translate-y-1.5" />
+          <div className="w-3 h-3 bg-surface border-b border-r border-border rotate-45 -translate-y-1.5" />
         </div>
       </div>
     </div>

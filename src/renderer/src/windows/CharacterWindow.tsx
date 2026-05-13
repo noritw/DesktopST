@@ -391,8 +391,8 @@ export default function CharacterWindow({ characterId }: Props) {
                 padding: '6px 10px',
                 borderRadius: 999,
                 background: 'rgba(255,255,255,0.92)',
-                border: '1px solid rgba(216,245,236,1)',
-                color: '#3D5A52'
+                border: '1px solid var(--color-teal)',
+                color: 'var(--color-text-primary)'
               }}
             >
               <span className="dst-thinking-dots" aria-label="thinking">
@@ -500,11 +500,11 @@ export default function CharacterWindow({ characterId }: Props) {
           onMouseDown={event => event.stopPropagation()}
           onClick={event => event.stopPropagation()}
         >
-          <div className="rounded-2xl border border-border bg-white/90 px-3 py-2 shadow-soft">
+          <div className="rounded-2xl border border-border bg-surface-90 px-3 py-2 shadow-soft">
             <div className="mb-2 flex items-center gap-2">
               <button
                 type="button"
-                className="w-8 h-8 rounded-full border border-border bg-white/90 text-primary flex items-center justify-center hover:bg-mint"
+                className="w-8 h-8 rounded-full border border-border bg-surface-90 text-primary flex items-center justify-center hover:bg-mint"
                 title="Reset"
                 onClick={() => applyScale(1)}
               >
@@ -526,7 +526,7 @@ export default function CharacterWindow({ characterId }: Props) {
                     if (event.key === 'Enter') applyScaleText()
                   }}
                   onBlur={applyScaleText}
-                  className="min-w-0 w-full rounded-full border border-border bg-white px-2 py-1 text-center text-primary outline-none focus:border-teal"
+                  className="min-w-0 w-full rounded-full border border-border bg-surface px-2 py-1 text-center text-primary outline-none focus:border-teal"
                   title="Scale"
                 />
               </div>

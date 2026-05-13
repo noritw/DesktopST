@@ -22,7 +22,7 @@ export default function PinnedNoteColorMenuWindow() {
 
   return (
     <div className="h-screen w-screen bg-transparent p-1">
-      <div className="no-drag h-full overflow-hidden rounded-2xl border border-border bg-white shadow-panel">
+      <div className="no-drag h-full overflow-hidden rounded-2xl border border-border bg-surface shadow-panel">
         <div className="flex h-full flex-col gap-1 overflow-y-auto p-2">
           {NOTE_COLORS.map(c => {
             const selected = currentColor === c.value.toUpperCase()
@@ -33,9 +33,9 @@ export default function PinnedNoteColorMenuWindow() {
                 type="button"
                 className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-left text-xs font-medium transition-colors"
                 style={{
-                  background: dark ? '#1F2423' : selected ? '#E8FBF4' : '#FFFFFF',
-                  color: dark ? '#F7FFFC' : '#3D5A52',
-                  border: selected ? '1px solid #AAEEDD' : '1px solid transparent'
+                  background: dark ? '#1F2423' : selected ? 'var(--color-mint-30)' : 'transparent',
+                  color: dark ? '#F7FFFC' : 'var(--color-text-primary)',
+                  border: selected ? '1px solid var(--color-teal)' : '1px solid transparent'
                 }}
                 onClick={() => chooseColor(c.value)}
               >
@@ -46,7 +46,7 @@ export default function PinnedNoteColorMenuWindow() {
                   className="h-4 w-4 shrink-0 rounded-full border"
                   style={{
                     background: c.swatch,
-                    borderColor: '#A9DED2'
+                    borderColor: 'var(--color-border)'
                   }}
                 />
                 <span className="truncate">{c.label}</span>

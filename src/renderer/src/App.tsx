@@ -25,6 +25,7 @@ export default function App() {
   const loadAll = useAppStore(s => s.loadAll)
   const subscribeToEvents = useAppStore(s => s.subscribeToEvents)
   const chatFontSize = useAppStore(s => s.settings?.ui.chatFontSize ?? 'md')
+  const colorTheme = useAppStore(s => s.settings?.ui.colorTheme ?? 'mint')
 
   useEffect(() => {
     loadAll().catch(e => console.error('[DesktopST] loadAll failed:', e))
@@ -36,6 +37,15 @@ export default function App() {
     document.documentElement.setAttribute('data-font-size', chatFontSize)
     document.documentElement.style.fontSize = FONT_SIZE_MAP[chatFontSize] ?? '14px'
   }, [chatFontSize])
+
+  useEffect(() => {
+    localStorage.setItem('desktopst.colorTheme', colorTheme)
+    if (colorTheme === 'mint') {
+      document.documentElement.removeAttribute('data-color-theme')
+    } else {
+      document.documentElement.setAttribute('data-color-theme', colorTheme)
+    }
+  }, [colorTheme])
 
   if (w === 'character') {
     const id = window.windowParams?.get('id') ?? new URLSearchParams(window.location.search).get('id')

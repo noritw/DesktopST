@@ -147,13 +147,13 @@ export default function InputWindow() {
       <div className="relative w-full h-full pt-2">
         <div className="drag-region absolute left-0 right-0 top-0 h-7 z-20" />
         <div className="absolute left-0 right-0 top-0 h-7 z-30 pointer-events-none">
-          <div className="absolute left-3 top-0 rounded-full bg-[#3D7D70] border border-[#2E665A] px-3 py-0.5 text-xs text-white font-semibold leading-tight select-none">
+          <div className="absolute left-3 top-0 rounded-full bg-teal border border-border px-3 py-0.5 text-xs text-primary font-semibold leading-tight select-none">
             DesktopST
           </div>
           <div className="absolute right-3 top-0 flex gap-1 no-drag shrink-0 pointer-events-auto">
             <button
               type="button"
-              className="w-6 h-6 rounded-full border border-border bg-white text-secondary hover:text-primary hover:bg-mint transition-colors flex items-center justify-center cursor-pointer"
+              className="w-6 h-6 rounded-full border border-border bg-surface text-secondary hover:text-primary hover:bg-mint transition-colors flex items-center justify-center cursor-pointer"
               onClick={() => window.api.invoke('window:open-settings')}
               title="開啟詳細設定"
             >
@@ -161,7 +161,7 @@ export default function InputWindow() {
             </button>
             <button
               type="button"
-              className="w-6 h-6 rounded-full border border-border bg-white text-secondary hover:text-primary hover:bg-mint transition-colors flex items-center justify-center cursor-pointer"
+              className="w-6 h-6 rounded-full border border-border bg-surface text-secondary hover:text-primary hover:bg-mint transition-colors flex items-center justify-center cursor-pointer"
               onClick={() => window.api.invoke('window:close-self')}
               title="關閉輸入視窗（點角色可重新開啟）"
             >
@@ -170,9 +170,9 @@ export default function InputWindow() {
           </div>
         </div>
 
-        <div className="h-full flex flex-col bg-[#F7FFFC] border border-border rounded-2xl overflow-hidden pt-4 shadow-panel">
+        <div className="h-full flex flex-col bg-bg border border-border rounded-2xl overflow-hidden pt-4 shadow-panel">
           {settings && !(settings.llm?.apiKeys?.[settings.llm?.provider ?? 'openai'] ?? settings.llm?.apiKey ?? '').trim() && (
-            <div className="px-3 py-1.5 text-[11px] text-primary bg-[#E8FBF4] border-b border-border no-drag flex items-center justify-between gap-2 shrink-0">
+            <div className="px-3 py-1.5 text-[11px] text-primary bg-mint-20 border-b border-border no-drag flex items-center justify-between gap-2 shrink-0">
               <span>尚未完成初始設定或缺少 API Key。</span>
               <button
                 type="button"
@@ -232,9 +232,9 @@ export default function InputWindow() {
                     type="button"
                     onClick={handleSend}
                     disabled={isSending || (!text.trim() && images.length === 0)}
-                    className="shrink-0 w-14 h-full min-h-[34px] rounded-2xl text-primary border border-[#61C9AE]
-                           bg-[#8DF1D4] shadow-soft transition-colors
-                           hover:bg-[#79E7C7] active:bg-[#69D8B8]
+                    className="shrink-0 w-14 h-full min-h-[34px] rounded-2xl text-primary border border-border
+                           bg-teal shadow-soft transition-colors
+                           hover:bg-mint active:bg-teal-80
                            disabled:opacity-40 disabled:pointer-events-none
                            no-drag flex items-center justify-center"
                     title={isSending ? '送出中...' : '送出訊息'}

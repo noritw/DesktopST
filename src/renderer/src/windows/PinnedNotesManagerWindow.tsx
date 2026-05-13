@@ -89,20 +89,20 @@ export default function PinnedNotesManagerWindow() {
   const hiddenNotes = notes.filter(n => !n.visible)
 
   return (
-    <div className="relative w-full h-full flex flex-col bg-[#F7FFFC] border border-border rounded-2xl overflow-hidden shadow-panel">
+    <div className="relative w-full h-full flex flex-col bg-bg border border-border rounded-2xl overflow-hidden shadow-panel">
       <div className="drag-region absolute left-0 right-0 top-0 h-12" />
 
       <div className="drag-region relative flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <MonoIcon name="pin" className="w-4 h-4 text-[#7BA898] shrink-0" />
+          <MonoIcon name="pin" className="w-4 h-4 text-secondary shrink-0" />
           <span className="text-sm font-bold text-primary truncate">便利貼管理</span>
           {notes.length > 0 && (
-            <span className="text-xs text-secondary bg-[#E8FBF4] rounded-full px-2 py-0.5 shrink-0">{notes.length} 張</span>
+            <span className="text-xs text-secondary bg-mint-20 rounded-full px-2 py-0.5 shrink-0">{notes.length} 張</span>
           )}
         </div>
         <button
           type="button"
-          className="no-drag w-6 h-6 rounded-full border border-border bg-white text-secondary hover:text-primary hover:bg-mint transition-colors flex items-center justify-center"
+          className="no-drag w-6 h-6 rounded-full border border-border bg-surface text-secondary hover:text-primary hover:bg-mint transition-colors flex items-center justify-center"
           onClick={handleClose}
           title="關閉"
         >
@@ -110,10 +110,10 @@ export default function PinnedNotesManagerWindow() {
         </button>
       </div>
 
-      <div className="no-drag flex items-center gap-2 px-3 py-2 border-b border-border bg-white/45 shrink-0">
+      <div className="no-drag flex items-center gap-2 px-3 py-2 border-b border-border bg-surface-45 shrink-0">
         <button
           type="button"
-          className="rounded-full border border-border bg-white/85 px-3 py-1 text-xs font-semibold text-primary hover:bg-mint transition-colors"
+          className="rounded-full border border-border bg-surface-85 px-3 py-1 text-xs font-semibold text-primary hover:bg-mint transition-colors"
           onClick={() => handleCreateBlank()}
           title="新增一張空白便利貼"
         >
@@ -123,7 +123,7 @@ export default function PinnedNotesManagerWindow() {
           <>
             <button
               type="button"
-              className="rounded-full border border-border bg-white/85 px-3 py-1 text-xs font-semibold text-primary hover:bg-mint transition-colors disabled:opacity-45"
+              className="rounded-full border border-border bg-surface-85 px-3 py-1 text-xs font-semibold text-primary hover:bg-mint transition-colors disabled:opacity-45"
               onClick={handleHideAll}
               disabled={visibleNotes.length === 0}
               title="收起目前桌面上的所有便利貼"
@@ -132,7 +132,7 @@ export default function PinnedNotesManagerWindow() {
             </button>
             <button
               type="button"
-              className="ml-auto rounded-full border border-[#FF9E8A] bg-[#FFE2D8] px-3 py-1 text-xs font-semibold text-[#D9482F] hover:bg-[#FFBBBB] transition-colors"
+              className="ml-auto rounded-full border border-danger-border bg-danger-soft px-3 py-1 text-xs font-semibold text-danger hover:bg-danger-soft-80 transition-colors"
               onClick={handleDeleteAll}
               title="刪除所有便利貼"
             >
@@ -218,7 +218,7 @@ function NoteCard({
     <div
       role="button"
       tabIndex={0}
-      className="w-full text-left rounded-xl p-3 flex items-start gap-3 border transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-[#AAEEDD]"
+      className="w-full text-left rounded-xl p-3 flex items-start gap-3 border transition-transform hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-teal"
       style={{ background: note.color, borderColor: note.color }}
       onClick={() => onFocus(note.id)}
       onKeyDown={event => {
@@ -229,7 +229,7 @@ function NoteCard({
       }}
       title={note.visible ? '點選後將此便利貼推到最上層' : '點選後還原並推到最上層'}
     >
-      <span className="shrink-0 w-3 h-3 mt-0.5 rounded-full border border-white/70" style={{ background: note.color }} title={colorLabel} />
+      <span className="shrink-0 w-3 h-3 mt-0.5 rounded-full border border-border-60" style={{ background: note.color }} title={colorLabel} />
 
       <span className="flex-1 min-w-0">
         <span className="block text-xs font-semibold text-primary truncate">{note.title || '便利貼'}</span>
@@ -242,7 +242,7 @@ function NoteCard({
         {!showRestoreButton && onHide && (
           <button
             type="button"
-            className="text-[11px] px-2 py-0.5 rounded-full bg-white/80 border border-white/60 text-primary font-semibold hover:bg-mint transition-colors"
+            className="text-[11px] px-2 py-0.5 rounded-full bg-surface-80 border border-border-60 text-primary font-semibold hover:bg-mint transition-colors"
             onClick={() => onHide(note.id)}
             title="收起便利貼"
           >
@@ -252,7 +252,7 @@ function NoteCard({
         {showRestoreButton && onRestore && (
           <button
             type="button"
-            className="text-[11px] px-2 py-0.5 rounded-full bg-white/80 border border-white/60 text-primary font-semibold hover:bg-mint transition-colors"
+            className="text-[11px] px-2 py-0.5 rounded-full bg-surface-80 border border-border-60 text-primary font-semibold hover:bg-mint transition-colors"
             onClick={() => onRestore(note.id)}
             title="還原便利貼"
           >
@@ -263,14 +263,14 @@ function NoteCard({
           <span className="flex gap-1">
             <button
               type="button"
-              className="text-[11px] px-2 py-0.5 rounded-full bg-[#FFBBBB] border border-[#FF9E8A] text-[#D9482F] font-semibold"
+              className="text-[11px] px-2 py-0.5 rounded-full bg-danger-soft border border-danger-border text-danger font-semibold"
               onClick={() => onDelete(note.id)}
             >
               確定刪除
             </button>
             <button
               type="button"
-              className="text-[11px] px-2 py-0.5 rounded-full bg-white/80 border border-white/60 text-secondary"
+              className="text-[11px] px-2 py-0.5 rounded-full bg-surface-80 border border-border-60 text-secondary"
               onClick={() => setConfirmDelete(false)}
             >
               取消
@@ -279,7 +279,7 @@ function NoteCard({
         ) : (
           <button
             type="button"
-            className="w-5 h-5 rounded-full bg-white/60 border border-white/60 text-secondary hover:text-[#D9482F] hover:bg-[#FFE2D8] flex items-center justify-center transition-colors"
+            className="w-5 h-5 rounded-full bg-surface-60 border border-border/60 text-secondary hover:text-danger hover:bg-danger-soft flex items-center justify-center transition-colors"
             onClick={() => setConfirmDelete(true)}
             title="刪除便利貼"
           >

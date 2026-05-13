@@ -166,8 +166,8 @@ export default function LogWindow() {
       type="button"
       className={`inline-flex w-6 h-6 items-center justify-center rounded-full border transition-colors ${
         danger
-          ? 'border-[#FFB59F] bg-[#FFE2D8]/80 text-[#E85D3F] hover:bg-[#FFE2D8]'
-          : 'border-border bg-surface text-secondary hover:text-primary hover:bg-teal/20'
+          ? 'border-danger-border bg-danger-soft-80 text-danger hover:bg-danger-soft'
+          : 'border-border bg-surface text-secondary hover:text-primary hover:bg-teal-20'
       }`}
       title={title}
       aria-label={title}
@@ -208,7 +208,7 @@ export default function LogWindow() {
               <span className="text-xs text-secondary opacity-0 group-hover:opacity-100 transition-opacity">
                 {formatTime(msg.timestamp)}
               </span>
-              <span className="text-xs font-bold text-[#247566]">
+              <span className="text-xs font-bold text-user">
                 {`【${userName}】`}
                 <LlmBadge provider={msg.llmProvider} model={msg.llmModel} />
               </span>
@@ -220,7 +220,7 @@ export default function LogWindow() {
                 <LlmBadge provider={msg.llmProvider} model={msg.llmModel} />
               </span>
               {isCharacter && msg.emotion && (
-                <span className="text-xs px-1.5 py-0.5 rounded-full bg-teal/20 text-teal font-medium">
+                <span className="text-xs px-1.5 py-0.5 rounded-full bg-teal-20 text-teal font-medium">
                   {msg.emotion}
                 </span>
               )}
@@ -241,7 +241,7 @@ export default function LogWindow() {
         <div
           className={`rounded-2xl px-3 py-2 text-sm leading-relaxed max-w-[85%] ${
             isUser
-              ? 'bg-teal/20 text-primary self-end ml-auto cursor-pointer'
+              ? 'bg-teal-20 text-primary self-end ml-auto cursor-pointer'
               : isCharacter
               ? 'bg-surface border border-border text-primary cursor-pointer'
               : 'bg-butter/40 text-primary text-xs italic'
@@ -371,7 +371,7 @@ export default function LogWindow() {
         <div className="flex gap-2 no-drag">
           <button
             type="button"
-            className="tab-btn text-sm text-[#E85D3F] hover:text-[#E85D3F] hover:bg-[#FFE2D8]"
+            className="tab-btn text-sm text-danger hover:text-danger hover:bg-danger-soft"
             onClick={async () => {
               const ok = window.confirm('確定要刪除目前對話嗎？這個動作無法復原。')
               if (!ok) return

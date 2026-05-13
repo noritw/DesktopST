@@ -115,7 +115,7 @@ export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
           return (
             <div
               key={entry.imagePath}
-              className="rounded-2xl border border-border p-3 flex gap-3 bg-white/80 relative"
+              className="rounded-2xl border border-border p-3 flex gap-3 bg-surface-80 relative"
               onMouseLeave={() => isEditing && setEditingImagePath(null)}
             >
               <div className="w-16 h-16 rounded-xl overflow-hidden bg-mint shrink-0 flex items-center justify-center">
@@ -137,7 +137,7 @@ export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
 
                 {isEditing ? (
                   <div
-                    className="space-y-2 p-2 rounded-lg bg-mint/10 -mx-2"
+                    className="space-y-2 p-2 rounded-lg bg-mint-10 -mx-2"
                   >
                     <div className="flex flex-wrap gap-2">
                       {EMOTION_OPTIONS.map(opt => {

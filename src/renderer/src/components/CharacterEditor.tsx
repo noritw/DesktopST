@@ -101,23 +101,23 @@ export default function CharacterEditor({ characterId, onClose }: Props) {
 
   if (!character) {
     return (
-      <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#3D5A52]/20 p-4">
-        <p className="text-sm text-secondary bg-white rounded-2xl px-4 py-3 border border-border">找不到角色資料</p>
+      <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/20 p-4">
+        <p className="text-sm text-secondary bg-surface rounded-2xl px-4 py-3 border border-border">找不到角色資料</p>
       </div>
     )
   }
 
   if (!draft) {
     return (
-      <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#3D5A52]/20 p-4">
+      <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/20 p-4">
         <p className="text-sm text-secondary">載入中…</p>
       </div>
     )
   }
 
   return (
-    <div className="absolute inset-0 z-50 flex items-stretch justify-center bg-[#3D5A52]/20 p-4">
-      <div className="flex flex-col w-full max-w-4xl max-h-full rounded-3xl border border-border bg-[#F7FFFC] shadow-soft overflow-hidden">
+    <div className="absolute inset-0 z-50 flex items-stretch justify-center bg-black/20 p-4">
+      <div className="flex flex-col w-full max-w-4xl max-h-full rounded-3xl border border-border bg-bg shadow-soft overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <span className="text-base font-semibold text-primary truncate pr-2">編輯：{draft.name}</span>
           <button type="button" className="btn-round w-8 h-8 text-primary" title="關閉" onClick={onClose}>
@@ -133,7 +133,7 @@ export default function CharacterEditor({ characterId, onClose }: Props) {
               type="button"
               onClick={() => void changeTab(tab)}
               className={`text-sm px-4 py-2 rounded-full transition-colors ${
-                activeTab === tab ? 'bg-mint text-primary font-semibold' : 'text-secondary hover:bg-mint/30'
+                activeTab === tab ? 'bg-mint text-primary font-semibold' : 'text-secondary hover:bg-mint-30'
               }`}
             >
               {TAB_LABEL[tab]}
@@ -159,7 +159,7 @@ export default function CharacterEditor({ characterId, onClose }: Props) {
 
       {toast && (
         <div
-          className="fixed bottom-6 right-6 z-[60] max-w-xs rounded-2xl border border-border bg-white px-4 py-3 text-sm text-primary shadow-soft"
+          className="fixed bottom-6 right-6 z-[60] max-w-xs rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-primary shadow-soft"
           role="status"
         >
           {toast}

@@ -63,7 +63,7 @@ export default function BasicInfoTab({ draft, setDraft, onError }: Props) {
         <button
           type="button"
           onClick={pickAvatar}
-          className="w-full rounded-2xl border border-dashed border-border bg-mint/20 hover:bg-mint/40 py-8 flex flex-col items-center gap-2 transition-colors"
+          className="w-full rounded-2xl border border-dashed border-border bg-mint-20 hover:bg-mint-40 py-8 flex flex-col items-center gap-2 transition-colors"
         >
           {draft.avatar ? (
             <img src={`local://${encodeURIComponent(draft.avatar)}`} alt="" className="max-h-40 object-contain rounded-xl" />

@@ -252,7 +252,7 @@ export default function CharacterLibraryWindow() {
     <div className="h-screen flex flex-col bg-bg text-primary overflow-hidden">
       <input ref={importRef} type="file" accept=".json,.png,.dstpack" className="hidden" onChange={onImportFile} />
 
-      <header className="drag-region flex items-center justify-between gap-2 px-4 py-3 border-b border-border shrink-0 bg-[#F7FFFC]">
+      <header className="drag-region flex items-center justify-between gap-2 px-4 py-3 border-b border-border shrink-0 bg-bg">
         <span className="text-sm font-semibold text-primary">角色庫</span>
         <div className="flex items-center gap-2 no-drag">
           <button
@@ -262,12 +262,12 @@ export default function CharacterLibraryWindow() {
           >
             ＋ 新增
           </button>
-          <button type="button" className="text-xs px-3 py-1.5 rounded-full border border-border hover:bg-mint/40" onClick={pickImport}>
+          <button type="button" className="text-xs px-3 py-1.5 rounded-full border border-border hover:bg-mint-40" onClick={pickImport}>
             匯入角色卡／搬家包
           </button>
           <button
             type="button"
-            className="text-xs px-3 py-1.5 rounded-full border border-border hover:bg-mint/40"
+            className="text-xs px-3 py-1.5 rounded-full border border-border hover:bg-mint-40"
             onClick={() => {
               if (characters.length === 0) {
                 setToast('尚無角色可匯出')
@@ -280,7 +280,7 @@ export default function CharacterLibraryWindow() {
           </button>
           <button
             type="button"
-            className="w-8 h-8 rounded-full border border-border flex items-center justify-center hover:bg-mint/40"
+            className="w-8 h-8 rounded-full border border-border flex items-center justify-center hover:bg-mint-40"
             title="關閉"
             onClick={() => window.api.invoke('window:close-self')}
           >
@@ -347,7 +347,7 @@ export default function CharacterLibraryWindow() {
           onMouseDown={() => setExportModalOpen(false)}
         >
           <div
-            className="bg-white rounded-2xl border border-border max-w-md w-full p-4 shadow-soft max-h-[85vh] flex flex-col"
+            className="bg-surface rounded-2xl border border-border max-w-md w-full p-4 shadow-soft max-h-[85vh] flex flex-col"
             onMouseDown={e => e.stopPropagation()}
           >
             <h3 className="font-semibold text-primary mb-2 shrink-0">匯出 DesktopST 搬家包</h3>
@@ -375,7 +375,7 @@ export default function CharacterLibraryWindow() {
             <div className="flex justify-end gap-2 shrink-0">
               <button
                 type="button"
-                className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40"
+                className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint-40"
                 onClick={() => setExportModalOpen(false)}
               >
                 取消
@@ -397,7 +397,7 @@ export default function CharacterLibraryWindow() {
       )}
 
       {toast && (
-        <div className="fixed bottom-6 right-6 z-[70] max-w-xs rounded-2xl border border-border bg-white px-4 py-3 text-sm shadow-soft">
+        <div className="fixed bottom-6 right-6 z-[70] max-w-xs rounded-2xl border border-border bg-surface px-4 py-3 text-sm shadow-soft">
           {toast}
         </div>
       )}

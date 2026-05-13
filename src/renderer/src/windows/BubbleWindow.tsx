@@ -164,7 +164,7 @@ export default function BubbleWindow({ characterId }: Props) {
     <div className="flex h-full min-h-0 w-full flex-col select-none" style={{ background: 'transparent' }}>
       <div
         ref={containerRef}
-        className="relative flex min-h-0 max-w-[420px] flex-col rounded-2xl rounded-bl-sm border border-border bg-white/95 px-3 py-2 text-sm leading-snug text-primary shadow-panel"
+        className="relative flex min-h-0 max-w-[420px] flex-col rounded-2xl rounded-bl-sm border border-border bg-surface-95 px-3 py-2 text-sm leading-snug text-primary shadow-panel"
       >
         <div className="drag-region mb-1 flex shrink-0 items-center justify-between gap-2">
           <div className="text-[10px] font-medium text-secondary">
@@ -173,7 +173,7 @@ export default function BubbleWindow({ characterId }: Props) {
           <div className="flex gap-1">
             <button
               type="button"
-              className="no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-white/80 text-secondary transition-colors hover:bg-[#FFE8AA] hover:text-[#E8A600]"
+              className="no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-surface-80 text-secondary transition-colors hover:bg-mint hover:text-primary"
               title="釘選為便利貼"
               onClick={() => pinBubble()}
             >
@@ -181,7 +181,7 @@ export default function BubbleWindow({ characterId }: Props) {
             </button>
             <button
               type="button"
-              className="no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-white/80 text-secondary transition-colors hover:bg-mint hover:text-primary"
+              className="no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-surface-80 text-secondary transition-colors hover:bg-mint hover:text-primary"
               title="關閉對話泡泡"
               onClick={closeBubble}
             >
@@ -190,17 +190,17 @@ export default function BubbleWindow({ characterId }: Props) {
           </div>
         </div>
         {confirmPin ? (
-          <div className="no-drag mt-1 rounded-xl border border-[#FFE8AA] bg-[#FFFBEF] px-3 py-2 text-xs text-[#3D5A52]">
+          <div className="no-drag mt-1 rounded-xl border border-mint bg-mint-20 px-3 py-2 text-xs text-primary">
             <p className="mb-2 leading-snug">此角色的便利貼已達上限（10 張）。<br />確定釘選後，將清理最舊的幾張。</p>
             <div className="flex gap-2 justify-end">
               <button
                 type="button"
-                className="rounded-full border border-border bg-white/80 px-3 py-0.5 text-xs text-secondary transition-colors hover:bg-[#F0F0F0]"
+                className="rounded-full border border-border bg-surface-80 px-3 py-0.5 text-xs text-secondary transition-colors hover:bg-surface"
                 onClick={cancelConfirmPin}
               >取消</button>
               <button
                 type="button"
-                className="rounded-full bg-[#FFE8AA] px-3 py-0.5 text-xs font-medium text-[#8B6914] transition-colors hover:bg-[#FFD966]"
+                className="rounded-full bg-mint px-3 py-0.5 text-xs font-medium text-primary transition-colors hover:bg-teal"
                 onClick={confirmPinAndClose}
               >確定清理</button>
             </div>
@@ -214,7 +214,7 @@ export default function BubbleWindow({ characterId }: Props) {
           className="absolute -bottom-2 left-4 w-3 h-3 overflow-hidden"
           style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.05))' }}
         >
-          <div className="w-3 h-3 bg-white border-b border-r border-border rotate-45 -translate-y-1.5" />
+          <div className="w-3 h-3 bg-surface border-b border-r border-border rotate-45 -translate-y-1.5" />
         </div>
       </div>
     </div>

@@ -250,9 +250,9 @@ export default function SettingsWindow() {
   }, [draft, dirty])
 
   if (!draft) return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#F7FFFC', gap: 12 }}>
-      <span style={{ color: '#7BA898', fontSize: 14 }}>載入設定中...</span>
-      <button style={{ padding: '6px 16px', borderRadius: 20, border: '1px solid #D8F5EC', background: '#CBFBC4', color: '#3D5A52', cursor: 'pointer', fontSize: 13 }}
+    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--color-bg)', gap: 12 }}>
+      <span style={{ color: 'var(--color-text-secondary)', fontSize: 14 }}>載入設定中...</span>
+      <button style={{ padding: '6px 16px', borderRadius: 20, border: '1px solid var(--color-teal)', background: 'var(--color-mint)', color: 'var(--color-text-primary)', cursor: 'pointer', fontSize: 13 }}
         onClick={() => window.api.invoke('window:close-self')}>關閉</button>
     </div>
   )
@@ -470,7 +470,7 @@ export default function SettingsWindow() {
       </div>
 
       {onboardingIncomplete && (
-        <div className="px-4 py-3 border-b border-border bg-[#E8FBF4] no-drag space-y-2 shrink-0">
+        <div className="px-4 py-3 border-b border-border bg-mint-20 no-drag space-y-2 shrink-0">
           <p className="text-sm font-semibold text-primary">歡迎使用 DesktopST · 首次設定</p>
           <ol className="text-xs text-secondary list-decimal pl-4 space-y-1 leading-relaxed">
             <li>在「LLM 設定」選擇服務商並填寫對應的 API Key。</li>
@@ -481,15 +481,15 @@ export default function SettingsWindow() {
             <button type="button" className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary" onClick={() => changeTab('LLM 設定')}>
               前往 API Key
             </button>
-            <button type="button" className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40" onClick={() => changeTab('世界觀')}>
+            <button type="button" className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint-40" onClick={() => changeTab('世界觀')}>
               世界觀
             </button>
-            <button type="button" className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40" onClick={() => changeTab('使用者')}>
+            <button type="button" className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint-40" onClick={() => changeTab('使用者')}>
               使用者
             </button>
             <button
               type="button"
-              className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40"
+              className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint-40"
               onClick={() => void window.api.invoke('character-library:open')}
             >
               開啟角色庫
@@ -497,7 +497,7 @@ export default function SettingsWindow() {
             <button
               type="button"
               disabled={!canFinishOnboarding}
-              className="text-xs px-3 py-1.5 rounded-full bg-[#AAEEDD] font-semibold text-primary disabled:opacity-40 disabled:cursor-not-allowed"
+              className="text-xs px-3 py-1.5 rounded-full bg-teal font-semibold text-primary disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={() => void finishOnboarding()}
             >
               完成引導
@@ -511,7 +511,7 @@ export default function SettingsWindow() {
 
         {tab === 'LLM 設定' && (
           <>
-            <div className="px-3 py-3 border border-border rounded-2xl bg-[#E8FBF4] space-y-2">
+            <div className="px-3 py-3 border border-border rounded-2xl bg-mint-20 space-y-2">
               <p className="text-sm font-semibold text-primary">🔑 API Key 入門指南</p>
               <p className="text-xs text-secondary leading-relaxed">
                 使用 AI 聊天需要費用。你聊越多，花越多錢。大多數 LLM 服務商都提供免費試用額度，但額度和方案不同，建議查看各家說明。
@@ -558,7 +558,7 @@ export default function SettingsWindow() {
                 ))}
               </select>
               {draft.llm.provider === 'gemini' && (
-                <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                <p className="text-[11px] text-secondary leading-snug mt-1.5">
                   Gemini 2.0 Flash 每日免費 1500 次請求，不需綁定信用卡。
                 </p>
               )}
@@ -579,10 +579,10 @@ export default function SettingsWindow() {
                   <option value="incentive-10m">資料分享贈送額度 · 每日 10M 組（官方快照 ID）</option>
                   <option value="incentive-all">資料分享贈送額度 · 兩組合併</option>
                 </select>
-                <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                <p className="text-[11px] text-secondary leading-snug mt-1.5">
                   贈送額度僅在已於 Platform 開啟「分享輸入／輸出」且帳戶顯示符合資格時適用；兩組額度分開計（tier 1–2 為 250K / 2.5M）。
                   詳見{' '}
-                  <a className="underline text-[#3D5A52]" href={OPENAI_MODEL_LIST_HELP} target="_blank" rel="noreferrer">
+                  <a className="underline text-primary" href={OPENAI_MODEL_LIST_HELP} target="_blank" rel="noreferrer">
                     OpenAI 說明
                   </a>
                   。微調、eval、工具呼叫不在贈送範圍。
@@ -666,7 +666,7 @@ export default function SettingsWindow() {
                 <button
                   type="button"
                   disabled={msgTesting || !(draft?.llm.apiKeys?.[draft?.llm.provider ?? 'openai'] ?? '').trim() || !getCurrentModel().trim()}
-                  className="text-xs px-3 py-1.5 rounded-full border border-border text-primary disabled:opacity-40 disabled:cursor-not-allowed hover:bg-mint/40 transition-all"
+                  className="text-xs px-3 py-1.5 rounded-full border border-border text-primary disabled:opacity-40 disabled:cursor-not-allowed hover:bg-mint-40 transition-all"
                   onClick={async () => {
                     setMsgTesting(true)
                     setMsgResult(null)
@@ -711,7 +711,7 @@ export default function SettingsWindow() {
                   placeholder={draft.llm.provider === 'grok' ? 'https://api.x.ai/v1' : 'https://api.example.com/v1'}
                 />
                 {draft.llm.provider === 'grok' && (
-                  <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                  <p className="text-[11px] text-secondary leading-snug mt-1.5">
                     Grok 使用 OpenAI 相容 API，預設端點為 https://api.x.ai/v1。
                   </p>
                 )}
@@ -737,7 +737,7 @@ export default function SettingsWindow() {
                 onChange={e => set('llm.maxGroupRounds', Number(e.target.value))}
                 className="w-full accent-teal"
               />
-              <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+              <p className="text-[11px] text-secondary leading-snug mt-1.5">
                 控制每次送出訊息後，群組模式最多追加幾位角色的後續回應；數值越大，對話越熱鬧但 token 消耗也越高。
               </p>
             </Field>
@@ -747,7 +747,7 @@ export default function SettingsWindow() {
                 onChange={e => set('llm.maxImagesPerMessage', Number(e.target.value))}
                 className="w-full accent-teal"
               />
-              <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+              <p className="text-[11px] text-secondary leading-snug mt-1.5">
                 每張圖片都會增加 token 消耗（以 gpt-4o 為例，1024×1024 約 765 tokens / 張）。
               </p>
             </Field>
@@ -781,7 +781,7 @@ export default function SettingsWindow() {
                       autoFocus
                     />
                   ) : (
-                    <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40 transition-all" onClick={() => startRename('world')}>重新命名</button>
+                    <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-border text-primary hover:bg-mint-40 transition-all" onClick={() => startRename('world')}>重新命名</button>
                   )}
                   {!worldDraft.builtIn && (
                     <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-[#FFBBBB] text-[#E85D3F] hover:bg-[#FFBBBB]/30 transition-all" onClick={deleteCurrentWorld}>刪除</button>
@@ -798,7 +798,7 @@ export default function SettingsWindow() {
                     onChange={e => setWorldDraft(prev => prev ? { ...prev, worldSetting: e.target.value } : prev)}
                     placeholder="描述這個世界的背景設定..."
                   />
-                  <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                  <p className="text-[11px] text-secondary leading-snug mt-1.5">
                     可用標籤：<code>{'{{user}}'}</code>、<code>{'{{char}}'}</code>
                   </p>
                 </Field>
@@ -809,7 +809,7 @@ export default function SettingsWindow() {
                     onChange={e => setWorldDraft(prev => prev ? { ...prev, interactionExample: e.target.value } : prev)}
                     placeholder="角色之間如何互動的範例..."
                   />
-                  <p className="text-[11px] text-[#7BA898] leading-snug mt-1.5">
+                  <p className="text-[11px] text-secondary leading-snug mt-1.5">
                     可用標籤：<code>{'{{user}}'}</code>、<code>{'{{char}}'}</code>
                   </p>
                 </Field>
@@ -856,7 +856,7 @@ export default function SettingsWindow() {
                       autoFocus
                     />
                   ) : (
-                    <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-border text-primary hover:bg-mint/40 transition-all" onClick={() => startRename('persona')}>重新命名</button>
+                    <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-border text-primary hover:bg-mint-40 transition-all" onClick={() => startRename('persona')}>重新命名</button>
                   )}
                   {!personaDraft.builtIn && (
                     <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-[#FFBBBB] text-[#E85D3F] hover:bg-[#FFBBBB]/30 transition-all" onClick={deleteCurrentPersona}>刪除</button>
@@ -915,6 +915,53 @@ export default function SettingsWindow() {
 
         {tab === '介面' && (
           <>
+            <p className="text-xs font-medium text-secondary">介面配色</p>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { key: 'mint',     label: '薄荷綠', bg: '#CBFBC4', border: '#A9DED2', text: '#3D5A52' },
+                { key: 'butter',   label: '奶油黃', bg: '#FFE8AA', border: '#E8CC88', text: '#5A4A2A' },
+                { key: 'peach',    label: '粉橘',   bg: '#FFD6B8', border: '#E8B898', text: '#5A3A2A' },
+                { key: 'aqua',     label: '粉藍綠', bg: '#B8F4EA', border: '#88D8CC', text: '#2A5050' },
+                { key: 'sky',      label: '天藍',   bg: '#AAEEFF', border: '#88CCEE', text: '#2A4A6A' },
+                { key: 'blush',    label: '粉紅',   bg: '#FFBBBB', border: '#E898A8', text: '#5A2A3A' },
+                { key: 'lavender', label: '薰衣草', bg: '#F0BBFF', border: '#D088E8', text: '#4A2A5A' },
+                { key: 'white',    label: '純白',   bg: '#FFFFFF', border: '#CCCCCC', text: '#3D5A52' },
+                { key: 'dark',     label: '黑底白字', bg: '#1F2423', border: '#445A52', text: '#F7FFFC' },
+              ] as const).map(opt => {
+                const active = (draft.ui.colorTheme ?? 'mint') === opt.key
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => {
+                      set('ui.colorTheme', opt.key)
+                      if (opt.key === 'mint') {
+                        document.documentElement.removeAttribute('data-color-theme')
+                      } else {
+                        document.documentElement.setAttribute('data-color-theme', opt.key)
+                      }
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-2 rounded-xl text-xs font-medium border transition-all"
+                    style={{
+                      background: active ? opt.bg : 'transparent',
+                      borderColor: active ? opt.border : 'var(--color-border)',
+                      color: active ? opt.text : 'var(--color-text-secondary)',
+                      outline: active ? `2px solid ${opt.border}` : 'none',
+                      outlineOffset: '1px',
+                    }}
+                  >
+                    <span
+                      className="w-4 h-4 rounded-full shrink-0 border"
+                      style={{ background: opt.bg, borderColor: opt.border }}
+                    />
+                    {opt.label}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-xs text-secondary">選擇後立即套用。</p>
+
+            <div className="border-t border-border pt-3" />
             <p className="text-xs font-medium text-secondary">文字大小</p>
             <div className="flex gap-2">
               {([
