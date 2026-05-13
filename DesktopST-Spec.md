@@ -281,7 +281,7 @@ interface WindowBoundsState {
   - 注意：第一版只支援 Windows
 - **上傳按鈕**：開檔案對話框選擇圖片，可多選
 - **圖片預覽**：縮圖顯示在輸入框上方，可點擊 ❌ 移除
-- **送出按鈕**：送出訊息（也可按 Ctrl+Enter）
+- **送出按鈕**：送出訊息（也可按 Enter；Shift+Enter 換行）
 - **Log 按鈕**：toggle 開關對話記錄視窗
 - **便利貼按鈕**：開啟空白便利貼（詳見 §5.6）
 - 圖片數量上限：依 LLM 設定的 `maxImagesPerMessage`

@@ -124,7 +124,11 @@ export default function PinnedNoteWindow() {
             value={title}
             onChange={e => setTitle(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter') saveTitle(title)
+              if (e.key === 'Enter') {
+                if (e.nativeEvent.isComposing) return
+                e.preventDefault()
+                void saveTitle(title)
+              }
               if (e.key === 'Escape') setIsEditingTitle(false)
             }}
             className="no-drag flex-1 min-w-0 text-xs font-semibold rounded px-1 outline-none border"
@@ -176,7 +180,17 @@ export default function PinnedNoteWindow() {
               ref={textareaRef}
               value={content}
               onChange={e => setContent(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Escape') setIsEditingContent(false) }}
+              onKeyDown={e => {
+                if (e.key === 'Escape') {
+                  setIsEditingContent(false)
+                  return
+                }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  if (e.nativeEvent.isComposing) return
+                  e.preventDefault()
+                  void saveContent(content)
+                }
+              }}
               className="flex-1 min-h-0 w-full p-1.5 rounded-lg resize-none outline-none"
               style={{
                 fontSize: effectiveFontSize,
@@ -227,7 +241,7 @@ export default function PinnedNoteWindow() {
             style={{ fontSize: effectiveFontSize, color: content ? textColor : secondaryTextColor, cursor: 'default' }}
             onDoubleClick={() => { setIsEditingContent(true); setTimeout(() => textareaRef.current?.focus(), 0) }}
             onContextMenu={e => { e.preventDefault(); setIsEditingContent(true); setTimeout(() => textareaRef.current?.focus(), 0) }}
-            title="雙擊或右鍵編輯內容"
+            title="雙擊或右鍵編輯內容（編輯時 Enter 儲存，Shift+Enter 換行）"
           >
             {content || <span className="opacity-70 italic">空白便利貼，雙擊開始編輯</span>}
           </div>
