@@ -69,7 +69,7 @@ export default function PinnedNoteWindow() {
   }
 
   const saveTitle = async (val: string) => {
-    const trimmed = val.trim() || '便利貼'
+    const trimmed = val.trim()
     setTitle(trimmed)
     await window.api.invoke('pinned-note:update-title', noteId, trimmed)
     setIsEditingTitle(false)
@@ -118,31 +118,35 @@ export default function PinnedNoteWindow() {
           <MonoIcon name="pin" className="w-3.5 h-3.5" />
         </button>
 
-        {isEditingTitle ? (
-          <input
-            ref={titleInputRef}
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                if (e.nativeEvent.isComposing) return
-                e.preventDefault()
-                void saveTitle(title)
-              }
-              if (e.key === 'Escape') setIsEditingTitle(false)
-            }}
-            className="no-drag flex-1 min-w-0 text-xs font-semibold rounded px-1 outline-none border"
-            style={{
-              color: textColor,
-              background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.65)',
-              borderColor
-            }}
-            autoFocus
-          />
+        {isEditingTitle || title ? (
+          isEditingTitle ? (
+            <input
+              ref={titleInputRef}
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  if (e.nativeEvent.isComposing) return
+                  e.preventDefault()
+                  void saveTitle(title)
+                }
+                if (e.key === 'Escape') setIsEditingTitle(false)
+              }}
+              className="no-drag flex-1 min-w-0 text-xs font-semibold rounded px-1 outline-none border"
+              style={{
+                color: textColor,
+                background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.65)',
+                borderColor
+              }}
+              autoFocus
+            />
+          ) : (
+            <span className="flex-1 min-w-0 text-xs font-semibold truncate" style={{ color: textColor }}>
+              {title}
+            </span>
+          )
         ) : (
-          <span className="flex-1 min-w-0 text-xs font-semibold truncate" style={{ color: textColor }}>
-            {title}
-          </span>
+          <div className="flex-1" />
         )}
 
         <button
@@ -157,7 +161,7 @@ export default function PinnedNoteWindow() {
               setTimeout(() => titleInputRef.current?.focus(), 0)
             }
           }}
-          title={isEditingTitle ? '儲存標題 (Enter)' : '編輯標題'}
+          title={isEditingTitle ? '儲存標題 (Enter)' : title ? '編輯標題' : '新增標題'}
         >
           <MonoIcon name={isEditingTitle ? 'check' : 'edit'} className="w-2.5 h-2.5" />
         </button>
