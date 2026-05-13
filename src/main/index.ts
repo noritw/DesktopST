@@ -2,7 +2,7 @@ import { app, Tray, Menu, nativeImage, protocol, screen, BrowserWindow } from 'e
 import * as path from 'path'
 import * as fs from 'fs'
 import { loadSettings, saveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets } from './fileStore'
-import { initState, registerIpcHandlers } from './ipcHandlers'
+import { initState, registerIpcHandlers, dismissAllAuxWindows } from './ipcHandlers'
 import {
   createCharacterWindow,
   toggleInputWindow,
@@ -168,6 +168,7 @@ function setupTray(appRoot: string) {
 
   const menu = Menu.buildFromTemplate([
     { label: '顯示輸入框', click: () => toggleInputWindow() },
+    { label: '收起所有輔助視窗', click: () => dismissAllAuxWindows() },
     { label: '開啟設定', click: () => openSettingsWindow('llm') },
     { type: 'separator' },
     { label: '結束', click: () => app.exit(0) }

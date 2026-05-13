@@ -15,7 +15,7 @@ const config: Config = {
         lavender: '#F0BBFF',
         bg: '#F7FFFC',
         surface: '#FFFFFF',
-        border: '#D8F5EC',
+        border: '#A9DED2',
         primary: '#3D5A52',
         secondary: '#7BA898',
         user: '#247566',
@@ -31,8 +31,8 @@ const config: Config = {
         sans: ['Nunito', 'M PLUS Rounded 1c', 'Noto Sans TC', 'system-ui', 'sans-serif']
       },
       boxShadow: {
-        soft: '0 2px 8px rgba(170,238,221,0.3)',
-        panel: '0 4px 16px rgba(170,238,221,0.25)'
+        soft: '0 3px 12px rgba(61,90,82,0.18)',
+        panel: '0 6px 20px rgba(61,90,82,0.2)'
       },
       animation: {
         'fade-in': 'fadeIn 0.3s ease-in-out',

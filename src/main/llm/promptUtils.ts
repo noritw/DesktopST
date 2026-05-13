@@ -19,6 +19,45 @@ export const EMOTION_LIST = [
   'sadness', 'surprise', 'neutral'
 ]
 
+const EMOTION_ALIASES: Record<string, string> = {
+  admire: 'admiration',
+  admired: 'admiration',
+  amused: 'amusement',
+  angry: 'anger',
+  annoyed: 'annoyance',
+  approving: 'approval',
+  caring: 'caring',
+  confused: 'confusion',
+  curious: 'curiosity',
+  disappointed: 'disappointment',
+  disapproving: 'disapproval',
+  disgusted: 'disgust',
+  embarrassed: 'embarrassment',
+  excited: 'excitement',
+  fearful: 'fear',
+  afraid: 'fear',
+  grateful: 'gratitude',
+  grieving: 'grief',
+  joyful: 'joy',
+  loving: 'love',
+  nervous: 'nervousness',
+  optimistic: 'optimism',
+  proud: 'pride',
+  realized: 'realization',
+  relieved: 'relief',
+  remorseful: 'remorse',
+  sad: 'sadness',
+  surprised: 'surprise',
+  calm: 'neutral',
+  normal: 'neutral'
+}
+
+export function normalizeEmotion(raw: string | undefined | null): string | null {
+  const normalized = String(raw ?? '').trim().toLowerCase()
+  if (EMOTION_LIST.includes(normalized)) return normalized
+  return EMOTION_ALIASES[normalized] ?? null
+}
+
 export type PromptCharacter = {
   id?: string
   name: string
@@ -78,17 +117,40 @@ export function parseEmotion(text: string): { emotion: string; content: string }
   let detectedEmotion = 'neutral'
   let content = source
 
-  const pickEmotion = (raw: string | undefined | null): string | null => {
-    const normalized = String(raw ?? '').trim().toLowerCase()
-    return EMOTION_LIST.includes(normalized) ? normalized : null
-  }
+  for (let i = 0; i < 3; i++) {
+    const before = content
 
-  // Match "emotion: xxx" on first line
-  const kvMatch = content.match(/^emotion\s*:\s*([a-z_]+)\s*(?:\n|$)/i)
-  const kvEmotion = pickEmotion(kvMatch?.[1])
-  if (kvMatch && kvEmotion) {
-    detectedEmotion = kvEmotion
-    content = content.slice(kvMatch[0].length).trim()
+    // Match one or more leading tags such as "[amused]" or "[emotion: anger]".
+    const bracketMatch = content.match(/^\s*\[\s*(?:(?:emotion|mood|feeling|情緒)\s*[:=：]\s*)?([a-z_]+)\s*\]\s*/i)
+    const bracketEmotion = normalizeEmotion(bracketMatch?.[1])
+    if (bracketMatch && bracketEmotion) {
+      detectedEmotion = bracketEmotion
+      content = content.slice(bracketMatch[0].length).trim()
+      continue
+    }
+
+    // Match "emotion: xxx", "mood: xxx", etc. on the first line.
+    const kvMatch = content.match(/^\s*(?:emotion|mood|feeling|情緒)\s*[:=：]\s*([a-z_]+)\s*(?:\r?\n|$)/i)
+    const kvEmotion = normalizeEmotion(kvMatch?.[1])
+    if (kvMatch && kvEmotion) {
+      detectedEmotion = kvEmotion
+      content = content.slice(kvMatch[0].length).trim()
+      continue
+    }
+
+    // Match a bare leading emotion token, including models that glue it to CJK text: "amused會。"
+    const bareMatch = content.match(/^\s*([a-z_]+)(?=$|[\s:：,，.。!！?？;；\-]|[\u3400-\u9fff])/i)
+    const bareEmotion = normalizeEmotion(bareMatch?.[1])
+    if (bareMatch && bareEmotion) {
+      detectedEmotion = bareEmotion
+      content = content
+        .slice(bareMatch[0].length)
+        .replace(/^\s*[:=：,，.。!！?？;；\-]?\s*/, '')
+        .trim()
+      continue
+    }
+
+    if (content === before) break
   }
 
   return {
