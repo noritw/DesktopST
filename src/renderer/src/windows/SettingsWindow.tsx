@@ -181,7 +181,8 @@ export default function SettingsWindow() {
 
   const [tab, setTab] = useState<Tab>(() => tabFromLocation())
   const [draft, setDraft] = useState<AppSettings | null>(null)
-  const [saved, setSaved] = useState(false)
+  const [dirty, setDirty] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [openaiModelListMode, setOpenaiModelListMode] = useState<OpenaiModelListMode>('catalog')
   const [worldDraft, setWorldDraft] = useState<WorldPreset | null>(null)
   const [personaDraft, setPersonaDraft] = useState<PersonaPreset | null>(null)
@@ -239,6 +240,15 @@ export default function SettingsWindow() {
     setPersonaDraft(p ? { ...p } : null)
   }, [draft?.activePersonaId, personaPresets])
 
+  // 自動儲存防抖（600ms）
+  useEffect(() => {
+    if (!dirty || !draft) return
+    const timer = window.setTimeout(() => {
+      void doAutoSave(draft)
+    }, 600)
+    return () => window.clearTimeout(timer)
+  }, [draft, dirty])
+
   if (!draft) return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#F7FFFC', gap: 12 }}>
       <span style={{ color: '#7BA898', fontSize: 14 }}>載入設定中...</span>
@@ -248,6 +258,7 @@ export default function SettingsWindow() {
   )
 
   const set = (path: string, value: unknown) => {
+    setDirty(true)
     setDraft(prev => {
       if (!prev) return prev
       const next = JSON.parse(JSON.stringify(prev)) as AppSettings
@@ -266,6 +277,27 @@ export default function SettingsWindow() {
     })
   }
 
+  const doAutoSave = async (data: AppSettings) => {
+    setIsSaving(true)
+    try {
+      const settingsToSave = JSON.parse(JSON.stringify(data)) as AppSettings
+      settingsToSave.llm.model = settingsToSave.llm.models?.[settingsToSave.llm.provider] ?? settingsToSave.llm.model
+      if (worldDraft) {
+        worldDraft.updatedAt = Date.now()
+        await saveWorldPreset(worldDraft)
+      }
+      if (personaDraft) {
+        personaDraft.updatedAt = Date.now()
+        await savePersonaPreset(personaDraft)
+      }
+      await saveSettings(settingsToSave)
+      setDraft(settingsToSave)
+      setDirty(false)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   // Helper: get current provider's model (from per-provider storage or fallback to global)
   const getCurrentModel = (): string => {
     return draft?.llm.models?.[draft.llm.provider] ?? draft?.llm.model ?? ''
@@ -281,23 +313,6 @@ export default function SettingsWindow() {
     setDraft(next)
   }
 
-  const handleSave = async () => {
-    if (!draft) return
-    const settingsToSave = JSON.parse(JSON.stringify(draft)) as AppSettings
-    settingsToSave.llm.model = settingsToSave.llm.models?.[settingsToSave.llm.provider] ?? settingsToSave.llm.model
-    if (worldDraft) {
-      worldDraft.updatedAt = Date.now()
-      await saveWorldPreset(worldDraft)
-    }
-    if (personaDraft) {
-      personaDraft.updatedAt = Date.now()
-      await savePersonaPreset(personaDraft)
-    }
-    await saveSettings(settingsToSave)
-    setDraft(settingsToSave)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-  }
 
   const onboardingIncomplete = !!draft && draft.ui.onboardingCompleted === false
   const canFinishOnboarding =
@@ -973,14 +988,10 @@ export default function SettingsWindow() {
         )}
       </div>
 
-      <div className="px-4 py-3 border-t border-border no-drag flex justify-end">
-        <button
-          onClick={handleSave}
-          className="px-6 py-2 rounded-full text-sm font-semibold bg-mint text-primary
-                     shadow-soft hover:bg-teal transition-all"
-        >
-          {saved ? ' 已儲存' : '儲存'}
-        </button>
+      <div className="px-4 py-3 border-t border-border no-drag flex items-center justify-between">
+        <span className="text-sm text-secondary">
+          {isSaving ? '儲存中…' : dirty ? '有未儲存的變更' : '已儲存'}
+        </span>
       </div>
     </div>
   )
