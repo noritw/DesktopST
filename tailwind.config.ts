@@ -28,7 +28,7 @@ const config: Config = {
         'panel-lg': '24px'
       },
       fontFamily: {
-        sans: ['Nunito', 'M PLUS Rounded 1c', 'Noto Sans TC', 'system-ui', 'sans-serif']
+        sans: ['Segoe UI Variable Display', 'system-ui', 'Microsoft JhengHei UI', 'Microsoft JhengHei', 'sans-serif']
       },
       boxShadow: {
         soft: '0 3px 12px rgba(61,90,82,0.18)',
