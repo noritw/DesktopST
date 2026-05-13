@@ -28,7 +28,7 @@ import {
   createCharacterLibraryWindow,
   hideAllWindowsForScreenshot, hideAuxWindowsForScreenshotKeepingCharacters, restoreAllWindowsAfterScreenshot,
   showPreviewWindow,
-  createPinnedNoteWindow, updatePinnedNoteContent, updatePinnedNoteColor, closePinnedNote, getPinnedNoteWindow,
+  createPinnedNoteWindow, updatePinnedNoteContent, updatePinnedNoteColor, closePinnedNote, getPinnedNoteWindow, getPinnedNoteWindowState,
   openPinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
   hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu
 } from './windowManager'
@@ -79,6 +79,34 @@ function clamp01(n: number): number {
 function normalizeUnfocusedBubbleOpacity(v: unknown): number {
   const n = Number(v)
   return clamp01(Number.isFinite(n) ? n : 0.1)
+}
+
+function estimateBubbleWidth(text: string): number {
+  const len = String(text ?? '').length
+  const approx = 180 + Math.max(0, Math.min(220, Math.floor(len / 14) * 30))
+  return Math.max(200, Math.min(420, approx))
+}
+
+function normalizeLegacyPinnedNoteSizes(): boolean {
+  let changed = false
+  for (const note of settings.ui.pinnedNotes ?? []) {
+    if (!note.characterId || !note.size) continue
+    const width = Math.round(Number(note.size.width))
+    const height = Math.round(Number(note.size.height))
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 420 || height <= 0) continue
+
+    const expectedWidth = estimateBubbleWidth(note.content)
+    const factor = width / expectedWidth
+    if (factor < 1.25) continue
+
+    note.size = {
+      width: expectedWidth,
+      height: Math.max(78, Math.round(height / factor))
+    }
+    note.updatedAt = Date.now()
+    changed = true
+  }
+  return changed
 }
 
 function formatSystemTimeLabel(d: Date): string {
@@ -331,6 +359,7 @@ export function initState(
 ) {
   settings = s
   settings.ui.unfocusedBubbleOpacity = normalizeUnfocusedBubbleOpacity(settings.ui.unfocusedBubbleOpacity)
+  const didNormalizePinnedNoteSizes = normalizeLegacyPinnedNoteSizes()
   setUnfocusedBubbleOpacity(settings.ui.unfocusedBubbleOpacity)
   characters = chars
   configureAuxWindowPersistence(
@@ -354,6 +383,10 @@ export function initState(
       fileStore.saveSettings(settings)
     }
   })
+
+  if (didNormalizePinnedNoteSizes) {
+    fileStore.saveSettings(settings)
+  }
 
   // Ensure desktop characters are set
   if (desktopState.length > 0 && s.ui.desktopCharacters.length === 0) {
@@ -471,13 +504,12 @@ function fixCharacterPathsAfterImport(char: Character, dir: string): Character {
   return { ...char, avatar, emotions }
 }
 
-export function dismissAllAuxWindows(): void {
+export async function dismissAllAuxWindows(): Promise<void> {
   const notes = settings?.ui?.pinnedNotes ?? []
   for (const note of notes) {
     if (!note.visible) continue
-    const win = getPinnedNoteWindow(note.id)
-    if (win && !win.isDestroyed()) {
-      const b = win.getBounds()
+    const b = await getPinnedNoteWindowState(note.id)
+    if (b) {
       note.position = { x: b.x, y: b.y }
       note.size = { width: b.width, height: b.height }
     }
@@ -1700,13 +1732,12 @@ export function registerIpcHandlers() {
   })
 
   // 收起便利貼：關閉視窗，但保留資料（visible=false）
-  ipcMain.handle('pinned-note:hide', (_, noteId: string) => {
+  ipcMain.handle('pinned-note:hide', async (_, noteId: string) => {
     const note = settings.ui.pinnedNotes?.find(n => n.id === noteId)
     if (!note) return false
     // 記住最新位置與大小再關窗
-    const win = getPinnedNoteWindow(noteId)
-    if (win && !win.isDestroyed()) {
-      const b = win.getBounds()
+    const b = await getPinnedNoteWindowState(noteId)
+    if (b) {
       note.position = { x: b.x, y: b.y }
       note.size = { width: b.width, height: b.height }
     }
@@ -1742,13 +1773,12 @@ export function registerIpcHandlers() {
     return focusPinnedNoteWindow(note.id)
   })
 
-  ipcMain.handle('pinned-note:hide-all', () => {
+  ipcMain.handle('pinned-note:hide-all', async () => {
     const notes = settings.ui.pinnedNotes ?? []
     for (const note of notes) {
       if (!note.visible) continue
-      const win = getPinnedNoteWindow(note.id)
-      if (win && !win.isDestroyed()) {
-        const b = win.getBounds()
+      const b = await getPinnedNoteWindowState(note.id)
+      if (b) {
         note.position = { x: b.x, y: b.y }
         note.size = { width: b.width, height: b.height }
       }

@@ -170,7 +170,7 @@ export default function InputWindow() {
         </div>
 
         <div className="h-full flex flex-col bg-[#F7FFFC] border border-border rounded-2xl overflow-hidden pt-4 shadow-panel">
-          {settings && (settings.ui?.onboardingCompleted !== true || !(settings.llm?.apiKey ?? '').trim()) && (
+          {settings && !(settings.llm?.apiKeys?.[settings.llm?.provider ?? 'openai'] ?? settings.llm?.apiKey ?? '').trim() && (
             <div className="px-3 py-1.5 text-[11px] text-primary bg-[#E8FBF4] border-b border-border no-drag flex items-center justify-between gap-2 shrink-0">
               <span>尚未完成初始設定或缺少 API Key。</span>
               <button

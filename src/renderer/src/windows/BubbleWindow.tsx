@@ -27,6 +27,7 @@ export default function BubbleWindow({ characterId }: Props) {
 
   const containerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+  const lastSizeRef = useRef<{ width: number; height: number }>({ width: 280, height: 120 })
 
   const displayText = useMemo(() => String(text ?? ''), [text])
 
@@ -141,6 +142,7 @@ export default function BubbleWindow({ characterId }: Props) {
 
       const contentH = el.scrollHeight
       const height = Math.min(32000, Math.max(78, Math.ceil(contentH + 50)))
+      lastSizeRef.current = { width, height }
       window.api.invoke('bubble:set-size', characterId, { width, height })
     }
 
