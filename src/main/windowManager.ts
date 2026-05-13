@@ -1362,7 +1362,8 @@ export function createPinnedNoteWindow(
   content: string,
   title = '便利貼',
   color = '#FFE8AA',
-  size?: { width: number; height: number }
+  size?: { width: number; height: number },
+  fontSize?: number
 ): BrowserWindow {
   if (pinnedNoteWindows.has(noteId)) {
     const old = pinnedNoteWindows.get(noteId)
@@ -1426,7 +1427,7 @@ export function createPinnedNoteWindow(
     if (!win.isDestroyed()) {
       setTimeout(() => {
         if (!win.isDestroyed()) {
-          win.webContents.send('pinned-note:init', { noteId, content, title, color })
+          win.webContents.send('pinned-note:init', { noteId, content, title, color, fontSize })
         }
       }, 100)
     }

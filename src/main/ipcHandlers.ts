@@ -411,7 +411,7 @@ export function initState(
   if (visibleNotes.length > 0) {
     setImmediate(() => {
       for (const note of visibleNotes) {
-        createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size)
+        createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size, note.fontSize)
       }
     })
   }
@@ -1754,7 +1754,7 @@ export function registerIpcHandlers() {
     if (!note) return false
     note.visible = true
     note.updatedAt = Date.now()
-    createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size)
+    createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size, note.fontSize)
     focusPinnedNoteWindow(note.id)
     savePinnedNotes()
     return true
@@ -1767,7 +1767,7 @@ export function registerIpcHandlers() {
     if (!note.visible) {
       note.visible = true
       note.updatedAt = Date.now()
-      createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size)
+      createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size, note.fontSize)
       savePinnedNotes()
     }
     return focusPinnedNoteWindow(note.id)
@@ -1834,6 +1834,20 @@ export function registerIpcHandlers() {
       note.color = color
       note.updatedAt = Date.now()
       updatePinnedNoteColor(noteId, color)
+      savePinnedNotes()
+    }
+    return true
+  })
+
+  ipcMain.handle('pinned-note:update-font-size', (_, noteId: string, fontSize: number | null) => {
+    const note = settings.ui.pinnedNotes?.find(n => n.id === noteId)
+    if (note) {
+      if (fontSize === null) {
+        delete note.fontSize
+      } else {
+        note.fontSize = Math.max(11, Math.min(48, fontSize))
+      }
+      note.updatedAt = Date.now()
       savePinnedNotes()
     }
     return true

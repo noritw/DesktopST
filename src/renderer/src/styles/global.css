@@ -8,7 +8,8 @@
   body {
     background: transparent;
     color: var(--color-text-primary);
-    font-family: 'Nunito', 'M PLUS Rounded 1c', system-ui, sans-serif;
+    font-family: 'Nunito', 'M PLUS Rounded 1c', 'Microsoft JhengHei UI', 'Microsoft JhengHei', system-ui, sans-serif;
+    font-size: var(--font-size-base, 14px);
     -webkit-font-smoothing: antialiased;
   }
 

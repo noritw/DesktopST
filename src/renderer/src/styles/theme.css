@@ -16,6 +16,17 @@
   --color-danger-soft: #FFE2D8;
   --color-danger-border: #FFB59F;
 
+  /* Font size presets — applied via data-font-size on <html> */
+  --font-size-base: 14px;
+}
+
+:root[data-font-size="xs"] { --font-size-base: 12px; }
+:root[data-font-size="sm"] { --font-size-base: 13px; }
+:root[data-font-size="md"] { --font-size-base: 14px; }
+:root[data-font-size="lg"] { --font-size-base: 16px; }
+:root[data-font-size="xl"] { --font-size-base: 18px; }
+
+:root {
   /* Theme extension space: future presets/custom palettes can override these aliases. */
   --theme-accent: var(--color-teal);
   --theme-accent-soft: var(--color-mint);

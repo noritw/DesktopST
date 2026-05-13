@@ -67,6 +67,7 @@ export interface PinnedNote {
   visible: boolean        // true=貼在桌面；false=收回管理介面
   position: { x: number; y: number }
   size?: { width: number; height: number }
+  fontSize?: number       // 便利貼內文字級（px），未設定時 fallback 到全域字級
   updatedAt: number
 }
 
@@ -121,6 +122,8 @@ export interface AppSettings {
     unfocusedBubbleOpacity: number
     theme: 'light' | 'dark' | 'auto'
     hoverMenuOnHover: boolean
+    /** 全域字級：xs=12 / sm=13 / md=14（預設）/ lg=16 / xl=18 px */
+    chatFontSize?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
     /** 上次在記錄／輸入端使用的作用中對話；重開程式時還原 */
     lastActiveConversationId?: string
     /** 首次啟動引導完成後為 true，避免重複打擾 */

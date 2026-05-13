@@ -900,6 +900,33 @@ export default function SettingsWindow() {
 
         {tab === '介面' && (
           <>
+            <p className="text-xs font-medium text-secondary">文字大小</p>
+            <div className="flex gap-2">
+              {([
+                { key: 'xs', label: '極小', px: '12' },
+                { key: 'sm', label: '小', px: '13' },
+                { key: 'md', label: '中', px: '14' },
+                { key: 'lg', label: '大', px: '16' },
+                { key: 'xl', label: '極大', px: '18' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => set('ui.chatFontSize', opt.key)}
+                  className={`flex-1 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                    (draft.ui.chatFontSize ?? 'md') === opt.key
+                      ? 'bg-mint text-primary border-teal font-semibold'
+                      : 'bg-surface text-secondary border-border hover:border-teal hover:text-primary'
+                  }`}
+                >
+                  <span style={{ fontSize: `${opt.px}px` }}>{opt.label}</span>
+                  <span className="block text-[10px] opacity-60">{opt.px}px</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-secondary">套用至全 App 文字，儲存後立即生效。</p>
+
+            <div className="border-t border-border pt-3" />
             <p className="text-xs font-medium text-secondary">互動方式</p>
             <label className="flex items-center gap-2 cursor-pointer">
               <input

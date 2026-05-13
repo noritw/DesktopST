@@ -20,6 +20,7 @@ export default function PinnedNoteWindow() {
   const [title, setTitle] = useState('便利貼')
   const [content, setContent] = useState('')
   const [color, setColor] = useState('#FFE8AA')
+  const [fontSize, setFontSize] = useState<number | null>(null)
   const [isEditingContent, setIsEditingContent] = useState(false)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -34,11 +35,12 @@ export default function PinnedNoteWindow() {
 
   useEffect(() => {
     const unsubInit = window.api.on('pinned-note:init', (payload) => {
-      const p = payload as { noteId: string; content: string; title: string; color: string }
+      const p = payload as { noteId: string; content: string; title: string; color: string; fontSize?: number }
       setNoteId(p.noteId)
       setContent(p.content || '')
       setTitle(p.title || '便利貼')
       setColor(p.color || '#FFE8AA')
+      setFontSize(p.fontSize ?? null)
     })
 
     const unsubUpdateContent = window.api.on('pinned-note:update-content', (payload) => {
@@ -53,6 +55,11 @@ export default function PinnedNoteWindow() {
 
     return () => { unsubInit(); unsubUpdateContent(); unsubUpdateColor() }
   }, [noteId])
+
+  const saveFontSize = async (val: number | null) => {
+    setFontSize(val)
+    await window.api.invoke('pinned-note:update-font-size', noteId, val)
+  }
 
   const saveContent = async (val: string) => {
     const pos = await window.api.invoke('pinned-note:get-position', noteId) as { x: number; y: number } | null
@@ -80,6 +87,7 @@ export default function PinnedNoteWindow() {
     if (noteId) window.api.invoke('pinned-note:focus', noteId).catch(console.error)
   }
 
+  const effectiveFontSize = fontSize ?? 14
   const dark = isDarkNote(color)
   const borderColor = color.toUpperCase() === '#FFFFFF' ? '#A9DED2' : darken(color)
   const textColor = dark ? '#F7FFFC' : '#3D5A52'
@@ -169,14 +177,31 @@ export default function PinnedNoteWindow() {
               value={content}
               onChange={e => setContent(e.target.value)}
               onKeyDown={e => { if (e.key === 'Escape') setIsEditingContent(false) }}
-              className="flex-1 min-h-0 w-full p-1.5 rounded-lg text-sm resize-none outline-none"
+              className="flex-1 min-h-0 w-full p-1.5 rounded-lg resize-none outline-none"
               style={{
+                fontSize: effectiveFontSize,
+                lineHeight: 1.5,
                 color: textColor,
                 background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.7)',
                 border: `1px solid ${borderColor}`
               }}
               autoFocus
             />
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[10px] shrink-0" style={{ color: secondaryTextColor }}>A</span>
+              <input
+                type="range"
+                min={11}
+                max={48}
+                step={1}
+                value={effectiveFontSize}
+                onChange={e => saveFontSize(Number(e.target.value))}
+                className="flex-1 h-3 cursor-pointer accent-teal"
+                style={{ accentColor: dark ? '#AAEEDD' : undefined }}
+              />
+              <span className="text-[13px] shrink-0 font-bold" style={{ color: secondaryTextColor }}>A</span>
+              <span className="text-[10px] w-6 text-right shrink-0" style={{ color: secondaryTextColor }}>{effectiveFontSize}</span>
+            </div>
             <div className="flex gap-1 justify-end shrink-0">
               <button
                 type="button"
@@ -198,8 +223,8 @@ export default function PinnedNoteWindow() {
           </div>
         ) : (
           <div
-            className="w-full h-full p-1 text-sm leading-relaxed overflow-y-auto whitespace-pre-wrap break-words select-text"
-            style={{ color: content ? textColor : secondaryTextColor, cursor: 'default' }}
+            className="w-full h-full p-1 leading-relaxed overflow-y-auto whitespace-pre-wrap break-words select-text"
+            style={{ fontSize: effectiveFontSize, color: content ? textColor : secondaryTextColor, cursor: 'default' }}
             onDoubleClick={() => { setIsEditingContent(true); setTimeout(() => textareaRef.current?.focus(), 0) }}
             onContextMenu={e => { e.preventDefault(); setIsEditingContent(true); setTimeout(() => textareaRef.current?.focus(), 0) }}
             title="雙擊或右鍵編輯內容"

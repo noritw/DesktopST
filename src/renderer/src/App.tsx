@@ -17,15 +17,25 @@ const w = typeof window !== 'undefined' && window.windowParams
   ? window.windowParams.get('w')
   : new URLSearchParams(window.location.search).get('w')
 
+const FONT_SIZE_MAP: Record<string, string> = {
+  xs: '12px', sm: '13px', md: '14px', lg: '16px', xl: '18px'
+}
+
 export default function App() {
   const loadAll = useAppStore(s => s.loadAll)
   const subscribeToEvents = useAppStore(s => s.subscribeToEvents)
+  const chatFontSize = useAppStore(s => s.settings?.ui.chatFontSize ?? 'md')
 
   useEffect(() => {
     loadAll().catch(e => console.error('[DesktopST] loadAll failed:', e))
     const unsub = subscribeToEvents()
     return unsub
   }, [])
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-font-size', chatFontSize)
+    document.documentElement.style.fontSize = FONT_SIZE_MAP[chatFontSize] ?? '14px'
+  }, [chatFontSize])
 
   if (w === 'character') {
     const id = window.windowParams?.get('id') ?? new URLSearchParams(window.location.search).get('id')
