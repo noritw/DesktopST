@@ -57,56 +57,10 @@ function bubbleBoundsNearlyEqual(a: WindowBoundsState, b: WindowBoundsState, eps
 }
 
 /** 與上次程式 setBounds 比對時放寬：Windows／高分屏下 getBounds 常有 1～數 px 抖動，過嚴會誤觸 refresh 累積偏移 */
-async function getRendererViewportSize(win: BrowserWindow): Promise<{ width: number; height: number } | null> {
-  if (win.isDestroyed() || win.webContents.isDestroyed()) return null
-  try {
-    const result = await win.webContents.executeJavaScript(
-      '({ width: Math.round(window.innerWidth), height: Math.round(window.innerHeight) })',
-      true
-    ) as { width?: unknown; height?: unknown }
-    const width = Math.round(Number(result?.width))
-    const height = Math.round(Number(result?.height))
-    if (Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0) {
-      return { width, height }
-    }
-  } catch {
-    // Renderer may be closing or not ready yet; BrowserWindow bounds are the fallback.
-  }
-  return null
-}
-
-async function getBoundsWithRendererSize(win: BrowserWindow): Promise<WindowBoundsState | null> {
+function getWindowBoundsState(win: BrowserWindow): WindowBoundsState | null {
   if (win.isDestroyed()) return null
   const b = win.getBounds()
-  const viewport = await getRendererViewportSize(win)
-  const scale = displayScaleAt({ x: b.x, y: b.y })
-  return {
-    x: b.x,
-    y: b.y,
-    width: viewport ? Math.round(viewport.width * Math.max(1, scale)) : b.width,
-    height: viewport ? Math.round(viewport.height * Math.max(1, scale)) : b.height
-  }
-}
-
-function displayScaleAt(position: { x: number; y: number }): number {
-  const display = screen.getDisplayNearestPoint(position)
-  const scale = Number(display.scaleFactor)
-  return Number.isFinite(scale) && scale > 0 ? scale : 1
-}
-
-function toNativeWindowSize(
-  size: { width: number; height: number },
-  position: { x: number; y: number },
-  min: { width: number; height: number },
-  max: { width: number; height: number }
-): { width: number; height: number; scale: number } {
-  const scale = displayScaleAt(position)
-  const divisor = Math.max(1, scale)
-  return {
-    width: clamp(Math.round(size.width / divisor), min.width, max.width),
-    height: clamp(Math.round(size.height / divisor), min.height, max.height),
-    scale
-  }
+  return { x: b.x, y: b.y, width: b.width, height: b.height }
 }
 
 const BUBBLE_PROGRAMMATIC_BOUNDS_EPS = 28
@@ -186,9 +140,9 @@ function getInitialAuxBounds(kind: AuxWindowKind): WindowBoundsState {
 
 function rememberAuxBounds(kind: AuxWindowKind, win: BrowserWindow): void {
   let timer: NodeJS.Timeout | null = null
-  const save = async () => {
+  const save = () => {
     if (win.isDestroyed()) return
-    const b = await getBoundsWithRendererSize(win)
+    const b = getWindowBoundsState(win)
     if (b) saveAuxBounds?.(kind, b)
   }
   const schedule = () => {
@@ -390,11 +344,11 @@ export function createCharacterWindow(
   const winSize = getCharacterWindowSize(scale)
   const pos = normalizeWindowPosition(position, winSize)
 
+  const charTargetBounds = { x: pos.x, y: pos.y, width: winSize.width, height: winSize.height }
+  // Windows 混合 DPI workaround：見 createPinnedNoteWindow 同段註解
   const win = new BrowserWindow({
-    x: pos.x,
-    y: pos.y,
-    width: winSize.width,
-    height: winSize.height,
+    ...charTargetBounds,
+    show: false,
     transparent: true,
     frame: false,
     backgroundColor: '#00000000',
@@ -408,6 +362,8 @@ export function createCharacterWindow(
       nodeIntegration: false
     }
   })
+  win.show()
+  win.setBounds(charTargetBounds)
 
   win.setIgnoreMouseEvents(false)
   win.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
@@ -870,17 +826,16 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
 
   const savedBounds = getInitialAuxBounds('input')
   const initialBounds = getSavedAuxBounds?.('input') ? savedBounds : { ...savedBounds, x: position.x, y: position.y }
-  const nativeSize = toNativeWindowSize(
-    { width: initialBounds.width, height: initialBounds.height },
-    { x: initialBounds.x, y: initialBounds.y },
-    { width: 280, height: 104 },
-    { width: 2400, height: 1600 }
-  )
-  inputWindow = new BrowserWindow({
+  const inputTargetBounds = {
     x: initialBounds.x,
     y: initialBounds.y,
-    width: nativeSize.width,
-    height: nativeSize.height,
+    width: initialBounds.width,
+    height: initialBounds.height
+  }
+  // Windows 混合 DPI workaround：見 createPinnedNoteWindow 同段註解
+  inputWindow = new BrowserWindow({
+    ...inputTargetBounds,
+    show: false,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -911,6 +866,7 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
     inputWindow.webContents.openDevTools({ mode: 'detach' })
   }
   inputWindow.show()
+  inputWindow.setBounds(inputTargetBounds)
   inputWindow.setOpacity(1)
   raiseAuxAboveCharacters()
   inputWindow.moveTop()
@@ -1189,17 +1145,16 @@ let logWindow: BrowserWindow | null = null
 function ensureLogWindow(): BrowserWindow {
   if (!logWindow || logWindow.isDestroyed()) {
     const initialBounds = getInitialAuxBounds('log')
-    const nativeSize = toNativeWindowSize(
-      { width: initialBounds.width, height: initialBounds.height },
-      { x: initialBounds.x, y: initialBounds.y },
-      { width: 360, height: 300 },
-      { width: 2400, height: 1800 }
-    )
-    logWindow = new BrowserWindow({
+    const logTargetBounds = {
       x: initialBounds.x,
       y: initialBounds.y,
-      width: nativeSize.width,
-      height: nativeSize.height,
+      width: initialBounds.width,
+      height: initialBounds.height
+    }
+    // Windows 混合 DPI workaround：見 createPinnedNoteWindow 同段註解
+    logWindow = new BrowserWindow({
+      ...logTargetBounds,
+      show: false,
       frame: false,
       transparent: false,
       backgroundColor: '#F7FFFC',
@@ -1213,6 +1168,9 @@ function ensureLogWindow(): BrowserWindow {
       }
     })
     rememberAuxBounds('log', logWindow)
+    logWindow.once('show', () => {
+      if (logWindow && !logWindow.isDestroyed()) logWindow.setBounds(logTargetBounds)
+    })
     logWindow.setAlwaysOnTop(true, 'pop-up-menu')
     if (VITE_DEV_SERVER_URL) {
       logWindow.loadURL(makeURL({ w: 'log' }))
@@ -1412,25 +1370,17 @@ export function createPinnedNoteWindow(
     pinnedNoteWindows.delete(noteId)
   }
 
-  const visualSize = {
-    width: clamp(size?.width ?? 280, 100, 800),
-    height: clamp(size?.height ?? 200, 60, 800)
-  }
-  const nativeSize = toNativeWindowSize(
-    visualSize,
-    position,
-    { width: 100, height: 60 },
-    { width: 800, height: 800 }
-  )
-  const winW = nativeSize.width
-  const winH = nativeSize.height
+  const winW = clamp(size?.width ?? 280, 100, 800)
+  const winH = clamp(size?.height ?? 200, 60, 800)
   const normalizedPos = normalizeWindowPosition(position, { width: winW, height: winH })
+  const targetBounds = { x: normalizedPos.x, y: normalizedPos.y, width: winW, height: winH }
 
+  // Windows 混合 DPI workaround：先用建構式定位（讓視窗在隱藏狀態就被附著到正確螢幕），
+  // 等 show() 之後 DPI context 穩定，再 setBounds 強制套用正確尺寸；
+  // 否則 Windows 會在 show 時依舊 DPI 比例自動放大／縮小（每次 ×1.5 累積放大）。
   const win = new BrowserWindow({
-    x: normalizedPos.x,
-    y: normalizedPos.y,
-    width: winW,
-    height: winH,
+    ...targetBounds,
+    show: false,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -1451,9 +1401,9 @@ export function createPinnedNoteWindow(
   let boundsTimer: NodeJS.Timeout | null = null
   const saveBounds = () => {
     if (boundsTimer) clearTimeout(boundsTimer)
-    boundsTimer = setTimeout(async () => {
+    boundsTimer = setTimeout(() => {
       if (!win.isDestroyed()) {
-        const b = await getBoundsWithRendererSize(win)
+        const b = getWindowBoundsState(win)
         if (b) onPinnedNoteBoundsChanged?.(noteId, b)
       }
     }, 300)
@@ -1498,6 +1448,9 @@ export function createPinnedNoteWindow(
 
   pinnedNoteWindows.set(noteId, win)
   win.show()
+  // Show 之後 Windows 可能因 DPI 切換而把視窗按比例放大／縮小，
+  // 再 setBounds 一次強制套用目標尺寸（DPI context 此時已穩定）。
+  win.setBounds(targetBounds)
   raiseAuxAboveCharacters()
   win.moveTop()
   raiseCharactersAbovePinnedNotes()
@@ -1553,7 +1506,7 @@ export function getPinnedNoteWindow(noteId: string): BrowserWindow | undefined {
 export async function getPinnedNoteWindowState(noteId: string): Promise<WindowBoundsState | null> {
   const win = getPinnedNoteWindow(noteId)
   if (!win) return null
-  return getBoundsWithRendererSize(win)
+  return getWindowBoundsState(win)
 }
 
 let pinnedNotesManagerWindow: BrowserWindow | null = null

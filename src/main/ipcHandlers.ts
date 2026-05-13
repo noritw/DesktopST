@@ -1687,7 +1687,7 @@ export function registerIpcHandlers() {
   }
 
   // 建立便利貼（角色便利貼每角色上限 10 張，超出需 force=true 才清理最舊的）
-  ipcMain.handle('pinned-note:create', (_, characterId: string, title: string, position: { x: number; y: number }, content: string, force?: boolean, bubbleSize?: { width: number; height: number }) => {
+  ipcMain.handle('pinned-note:create', (_, characterId: string, title: string, position: { x: number; y: number }, content: string, force?: boolean) => {
     if (!settings.ui.pinnedNotes) settings.ui.pinnedNotes = []
 
     const limitWarning = getPinnedNoteLimitWarning(force)
@@ -1703,10 +1703,7 @@ export function registerIpcHandlers() {
       if (bubbleWin && !bubbleWin.isDestroyed()) {
         const b = bubbleWin.getBounds()
         notePos = { x: b.x, y: b.y }
-        // Use renderer-reported size (CSS/logical px) to avoid DPI scaling issues with getBounds()
-        // On high-DPI displays (e.g. 150%), getBounds() may return physical pixels while
-        // BrowserWindow constructor expects logical pixels, causing the note to be oversized.
-        noteSize = bubbleSize ?? { width: b.width, height: b.height }
+        noteSize = { width: b.width, height: b.height }
       }
     }
     const noteContent = characterId ? parseEmotion(content).content : content

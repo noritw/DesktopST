@@ -52,9 +52,8 @@ export default function BubbleWindow({ characterId }: Props) {
     if (!containerEl || !textToCopy) { closeBubble(); return }
     const rect = containerEl.getBoundingClientRect()
     const pos = { x: rect.x, y: rect.y }
-    const bubbleSize = lastSizeRef.current
     try {
-      const result = await window.api.invoke('pinned-note:create', characterId, titleToCopy, pos, textToCopy, force, bubbleSize) as { needsConfirm?: boolean; level?: string; count?: number; noteId?: string }
+      const result = await window.api.invoke('pinned-note:create', characterId, titleToCopy, pos, textToCopy, force) as { needsConfirm?: boolean; level?: string; count?: number; noteId?: string }
       if (result?.needsConfirm) {
         clearTimer()
         if (confirmLimitWarning(result.level, result.count)) {
