@@ -199,57 +199,6 @@ function safeJsonParse<T>(s: string): T | null {
   }
 }
 
-function parseGuardDecisionText(raw: string): { respond?: boolean; emotion?: string; content?: string } | null {
-  const text = String(raw ?? '').trim()
-  if (!text) return null
-
-  const json = safeJsonParse<{ respond?: boolean; emotion?: string; content?: string }>(text)
-  if (json) return json
-
-  // LLM sometimes outputs multiple JSON objects separated by commas or newlines.
-  // Try wrapping in brackets to parse as an array.
-  const asArray = safeJsonParse<Array<{ respond?: boolean; emotion?: string; content?: string }>>(`[${text}]`)
-  if (Array.isArray(asArray) && asArray.length > 0) {
-    const responding = asArray.filter(item => item && item.respond !== false)
-    if (responding.length > 0) {
-      const combined = responding
-        .map(item => String(item.content ?? '').trim())
-        .filter(Boolean)
-        .join('\n')
-      return {
-        respond: true,
-        emotion: responding[0].emotion || 'neutral',
-        content: combined || undefined
-      }
-    }
-    return { respond: false }
-  }
-
-  const out: { respond?: boolean; emotion?: string; content?: string } = {}
-
-  const respondMatch = text.match(/\brespond\s*[:=]\s*(true|false|1|0|yes|no|是|否)\b/i)
-  if (respondMatch) {
-    const token = respondMatch[1].toLowerCase()
-    out.respond = token === 'true' || token === '1' || token === 'yes' || token === '是'
-  }
-
-  const emotionMatch = text.match(/\bemotion\s*[:=]\s*["']?([a-z_]+)["']?/i)
-  if (emotionMatch) {
-    out.emotion = String(emotionMatch[1]).toLowerCase()
-  }
-
-  const contentQuoted =
-    text.match(/\bcontent\s*[:=]\s*"([\s\S]*?)"\s*$/i)
-    ?? text.match(/\bcontent\s*[:=]\s*'([\s\S]*?)'\s*$/i)
-  if (contentQuoted) {
-    out.content = contentQuoted[1]
-  } else {
-    const contentPlain = text.match(/\bcontent\s*[:=]\s*([\s\S]+)$/i)
-    if (contentPlain) out.content = contentPlain[1].trim()
-  }
-
-  return (out.respond !== undefined || out.emotion || out.content) ? out : null
-}
 
 function normalizeForCompare(s: string): string {
   return String(s ?? '')
@@ -1465,61 +1414,31 @@ export function registerIpcHandlers() {
       const char = getCharacter(charId)
       if (!char) continue
 
-      const guardChar = {
-        ...char,
-        systemPromptOverride: [
-          `You are ${char.name} in a group conversation.`,
-          'Rule: you do NOT have to reply. Only reply when you have a fresh viewpoint, supplementary info, a different emotional reaction, or you are addressed by name.',
-          'If you would just repeat the previous speaker or have nothing to add, reply: [neutral] {"respond":false}',
-          'If you do reply, output EXACTLY ONE JSON object prefixed with an emotion tag:',
-          `[neutral] {"respond":true,"emotion":"neutral","content":"your reply (keep it brief; do not repeat the previous speaker; use \\n for multiple sentences inside the same content string)"}`,
-          'Do NOT output multiple JSON objects, arrays, or any text outside the JSON.'
-        ].join('\n'),
-      }
-      const secondaryGuardChar = {
-        ...char,
-        systemPromptOverride: [
-          `You are deciding whether "${char.name}" should speak next in the current conversation.`,
-          'Respond if: the user explicitly invites everyone to talk, another character addresses you, or you can offer a genuinely different angle.',
-          'Stay silent if: you would merely echo the previous speaker, have no new reaction, or the character would realistically stay quiet.',
-          'If responding, "content" must be direct spoken dialogue — no narration, actions, parenthetical descriptions, or stage directions.',
-          '⚠ Strict rule: output EXACTLY ONE JSON object. No multiple objects, no arrays, no explanations, no Markdown.',
-          'If the reply has multiple sentences, put them all inside the same "content" string separated by \\n.',
-          'Format: {"respond":true,"emotion":"neutral","content":"what to say"}',
-          'Silent format: {"respond":false}'
-        ].join('\n'),
-      }
-
       try {
         raiseCharactersAbovePinnedNotes()
         broadcastToAll('character:thinking', { characterId: charId, thinking: true })
         const recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
-        const { content: jsonText, debugPrompt } = await chatWithLLM({
+        const { content: reply, emotion, debugPrompt } = await chatWithLLM({
           settings,
-          character: secondaryGuardChar,
+          character: char,
           messages: recentMessages,
           speakerNameById: getSpeakerNameById(),
           persona: activePersona,
           world: activeWorld,
           desktopCharacterNames
         })
-        const parsed = parseGuardDecisionText(jsonText)
-        const fallbackReply = !parsed && jsonText && !/^\s*(false|no|不|不用|沉默)/i.test(jsonText)
-          ? String(jsonText).trim()
-          : ''
-        const respond = parsed ? !!parsed.respond : !!fallbackReply
-        const reply = stripOtherCharacterSpeakerLines(
-          normalizeCharacterDialogue(String(parsed?.content ?? fallbackReply).trim(), char),
+        const cleanReply = stripOtherCharacterSpeakerLines(
+          normalizeCharacterDialogue(reply.trim(), char),
           char.id
         )
-        const replyNorm = normalizeForCompare(reply)
-        const lastNorm = normalizeForCompare(lastReplyText)
 
-        if (!respond || !reply) {
+        if (!cleanReply) {
           broadcastToAll('character:thinking', { characterId: charId, thinking: false })
           continue
         }
         // Skip near-duplicates
+        const replyNorm = normalizeForCompare(cleanReply)
+        const lastNorm = normalizeForCompare(lastReplyText)
         if (replyNorm && lastNorm && (replyNorm === lastNorm || replyNorm.includes(lastNorm) || lastNorm.includes(replyNorm))) {
           broadcastToAll('character:thinking', { characterId: charId, thinking: false })
           continue
@@ -1529,19 +1448,19 @@ export function registerIpcHandlers() {
           id: uuidv4(),
           role: 'character',
           characterId: charId,
-          content: reply,
+          content: cleanReply,
           llmProvider: settings.llm.provider,
           llmModel: resolveModel(settings),
           debugPrompt,
-          emotion: normalizeEmotion(parsed?.emotion) || 'neutral',
+          emotion: normalizeEmotion(emotion) || 'neutral',
           timestamp: Date.now()
         }
-        lastReplyText = reply
+        lastReplyText = cleanReply
         conv.messages.push(charMsg)
         conv.updatedAt = Date.now()
         broadcastConversationUpdate(conv)
         broadcastToAll('character:new-message', { characterId: charId, message: charMsg })
-        showSpeechBubble(charId, char.name, reply)
+        showSpeechBubble(charId, char.name, cleanReply)
         broadcastToAll('character:thinking', { characterId: charId, thinking: false })
       } catch (e: unknown) {
         // If a secondary decision fails, don't break the whole send flow.
@@ -1566,25 +1485,11 @@ export function registerIpcHandlers() {
     broadcastToAll('character:thinking', { characterId, thinking: true })
     try {
       const recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
-      const forceInstruction: Message = {
-        id: uuidv4(),
-        role: 'system',
-        content: [
-          `Ask ${char.name} to continue the current conversation naturally.`,
-          'Use the full recent conversation as context, especially the latest message.',
-          'Do not repeat what the previous speaker already said, and do not answer the earliest question again unless it is still relevant.',
-          'Speak in this character voice, personality, stance, and current mood.',
-          'Add a fresh reaction, opinion, or follow-up that moves the conversation forward.',
-          'Reply with spoken dialogue only; do not include narration, action descriptions, or stage directions.',
-          'Do not mention prompts, system instructions, or that you are reading context.'
-        ].join('\n'),
-        timestamp: Date.now()
-      }
       const desktopCharNamesForce = settings.ui.desktopCharacters.map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
       const { content, emotion, debugPrompt } = await chatWithLLM({
         settings,
         character: char,
-        messages: [...recentMessages, forceInstruction],
+        messages: recentMessages,
         speakerNameById: getSpeakerNameById(),
         persona: activePersona,
         world: activeWorld,

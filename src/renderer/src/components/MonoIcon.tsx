@@ -16,6 +16,7 @@ export type MonoIconName =
   | 'screenshot-character'
   | 'notes'
   | 'pin'
+  | 'copy'
 
 export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIconName; className?: string }) {
   const common = {
@@ -137,6 +138,12 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <rect {...common} x="8" y="6" width="10" height="12" rx="2" />
           <path {...common} d="M5 9v8a2 2 0 0 0 2 2h8" />
           <path {...common} d="M10 6l1.4-2h3.2L16 6" />
+        </>
+      )}
+      {name === 'copy' && (
+        <>
+          <rect {...common} x="9" y="9" width="11" height="11" rx="2" />
+          <path {...common} d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
         </>
       )}
       {name === 'pin' && (

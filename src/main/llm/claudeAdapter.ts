@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import fs from 'fs'
 import path from 'path'
 import {
-  buildSystemPrompt, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
+  buildSystemPrompt, buildTriggerMessage, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
   resolveModel, type ChatLLMParams, type ChatLLMResult
 } from './promptUtils'
 
@@ -103,6 +103,19 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
   // Claude requires alternating user/assistant and must start with user
   if (claudeMessages.length === 0 || claudeMessages[0].role !== 'user') {
     claudeMessages.unshift({ role: 'user', content: '（開始對話）' })
+  }
+
+  // Append trigger to last user message (Claude requires strict alternation, cannot add a new user turn)
+  const trigger = buildTriggerMessage(character.name)
+  const lastMsg = claudeMessages[claudeMessages.length - 1]
+  if (lastMsg?.role === 'user') {
+    if (typeof lastMsg.content === 'string') {
+      lastMsg.content = lastMsg.content + '\n\n' + trigger
+    } else {
+      ;(lastMsg.content as ClaudeContentBlock[]).push({ type: 'text', text: '\n\n' + trigger })
+    }
+  } else {
+    claudeMessages.push({ role: 'user', content: trigger })
   }
 
   const debugPrompt = JSON.stringify({

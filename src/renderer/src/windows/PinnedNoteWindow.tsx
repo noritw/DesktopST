@@ -97,7 +97,8 @@ export default function PinnedNoteWindow() {
 
   const effectiveFontSize = fontSize ?? 14
   const dark = isDarkNote(color)
-  const borderColor = color.toUpperCase() === '#FFFFFF' ? '#A9DED2' : darken(color)
+  const borderColor = dark ? 'rgba(255,255,255,0.28)' : 'rgba(0,0,0,0.15)'
+  const dividerColor = dark ? 'rgba(255,255,255,0.11)' : 'rgba(0,0,0,0.07)'
   const textColor = dark ? '#F7FFFC' : '#3D5A52'
   const secondaryTextColor = dark ? '#A9DED2' : '#5F857A'
   const controlBg = dark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.45)'
@@ -111,7 +112,7 @@ export default function PinnedNoteWindow() {
     >
       <div
         className="drag-region flex items-center gap-1 px-2 py-1.5 shrink-0"
-        style={{ borderBottom: `1px solid ${borderColor}` }}
+        style={{ borderBottom: `1px solid ${dividerColor}` }}
       >
         <button
           ref={colorButtonRef}

@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import {
-  buildSystemPrompt, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
+  buildSystemPrompt, buildTriggerMessage, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
   resolveModel, type PromptCharacter, type ChatLLMParams, type ChatLLMResult
 } from './promptUtils'
 
@@ -71,6 +71,9 @@ export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResu
       return { role, content }
     })
   ]
+
+  // Trigger injected after conversation history
+  input.push({ role: 'user', content: buildTriggerMessage(character.name) })
 
   if (images && images.length > 0 && input.length > 0) {
     for (let i = input.length - 1; i >= 0; i--) {

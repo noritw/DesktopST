@@ -16,6 +16,39 @@ function stripInjectedTime(content: string): string {
     .trim()
 }
 
+function stripImageData(prompt: string): string {
+  try {
+    const obj = JSON.parse(prompt)
+    const walk = (node: unknown): unknown => {
+      if (Array.isArray(node)) return node.map(walk)
+      if (node && typeof node === 'object') {
+        const o = node as Record<string, unknown>
+        // OpenAI: { type: "image_url", image_url: { url: "data:..." } }
+        if (o.type === 'image_url' && o.image_url && typeof (o.image_url as Record<string, unknown>).url === 'string') {
+          const url = (o.image_url as Record<string, unknown>).url as string
+          if (url.startsWith('data:')) {
+            return { ...o, image_url: { ...(o.image_url as object), url: '[IMAGE DATA REMOVED]' } }
+          }
+        }
+        // OpenAI Responses API: { type: "input_image", image_url: "data:..." }
+        if (typeof o.image_url === 'string' && (o.image_url as string).startsWith('data:')) {
+          return { ...o, image_url: '[IMAGE DATA REMOVED]' }
+        }
+        // Anthropic: { type: "image", source: { type: "base64", data: "..." } }
+        if (o.type === 'image' && o.source && typeof (o.source as Record<string, unknown>).data === 'string') {
+          return { ...o, source: { ...(o.source as object), data: '[IMAGE DATA REMOVED]' } }
+        }
+        return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, walk(v)]))
+      }
+      return node
+    }
+    return JSON.stringify(walk(obj), null, 2)
+  } catch {
+    // fallback: regex strip for data URLs
+    return prompt.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g, '[IMAGE DATA REMOVED]')
+  }
+}
+
 function stripLeadingEmotionTag(content: string): string {
   return String(content ?? '')
     .replace(/^\[\s*[a-z_一-鿿㐀-䶿]+\s*\]\s*/i, '')
@@ -139,6 +172,16 @@ export default function LogWindow() {
   const openPrompt = (msg: Message) => {
     setEditingId(null)
     setPromptMessage(msg)
+  }
+
+  const [copied, setCopied] = useState(false)
+  const copyPrompt = () => {
+    if (!promptMessage?.debugPrompt) return
+    const stripped = stripImageData(promptMessage.debugPrompt)
+    navigator.clipboard.writeText(stripped).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
   }
 
   const LlmBadge = ({ provider, model }: { provider?: string; model?: string }) => {
@@ -457,9 +500,19 @@ export default function LogWindow() {
                   {promptMessage.role === 'character' ? getCharName(promptMessage.characterId) : userName} · {formatTime(promptMessage.timestamp)}
                 </div>
               </div>
-              <button type="button" className="btn-round w-7 h-7 text-sm" onClick={() => setPromptMessage(null)}>
-                <MonoIcon name="close" className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  className="btn-round w-7 h-7 text-sm"
+                  title="複製完整 Prompt"
+                  onClick={copyPrompt}
+                >
+                  <MonoIcon name={copied ? 'check' : 'copy'} className="w-3.5 h-3.5" />
+                </button>
+                <button type="button" className="btn-round w-7 h-7 text-sm" onClick={() => setPromptMessage(null)}>
+                  <MonoIcon name="close" className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
             <pre className="m-0 p-4 overflow-auto text-xs leading-relaxed text-primary whitespace-pre-wrap bg-surface">
               {promptMessage.debugPrompt || '這則訊息沒有保存 Prompt。只有新的 LLM 回應會記錄完整 Prompt。'}

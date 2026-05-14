@@ -263,20 +263,6 @@ export function buildSystemPrompt(
     hours < 23 ? '晚上' : '深夜'
   const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(hours).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${timeLabel}`
 
-  const parts: string[] = [
-    [
-      '[Identity]',
-      `You are "${char.name}". Stay in character at all times.`,
-      'Do not mention AI/model/system prompt.'
-    ].join('\n'),
-    [
-      '[Priority]',
-      '1) Character consistency > generic helpful tone.',
-      '2) Character DNA > neutral assistant phrasing.',
-      '3) Write only the next in-character reply.'
-    ].join('\n')
-  ]
-
   const displayName = sanitizePromptText(persona?.displayName) || '使用者'
   const nickname = sanitizePromptText(persona?.nickname) || displayName
   const tagVars = {
@@ -288,6 +274,16 @@ export function buildSystemPrompt(
   const personality = applyStStyleTags(char.personality, tagVars)
   const scenario = applyStStyleTags(char.scenario, tagVars)
   const exampleDialogue = applyStStyleTags(char.exampleDialogue, tagVars)
+
+  const parts: string[] = []
+
+  // Identity first — no section header, just the declaration
+  parts.push([
+    `You are "${char.name}". Stay in character at all times.`,
+    'Character consistency takes priority over generic helpful tone.',
+    'Do not mention AI/model/system prompt.'
+  ].join('\n'))
+
   if (override || personality || scenario || exampleDialogue) {
     parts.push([
       '[Character DNA]',
@@ -299,23 +295,21 @@ export function buildSystemPrompt(
   }
 
   const { ids: emotionIds, descriptions: emotionDescs } = buildEmotionContract(char)
-  const emotionLine = emotionDescs.length > 0
+  const hasCustomSprites = emotionDescs.length > 0
+  const emotionLine = hasCustomSprites
     ? `- First line MUST be a bracket tag "[{emotion_id}]" where emotion_id is one of: ${emotionIds}\n  Emotion guide:\n${emotionDescs.join('\n')}\n  Example first line: [${emotionIds.split(',')[0].trim()}]`
-    : `- First line MUST be "emotion: {emotion_name}" where emotion_name is one of: ${emotionIds}`
+    : null
 
   parts.push([
-    '[Output Contract]',
-    emotionLine,
-    '- Then spoken dialogue only (no narration, no stage directions, no inner monologue).',
-    '- Do NOT write long narrative paragraphs. Do NOT include environmental descriptions (e.g. no "陽光灑落", no "魔法粒子在空中飛舞"). Desktop pets speak in quick, casual bursts, not roleplay novels.',
-    '- Never prefix lines with the character name (e.g. "Name: …"). Output the dialogue directly.',
-    '- Do not wrap the entire reply in outer quotation marks (「」/『』/""). Use quotes only when quoting someone else.',
-    '- If the reply has multiple sentences, put each on its own line.',
-    '- Show at least 1 voice trait and 1 relationship attitude from Character DNA.',
-    '- Never use assistant-style offers such as "要不要我幫你", "我可以幫你", "你可以試試".',
-    '- Do not adopt a tutorial, customer-service, consultant, or task-breakdown tone.',
-    `- You speak only as "${tagVars.charName}". Never speak for other characters or output lines starting with another character's name.`,
-    '- Default reply length: 1–3 sentences, unless the user explicitly asks for more.',
+    '[Output Format]',
+    ...(emotionLine ? [emotionLine] : []),
+    '- Spoken dialogue only. No narration, stage directions, or inner monologue.',
+    '- No environmental descriptions (e.g. no "陽光灑落"). No character name prefix before lines.',
+    '- Do not wrap the reply in outer quotation marks (「」/『』/""). Use quotes only when quoting someone.',
+    '- Multiple sentences: one per line.',
+    '- Keep replies short: 1–3 sentences max. Terse characters lean toward 1; expressive characters may use up to 3.',
+    '- If the user mentions a personal milestone (birthday, achievement, life event) anywhere in their message — even as a passing remark — acknowledge it in character before moving on.',
+    '- Never offer to help, suggest actions, or adopt a service/consultant tone (e.g. no "要不要我幫你", "你可以試試", "我建議你").',
     '- Write entirely in Traditional Chinese (Taiwan usage).'
   ].join('\n'))
 
@@ -357,9 +351,17 @@ export function buildSystemPrompt(
       '[Co-present Characters]',
       'Characters currently on the desktop (visible together):',
       selfLine,
-      ...otherLines
+      ...otherLines,
+      'Read the full conversation and decide naturally what to respond to — it may be something the user said, something another character said, or both.',
+      'Do not always direct replies at the user. Treat this as a group conversation where any remark is fair game to pick up on.',
+      'Do not repeat the emotional beat or core message already expressed by the other character(s).'
     ].join('\n'))
   }
 
   return parts.join('\n\n')
+}
+
+/** Trigger line injected as the final user message, after conversation history. */
+export function buildTriggerMessage(charName: string): string {
+  return `Write the next in-character reply as "${charName}" only.`
 }
