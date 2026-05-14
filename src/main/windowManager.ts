@@ -1,6 +1,7 @@
 import { BrowserWindow, screen, nativeImage, app } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
+import type { Conversation } from './types'
 
 const VITE_DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL']
 const DEVTOOLS_ENABLED = process.env['DESKTOPST_DEVTOOLS'] === '1'
@@ -702,8 +703,17 @@ export function showSpeechBubble(characterId: string, speakerName: string, text:
     bw.webContents.once('did-finish-load', dispatchShow)
   } else {
     dispatchShow()
-    // 第二次延遲呼叫是為了應對 Windows 高 DPI 環境下第一次 show 後視窗尺寸短暫跑掉的問題
-    setTimeout(dispatchShow, 180)
+    // Windows 高 DPI workaround：show 後 DPI context 穩定前位置可能跑偏，延遲重新校正座標。
+    // 只修正視窗位置，不重送內容（避免觸發 React re-render → ResizeObserver → setBounds 鏈）。
+    setTimeout(() => {
+      if (bw.isDestroyed()) return
+      const cw2 = characterWindows.get(characterId)
+      if (cw2 && !cw2.isDestroyed()) {
+        applyBubbleBounds(bw, lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }, cw2.getBounds(), characterId)
+      }
+      if (charactersAlwaysOnTop) bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+      bw.moveTop()
+    }, 180)
   }
   lastShownBubbleCharacterId = characterId
 }
@@ -1561,15 +1571,21 @@ export function createPinnedNoteWindow(
   }
 
   pinnedNoteWindows.set(noteId, win)
-  // Show 之後 Windows 可能因 DPI 切換而把視窗按比例放大／縮小，
-  // 再 setBounds 一次強制套用目標尺寸（DPI context 此時已穩定）。
-  if (options?.skipActivation) win.showInactive()
-  else win.show()
-  win.setBounds(targetBounds)
-  if (!options?.skipActivation) {
-    raiseAuxAboveCharacters()
-    win.moveTop()
-    raiseCharactersAbovePinnedNotes()
+  if (options?.skipActivation) {
+    // 背景建立（不奪焦）：直接 showInactive → setBounds（DPI workaround）
+    win.showInactive()
+    win.setBounds(targetBounds)
+  } else {
+    // 前景建立：等 React 第一幀渲染完才顯示，避免空白視窗閃爍
+    // 仍需 show → setBounds 順序以穩定 DPI context
+    win.once('ready-to-show', () => {
+      if (win.isDestroyed()) return
+      win.show()
+      win.setBounds(targetBounds)
+      raiseAuxAboveCharacters()
+      win.moveTop()
+      raiseCharactersAbovePinnedNotes()
+    })
   }
   return win
 }
@@ -1700,8 +1716,17 @@ export function showPinnedNoteColorMenu(noteId: string, currentColor: string, an
     pinnedNoteColorMenuWindow.on('closed', () => {
       pinnedNoteColorMenuWindow = null
     })
+    // 等 React 渲染完才顯示，避免出現空白透明視窗的閃爍 lag
+    pinnedNoteColorMenuWindow.once('ready-to-show', () => {
+      if (!pinnedNoteColorMenuWindow || pinnedNoteColorMenuWindow.isDestroyed()) return
+      pinnedNoteColorMenuWindow.setBounds(bounds)
+      pinnedNoteColorMenuWindow.show()
+      pinnedNoteColorMenuWindow.moveTop()
+    })
+    return true
   }
 
+  // 已存在的視窗：更新座標 + 內容後直接顯示（內容已載入，無需等待）
   pinnedNoteColorMenuWindow.setBounds(bounds)
   pinnedNoteColorMenuWindow.webContents.send('pinned-note-color-menu:init', { noteId, color: currentColor })
   pinnedNoteColorMenuWindow.show()
@@ -1905,7 +1930,7 @@ export function broadcastToAll(channel: string, data: unknown): void {
   const wins = [
     ...characterWindows.values(),
     ...bubbleWindows.values(),
-    ...pinnedNoteWindows.values(),
+    // pinnedNoteWindows excluded: they only listen to direct sends (update-content, update-color)
     inputWindow,
     userBubbleWindow,
     logWindow,
@@ -1914,4 +1939,23 @@ export function broadcastToAll(channel: string, data: unknown): void {
     pinnedNotesManagerWindow
   ].filter(w => w && !w.isDestroyed()) as BrowserWindow[]
   for (const w of wins) w.webContents.send(channel, data)
+}
+
+/** Targeted broadcast for conversation updates.
+ *  - Log window gets the full conversation (renders images).
+ *  - Input and character windows get a stripped copy (base64 images removed) to reduce IPC payload.
+ *  - Bubble windows, pinned notes, settings, library, etc. are skipped — they don't consume conversation data.
+ */
+export function broadcastConversationUpdate(conv: Conversation): void {
+  const hasImages = conv.messages.some(m => m.images && m.images.length > 0)
+  const stripped: Conversation = hasImages
+    ? { ...conv, messages: conv.messages.map(m => (m.images?.length ? { ...m, images: [] } : m)) }
+    : conv
+
+  if (logWindow && !logWindow.isDestroyed())
+    logWindow.webContents.send('conversation:updated', conv)
+  if (inputWindow && !inputWindow.isDestroyed())
+    inputWindow.webContents.send('conversation:updated', stripped)
+  for (const w of characterWindows.values())
+    if (!w.isDestroyed()) w.webContents.send('conversation:updated', stripped)
 }

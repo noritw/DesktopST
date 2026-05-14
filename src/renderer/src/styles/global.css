@@ -89,6 +89,6 @@
 .dst-thinking-dots span:nth-child(3) { animation-delay: 0.3s; }
 
 @keyframes dst-thinking {
-  0%, 100% { transform: translateY(0); opacity: 0.35; }
-  50% { transform: translateY(-2px); opacity: 1; }
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
 }

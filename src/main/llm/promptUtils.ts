@@ -156,7 +156,18 @@ export function buildTimeMoodGuideline(hours: number): string {
 // Matches ASCII word chars or CJK unified ideographs — used for custom emotion IDs
 const EMOTION_TOKEN = /[a-z_一-鿿㐀-䶿]+/i
 
-export function parseEmotion(text: string): { emotion: string; content: string } {
+/** Returns the flat list of effective emotion IDs for a character (used to parse bare CJK tags). */
+export function buildEmotionIdList(char: PromptCharacter): string[] {
+  const { ids } = buildEmotionContract(char)
+  return ids.split(',').map(s => s.trim()).filter(Boolean)
+}
+
+/**
+ * knownEmotionIds — pass the character's sprite ID list so bare CJK tags on their own line
+ * (e.g. "閉眼臉紅\n...") can be identified and stripped. Without this list the function will
+ * not attempt to parse bare CJK tokens (safe fallback).
+ */
+export function parseEmotion(text: string, knownEmotionIds?: string[]): { emotion: string; content: string } {
   const source = sanitizePromptText(text)
   let detectedEmotion = 'neutral'
   let content = source
@@ -201,6 +212,17 @@ export function parseEmotion(text: string): { emotion: string; content: string }
         .replace(/^\s*[:=,，.。!！?？;；\-]?\s*/, '')
         .trim()
       continue
+    }
+
+    // Match a bare CJK-only token on its own line — only when it exactly matches a known sprite ID.
+    // No heuristic fallback to avoid accidentally stripping the start of Chinese dialogue.
+    if (knownEmotionIds && knownEmotionIds.length > 0) {
+      const bareCjkMatch = content.match(/^\s*([一-鿿㐀-䶿]{1,12})\s*(?:\r?\n)/)
+      if (bareCjkMatch && knownEmotionIds.includes(bareCjkMatch[1])) {
+        detectedEmotion = bareCjkMatch[1]
+        content = content.slice(bareCjkMatch[0].length).trim()
+        continue
+      }
     }
 
     if (content === before) break

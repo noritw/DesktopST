@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import fs from 'fs'
 import path from 'path'
 import {
-  buildSystemPrompt, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
+  buildSystemPrompt, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
   resolveModel, type ChatLLMParams, type ChatLLMResult
 } from './promptUtils'
 
@@ -110,5 +110,5 @@ export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResu
   if (!raw) {
     throw new Error(`Empty response from model: ${modelName}`)
   }
-  return { ...parseEmotion(raw), debugPrompt }
+  return { ...parseEmotion(raw, buildEmotionIdList(params.character)), debugPrompt }
 }

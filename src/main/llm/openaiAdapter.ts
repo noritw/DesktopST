@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import {
-  buildSystemPrompt, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
+  buildSystemPrompt, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
   resolveModel, type PromptCharacter, type ChatLLMParams, type ChatLLMResult
 } from './promptUtils'
 
@@ -106,5 +106,5 @@ export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResu
   if (!raw || raw.trim().length === 0) {
     throw new Error(`Empty response from model: ${model}`)
   }
-  return { ...parseEmotion(raw), debugPrompt }
+  return { ...parseEmotion(raw, buildEmotionIdList(params.character)), debugPrompt }
 }

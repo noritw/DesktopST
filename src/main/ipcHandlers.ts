@@ -5,7 +5,7 @@ import * as path from 'path'
 import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, PinnedNote } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage } from './llm/index'
-import { normalizeEmotion, parseEmotion, resolveModel } from './llm/promptUtils'
+import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel } from './llm/promptUtils'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
 import { importStJson, exportToStJson } from './stCardMapper'
 import {
@@ -30,9 +30,10 @@ import {
   showPreviewWindow,
   createPinnedNoteWindow, updatePinnedNoteContent, updatePinnedNoteColor, closePinnedNote, getPinnedNoteWindow, getPinnedNoteWindowState,
   openPinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
-  hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu,
+  hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu, raiseCharactersAbovePinnedNotes,
   createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow, getInputWindow,
   getLogWindow, getVisibleAuxWindowSnapshot, restoreAuxWindowsFromSnapshot, getVisiblePinnedNoteWindowIds,
+  broadcastConversationUpdate,
   type VisibleAuxWindowSnapshotEntry
 } from './windowManager'
 
@@ -292,7 +293,7 @@ function stripSpeakerPrefixFromLine(line: string, aliases: string[]): string {
 }
 
 function normalizeCharacterDialogue(raw: string, char: Character): string {
-  const text = parseEmotion(String(raw ?? '')).content.trim()
+  const text = parseEmotion(String(raw ?? ''), buildEmotionIdList(char)).content.trim()
   if (!text) return ''
   const aliases = characterAliases(char)
   const normalizedLines = text
@@ -557,21 +558,59 @@ export function restoreDismissedAuxWindows(): boolean {
   if (!snapshot || !settings) return false
   dismissedAuxWindowSnapshot = null
 
-  for (const savedNote of snapshot.pinnedNotes) {
-    const note = settings.ui.pinnedNotes?.find(n => n.id === savedNote.id)
-    if (!note) continue
-    if (savedNote.bounds) {
-      note.position = { x: savedNote.bounds.x, y: savedNote.bounds.y }
-      note.size = { width: savedNote.bounds.width, height: savedNote.bounds.height }
-    }
-    note.visible = true
-    note.updatedAt = Date.now()
-    createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size, note.fontSize, { skipActivation: true })
-  }
+  // 延到下一個 tick 才建窗，讓 tray 選單先關閉並釋放 main thread，
+  // 避免同步建立多個 BrowserWindow 阻塞 event loop 造成游標凍結。
+  setImmediate(() => {
+    if (!settings) return
 
-  restoreAuxWindowsFromSnapshot(snapshot.auxWindows)
-  fileStore.saveSettings(settings)
-  broadcastToAll('settings:updated', settings)
+    // Collect note creation data up front (before any async gaps mutate settings)
+    type NoteCreateData = {
+      id: string
+      position: { x: number; y: number }
+      content: string
+      title: string
+      color: string
+      size: { width: number; height: number } | undefined
+      fontSize: number | undefined
+    }
+    const notesToCreate: NoteCreateData[] = []
+    for (const savedNote of snapshot.pinnedNotes) {
+      const note = settings.ui.pinnedNotes?.find(n => n.id === savedNote.id)
+      if (!note) continue
+      if (savedNote.bounds) {
+        note.position = { x: savedNote.bounds.x, y: savedNote.bounds.y }
+        note.size = { width: savedNote.bounds.width, height: savedNote.bounds.height }
+      }
+      note.visible = true
+      note.updatedAt = Date.now()
+      notesToCreate.push({ id: note.id, position: note.position, content: note.content, title: note.title, color: note.color, size: note.size, fontSize: note.fontSize })
+    }
+
+    const finalize = () => {
+      restoreAuxWindowsFromSnapshot(snapshot.auxWindows)
+      if (settings) {
+        fileStore.saveSettings(settings)
+        broadcastToAll('settings:updated', settings)
+      }
+    }
+
+    if (notesToCreate.length === 0) {
+      finalize()
+      return
+    }
+
+    // Create one pinned note window per event-loop tick so mouse events are processed between each.
+    const runNext = (i: number): void => {
+      const d = notesToCreate[i]
+      createPinnedNoteWindow(d.id, d.position, d.content, d.title, d.color, d.size, d.fontSize, { skipActivation: true })
+      if (i + 1 < notesToCreate.length) {
+        setImmediate(() => runNext(i + 1))
+      } else {
+        setImmediate(finalize)
+      }
+    }
+    runNext(0)
+  })
   return true
 }
 
@@ -1076,11 +1115,11 @@ export function registerIpcHandlers() {
     return setCharacterWindowClickThrough(characterId, clickThrough)
   })
 
-  ipcMain.handle('desktop:update-hit-rects', (_, characterId: string, rects: {
+  ipcMain.on('desktop:update-hit-rects', (_, characterId: string, rects: {
     sprite: { x: number; y: number; w: number; h: number } | null
     buttons: { x: number; y: number; w: number; h: number } | null
   } | null) => {
-    return setCharacterHitRects(characterId, rects)
+    setCharacterHitRects(characterId, rects)
   })
 
   ipcMain.handle('ui:character-activated', (_, characterId: string) => {
@@ -1195,7 +1234,7 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('conversation:new', () => {
     const conv = createNewConversation()
-    broadcastToAll('conversation:updated', conv)
+    broadcastConversationUpdate(conv)
     return conv
   })
 
@@ -1204,7 +1243,7 @@ export function registerIpcHandlers() {
     if (!conv) return { error: 'Not found' }
     activeConversationId = id
     syncLastActiveConversationToSettings()
-    broadcastToAll('conversation:updated', conv)
+    broadcastConversationUpdate(conv)
     return conv
   })
 
@@ -1214,7 +1253,7 @@ export function registerIpcHandlers() {
     conv.title = String(title || '').trim() || '新對話'
     conv.updatedAt = Date.now()
     fileStore.saveConversation(conv)
-    broadcastToAll('conversation:updated', conv)
+    broadcastConversationUpdate(conv)
     return true
   })
 
@@ -1226,7 +1265,7 @@ export function registerIpcHandlers() {
     conv.updatedAt = Date.now()
     fileStore.saveConversation(conv)
     hideAllCharacterSpeechBubbles()
-    broadcastToAll('conversation:updated', conv)
+    broadcastConversationUpdate(conv)
     return true
   })
 
@@ -1246,13 +1285,13 @@ export function registerIpcHandlers() {
       const next = getOrLoadConversation(nextId)
       if (next) {
         syncLastActiveConversationToSettings()
-        broadcastToAll('conversation:updated', next)
+        broadcastConversationUpdate(next)
         return true
       }
     }
 
     const fresh = createNewConversation()
-    broadcastToAll('conversation:updated', fresh)
+    broadcastConversationUpdate(fresh)
     return true
   })
 
@@ -1262,7 +1301,7 @@ export function registerIpcHandlers() {
     conv.messages = conv.messages.filter(m => m.id !== messageId)
     conv.updatedAt = Date.now()
     fileStore.saveConversation(conv)
-    broadcastToAll('conversation:updated', conv)
+    broadcastConversationUpdate(conv)
     return true
   })
 
@@ -1277,7 +1316,7 @@ export function registerIpcHandlers() {
     }
     conv.updatedAt = Date.now()
     fileStore.saveConversation(conv)
-    broadcastToAll('conversation:updated', conv)
+    broadcastConversationUpdate(conv)
     return true
   })
 
@@ -1300,7 +1339,7 @@ export function registerIpcHandlers() {
       timestamp: Date.now()
     }
     conv.messages.push(userMsg)
-    broadcastToAll('conversation:updated', conv)
+    broadcastConversationUpdate(conv)
     const shownUserText = String(payload.content ?? '').trim()
     if (shownUserText) {
       showUserSpeechBubble(getPersonaDisplayName(), shownUserText)
@@ -1340,7 +1379,7 @@ export function registerIpcHandlers() {
           timestamp: Date.now()
         }
         conv.messages.push(hintMsg)
-        broadcastToAll('conversation:updated', conv)
+        broadcastConversationUpdate(conv)
       }
       fileStore.saveConversation(conv)
       return { ok: true }
@@ -1357,6 +1396,7 @@ export function registerIpcHandlers() {
 
     // 1) Primary responder always replies
     try {
+      raiseCharactersAbovePinnedNotes()
       broadcastToAll('character:thinking', { characterId: primaryId, thinking: true })
       const { content, emotion, debugPrompt } = await chatWithLLM({
         settings,
@@ -1390,7 +1430,7 @@ export function registerIpcHandlers() {
       }
       conv.messages.push(charMsg)
       conv.updatedAt = Date.now()
-      broadcastToAll('conversation:updated', conv)
+      broadcastConversationUpdate(conv)
       broadcastToAll('character:new-message', { characterId: primaryId, message: charMsg })
       showSpeechBubble(primaryId, primaryChar.name, primaryReply)
       broadcastToAll('character:thinking', { characterId: primaryId, thinking: false })
@@ -1405,7 +1445,7 @@ export function registerIpcHandlers() {
         timestamp: Date.now()
       }
       conv.messages.push(errMsg2)
-      broadcastToAll('conversation:updated', conv)
+      broadcastConversationUpdate(conv)
       broadcastToAll('character:thinking', { characterId: primaryId, thinking: false })
       fileStore.saveConversation(conv)
       return { ok: true }
@@ -1451,6 +1491,7 @@ export function registerIpcHandlers() {
       }
 
       try {
+        raiseCharactersAbovePinnedNotes()
         broadcastToAll('character:thinking', { characterId: charId, thinking: true })
         const recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
         const { content: jsonText, debugPrompt } = await chatWithLLM({
@@ -1498,7 +1539,7 @@ export function registerIpcHandlers() {
         lastReplyText = reply
         conv.messages.push(charMsg)
         conv.updatedAt = Date.now()
-        broadcastToAll('conversation:updated', conv)
+        broadcastConversationUpdate(conv)
         broadcastToAll('character:new-message', { characterId: charId, message: charMsg })
         showSpeechBubble(charId, char.name, reply)
         broadcastToAll('character:thinking', { characterId: charId, thinking: false })
@@ -1521,6 +1562,7 @@ export function registerIpcHandlers() {
     const activePersona = getActivePersona()
     const activeWorld = getActiveWorld()
 
+    raiseCharactersAbovePinnedNotes()
     broadcastToAll('character:thinking', { characterId, thinking: true })
     try {
       const recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
@@ -1569,7 +1611,7 @@ export function registerIpcHandlers() {
       conv.messages.push(msg)
       conv.updatedAt = Date.now()
       fileStore.saveConversation(conv)
-      broadcastToAll('conversation:updated', conv)
+      broadcastConversationUpdate(conv)
       broadcastToAll('character:new-message', { characterId, message: msg })
       showSpeechBubble(characterId, char.name, forcedReply)
       return { ok: true }
@@ -1780,6 +1822,10 @@ export function registerIpcHandlers() {
 
   // ── Pinned Notes ──────────────────────────────────────────
   const DEFAULT_NOTE_COLOR = '#FFE8AA'
+  function defaultNoteFontSize(): number {
+    const map: Record<string, number> = { xs: 12, sm: 13, md: 14, lg: 16, xl: 18 }
+    return map[settings.ui.chatFontSize ?? 'md'] ?? 14
+  }
 
   function savePinnedNotes() {
     fileStore.saveSettings(settings)
@@ -1834,10 +1880,11 @@ export function registerIpcHandlers() {
       visible: true,
       position: notePos,
       size: noteSize,
+      fontSize: defaultNoteFontSize(),
       updatedAt: Date.now()
     }
     settings.ui.pinnedNotes.push(note)
-    createPinnedNoteWindow(id, notePos, noteContent, title, note.color, noteSize)
+    createPinnedNoteWindow(id, notePos, noteContent, title, note.color, noteSize, note.fontSize)
     savePinnedNotes()
     return { noteId: id }
   })
@@ -1865,9 +1912,13 @@ export function registerIpcHandlers() {
     if (!note) return false
     note.visible = true
     note.updatedAt = Date.now()
-    createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size, note.fontSize)
-    focusPinnedNoteWindow(note.id)
     savePinnedNotes()
+    // Defer BrowserWindow creation to next tick so the IPC response is sent first,
+    // preventing the window-creation cost from blocking the main thread during the reply.
+    setImmediate(() => {
+      createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size, note.fontSize)
+      focusPinnedNoteWindow(note.id)
+    })
     return true
   })
 

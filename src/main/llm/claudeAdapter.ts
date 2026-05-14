@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import fs from 'fs'
 import path from 'path'
 import {
-  buildSystemPrompt, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
+  buildSystemPrompt, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
   resolveModel, type ChatLLMParams, type ChatLLMResult
 } from './promptUtils'
 
@@ -132,5 +132,5 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
   if (!raw) {
     throw new Error(`Empty response from model: ${model}`)
   }
-  return { ...parseEmotion(raw), debugPrompt }
+  return { ...parseEmotion(raw, buildEmotionIdList(params.character)), debugPrompt }
 }

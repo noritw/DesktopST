@@ -181,7 +181,7 @@ export default function CharacterWindow({ characterId }: Props) {
       const spriteEl = interactiveRef.current
       if (!spriteEl) return
       if (scaleMode) {
-        window.api.invoke('desktop:update-hit-rects', characterId, {
+        window.api.send('desktop:update-hit-rects', characterId, {
           sprite: toScreenRect(document.documentElement.getBoundingClientRect()),
           buttons: null
         })
@@ -197,14 +197,14 @@ export default function CharacterWindow({ characterId }: Props) {
           closeMenuRef.current
         ])
       }
-      window.api.invoke('desktop:update-hit-rects', characterId, { sprite, buttons })
+      window.api.send('desktop:update-hit-rects', characterId, { sprite, buttons })
     }
 
     tick()
-    const id = window.setInterval(tick, 50)
+    const id = window.setInterval(tick, 80)
     return () => {
       window.clearInterval(id)
-      window.api.invoke('desktop:update-hit-rects', characterId, null)
+      window.api.send('desktop:update-hit-rects', characterId, null)
     }
   }, [characterId, scaleMode, menuVisible])
 

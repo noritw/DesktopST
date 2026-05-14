@@ -340,9 +340,22 @@ export function listConversationIds(): string[] {
     .map(f => f.replace('.json', ''))
 }
 
+const _pendingConvJson = new Map<string, string>()
+const _saveConvTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
 export function saveConversation(conv: Conversation): void {
   ensureDirs()
-  fs.writeFileSync(path.join(CONVS_DIR, `${conv.id}.json`), JSON.stringify(conv, null, 2), 'utf-8')
+  _pendingConvJson.set(conv.id, JSON.stringify(conv, null, 2))
+  const existing = _saveConvTimers.get(conv.id)
+  if (existing) clearTimeout(existing)
+  _saveConvTimers.set(conv.id, setTimeout(() => {
+    _saveConvTimers.delete(conv.id)
+    const json = _pendingConvJson.get(conv.id)
+    _pendingConvJson.delete(conv.id)
+    if (json) fs.writeFile(path.join(CONVS_DIR, `${conv.id}.json`), json, 'utf-8', (err) => {
+      if (err) console.error('[fileStore] saveConversation failed:', err)
+    })
+  }, 200))
 }
 
 export function deleteConversation(id: string): void {
