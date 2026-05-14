@@ -133,9 +133,33 @@ export function loadSettings(): AppSettings {
   }
 }
 
+let _pendingSettingsJson: string | null = null
+let _saveSettingsTimer: ReturnType<typeof setTimeout> | null = null
+
 export function saveSettings(settings: AppSettings): void {
   ensureDirs()
-  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf-8')
+  _pendingSettingsJson = JSON.stringify(settings, null, 2)
+  if (_saveSettingsTimer) clearTimeout(_saveSettingsTimer)
+  _saveSettingsTimer = setTimeout(() => {
+    _saveSettingsTimer = null
+    const json = _pendingSettingsJson
+    _pendingSettingsJson = null
+    if (json) fs.writeFile(SETTINGS_FILE, json, 'utf-8', (err) => {
+      if (err) console.error('[fileStore] saveSettings failed:', err)
+    })
+  }, 150)
+}
+
+/** App 結束前呼叫，確保 pending 的 debounced write 立即同步寫入 */
+export function flushSaveSettings(): void {
+  if (_saveSettingsTimer) {
+    clearTimeout(_saveSettingsTimer)
+    _saveSettingsTimer = null
+  }
+  if (_pendingSettingsJson) {
+    try { fs.writeFileSync(SETTINGS_FILE, _pendingSettingsJson, 'utf-8') } catch { /* ignore */ }
+    _pendingSettingsJson = null
+  }
 }
 
 // ── Persona Presets ──────────────────────────────────────

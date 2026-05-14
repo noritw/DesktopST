@@ -15,6 +15,20 @@ function getAppIcon(): Electron.NativeImage | undefined {
 
 type WindowBoundsState = { x: number; y: number; width: number; height: number }
 type AuxWindowKind = 'input' | 'log'
+type VisibleAuxWindowKind =
+  | 'input'
+  | 'userBubble'
+  | 'log'
+  | 'settings'
+  | 'characterLibrary'
+  | 'preview'
+  | 'pinnedNotesManager'
+  | 'speechBubble'
+export type VisibleAuxWindowSnapshotEntry = {
+  kind: VisibleAuxWindowKind
+  bounds: WindowBoundsState
+  characterId?: string
+}
 let getSavedAuxBounds: ((kind: AuxWindowKind) => WindowBoundsState | null | undefined) | null = null
 let saveAuxBounds: ((kind: AuxWindowKind, bounds: WindowBoundsState) => void) | null = null
 
@@ -139,18 +153,13 @@ function getInitialAuxBounds(kind: AuxWindowKind): WindowBoundsState {
 }
 
 function rememberAuxBounds(kind: AuxWindowKind, win: BrowserWindow): void {
-  let timer: NodeJS.Timeout | null = null
   const save = () => {
     if (win.isDestroyed()) return
     const b = getWindowBoundsState(win)
     if (b) saveAuxBounds?.(kind, b)
   }
-  const schedule = () => {
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(save, 250)
-  }
-  win.on('move', schedule)
-  win.on('resize', schedule)
+  win.on('moved', save)
+  win.on('resized', save)
   win.on('close', save)
 }
 
@@ -190,12 +199,39 @@ type ScreenRect = { x: number; y: number; w: number; h: number }
 const hitRects = new Map<string, { sprite: ScreenRect | null; buttons: ScreenRect | null }>()
 const draggingCharacters = new Set<string>()
 let hitTestTimer: NodeJS.Timeout | null = null
+/** setIgnoreMouseEvents 的上次狀態快取；只有變更時才呼叫 Win32 API */
+const lastIgnoreMouseState = new Map<string, boolean>()
 let charactersRaisedAboveAux = false
 const lastBubbleSizes = new Map<string, { width: number; height: number }>()
 /** 拖曳角色時曾把對白 hide()，放手後要 show 回來（避免拖曳中對白座標漂移） */
 const bubbleHiddenForCharacterDrag = new Map<string, boolean>()
-const activeDragTimers = new Map<string, NodeJS.Timeout>()
+const activeDragOffsets = new Map<string, { x: number; y: number }>()
+const activeDragCallbacks = new Map<string, ((pos: { x: number; y: number }) => void) | null>()
 const activeDragLastPositions = new Map<string, { x: number; y: number }>()
+let charactersAlwaysOnTop = true
+
+export function setCharactersAlwaysOnTop(enabled: boolean): void {
+  charactersAlwaysOnTop = enabled
+  for (const w of characterWindows.values()) {
+    if (w.isDestroyed()) continue
+    if (enabled) w.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+    else w.setAlwaysOnTop(false)
+  }
+  for (const w of bubbleWindows.values()) {
+    if (w.isDestroyed()) continue
+    if (enabled) w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    else w.setAlwaysOnTop(false)
+  }
+  for (const w of pinnedNoteWindows.values()) {
+    if (w.isDestroyed()) continue
+    if (enabled) w.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+    else w.setAlwaysOnTop(false)
+  }
+}
+
+export function getCharactersAlwaysOnTop(): boolean {
+  return charactersAlwaysOnTop
+}
 let suppressAuxAutoHideUntil = 0
 let lastShownBubbleCharacterId: string | null = null
 
@@ -321,7 +357,11 @@ function ensureHitTestLoop(): void {
       const dragging = draggingCharacters.has(characterId)
       const rects = hitRects.get(characterId)
       const inside = dragging || (!!rects && (pointInRect(cursor, rects.sprite) || pointInRect(cursor, rects.buttons)))
-      win.setIgnoreMouseEvents(!inside, { forward: true })
+      const shouldIgnore = !inside
+      if (lastIgnoreMouseState.get(characterId) !== shouldIgnore) {
+        lastIgnoreMouseState.set(characterId, shouldIgnore)
+        win.setIgnoreMouseEvents(shouldIgnore, { forward: true })
+      }
     }
   }, 33)
 }
@@ -366,7 +406,8 @@ export function createCharacterWindow(
   win.setBounds(charTargetBounds)
 
   win.setIgnoreMouseEvents(false)
-  win.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+  if (charactersAlwaysOnTop) win.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+  else win.setAlwaysOnTop(false)
 
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(makeURL({ w: 'character', id: characterId, size: String(scale) }))
@@ -380,6 +421,7 @@ export function createCharacterWindow(
   win.on('closed', () => {
     characterWindows.delete(characterId)
     hitRects.delete(characterId)
+    lastIgnoreMouseState.delete(characterId)
     maybeStopHitTestLoop()
   })
   ensureHitTestLoop()
@@ -449,6 +491,8 @@ export function setCharacterDragging(characterId: string, dragging: boolean): vo
 
 export function beginCharacterDrag(
   characterId: string,
+  startCursorX: number,
+  startCursorY: number,
   onMove?: (position: { x: number; y: number }) => void
 ): boolean {
   const win = getCharacterWindow(characterId)
@@ -458,7 +502,7 @@ export function beginCharacterDrag(
     const b = bubbleWindows.get(characterId)
     if (b && !b.isDestroyed()) {
       b.setOpacity(1)
-      b.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+      if (charactersAlwaysOnTop) b.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
       b.showInactive()
       b.moveTop()
     }
@@ -478,43 +522,38 @@ export function beginCharacterDrag(
     bubbleHiddenForCharacterDrag.delete(characterId)
   }
 
-  const startCursor = screen.getCursorScreenPoint()
-  const offset = {
-    x: startCursor.x - startBounds.x,
-    y: startCursor.y - startBounds.y
-  }
+  activeDragOffsets.set(characterId, {
+    x: startCursorX - startBounds.x,
+    y: startCursorY - startBounds.y
+  })
+  if (onMove) activeDragCallbacks.set(characterId, onMove)
+  else activeDragCallbacks.delete(characterId)
 
-  const moveToCursor = () => {
-    if (win.isDestroyed()) {
-      endCharacterDrag(characterId)
-      return
-    }
-    const cursor = screen.getCursorScreenPoint()
-    const pos = {
-      x: Math.round(cursor.x - offset.x),
-      y: Math.round(cursor.y - offset.y)
-    }
-    const last = activeDragLastPositions.get(characterId)
-    if (last && last.x === pos.x && last.y === pos.y) return
-    activeDragLastPositions.set(characterId, pos)
-    win.setPosition(pos.x, pos.y)
-    if (!bubbleHiddenForCharacterDrag.has(characterId)) {
-      syncSpeechBubblePosition(characterId, pos)
-    }
-    onMove?.(pos)
-  }
-
-  moveToCursor()
-  activeDragTimers.set(characterId, setInterval(moveToCursor, 16))
   return true
 }
 
-export function endCharacterDrag(characterId: string): { x: number; y: number } | null {
-  const timer = activeDragTimers.get(characterId)
-  if (timer) {
-    clearInterval(timer)
-    activeDragTimers.delete(characterId)
+export function moveDraggedCharacter(characterId: string, cursorScreenX: number, cursorScreenY: number): void {
+  const offset = activeDragOffsets.get(characterId)
+  if (!offset) return
+  const win = getCharacterWindow(characterId)
+  if (!win || win.isDestroyed()) { endCharacterDrag(characterId); return }
+  const pos = {
+    x: Math.round(cursorScreenX - offset.x),
+    y: Math.round(cursorScreenY - offset.y)
   }
+  const last = activeDragLastPositions.get(characterId)
+  if (last && last.x === pos.x && last.y === pos.y) return
+  activeDragLastPositions.set(characterId, pos)
+  win.setPosition(pos.x, pos.y)
+  if (!bubbleHiddenForCharacterDrag.has(characterId)) {
+    syncSpeechBubblePosition(characterId, pos)
+  }
+  activeDragCallbacks.get(characterId)?.(pos)
+}
+
+export function endCharacterDrag(characterId: string): { x: number; y: number } | null {
+  activeDragOffsets.delete(characterId)
+  activeDragCallbacks.delete(characterId)
 
   const win = getCharacterWindow(characterId)
   const pos = activeDragLastPositions.get(characterId)
@@ -578,7 +617,8 @@ export function createBubbleWindow(characterId: string): BrowserWindow {
 
   // Keep the bubble clickable so its close button can work.
   win.setIgnoreMouseEvents(false)
-  win.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+  if (charactersAlwaysOnTop) win.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+  else win.setAlwaysOnTop(false)
   win.setMinimumSize(180, 78)
 
   if (VITE_DEV_SERVER_URL) {
@@ -662,9 +702,9 @@ export function showSpeechBubble(characterId: string, speakerName: string, text:
     bw.webContents.once('did-finish-load', dispatchShow)
   } else {
     dispatchShow()
+    // 第二次延遲呼叫是為了應對 Windows 高 DPI 環境下第一次 show 後視窗尺寸短暫跑掉的問題
+    setTimeout(dispatchShow, 180)
   }
-  setTimeout(dispatchShow, 80)
-  setTimeout(dispatchShow, 260)
   lastShownBubbleCharacterId = characterId
 }
 
@@ -818,9 +858,13 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
     inputWindow.setOpacity(1)
     inputWindow.setResizable(true)
     inputWindow.setMinimumSize(280, 104)
+    inputWindow.setIgnoreMouseEvents(false)
+    inputWindow.setAlwaysOnTop(true, 'pop-up-menu')
+    if (!inputWindow.isVisible()) inputWindow.show()
     raiseAuxAboveCharacters()
     inputWindow.moveTop()
     inputWindow.focus()
+    raiseCharactersAbovePinnedNotes()
     return inputWindow
   }
 
@@ -850,6 +894,7 @@ export function createInputWindow(position: { x: number; y: number }): BrowserWi
   })
   rememberAuxBounds('input', inputWindow)
   // Higher than character alwaysOnTop windows
+  inputWindow.setIgnoreMouseEvents(false)
   inputWindow.setAlwaysOnTop(true, 'pop-up-menu')
   inputWindow.setMinimumSize(280, 104)
 
@@ -1072,8 +1117,7 @@ export function restoreAllWindowsAfterScreenshot(): void {
 
 export function raiseAllCharactersAboveAux(): void {
   charactersRaisedAboveAux = true
-  // Raise characters to pop-up-menu level and move them on top.
-  // Do NOT lower aux windows — that caused them to become non-interactive.
+  if (!charactersAlwaysOnTop) return
   for (const w of characterWindows.values()) {
     if (w.isDestroyed()) continue
     w.setAlwaysOnTop(true, 'pop-up-menu')
@@ -1088,17 +1132,15 @@ export function raiseAllCharactersAboveAux(): void {
 
 export function raiseAuxAboveCharacters(): void {
   charactersRaisedAboveAux = false
-  // Restore character windows to their normal level, and keep them above same-level windows (pinned notes).
   for (const w of characterWindows.values()) {
     if (w.isDestroyed()) continue
-    w.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+    if (charactersAlwaysOnTop) w.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
     w.moveTop()
   }
   for (const w of bubbleWindows.values()) {
     if (w.isDestroyed()) continue
-    w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    if (charactersAlwaysOnTop) w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
   }
-  // Keep auxiliary windows at the right level, but do not reorder all of them.
   for (const w of getAuxWindows()) {
     w.setAlwaysOnTop(true, 'pop-up-menu')
   }
@@ -1110,11 +1152,11 @@ export function raiseAuxWindowToFront(target: BrowserWindow): boolean {
 
   for (const w of characterWindows.values()) {
     if (w.isDestroyed()) continue
-    w.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+    if (charactersAlwaysOnTop) w.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
   }
   for (const w of bubbleWindows.values()) {
     if (w.isDestroyed()) continue
-    w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    if (charactersAlwaysOnTop) w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
   }
   for (const w of getAuxWindows()) {
     w.setAlwaysOnTop(true, 'pop-up-menu')
@@ -1124,7 +1166,7 @@ export function raiseAuxWindowToFront(target: BrowserWindow): boolean {
   target.setOpacity(1)
   for (const w of bubbleWindows.values()) {
     if (w.isDestroyed() || !w.isVisible()) continue
-    w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    if (charactersAlwaysOnTop) w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
     w.moveTop()
   }
   if (target.isVisible()) {
@@ -1445,7 +1487,8 @@ export function createPinnedNoteWindow(
   title = '便利貼',
   color = '#FFE8AA',
   size?: { width: number; height: number },
-  fontSize?: number
+  fontSize?: number,
+  options?: { skipActivation?: boolean }
 ): BrowserWindow {
   if (pinnedNoteWindows.has(noteId)) {
     const old = pinnedNoteWindows.get(noteId)
@@ -1480,40 +1523,28 @@ export function createPinnedNoteWindow(
   win.setMinimumSize(100, 60)
   win.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
 
-  // 監聽移動/縮放，防抖 300ms 後回存
-  let boundsTimer: NodeJS.Timeout | null = null
-  const saveBounds = () => {
-    if (boundsTimer) clearTimeout(boundsTimer)
-    boundsTimer = setTimeout(() => {
-      if (!win.isDestroyed()) {
-        const b = getWindowBoundsState(win)
-        if (b) onPinnedNoteBoundsChanged?.(noteId, b)
-      }
-    }, 300)
+  const savePinnedBounds = () => {
+    if (win.isDestroyed()) return
+    const b = getWindowBoundsState(win)
+    if (b) onPinnedNoteBoundsChanged?.(noteId, b)
   }
-  win.on('moved', saveBounds)
-  win.on('resized', saveBounds)
-  win.on('close', () => {
-    if (boundsTimer) clearTimeout(boundsTimer)
-  })
+  win.on('moved', savePinnedBounds)
+  win.on('resized', savePinnedBounds)
+
+  const noteQuery: Record<string, string> = {
+    w: 'pinned-note',
+    noteId,
+    color,
+    title: title || '便利貼',
+    content: content || '',
+  }
+  if (fontSize != null) noteQuery.fontSize = String(fontSize)
 
   if (VITE_DEV_SERVER_URL) {
-    win.loadURL(makeURL({ w: 'pinned-note', noteId }))
+    win.loadURL(makeURL(noteQuery))
   } else {
-    win.loadFile(path.join(__dirname, '../renderer/index.html'), {
-      query: { w: 'pinned-note', noteId }
-    })
+    win.loadFile(path.join(__dirname, '../renderer/index.html'), { query: noteQuery })
   }
-
-  win.webContents.once('did-finish-load', () => {
-    if (!win.isDestroyed()) {
-      setTimeout(() => {
-        if (!win.isDestroyed()) {
-          win.webContents.send('pinned-note:init', { noteId, content, title, color, fontSize })
-        }
-      }, 100)
-    }
-  })
 
   win.on('closed', () => {
     pinnedNoteWindows.delete(noteId)
@@ -1530,13 +1561,16 @@ export function createPinnedNoteWindow(
   }
 
   pinnedNoteWindows.set(noteId, win)
-  win.show()
   // Show 之後 Windows 可能因 DPI 切換而把視窗按比例放大／縮小，
   // 再 setBounds 一次強制套用目標尺寸（DPI context 此時已穩定）。
+  if (options?.skipActivation) win.showInactive()
+  else win.show()
   win.setBounds(targetBounds)
-  raiseAuxAboveCharacters()
-  win.moveTop()
-  raiseCharactersAbovePinnedNotes()
+  if (!options?.skipActivation) {
+    raiseAuxAboveCharacters()
+    win.moveTop()
+    raiseCharactersAbovePinnedNotes()
+  }
   return win
 }
 
@@ -1584,6 +1618,12 @@ export function getPinnedNoteWindow(noteId: string): BrowserWindow | undefined {
   return win && !win.isDestroyed() ? win : undefined
 }
 
+export function getVisiblePinnedNoteWindowIds(): string[] {
+  return [...pinnedNoteWindows.entries()]
+    .filter(([, win]) => win && !win.isDestroyed() && win.isVisible())
+    .map(([noteId]) => noteId)
+}
+
 // ── Pinned Notes Manager ──────────────────────────────────
 
 export async function getPinnedNoteWindowState(noteId: string): Promise<WindowBoundsState | null> {
@@ -1595,53 +1635,75 @@ export async function getPinnedNoteWindowState(noteId: string): Promise<WindowBo
 let pinnedNotesManagerWindow: BrowserWindow | null = null
 let pinnedNoteColorMenuWindow: BrowserWindow | null = null
 
-export function showPinnedNoteColorMenu(noteId: string, currentColor: string): boolean {
+type ScreenBounds = { x: number; y: number; width: number; height: number }
+
+export function showPinnedNoteColorMenu(noteId: string, currentColor: string, anchor?: ScreenBounds): boolean {
   const noteWin = getPinnedNoteWindow(noteId)
   if (!noteWin || noteWin.isDestroyed()) return false
-  if (pinnedNoteColorMenuWindow && !pinnedNoteColorMenuWindow.isDestroyed()) {
-    pinnedNoteColorMenuWindow.destroy()
-    pinnedNoteColorMenuWindow = null
-  }
 
   const nb = noteWin.getBounds()
   const menuSize = { width: 168, height: 330 }
-  const display = screen.getDisplayNearestPoint({ x: nb.x + nb.width, y: nb.y })
+  const anchorRect = anchor && Number.isFinite(anchor.x) && Number.isFinite(anchor.y)
+    ? anchor
+    : { x: nb.x, y: nb.y, width: nb.width, height: 24 }
+  const display = screen.getDisplayNearestPoint({ x: anchorRect.x, y: anchorRect.y })
   const wa = display.workArea
-  const rightX = nb.x + nb.width + 8
-  const leftX = nb.x - menuSize.width - 8
-  const x = rightX + menuSize.width <= wa.x + wa.width
-    ? rightX
-    : Math.max(wa.x, leftX)
-  const y = clamp(nb.y, wa.y, wa.y + Math.max(0, wa.height - menuSize.height))
+  const gap = 8
+  const anchorLeftX = anchorRect.x - menuSize.width - gap
+  const anchorRightX = anchorRect.x + anchorRect.width + gap
+  const noteLeftX = nb.x - menuSize.width - gap
+  const noteRightX = nb.x + nb.width + gap
+  const maxX = wa.x + Math.max(0, wa.width - menuSize.width)
+  const x = anchorLeftX >= wa.x
+    ? anchorLeftX
+    : anchorRightX <= maxX
+      ? anchorRightX
+      : noteLeftX >= wa.x
+        ? noteLeftX
+        : noteRightX <= maxX
+          ? noteRightX
+          : clamp(anchorLeftX, wa.x, maxX)
+  const idealY = anchorRect.y + Math.round((anchorRect.height - menuSize.height) / 2)
+  const y = clamp(idealY, wa.y, wa.y + Math.max(0, wa.height - menuSize.height))
+  const bounds = { x, y, width: menuSize.width, height: menuSize.height }
 
-  pinnedNoteColorMenuWindow = new BrowserWindow({
-    x,
-    y,
-    width: menuSize.width,
-    height: menuSize.height,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  })
+  if (!pinnedNoteColorMenuWindow || pinnedNoteColorMenuWindow.isDestroyed()) {
+    pinnedNoteColorMenuWindow = new BrowserWindow({
+      ...bounds,
+      show: false,
+      frame: false,
+      transparent: true,
+      backgroundColor: '#00000000',
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      webPreferences: {
+        preload: path.join(__dirname, '../preload/index.js'),
+        contextIsolation: true,
+        nodeIntegration: false
+      }
+    })
 
-  pinnedNoteColorMenuWindow.setAlwaysOnTop(true, 'pop-up-menu')
-  pinnedNoteColorMenuWindow.loadURL(makeURL({ w: 'pinned-note-color-menu', noteId, color: currentColor }))
-  pinnedNoteColorMenuWindow.on('blur', () => {
-    if (pinnedNoteColorMenuWindow && !pinnedNoteColorMenuWindow.isDestroyed()) {
-      pinnedNoteColorMenuWindow.destroy()
-    }
-  })
-  pinnedNoteColorMenuWindow.on('closed', () => {
-    pinnedNoteColorMenuWindow = null
-  })
+    pinnedNoteColorMenuWindow.setAlwaysOnTop(true, 'pop-up-menu')
+    pinnedNoteColorMenuWindow.loadURL(makeURL({ w: 'pinned-note-color-menu', noteId, color: currentColor }))
+    pinnedNoteColorMenuWindow.on('blur', () => {
+      if (pinnedNoteColorMenuWindow && !pinnedNoteColorMenuWindow.isDestroyed()) {
+        pinnedNoteColorMenuWindow.hide()
+      }
+    })
+    pinnedNoteColorMenuWindow.on('close', (event) => {
+      if (pinnedNoteColorMenuWindow && !pinnedNoteColorMenuWindow.isDestroyed()) {
+        event.preventDefault()
+        pinnedNoteColorMenuWindow.hide()
+      }
+    })
+    pinnedNoteColorMenuWindow.on('closed', () => {
+      pinnedNoteColorMenuWindow = null
+    })
+  }
+
+  pinnedNoteColorMenuWindow.setBounds(bounds)
+  pinnedNoteColorMenuWindow.webContents.send('pinned-note-color-menu:init', { noteId, color: currentColor })
   pinnedNoteColorMenuWindow.show()
   pinnedNoteColorMenuWindow.moveTop()
   return true
@@ -1700,8 +1762,127 @@ export function openPinnedNotesManager(): BrowserWindow {
 
 // ── Hide all auxiliary windows (non-pinned-note, used by dismissAllAuxWindows) ──
 
+function pushVisibleAuxSnapshot(
+  entries: VisibleAuxWindowSnapshotEntry[],
+  kind: Exclude<VisibleAuxWindowKind, 'speechBubble'>,
+  win: BrowserWindow | null | undefined
+): void {
+  if (!win || win.isDestroyed() || !win.isVisible()) return
+  const bounds = getWindowBoundsState(win)
+  if (bounds) entries.push({ kind, bounds })
+}
+
+export function getVisibleAuxWindowSnapshot(): VisibleAuxWindowSnapshotEntry[] {
+  const entries: VisibleAuxWindowSnapshotEntry[] = []
+  pushVisibleAuxSnapshot(entries, 'input', inputWindow)
+  pushVisibleAuxSnapshot(entries, 'userBubble', userBubbleWindow)
+  pushVisibleAuxSnapshot(entries, 'log', logWindow)
+  pushVisibleAuxSnapshot(entries, 'settings', settingsWindow)
+  pushVisibleAuxSnapshot(entries, 'characterLibrary', characterLibraryWindow)
+  pushVisibleAuxSnapshot(entries, 'preview', previewWindow)
+  pushVisibleAuxSnapshot(entries, 'pinnedNotesManager', pinnedNotesManagerWindow)
+  for (const [characterId, win] of bubbleWindows.entries()) {
+    if (!win || win.isDestroyed() || !win.isVisible()) continue
+    const bounds = getWindowBoundsState(win)
+    if (bounds) entries.push({ kind: 'speechBubble', characterId, bounds })
+  }
+  return entries
+}
+
+function showExistingWindowFromSnapshot(
+  win: BrowserWindow | null | undefined,
+  entry: VisibleAuxWindowSnapshotEntry,
+  focus = false
+): boolean {
+  if (!win || win.isDestroyed()) return false
+  win.setOpacity(1)
+  win.setBounds(entry.bounds)
+  if (focus) win.show()
+  else win.showInactive()
+  win.moveTop()
+  if (focus && win.isFocusable()) win.focus()
+  return true
+}
+
+export function restoreAuxWindowsFromSnapshot(entries: VisibleAuxWindowSnapshotEntry[]): void {
+  let lastFocusable: BrowserWindow | null = null
+  let restoredInputWindow: BrowserWindow | null = null
+
+  for (const entry of entries) {
+    switch (entry.kind) {
+      case 'input': {
+        const win = createInputWindow({ x: entry.bounds.x, y: entry.bounds.y })
+        win.setBounds(entry.bounds)
+        restoredInputWindow = win
+        lastFocusable = win
+        break
+      }
+      case 'userBubble': {
+        showExistingWindowFromSnapshot(userBubbleWindow, entry)
+        break
+      }
+      case 'log': {
+        openLogWindow()
+        if (logWindow && !logWindow.isDestroyed()) {
+          logWindow.setBounds(entry.bounds)
+          lastFocusable = logWindow
+        }
+        break
+      }
+      case 'settings': {
+        openSettingsWindow()
+        if (settingsWindow && !settingsWindow.isDestroyed()) {
+          settingsWindow.setBounds(entry.bounds)
+          lastFocusable = settingsWindow
+        }
+        break
+      }
+      case 'characterLibrary': {
+        const win = createCharacterLibraryWindow()
+        win.setBounds(entry.bounds)
+        lastFocusable = win
+        break
+      }
+      case 'preview': {
+        if (showExistingWindowFromSnapshot(previewWindow, entry, true) && previewWindow) {
+          lastFocusable = previewWindow
+        }
+        break
+      }
+      case 'pinnedNotesManager': {
+        const win = openPinnedNotesManager()
+        win.setBounds(entry.bounds)
+        lastFocusable = win
+        break
+      }
+      case 'speechBubble': {
+        if (!entry.characterId) break
+        const win = bubbleWindows.get(entry.characterId)
+        showExistingWindowFromSnapshot(win, entry)
+        break
+      }
+    }
+  }
+
+  raiseAuxAboveCharacters()
+  raiseCharactersAbovePinnedNotes()
+  if (restoredInputWindow && !restoredInputWindow.isDestroyed()) {
+    restoredInputWindow.setIgnoreMouseEvents(false)
+    restoredInputWindow.setAlwaysOnTop(true, 'pop-up-menu')
+    restoredInputWindow.setOpacity(1)
+    restoredInputWindow.show()
+    restoredInputWindow.moveTop()
+    restoredInputWindow.focus()
+    lastFocusable = restoredInputWindow
+  }
+  if (lastFocusable && !lastFocusable.isDestroyed()) {
+    lastFocusable.moveTop()
+    if (lastFocusable.isFocusable()) lastFocusable.focus()
+  }
+}
+
 export function hideAllAuxWindowsExceptPinnedNotes(): void {
-  for (const w of [inputWindow, userBubbleWindow, logWindow, settingsWindow, characterLibraryWindow, previewWindow, pinnedNotesManagerWindow]) {
+  for (const w of [inputWindow, userBubbleWindow, logWindow, settingsWindow, characterLibraryWindow, previewWindow, pinnedNotesManagerWindow, emojiPickerWindow, pinnedNoteColorMenuWindow]) {
     if (w && !w.isDestroyed() && w.isVisible()) w.hide()
   }
   for (const w of bubbleWindows.values()) {

@@ -131,30 +131,33 @@ export default function CharacterWindow({ characterId }: Props) {
     }
   }, [flipped, scaleMode, size])
 
-  const handleMouseDown = useCallback((event: React.MouseEvent) => {
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
     event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
     window.api.invoke('ui:character-activated', characterId)
-    window.api.invoke('desktop:drag-start', characterId)
+    window.api.invoke('desktop:drag-start', characterId, event.screenX, event.screenY)
     didDragRef.current = false
     dragStartRef.current = { x: event.screenX, y: event.screenY }
 
-    const onMove = (moveEvent: MouseEvent) => {
+    const target = event.currentTarget
+    const onMove = (moveEvent: PointerEvent) => {
       if (!dragStartRef.current) return
       const dx = moveEvent.screenX - dragStartRef.current.x
       const dy = moveEvent.screenY - dragStartRef.current.y
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDragRef.current = true
+      window.api.send('desktop:drag-move', characterId, moveEvent.screenX, moveEvent.screenY)
     }
 
     const onUp = () => {
       dragStartRef.current = null
       window.api.invoke('desktop:drag-end', characterId)
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+      target.removeEventListener('pointermove', onMove)
+      target.removeEventListener('pointerup', onUp)
     }
 
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    target.addEventListener('pointermove', onMove)
+    target.addEventListener('pointerup', onUp)
   }, [characterId])
 
   const handleClick = useCallback((event: React.MouseEvent) => {
@@ -434,9 +437,9 @@ export default function CharacterWindow({ characterId }: Props) {
             ref={spriteDivRef}
             className="cursor-grab active:cursor-grabbing"
             title={scaleMode ? undefined : '點擊角色可開啟發話視窗'}
-            onMouseDown={(event) => {
+            onPointerDown={(event) => {
               if (!spriteOpaque && !hovered && !scaleMode) return
-              handleMouseDown(event)
+              handlePointerDown(event)
             }}
             onClick={(event) => {
               if (!spriteOpaque && !hovered && !scaleMode) return

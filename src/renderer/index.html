@@ -12,6 +12,16 @@
       html, body, #root { width: 100%; height: 100%; overflow: hidden; }
       body { font-family: 'Nunito', 'M PLUS Rounded 1c', system-ui, sans-serif; }
     </style>
+    <script>
+      (function() {
+        var fs = localStorage.getItem('desktopst.fontSize');
+        if (fs) {
+          document.documentElement.setAttribute('data-font-size', fs);
+          var map = { xs: '12px', sm: '13px', md: '14px', lg: '16px', xl: '18px' };
+          document.documentElement.style.fontSize = map[fs] || '14px';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

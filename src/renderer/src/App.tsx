@@ -25,8 +25,9 @@ const FONT_SIZE_MAP: Record<string, string> = {
 export default function App() {
   const loadAll = useAppStore(s => s.loadAll)
   const subscribeToEvents = useAppStore(s => s.subscribeToEvents)
-  const chatFontSize = useAppStore(s => s.settings?.ui.chatFontSize ?? 'md')
-  const colorTheme = useAppStore(s => s.settings?.ui.colorTheme ?? 'mint')
+  const settings = useAppStore(s => s.settings)
+  const chatFontSize = settings?.ui.chatFontSize ?? null
+  const colorTheme = settings?.ui.colorTheme ?? null
 
   useEffect(() => {
     loadAll().catch(e => console.error('[DesktopST] loadAll failed:', e))
@@ -35,11 +36,14 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (!chatFontSize) return
     document.documentElement.setAttribute('data-font-size', chatFontSize)
     document.documentElement.style.fontSize = FONT_SIZE_MAP[chatFontSize] ?? '14px'
+    localStorage.setItem('desktopst.fontSize', chatFontSize)
   }, [chatFontSize])
 
   useEffect(() => {
+    if (!colorTheme) return
     localStorage.setItem('desktopst.colorTheme', colorTheme)
     if (colorTheme === 'mint') {
       document.documentElement.removeAttribute('data-color-theme')

@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+
 const NOTE_COLORS = [
   { label: '奶油黃', value: '#FFE8AA', swatch: '#FFE8AA' },
   { label: '粉橘', value: '#FFD6B8', swatch: '#FFD6B8' },
@@ -12,8 +14,16 @@ const NOTE_COLORS = [
 
 export default function PinnedNoteColorMenuWindow() {
   const params = window.windowParams ?? new URLSearchParams(window.location.search)
-  const noteId = params.get('noteId') ?? ''
-  const currentColor = (params.get('color') ?? '#FFE8AA').toUpperCase()
+  const [noteId, setNoteId] = useState(params.get('noteId') ?? '')
+  const [currentColor, setCurrentColor] = useState((params.get('color') ?? '#FFE8AA').toUpperCase())
+
+  useEffect(() => {
+    return window.api.on('pinned-note-color-menu:init', (payload) => {
+      const p = payload as { noteId?: string; color?: string }
+      setNoteId(p.noteId ?? '')
+      setCurrentColor((p.color ?? '#FFE8AA').toUpperCase())
+    })
+  }, [])
 
   const chooseColor = async (color: string) => {
     await window.api.invoke('pinned-note:update-color', noteId, color)
@@ -31,7 +41,7 @@ export default function PinnedNoteColorMenuWindow() {
               <button
                 key={c.value}
                 type="button"
-                className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-left text-xs font-medium transition-colors"
+                className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-left text-xs font-medium"
                 style={{
                   background: dark ? '#1F2423' : selected ? 'var(--color-mint-30)' : 'transparent',
                   color: dark ? '#F7FFFC' : 'var(--color-text-primary)',

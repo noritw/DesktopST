@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import MonoIcon from '../components/MonoIcon'
 
 const DARK_NOTE_COLOR = '#1F2423'
@@ -15,12 +15,19 @@ function isDarkNote(color: string): boolean {
   return color.toUpperCase() === DARK_NOTE_COLOR
 }
 
+function getParam(key: string): string {
+  return window.windowParams?.get(key) ?? new URLSearchParams(window.location.search).get(key) ?? ''
+}
+
 export default function PinnedNoteWindow() {
-  const [noteId, setNoteId] = useState('')
-  const [title, setTitle] = useState('便利貼')
-  const [content, setContent] = useState('')
-  const [color, setColor] = useState('#FFE8AA')
-  const [fontSize, setFontSize] = useState<number | null>(null)
+  const [noteId] = useState(() => getParam('noteId'))
+  const [title, setTitle] = useState(() => getParam('title') || '便利貼')
+  const [content, setContent] = useState(() => getParam('content'))
+  const [color, setColor] = useState(() => getParam('color') || '#FFE8AA')
+  const [fontSize, setFontSize] = useState<number | null>(() => {
+    const fs = getParam('fontSize')
+    return fs ? Number(fs) : null
+  })
   const [isEditingContent, setIsEditingContent] = useState(false)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -28,21 +35,6 @@ export default function PinnedNoteWindow() {
   const colorButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    const query = new URLSearchParams(window.location.search)
-    const nid = query.get('noteId')
-    if (nid) setNoteId(nid)
-  }, [])
-
-  useEffect(() => {
-    const unsubInit = window.api.on('pinned-note:init', (payload) => {
-      const p = payload as { noteId: string; content: string; title: string; color: string; fontSize?: number }
-      setNoteId(p.noteId)
-      setContent(p.content || '')
-      setTitle(p.title || '便利貼')
-      setColor(p.color || '#FFE8AA')
-      setFontSize(p.fontSize ?? null)
-    })
-
     const unsubUpdateContent = window.api.on('pinned-note:update-content', (payload) => {
       const p = payload as { noteId: string; content: string }
       if (p.noteId === noteId || !noteId) setContent(p.content)
@@ -53,7 +45,7 @@ export default function PinnedNoteWindow() {
       if (p.noteId === noteId || !noteId) setColor(p.color)
     })
 
-    return () => { unsubInit(); unsubUpdateContent(); unsubUpdateColor() }
+    return () => { unsubUpdateContent(); unsubUpdateColor() }
   }, [noteId])
 
   const saveFontSize = async (val: number | null) => {
@@ -62,8 +54,6 @@ export default function PinnedNoteWindow() {
   }
 
   const saveContent = async (val: string) => {
-    const pos = await window.api.invoke('pinned-note:get-position', noteId) as { x: number; y: number } | null
-    if (pos) await window.api.invoke('pinned-note:update-position', noteId, pos)
     await window.api.invoke('pinned-note:update-content', noteId, val)
     setIsEditingContent(false)
   }
@@ -76,14 +66,32 @@ export default function PinnedNoteWindow() {
   }
 
   const openColorMenu = () => {
-    window.api.invoke('pinned-note:show-color-menu', noteId).catch(console.error)
+    const r = colorButtonRef.current?.getBoundingClientRect()
+    const anchor = r
+      ? {
+          x: Math.round(window.screenX + r.left),
+          y: Math.round(window.screenY + r.top),
+          width: Math.round(r.width),
+          height: Math.round(r.height)
+        }
+      : undefined
+    window.api.invoke('pinned-note:show-color-menu', noteId, anchor).catch(console.error)
   }
 
   const handleHide = () => {
     window.api.invoke('pinned-note:hide', noteId).catch(console.error)
   }
 
-  const bringToFront = () => {
+  const handleDelete = () => {
+    if (!noteId) return
+    const confirmed = window.confirm('確定要直接刪除這張便利貼嗎？\n\n這個動作無法復原。')
+    if (!confirmed) return
+    window.api.invoke('pinned-note:delete', noteId).catch(console.error)
+  }
+
+  const bringToFront = (event: MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement | null
+    if (target?.closest('.no-drag')) return
     if (noteId) window.api.invoke('pinned-note:focus', noteId).catch(console.error)
   }
 
@@ -99,7 +107,7 @@ export default function PinnedNoteWindow() {
     <div
       className="w-full h-full flex flex-col rounded-2xl overflow-hidden shadow-panel"
       style={{ background: color, border: `1.5px solid ${borderColor}` }}
-      onMouseDownCapture={bringToFront}
+      onMouseDownCapture={(e) => bringToFront(e)}
     >
       <div
         className="drag-region flex items-center gap-1 px-2 py-1.5 shrink-0"
@@ -177,7 +185,7 @@ export default function PinnedNoteWindow() {
         </button>
       </div>
 
-      <div className="flex-1 min-h-0 p-2 no-drag overflow-hidden">
+      <div className="relative flex-1 min-h-0 p-2 no-drag overflow-hidden">
         {isEditingContent ? (
           <div className="w-full h-full flex flex-col gap-1.5">
             <textarea
@@ -213,7 +221,8 @@ export default function PinnedNoteWindow() {
                 max={48}
                 step={1}
                 value={effectiveFontSize}
-                onChange={e => saveFontSize(Number(e.target.value))}
+                onChange={e => setFontSize(Number(e.target.value))}
+                onPointerUp={e => saveFontSize(Number((e.target as HTMLInputElement).value))}
                 className="flex-1 h-3 cursor-pointer accent-teal"
                 style={{ accentColor: dark ? '#AAEEDD' : undefined }}
               />
@@ -241,7 +250,7 @@ export default function PinnedNoteWindow() {
           </div>
         ) : (
           <div
-            className="w-full h-full p-1 leading-relaxed overflow-y-auto whitespace-pre-wrap break-words select-text"
+            className="w-full h-full p-1 pb-7 leading-relaxed overflow-y-auto whitespace-pre-wrap break-words select-text"
             style={{ fontSize: effectiveFontSize, color: content ? textColor : secondaryTextColor, cursor: 'default' }}
             onDoubleClick={() => { setIsEditingContent(true); setTimeout(() => textareaRef.current?.focus(), 0) }}
             onContextMenu={e => { e.preventDefault(); setIsEditingContent(true); setTimeout(() => textareaRef.current?.focus(), 0) }}
@@ -249,6 +258,19 @@ export default function PinnedNoteWindow() {
           >
             {content || <span className="opacity-70 italic">空白便利貼，雙擊開始編輯</span>}
           </div>
+        )}
+        {!isEditingContent && (
+          <button
+            type="button"
+            className="absolute right-2 bottom-2 w-6 h-6 rounded-full border flex items-center justify-center shrink-0 shadow-soft"
+            style={dark
+              ? { borderColor: '#A33A3A', background: '#7A1F1F', color: '#FFFFFF' }
+              : { borderColor: '#FFB59F', background: '#FFE2D8', color: '#E85D3F' }}
+            onClick={handleDelete}
+            title="刪除便利貼"
+          >
+            <MonoIcon name="trash" className="w-3 h-3" />
+          </button>
         )}
       </div>
     </div>

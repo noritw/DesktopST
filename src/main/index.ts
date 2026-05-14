@@ -1,8 +1,8 @@
 import { app, Tray, Menu, nativeImage, protocol, screen, BrowserWindow } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
-import { loadSettings, saveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows } from './ipcHandlers'
+import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets } from './fileStore'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings } from './ipcHandlers'
 import {
   createCharacterWindow,
   toggleInputWindow,
@@ -13,7 +13,9 @@ import {
   shouldSuppressAuxAutoHide,
   openSettingsWindow,
   getCharacterWindowSize,
-  suppressAuxAutoHide
+  suppressAuxAutoHide,
+  setCharactersAlwaysOnTop,
+  getCharactersAlwaysOnTop
 } from './windowManager'
 
 function isOffscreen(pos: { x: number; y: number }, win: { width: number; height: number }): boolean {
@@ -150,6 +152,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  flushSaveSettings()
   app.exit(0)
 })
 
@@ -166,14 +169,37 @@ function setupTray(appRoot: string) {
   const tray = new Tray(icon)
   tray.setToolTip('DesktopST')
 
-  const menu = Menu.buildFromTemplate([
-    { label: '顯示輸入框', click: () => toggleInputWindow() },
-    { label: '收起所有輔助視窗', click: () => dismissAllAuxWindows() },
-    { label: '開啟設定', click: () => openSettingsWindow('llm') },
-    { type: 'separator' },
-    { label: '結束', click: () => app.exit(0) }
-  ])
+  const refreshTrayMenu = () => {
+    const auxAction = hasDismissedAuxWindows()
+      ? { label: '重新開啟所有輔助視窗', click: () => { restoreDismissedAuxWindows(); refreshTrayMenu() } }
+      : { label: '收起所有輔助視窗', click: async () => { await dismissAllAuxWindows(); refreshTrayMenu() } }
+    const isAlwaysOnTop = getCharactersAlwaysOnTop()
+    const menu = Menu.buildFromTemplate([
+      { label: '開啟輸入視窗', click: () => toggleInputWindow() },
+      auxAction,
+      { type: 'separator' },
+      {
+        label: '角色保持在最上層',
+        type: 'checkbox',
+        checked: isAlwaysOnTop,
+        click: () => {
+          const next = !getCharactersAlwaysOnTop()
+          const s = getSettings()
+          s.ui.alwaysOnTop = next
+          setCharactersAlwaysOnTop(next)
+          saveSettings(s)
+          broadcastToAll('settings:updated', s)
+          refreshTrayMenu()
+        }
+      },
+      { type: 'separator' },
+      { label: '開啟設定', click: () => openSettingsWindow('llm') },
+      { type: 'separator' },
+      { label: '結束', click: () => app.exit(0) }
+    ])
+    tray.setContextMenu(menu)
+  }
 
-  tray.setContextMenu(menu)
+  refreshTrayMenu()
   tray.on('click', () => toggleInputWindow())
 }

@@ -149,6 +149,7 @@
   --color-text-primary:   #EEEEEE;
   --color-text-secondary: #888888;
   --color-text-user:      #AAAAAA;
-  --color-danger-soft:    #3A1515;
-  --color-danger-border:  #6A2020;
+  --color-danger:         #FFFFFF;
+  --color-danger-soft:    #7A1F1F;
+  --color-danger-border:  #A33A3A;
 }

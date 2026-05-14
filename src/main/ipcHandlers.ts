@@ -23,8 +23,8 @@ import {
   showSpeechBubble, hideSpeechBubble, persistSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition,
   showUserSpeechBubble, hideUserSpeechBubble, updateUserSpeechBubbleSize,
   reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects,
-  beginCharacterDrag, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
-  setUnfocusedBubbleOpacity,
+  beginCharacterDrag, moveDraggedCharacter, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
+  setUnfocusedBubbleOpacity, setCharactersAlwaysOnTop, getCharactersAlwaysOnTop,
   createCharacterLibraryWindow,
   hideAllWindowsForScreenshot, hideAuxWindowsForScreenshotKeepingCharacters, restoreAllWindowsAfterScreenshot,
   showPreviewWindow,
@@ -32,7 +32,8 @@ import {
   openPinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
   hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu,
   createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow, getInputWindow,
-  getLogWindow
+  getLogWindow, getVisibleAuxWindowSnapshot, restoreAuxWindowsFromSnapshot, getVisiblePinnedNoteWindowIds,
+  type VisibleAuxWindowSnapshotEntry
 } from './windowManager'
 
 // ── Helpers ──────────────────────────────────────────────
@@ -354,6 +355,8 @@ function cleanupOldAvatarFiles(dir: string, keepPath: string): void {
   }
 }
 
+export function getSettings(): AppSettings { return settings }
+
 export function initState(
   s: AppSettings,
   chars: Character[],
@@ -363,6 +366,7 @@ export function initState(
   settings.ui.unfocusedBubbleOpacity = normalizeUnfocusedBubbleOpacity(settings.ui.unfocusedBubbleOpacity)
   const didNormalizePinnedNoteSizes = normalizeLegacyPinnedNoteSizes()
   setUnfocusedBubbleOpacity(settings.ui.unfocusedBubbleOpacity)
+  setCharactersAlwaysOnTop(settings.ui.alwaysOnTop ?? true)
   characters = chars
   configureAuxWindowPersistence(
     (kind) => kind === 'input' ? settings.ui.inputWindowBounds : settings.ui.logWindowBounds,
@@ -506,24 +510,69 @@ function fixCharacterPathsAfterImport(char: Character, dir: string): Character {
   return { ...char, avatar, emotions }
 }
 
-export async function dismissAllAuxWindows(): Promise<void> {
+type DismissedAuxWindowSnapshot = {
+  auxWindows: VisibleAuxWindowSnapshotEntry[]
+  pinnedNotes: Array<{ id: string; bounds?: { x: number; y: number; width: number; height: number } }>
+}
+
+let dismissedAuxWindowSnapshot: DismissedAuxWindowSnapshot | null = null
+
+export function hasDismissedAuxWindows(): boolean {
+  return dismissedAuxWindowSnapshot !== null
+}
+
+export async function dismissAllAuxWindows(): Promise<boolean> {
+  const auxWindows = getVisibleAuxWindowSnapshot()
+  const visiblePinnedNoteIds = new Set(getVisiblePinnedNoteWindowIds())
+  const pinnedNotes: DismissedAuxWindowSnapshot['pinnedNotes'] = []
   const notes = settings?.ui?.pinnedNotes ?? []
   for (const note of notes) {
-    if (!note.visible) continue
+    if (!note.visible && !visiblePinnedNoteIds.has(note.id)) continue
     const b = await getPinnedNoteWindowState(note.id)
     if (b) {
       note.position = { x: b.x, y: b.y }
       note.size = { width: b.width, height: b.height }
     }
+    pinnedNotes.push({
+      id: note.id,
+      bounds: b ? { x: b.x, y: b.y, width: b.width, height: b.height } : undefined
+    })
     note.visible = false
     note.updatedAt = Date.now()
     closePinnedNote(note.id)
   }
+  dismissedAuxWindowSnapshot = auxWindows.length > 0 || pinnedNotes.length > 0
+    ? { auxWindows, pinnedNotes }
+    : null
   if (settings) {
     fileStore.saveSettings(settings)
     broadcastToAll('settings:updated', settings)
   }
   hideAllAuxWindowsExceptPinnedNotes()
+  return dismissedAuxWindowSnapshot !== null
+}
+
+export function restoreDismissedAuxWindows(): boolean {
+  const snapshot = dismissedAuxWindowSnapshot
+  if (!snapshot || !settings) return false
+  dismissedAuxWindowSnapshot = null
+
+  for (const savedNote of snapshot.pinnedNotes) {
+    const note = settings.ui.pinnedNotes?.find(n => n.id === savedNote.id)
+    if (!note) continue
+    if (savedNote.bounds) {
+      note.position = { x: savedNote.bounds.x, y: savedNote.bounds.y }
+      note.size = { width: savedNote.bounds.width, height: savedNote.bounds.height }
+    }
+    note.visible = true
+    note.updatedAt = Date.now()
+    createPinnedNoteWindow(note.id, note.position, note.content, note.title, note.color, note.size, note.fontSize, { skipActivation: true })
+  }
+
+  restoreAuxWindowsFromSnapshot(snapshot.auxWindows)
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return true
 }
 
 export function registerIpcHandlers() {
@@ -543,6 +592,7 @@ export function registerIpcHandlers() {
   ipcMain.handle('settings:save', (_, s: AppSettings) => {
     s.ui.unfocusedBubbleOpacity = normalizeUnfocusedBubbleOpacity(s.ui.unfocusedBubbleOpacity)
     setUnfocusedBubbleOpacity(s.ui.unfocusedBubbleOpacity)
+    setCharactersAlwaysOnTop(s.ui.alwaysOnTop ?? true)
     const prevPointer = settings.ui.lastActiveConversationId
     const ui = { ...s.ui }
     if (!Object.prototype.hasOwnProperty.call(ui, 'lastActiveConversationId')) {
@@ -553,6 +603,16 @@ export function registerIpcHandlers() {
     broadcastToAll('settings:updated', settings)
     return true
   })
+
+  ipcMain.handle('app:set-always-on-top', (_, enabled: boolean) => {
+    settings.ui.alwaysOnTop = enabled
+    setCharactersAlwaysOnTop(enabled)
+    fileStore.saveSettings(settings)
+    broadcastToAll('settings:updated', settings)
+    return true
+  })
+
+  ipcMain.handle('app:get-always-on-top', () => getCharactersAlwaysOnTop())
 
   // Characters
   ipcMain.handle('characters:list', () => characters)
@@ -983,12 +1043,16 @@ export function registerIpcHandlers() {
     return true
   })
 
-  ipcMain.handle('desktop:drag-start', (_, characterId: string) => {
-    const ok = beginCharacterDrag(characterId, pos => {
+  ipcMain.handle('desktop:drag-start', (_, characterId: string, startX: number, startY: number) => {
+    const ok = beginCharacterDrag(characterId, startX, startY, pos => {
       const d = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
       if (d) d.position = pos
     })
     return ok
+  })
+
+  ipcMain.on('desktop:drag-move', (_, characterId: string, cursorX: number, cursorY: number) => {
+    moveDraggedCharacter(characterId, cursorX, cursorY)
   })
 
   ipcMain.handle('desktop:drag-end', (_, characterId: string) => {
@@ -1822,9 +1886,10 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('pinned-note:hide-all', async () => {
     const notes = settings.ui.pinnedNotes ?? []
-    for (const note of notes) {
-      if (!note.visible) continue
-      const b = await getPinnedNoteWindowState(note.id)
+    const visible = notes.filter(n => n.visible)
+    const bounds = await Promise.all(visible.map(n => getPinnedNoteWindowState(n.id)))
+    visible.forEach((note, i) => {
+      const b = bounds[i]
       if (b) {
         note.position = { x: b.x, y: b.y }
         note.size = { width: b.width, height: b.height }
@@ -1832,7 +1897,7 @@ export function registerIpcHandlers() {
       note.visible = false
       note.updatedAt = Date.now()
       closePinnedNote(note.id)
-    }
+    })
     savePinnedNotes()
     return true
   })
@@ -1900,10 +1965,10 @@ export function registerIpcHandlers() {
     return true
   })
 
-  ipcMain.handle('pinned-note:show-color-menu', (_, noteId: string) => {
+  ipcMain.handle('pinned-note:show-color-menu', (_, noteId: string, anchor?: { x: number; y: number; width: number; height: number }) => {
     const note = settings.ui.pinnedNotes?.find(n => n.id === noteId)
     if (!note) return false
-    return showPinnedNoteColorMenu(noteId, note.color)
+    return showPinnedNoteColorMenu(noteId, note.color, anchor)
   })
 
   ipcMain.handle('pinned-note:update-position', (_, noteId: string, position: { x: number; y: number }) => {

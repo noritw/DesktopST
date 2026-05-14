@@ -132,6 +132,8 @@ export interface AppSettings {
     onboardingCompleted?: boolean
     /** 便利貼資料 */
     pinnedNotes?: PinnedNote[]
+    /** 角色視窗保持在最上層（預設 true）*/
+    alwaysOnTop?: boolean
   }
 }
 
@@ -172,6 +174,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     unfocusedBubbleOpacity: 0.1,
     theme: 'light',
     hoverMenuOnHover: true,
-    onboardingCompleted: false
+    onboardingCompleted: false,
+    alwaysOnTop: true
   }
 }

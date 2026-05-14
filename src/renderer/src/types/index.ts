@@ -133,6 +133,8 @@ export interface AppSettings {
     pinnedNotes?: PinnedNote[]
     /** 介面配色主題 */
     colorTheme?: 'mint' | 'butter' | 'peach' | 'aqua' | 'sky' | 'blush' | 'lavender' | 'white' | 'dark'
+    /** 角色視窗永遠顯示在最上層 */
+    alwaysOnTop?: boolean
   }
 }
 

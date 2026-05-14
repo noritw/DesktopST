@@ -1002,6 +1002,18 @@ export default function SettingsWindow() {
             {!draft.ui.hoverMenuOnHover && (
               <p className="text-xs text-secondary ml-6">關閉後改用右鍵開關功能選單</p>
             )}
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draft.ui.alwaysOnTop ?? true}
+                onChange={e => set('ui.alwaysOnTop', e.target.checked)}
+                className="accent-teal w-4 h-4"
+              />
+              <span className="text-sm text-primary">角色視窗永遠顯示在最上層</span>
+            </label>
+            {!(draft.ui.alwaysOnTop ?? true) && (
+              <p className="text-xs text-secondary ml-6">關閉後角色會被全螢幕視窗或其他應用程式蓋住；也可從 Tray 圖示快速切換。</p>
+            )}
             <div className="pt-2 space-y-1">
               <Field label={`App 失焦時角色對白透明度（${Math.round((draft.ui.unfocusedBubbleOpacity ?? 0.1) * 100)}%）`}>
                 <input
