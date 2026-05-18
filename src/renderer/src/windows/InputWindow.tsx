@@ -360,7 +360,7 @@ export default function InputWindow() {
               </button>
             </div>
 
-            {/* 右側：便利貼按鈕組，貼齊右下角 */}
+            {/* 右側：便利貼與提醒按鈕組，貼齊右下角 */}
             <div className="flex gap-1 items-center shrink-0 pl-1 border-l border-border">
               <button
                 type="button"
@@ -377,6 +377,14 @@ export default function InputWindow() {
                 onClick={openNotesManager}
               >
                 <MonoIcon name="notes" className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                className="btn-round w-7 h-7 text-xs"
+                title="管理提醒"
+                onClick={() => window.api.invoke('reminder:open-manager')}
+              >
+                <MonoIcon name="alarm" className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>

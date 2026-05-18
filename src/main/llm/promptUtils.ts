@@ -77,7 +77,9 @@ export type ChatLLMParams = {
   speakerNameById?: Record<string, string>
   persona?: PersonaPreset | null
   world?: WorldPreset | null
-  desktopCharacterNames?: string[]  // names of all characters currently on desktop
+  desktopCharacterNames?: string[]
+  /** 附加到 system prompt 末尾的額外上下文（提醒指令、便利貼等） */
+  extraSystemContext?: string
 }
 
 export type ChatLLMResult = {
@@ -253,7 +255,8 @@ export function buildSystemPrompt(
   char: PromptCharacter,
   persona?: PersonaPreset | null,
   world?: WorldPreset | null,
-  desktopCharacterNames?: string[]
+  desktopCharacterNames?: string[],
+  extraSystemContext?: string
 ): string {
   const now = new Date()
   const hours = now.getHours()
@@ -356,6 +359,10 @@ export function buildSystemPrompt(
       'Do not always direct replies at the user. Treat this as a group conversation where any remark is fair game to pick up on.',
       'Do not repeat the emotional beat or core message already expressed by the other character(s).'
     ].join('\n'))
+  }
+
+  if (extraSystemContext?.trim()) {
+    parts.push(extraSystemContext.trim())
   }
 
   return parts.join('\n\n')

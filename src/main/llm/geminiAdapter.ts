@@ -43,7 +43,7 @@ export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResu
   const modelName = resolveModel(settings)
 
   const genAI = new GoogleGenerativeAI(resolveApiKey(settings))
-  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames)
+  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext)
 
   const model = genAI.getGenerativeModel({
     model: modelName,

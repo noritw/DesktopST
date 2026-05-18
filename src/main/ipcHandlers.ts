@@ -2,7 +2,7 @@ import { ipcMain, shell, BrowserWindow, dialog, app, desktopCapturer, clipboard,
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, PinnedNote } from './types'
+import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, PinnedNote, Reminder } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage } from './llm/index'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel } from './llm/promptUtils'
@@ -14,6 +14,7 @@ import {
   loadDstPackZip,
   readCharacterFromZip
 } from './dstPack'
+import { reloadReminders } from './reminderScheduler'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow,
   resizeCharacterWindow, getCharacterWindowSize,
@@ -30,6 +31,7 @@ import {
   showPreviewWindow,
   createPinnedNoteWindow, updatePinnedNoteContent, updatePinnedNoteColor, closePinnedNote, getPinnedNoteWindow, getPinnedNoteWindowState,
   openPinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
+  openRemindersManager,
   hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu, raiseCharactersAbovePinnedNotes,
   createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow, getInputWindow,
   getLogWindow, getVisibleAuxWindowSnapshot, restoreAuxWindowsFromSnapshot, getVisiblePinnedNoteWindowIds,
@@ -561,6 +563,86 @@ export function restoreDismissedAuxWindows(): boolean {
     runNext(0)
   })
   return true
+}
+
+export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
+  let charId = reminder.characterId
+  if (!charId || !getCharacter(charId)) {
+    const candidates = settings.ui.desktopCharacters.filter(d => !d.muted).map(d => d.characterId)
+    if (candidates.length === 0) return
+    charId = candidates[Math.floor(Math.random() * candidates.length)]
+  }
+  const char = getCharacter(charId)
+  const conv = getActiveConversation()
+  if (!char || !conv) return
+
+  const activePersona = getActivePersona()
+  const activeWorld = getActiveWorld()
+
+  const ctxParts: string[] = []
+  if (conv.messages.length === 0 && char.firstMessage?.trim()) {
+    ctxParts.push(`[角色開場白]\n${char.firstMessage.trim()}\n\n請基於這個開場白的人格和語氣，自由發揮回應。`)
+  }
+  if (reminder.prompt?.trim()) {
+    ctxParts.push(`[提醒指令]\n${reminder.prompt.trim()}`)
+  }
+  if (reminder.injectPinnedNotes) {
+    const visible = (settings.ui.pinnedNotes ?? []).filter(n => n.visible)
+    if (visible.length > 0) {
+      const lines = visible.map(n => {
+        const title = n.title?.trim() || '便利貼'
+        const body = n.content?.trim()
+        return body ? `- 《${title}》${body}` : `- 《${title}》（空白）`
+      })
+      ctxParts.push(`[桌面便利貼]\n${lines.join('\n')}`)
+    }
+  }
+  const extraSystemContext = ctxParts.join('\n\n') || undefined
+
+  raiseCharactersAbovePinnedNotes()
+  broadcastToAll('character:thinking', { characterId: charId, thinking: true })
+  try {
+    let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
+    const desktopCharNames = settings.ui.desktopCharacters
+      .map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
+    const { content, emotion, debugPrompt } = await chatWithLLM({
+      settings,
+      character: char,
+      messages: recentMessages,
+      speakerNameById: getSpeakerNameById(),
+      persona: activePersona,
+      world: activeWorld,
+      desktopCharacterNames: desktopCharNames,
+      extraSystemContext
+    })
+    const cleanReply = stripOtherCharacterSpeakerLines(
+      normalizeCharacterDialogue(content, char),
+      char.id
+    )
+    if (!cleanReply) return
+
+    const msg: Message = {
+      id: uuidv4(),
+      role: 'character',
+      characterId: charId,
+      content: cleanReply,
+      llmProvider: settings.llm.provider,
+      llmModel: resolveModel(settings),
+      debugPrompt,
+      emotion,
+      timestamp: Date.now()
+    }
+    conv.messages.push(msg)
+    conv.updatedAt = Date.now()
+    fileStore.saveConversation(conv)
+    broadcastConversationUpdate(conv)
+    broadcastToAll('character:new-message', { characterId: charId, message: msg })
+    showSpeechBubble(charId, char.name, cleanReply)
+  } catch (e) {
+    console.error('[reminder] triggerReminderSpeak failed:', e)
+  } finally {
+    broadcastToAll('character:thinking', { characterId: charId, thinking: false })
+  }
 }
 
 export function registerIpcHandlers() {
@@ -1458,7 +1540,16 @@ export function registerIpcHandlers() {
       try {
         raiseCharactersAbovePinnedNotes()
         broadcastToAll('character:thinking', { characterId: charId, thinking: true })
-        const recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
+        let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
+        // 沒有對話時，插入虛擬開場防止模型把 system prompt 當成上文
+        if (recentMessages.length === 0) {
+          recentMessages = [{
+            id: uuidv4(),
+            role: 'user' as const,
+            content: '……',
+            timestamp: Date.now()
+          }]
+        }
         const { content: reply, emotion, debugPrompt } = await chatWithLLM({
           settings,
           character: char,
@@ -1522,10 +1613,16 @@ export function registerIpcHandlers() {
     const activePersona = getActivePersona()
     const activeWorld = getActiveWorld()
 
+    const ctxParts: string[] = []
+    if (conv.messages.length === 0 && char.firstMessage?.trim()) {
+      ctxParts.push(`[角色開場白]\n${char.firstMessage.trim()}\n\n請基於這個開場白的人格和語氣，自由發揮回應。`)
+    }
+    const extraSystemContext = ctxParts.join('\n\n') || undefined
+
     raiseCharactersAbovePinnedNotes()
     broadcastToAll('character:thinking', { characterId, thinking: true })
     try {
-      const recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
+      let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
       const desktopCharNamesForce = settings.ui.desktopCharacters.map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
       const { content, emotion, debugPrompt } = await chatWithLLM({
         settings,
@@ -1534,7 +1631,8 @@ export function registerIpcHandlers() {
         speakerNameById: getSpeakerNameById(),
         persona: activePersona,
         world: activeWorld,
-        desktopCharacterNames: desktopCharNamesForce
+        desktopCharacterNames: desktopCharNamesForce,
+        extraSystemContext
       })
       const forcedReply = stripOtherCharacterSpeakerLines(
         normalizeCharacterDialogue(content, char),
@@ -1754,6 +1852,38 @@ export function registerIpcHandlers() {
     }
     broadcastToAll('presets:updated', null)
     return true
+  })
+
+  // ── Reminders ────────────────────────────────────────────
+
+  ipcMain.handle('reminder:list', () => fileStore.loadReminders())
+
+  ipcMain.handle('reminder:save', (_, reminder: Reminder) => {
+    const list = fileStore.loadReminders()
+    const idx = list.findIndex(r => r.id === reminder.id)
+    if (idx >= 0) list[idx] = reminder
+    else list.push(reminder)
+    fileStore.saveReminders(list)
+    reloadReminders()
+    broadcastToAll('reminders:updated', null)
+    return reminder
+  })
+
+  ipcMain.handle('reminder:delete', (_, id: string) => {
+    const list = fileStore.loadReminders().filter(r => r.id !== id)
+    fileStore.saveReminders(list)
+    reloadReminders()
+    broadcastToAll('reminders:updated', null)
+  })
+
+  ipcMain.handle('reminder:toggle', (_, id: string, enabled: boolean) => {
+    const list = fileStore.loadReminders()
+    const r = list.find(x => x.id === id)
+    if (!r) return
+    r.enabled = enabled
+    fileStore.saveReminders(list)
+    reloadReminders()
+    broadcastToAll('reminders:updated', null)
   })
 
   ipcMain.handle('shell:open-external', (_, url: string) => {
@@ -2000,6 +2130,11 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('pinned-note:open-manager', () => {
     openPinnedNotesManager()
+    return true
+  })
+
+  ipcMain.handle('reminder:open-manager', () => {
+    openRemindersManager()
     return true
   })
 }

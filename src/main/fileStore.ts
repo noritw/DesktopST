@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
-import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, LegacyAppSettings, PinnedNote } from './types'
+import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, LegacyAppSettings, PinnedNote, Reminder } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
 const DEFAULT_DATA_DIR = path.join(app.getPath('userData'), 'DesktopST')
@@ -11,6 +11,7 @@ const STORAGE_META_FILE = path.join(app.getPath('userData'), 'DesktopST-storage.
 let DATA_DIR = DEFAULT_DATA_DIR
 let SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
 let PINNED_NOTES_FILE = path.join(DATA_DIR, 'pinned-notes.json')
+let REMINDERS_FILE = path.join(DATA_DIR, 'reminders.json')
 let CHARS_DIR = path.join(DATA_DIR, 'characters')
 let CONVS_DIR = path.join(DATA_DIR, 'conversations')
 let PERSONAS_DIR = path.join(DATA_DIR, 'personas')
@@ -22,6 +23,7 @@ function refreshPaths(nextDir: string): void {
   DATA_DIR = path.resolve(nextDir)
   SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
   PINNED_NOTES_FILE = path.join(DATA_DIR, 'pinned-notes.json')
+  REMINDERS_FILE = path.join(DATA_DIR, 'reminders.json')
   CHARS_DIR = path.join(DATA_DIR, 'characters')
   CONVS_DIR = path.join(DATA_DIR, 'conversations')
   PERSONAS_DIR = path.join(DATA_DIR, 'personas')
@@ -240,6 +242,30 @@ export function savePinnedNotes(notes: PinnedNote[]): void {
       if (err) console.error('[fileStore] savePinnedNotes failed:', err)
     })
   }, 150)
+}
+
+// ── Reminders ─────────────────────────────────────────────
+
+export function loadReminders(): Reminder[] {
+  if (!fs.existsSync(REMINDERS_FILE)) return []
+  try {
+    const raw = JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf-8'))
+    if (!Array.isArray(raw)) return []
+    return raw.filter((r): r is Reminder =>
+      !!r && typeof r.id === 'string' && typeof r.label === 'string' && !!r.schedule
+    )
+  } catch {
+    return []
+  }
+}
+
+export function saveReminders(reminders: Reminder[]): void {
+  ensureDirs()
+  try {
+    fs.writeFileSync(REMINDERS_FILE, JSON.stringify(reminders, null, 2), 'utf-8')
+  } catch (e) {
+    console.error('[fileStore] saveReminders failed:', e)
+  }
 }
 
 export function saveSettings(settings: AppSettings): void {

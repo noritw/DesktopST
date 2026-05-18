@@ -71,6 +71,24 @@ export interface PinnedNote {
   updatedAt: number
 }
 
+export type ReminderSchedule =
+  | { type: 'startup' }
+  | { type: 'once'; at: number }
+  | { type: 'daily'; hour: number; minute: number }
+  | { type: 'interval'; intervalMs: number }
+
+export interface Reminder {
+  id: string
+  characterId?: string
+  label: string
+  prompt: string
+  schedule: ReminderSchedule
+  enabled: boolean
+  injectPinnedNotes?: boolean
+  lastTriggeredAt?: number
+  createdAt: number
+}
+
 export interface PersonaPreset {
   id: string
   name: string

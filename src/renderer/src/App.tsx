@@ -11,6 +11,7 @@ import UserBubbleWindow from './windows/UserBubbleWindow'
 import PinnedNoteWindow from './windows/PinnedNoteWindow'
 import PinnedNoteColorMenuWindow from './windows/PinnedNoteColorMenuWindow'
 import PinnedNotesManagerWindow from './windows/PinnedNotesManagerWindow'
+import RemindersManagerWindow from './windows/RemindersManagerWindow'
 import EmojiPickerWindow from './windows/EmojiPickerWindow'
 import ErrorBoundary from './components/ErrorBoundary'
 
@@ -63,6 +64,7 @@ export default function App() {
   if (w === 'pinned-note') return <ErrorBoundary><PinnedNoteWindow /></ErrorBoundary>
   if (w === 'pinned-note-color-menu') return <ErrorBoundary><PinnedNoteColorMenuWindow /></ErrorBoundary>
   if (w === 'pinned-notes-manager') return <ErrorBoundary><PinnedNotesManagerWindow /></ErrorBoundary>
+  if (w === 'reminders-manager') return <ErrorBoundary><RemindersManagerWindow /></ErrorBoundary>
   if (w === 'user-bubble') return <ErrorBoundary><UserBubbleWindow /></ErrorBoundary>
   if (w === 'input') return <ErrorBoundary><InputWindow /></ErrorBoundary>
   if (w === 'settings') return <ErrorBoundary><SettingsWindow /></ErrorBoundary>

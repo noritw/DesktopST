@@ -17,6 +17,7 @@ export type MonoIconName =
   | 'notes'
   | 'pin'
   | 'copy'
+  | 'alarm'
 
 export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIconName; className?: string }) {
   const common = {
@@ -154,6 +155,14 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <circle {...common} cx="15" cy="9" r="4" />
           {/* 限位桿 */}
           <line {...common} x1="12" y1="12" x2="18" y2="6" />
+        </>
+      )}
+      {name === 'alarm' && (
+        <>
+          <circle {...common} cx="12" cy="13" r="7" />
+          <path {...common} d="M5 6L2 3" />
+          <path {...common} d="M19 6l3-3" />
+          <path {...common} d="M12 10v3l2 1" />
         </>
       )}
     </svg>

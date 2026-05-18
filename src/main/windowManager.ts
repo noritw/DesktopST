@@ -24,6 +24,7 @@ type VisibleAuxWindowKind =
   | 'characterLibrary'
   | 'preview'
   | 'pinnedNotesManager'
+  | 'remindersManager'
   | 'speechBubble'
 export type VisibleAuxWindowSnapshotEntry = {
   kind: VisibleAuxWindowKind
@@ -1649,6 +1650,7 @@ export async function getPinnedNoteWindowState(noteId: string): Promise<WindowBo
 }
 
 let pinnedNotesManagerWindow: BrowserWindow | null = null
+let remindersManagerWindow: BrowserWindow | null = null
 let pinnedNoteColorMenuWindow: BrowserWindow | null = null
 
 type ScreenBounds = { x: number; y: number; width: number; height: number }
@@ -1785,6 +1787,57 @@ export function openPinnedNotesManager(): BrowserWindow {
   return pinnedNotesManagerWindow
 }
 
+export function openRemindersManager(): BrowserWindow {
+  if (remindersManagerWindow && !remindersManagerWindow.isDestroyed()) {
+    remindersManagerWindow.show()
+    remindersManagerWindow.focus()
+    remindersManagerWindow.moveTop()
+    return remindersManagerWindow
+  }
+
+  const wa = screen.getPrimaryDisplay().workArea
+  const w = 420, h = 580
+  remindersManagerWindow = new BrowserWindow({
+    x: Math.round(wa.x + (wa.width - w) / 2),
+    y: Math.round(wa.y + (wa.height - h) / 2),
+    width: w,
+    height: h,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  remindersManagerWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  remindersManagerWindow.setMinimumSize(360, 400)
+
+  if (VITE_DEV_SERVER_URL) {
+    remindersManagerWindow.loadURL(makeURL({ w: 'reminders-manager' }))
+  } else {
+    remindersManagerWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: { w: 'reminders-manager' }
+    })
+  }
+
+  if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
+    remindersManagerWindow.webContents.openDevTools({ mode: 'detach' })
+  }
+
+  remindersManagerWindow.on('closed', () => { remindersManagerWindow = null })
+  remindersManagerWindow.show()
+  raiseAuxAboveCharacters()
+  remindersManagerWindow.moveTop()
+  remindersManagerWindow.focus()
+  return remindersManagerWindow
+}
+
 // ── Hide all auxiliary windows (non-pinned-note, used by dismissAllAuxWindows) ──
 
 function pushVisibleAuxSnapshot(
@@ -1806,6 +1859,7 @@ export function getVisibleAuxWindowSnapshot(): VisibleAuxWindowSnapshotEntry[] {
   pushVisibleAuxSnapshot(entries, 'characterLibrary', characterLibraryWindow)
   pushVisibleAuxSnapshot(entries, 'preview', previewWindow)
   pushVisibleAuxSnapshot(entries, 'pinnedNotesManager', pinnedNotesManagerWindow)
+  pushVisibleAuxSnapshot(entries, 'remindersManager', remindersManagerWindow)
   for (const [characterId, win] of bubbleWindows.entries()) {
     if (!win || win.isDestroyed() || !win.isVisible()) continue
     const bounds = getWindowBoundsState(win)
@@ -1880,6 +1934,12 @@ export function restoreAuxWindowsFromSnapshot(entries: VisibleAuxWindowSnapshotE
         lastFocusable = win
         break
       }
+      case 'remindersManager': {
+        const win = openRemindersManager()
+        win.setBounds(entry.bounds)
+        lastFocusable = win
+        break
+      }
       case 'speechBubble': {
         if (!entry.characterId) break
         const win = bubbleWindows.get(entry.characterId)
@@ -1907,7 +1967,7 @@ export function restoreAuxWindowsFromSnapshot(entries: VisibleAuxWindowSnapshotE
 }
 
 export function hideAllAuxWindowsExceptPinnedNotes(): void {
-  for (const w of [inputWindow, userBubbleWindow, logWindow, settingsWindow, characterLibraryWindow, previewWindow, pinnedNotesManagerWindow, emojiPickerWindow, pinnedNoteColorMenuWindow]) {
+  for (const w of [inputWindow, userBubbleWindow, logWindow, settingsWindow, characterLibraryWindow, previewWindow, pinnedNotesManagerWindow, remindersManagerWindow, emojiPickerWindow, pinnedNoteColorMenuWindow]) {
     if (w && !w.isDestroyed() && w.isVisible()) w.hide()
   }
   for (const w of bubbleWindows.values()) {
@@ -1936,7 +1996,8 @@ export function broadcastToAll(channel: string, data: unknown): void {
     logWindow,
     settingsWindow,
     characterLibraryWindow,
-    pinnedNotesManagerWindow
+    pinnedNotesManagerWindow,
+    remindersManagerWindow
   ].filter(w => w && !w.isDestroyed()) as BrowserWindow[]
   for (const w of wins) w.webContents.send(channel, data)
 }

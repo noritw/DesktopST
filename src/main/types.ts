@@ -137,6 +137,26 @@ export interface AppSettings {
   }
 }
 
+export type ReminderSchedule =
+  | { type: 'startup' }
+  | { type: 'once'; at: number }
+  | { type: 'daily'; hour: number; minute: number }
+  | { type: 'interval'; intervalMs: number }
+
+export interface Reminder {
+  id: string
+  /** 未設定時觸發時隨機選桌面上的未靜音角色 */
+  characterId?: string
+  label: string
+  prompt: string
+  schedule: ReminderSchedule
+  enabled: boolean
+  /** 觸發時將桌面可見便利貼內容附入 prompt */
+  injectPinnedNotes?: boolean
+  lastTriggeredAt?: number
+  createdAt: number
+}
+
 /** Legacy shape — used only for migration detection */
 export interface LegacyAppSettings extends Omit<AppSettings, 'activePersonaId' | 'activeWorldId'> {
   worldSetting?: string

@@ -2,7 +2,8 @@ import { app, Tray, Menu, nativeImage, protocol, screen, BrowserWindow } from 'e
 import * as path from 'path'
 import * as fs from 'fs'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings } from './ipcHandlers'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, triggerReminderSpeak } from './ipcHandlers'
+import { initReminderScheduler } from './reminderScheduler'
 import {
   createCharacterWindow,
   toggleInputWindow,
@@ -13,6 +14,7 @@ import {
   shouldSuppressAuxAutoHide,
   openSettingsWindow,
   openPinnedNotesManager,
+  openRemindersManager,
   getCharacterWindowSize,
   suppressAuxAutoHide,
   setCharactersAlwaysOnTop,
@@ -102,6 +104,9 @@ app.on('ready', async () => {
   // Init in-memory state
   initState(settings, chars, desktopState)
 
+  // Init reminder scheduler (after state is ready)
+  initReminderScheduler(triggerReminderSpeak)
+
   // Create character windows for all desktop characters
   let didFixOffscreen = false
   for (const ds of settings.ui.desktopCharacters) {
@@ -178,6 +183,7 @@ function setupTray(appRoot: string) {
     const menu = Menu.buildFromTemplate([
       { label: '開啟輸入視窗', click: () => toggleInputWindow() },
       { label: '開啟便利貼管理', click: () => openPinnedNotesManager() },
+      { label: '管理提醒', click: () => openRemindersManager() },
       auxAction,
       { type: 'separator' },
       {
