@@ -80,6 +80,8 @@ export type ChatLLMParams = {
   desktopCharacterNames?: string[]
   /** 附加到 system prompt 末尾的額外上下文（提醒指令、便利貼等） */
   extraSystemContext?: string
+  /** 是否為提醒模式（不注入 trigger message） */
+  isReminder?: boolean
 }
 
 export type ChatLLMResult = {
@@ -336,16 +338,6 @@ export function buildSystemPrompt(
     parts.push(`[Interaction Hints]\n${interactionExample}`)
   }
 
-  if (settings.injectSystemTime) {
-    parts.push(`[System Time]\n${timeStr}`)
-    parts.push([
-      '[Time Tone]',
-      `- ${buildTimeMoodGuideline(hours)}`,
-      '- Keep time references brief (1-2 short lines), natural, and in character.',
-      '- Never turn time cues into workflow advice or coaching tone.'
-    ].join('\n'))
-  }
-
   if (desktopCharacterNames && desktopCharacterNames.length > 0) {
     const others = desktopCharacterNames.filter(n => n !== char.name)
     const selfLine = `- ${char.name}（你）`
@@ -363,6 +355,10 @@ export function buildSystemPrompt(
 
   if (extraSystemContext?.trim()) {
     parts.push(extraSystemContext.trim())
+  }
+
+  if (settings.injectSystemTime) {
+    parts.push(`[System Time]\n${timeStr}`)
   }
 
   return parts.join('\n\n')

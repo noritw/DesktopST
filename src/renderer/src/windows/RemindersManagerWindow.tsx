@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import type { Reminder, ReminderSchedule, Character } from '../types'
+import { useAppStore } from '../stores/useAppStore'
 import MonoIcon from '../components/MonoIcon'
 
 // ── Helpers ───────────────────────────────────────────────
@@ -45,12 +46,14 @@ function ReminderForm({
   initial,
   characters,
   onSave,
-  onCancel
+  onCancel,
+  desktopCharacterIds
 }: {
   initial: Reminder
   characters: Character[]
   onSave: (r: Reminder) => void
   onCancel: () => void
+  desktopCharacterIds: string[]
 }) {
   const [label, setLabel] = useState(initial.label)
   const [charId, setCharId] = useState(initial.characterId ?? '')
@@ -74,6 +77,7 @@ function ReminderForm({
   })
   const [prompt, setPrompt] = useState(initial.prompt)
   const [injectNotes, setInjectNotes] = useState(initial.injectPinnedNotes ?? false)
+  const [error, setError] = useState('')
 
   function buildSchedule(): ReminderSchedule {
     if (schedType === 'startup') return { type: 'startup' }
@@ -89,9 +93,19 @@ function ReminderForm({
 
   function handleSave() {
     const trimmed = label.trim()
-    if (!trimmed) { alert('請填寫提醒名稱'); return }
-    if (schedType === 'interval' && intervalMins < 5) { alert('間隔時間最短 5 分鐘'); return }
-    if (schedType === 'once' && new Date(onceAt) <= new Date()) { alert('請設定未來的時間'); return }
+    if (!trimmed) {
+      setError('請填寫提醒名稱')
+      return
+    }
+    if (schedType === 'interval' && intervalMins < 5) {
+      setError('間隔時間最短 5 分鐘')
+      return
+    }
+    if (schedType === 'once' && new Date(onceAt) <= new Date()) {
+      setError('請設定未來的時間')
+      return
+    }
+    setError('')
     onSave({
       ...initial,
       label: trimmed,
@@ -107,13 +121,18 @@ function ReminderForm({
 
   return (
     <div className="flex flex-col gap-3 p-4">
+      {error && (
+        <div className="text-xs text-danger bg-danger-soft border border-danger-border rounded-lg px-3 py-2">
+          {error}
+        </div>
+      )}
       <div>
         <label className={labelCls}>提醒名稱</label>
         <input
           className={inputCls}
           value={label}
           onChange={e => setLabel(e.target.value)}
-          placeholder="例：早安問候、喝水提醒"
+          placeholder="例：早安問候、喝水提醒、運動提醒"
           maxLength={40}
         />
       </div>
@@ -121,8 +140,8 @@ function ReminderForm({
       <div>
         <label className={labelCls}>由哪個角色說話</label>
         <select className={inputCls} value={charId} onChange={e => setCharId(e.target.value)}>
-          <option value="">隨機角色</option>
-          {characters.map(c => (
+          <option value="">隨機角色（桌面上有的）</option>
+          {characters.filter(c => desktopCharacterIds.includes(c.id)).map(c => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
@@ -187,7 +206,7 @@ function ReminderForm({
           rows={3}
           value={prompt}
           onChange={e => setPrompt(e.target.value)}
-          placeholder="例：提醒使用者喝水，語氣要俏皮一點"
+          placeholder="例：提醒我喝水"
         />
         <p className="text-[11px] text-secondary mt-1">角色說話前會收到這段指令，空白則自然發話。</p>
       </div>
@@ -307,6 +326,7 @@ export default function RemindersManagerWindow() {
   const [characters, setCharacters] = useState<Character[]>([])
   const [editing, setEditing] = useState<Reminder | null>(null)
   const [adding, setAdding] = useState(false)
+  const desktopCharacters = useAppStore(s => s.desktopCharacters ?? [])
 
   const reload = async () => {
     const list = await window.api.invoke('reminder:list') as Reminder[]
@@ -391,6 +411,7 @@ export default function RemindersManagerWindow() {
             characters={characters}
             onSave={handleSave}
             onCancel={() => { setAdding(false); setEditing(null) }}
+            desktopCharacterIds={desktopCharacters.map(d => d.characterId)}
           />
         </div>
       )}

@@ -89,8 +89,10 @@ export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResu
     currentParts = [...images.map(imageToGeminiPart), ...currentParts]
   }
 
-  // Trigger injected after conversation history
-  currentParts.push({ text: '\n\n' + buildTriggerMessage(character.name) })
+  // Trigger injected after conversation history (not for reminders)
+  if (!params.isReminder) {
+    currentParts.push({ text: '\n\n' + buildTriggerMessage(character.name) })
+  }
 
   // History must start with 'user' for Gemini
   // If first entry is 'model', prepend a placeholder user turn

@@ -72,8 +72,10 @@ export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResu
     })
   ]
 
-  // Trigger injected after conversation history
-  input.push({ role: 'user', content: buildTriggerMessage(character.name) })
+  // Trigger injected after conversation history (not for reminders)
+  if (!params.isReminder) {
+    input.push({ role: 'user', content: buildTriggerMessage(character.name) })
+  }
 
   if (images && images.length > 0 && input.length > 0) {
     for (let i = input.length - 1; i >= 0; i--) {

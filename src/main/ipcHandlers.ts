@@ -567,11 +567,43 @@ export function restoreDismissedAuxWindows(): boolean {
 
 export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   let charId = reminder.characterId
-  if (!charId || !getCharacter(charId)) {
+  let requestedCharacterName = ''
+  let characterWasRestored = false
+  let characterWasDeleted = false
+
+  if (charId) {
+    const requestedChar = getCharacter(charId)
+    if (requestedChar) {
+      requestedCharacterName = requestedChar.name
+      const isOnDesktop = settings.ui.desktopCharacters.some(d => d.characterId === charId)
+      if (!isOnDesktop) {
+        settings.ui.desktopCharacters.push({
+          characterId: charId,
+          position: { x: 80, y: 400 },
+          size: 1,
+          flipped: false,
+          muted: false,
+          zIndex: 1
+        })
+        fileStore.saveSettings(settings)
+        characterWasRestored = true
+        broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
+        createCharacterWindow(charId, { x: 80, y: 400 }, 1)
+      }
+    } else {
+      characterWasDeleted = true
+      const candidates = settings.ui.desktopCharacters.filter(d => !d.muted).map(d => d.characterId)
+      if (candidates.length === 0) return
+      charId = candidates[Math.floor(Math.random() * candidates.length)]
+    }
+  }
+
+  if (!charId) {
     const candidates = settings.ui.desktopCharacters.filter(d => !d.muted).map(d => d.characterId)
     if (candidates.length === 0) return
     charId = candidates[Math.floor(Math.random() * candidates.length)]
   }
+
   const char = getCharacter(charId)
   const conv = getActiveConversation()
   if (!char || !conv) return
@@ -580,6 +612,13 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   const activeWorld = getActiveWorld()
 
   const ctxParts: string[] = []
+  if (characterWasDeleted && requestedCharacterName) {
+    const reminderText = reminder.prompt?.trim() || '提醒你的事情'
+    ctxParts.push(`[替補訊息]\n使用者之前設定讓 ${requestedCharacterName} 來提醒關於「${reminderText}」的事，但 ${requestedCharacterName} 已經不存在了。請你代替 ${requestedCharacterName} 來傳達這個提醒，並表示 ${requestedCharacterName} 不在了。例如說「你之前叫 ${requestedCharacterName} 提醒你『${reminderText}』，可是他不在這裡了喔，換我跟你說」。`)
+  }
+  if (characterWasRestored) {
+    ctxParts.push(`[角色復出]\n這個角色剛才被重新叫回桌面。`)
+  }
   if (conv.messages.length === 0 && char.firstMessage?.trim()) {
     ctxParts.push(`[角色開場白]\n${char.firstMessage.trim()}\n\n請基於這個開場白的人格和語氣，自由發揮回應。`)
   }
@@ -602,18 +641,18 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   raiseCharactersAbovePinnedNotes()
   broadcastToAll('character:thinking', { characterId: charId, thinking: true })
   try {
-    let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
     const desktopCharNames = settings.ui.desktopCharacters
       .map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
     const { content, emotion, debugPrompt } = await chatWithLLM({
       settings,
       character: char,
-      messages: recentMessages,
+      messages: [],
       speakerNameById: getSpeakerNameById(),
       persona: activePersona,
       world: activeWorld,
       desktopCharacterNames: desktopCharNames,
-      extraSystemContext
+      extraSystemContext,
+      isReminder: true
     })
     const cleanReply = stripOtherCharacterSpeakerLines(
       normalizeCharacterDialogue(content, char),
