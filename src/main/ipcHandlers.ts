@@ -612,6 +612,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   const activeWorld = getActiveWorld()
 
   const ctxParts: string[] = []
+
   if (characterWasDeleted && requestedCharacterName) {
     const reminderText = reminder.prompt?.trim() || '提醒你的事情'
     ctxParts.push(`[替補訊息]\n使用者之前設定讓 ${requestedCharacterName} 來提醒關於「${reminderText}」的事，但 ${requestedCharacterName} 已經不存在了。請你代替 ${requestedCharacterName} 來傳達這個提醒，並表示 ${requestedCharacterName} 不在了。例如說「你之前叫 ${requestedCharacterName} 提醒你『${reminderText}』，可是他不在這裡了喔，換我跟你說」。`)
@@ -636,13 +637,24 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       ctxParts.push(`[桌面便利貼]\n${lines.join('\n')}`)
     }
   }
+
+  // Desktop character list (after other context, before system time)
+  const desktopCharNames = settings.ui.desktopCharacters
+    .map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
+  if (desktopCharNames.length > 0) {
+    const selfLine = `- ${char.name} (you)`
+    const otherLines = desktopCharNames.filter(n => n !== char.name).map(n => `- ${n}`)
+    ctxParts.push([
+      '[Desktop Characters]',
+      selfLine,
+      ...otherLines
+    ].join('\n'))
+  }
   const extraSystemContext = ctxParts.join('\n\n') || undefined
 
   raiseCharactersAbovePinnedNotes()
   broadcastToAll('character:thinking', { characterId: charId, thinking: true })
   try {
-    const desktopCharNames = settings.ui.desktopCharacters
-      .map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
     const { content, emotion, debugPrompt } = await chatWithLLM({
       settings,
       character: char,
@@ -650,7 +662,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       speakerNameById: getSpeakerNameById(),
       persona: activePersona,
       world: activeWorld,
-      desktopCharacterNames: desktopCharNames,
+      desktopCharacterNames: [],
       extraSystemContext,
       isReminder: true
     })
@@ -677,10 +689,13 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     broadcastConversationUpdate(conv)
     broadcastToAll('character:new-message', { characterId: charId, message: msg })
 
-    // 播放提醒音效
+    // 播放提醒音效（發給說話的角色的窗口，一個角色只響一次）
     if (settings.ui.reminderNotificationSound?.enabled !== false) {
       const volume = settings.ui.reminderNotificationSound?.volume ?? 0.7
-      broadcastToAll('audio:play-notification', { volume })
+      const charWin = getCharacterWindow(charId)
+      if (charWin && !charWin.isDestroyed()) {
+        charWin.webContents.send('audio:play-notification', { volume })
+      }
     }
 
     showSpeechBubble(charId, char.name, cleanReply)

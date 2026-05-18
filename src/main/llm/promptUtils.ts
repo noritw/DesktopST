@@ -338,23 +338,27 @@ export function buildSystemPrompt(
     parts.push(`[Interaction Hints]\n${interactionExample}`)
   }
 
-  if (desktopCharacterNames && desktopCharacterNames.length > 0) {
-    const others = desktopCharacterNames.filter(n => n !== char.name)
-    const selfLine = `- ${char.name}（你）`
-    const otherLines = others.map(n => `- ${n}`)
-    parts.push([
-      '[Co-present Characters]',
-      'Characters currently on the desktop (visible together):',
-      selfLine,
-      ...otherLines,
-      'Read the full conversation and decide naturally what to respond to — it may be something the user said, something another character said, or both.',
-      'Do not always direct replies at the user. Treat this as a group conversation where any remark is fair game to pick up on.',
-      'Do not repeat the emotional beat or core message already expressed by the other character(s).'
-    ].join('\n'))
-  }
-
   if (extraSystemContext?.trim()) {
     parts.push(extraSystemContext.trim())
+  }
+
+  if (desktopCharacterNames && desktopCharacterNames.length > 0) {
+    const others = desktopCharacterNames.filter(n => n !== char.name)
+    if (others.length > 0) {
+      parts.push([
+        '[Group Conversation]',
+        'Read the full conversation and decide naturally what to respond to — it may be something the user said, something another character said, or both.',
+        'Do not always direct replies at the user. Treat this as a group conversation where any remark is fair game to pick up on.',
+        'Do not repeat the emotional beat or core message already expressed by the other character(s).'
+      ].join('\n'))
+    }
+    const selfLine = `- ${char.name} (you)`
+    const otherLines = others.map(n => `- ${n}`)
+    parts.push([
+      '[Desktop Characters]',
+      selfLine,
+      ...otherLines
+    ].join('\n'))
   }
 
   if (settings.injectSystemTime) {
