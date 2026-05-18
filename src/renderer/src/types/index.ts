@@ -153,6 +153,17 @@ export interface AppSettings {
     colorTheme?: 'mint' | 'butter' | 'peach' | 'aqua' | 'sky' | 'blush' | 'lavender' | 'white' | 'dark'
     /** 角色視窗永遠顯示在最上層 */
     alwaysOnTop?: boolean
+    /** 對話泡泡自動消失設定 */
+    chatBubbleAutoClose?: {
+      enabled: boolean
+      seconds: number
+    }
+    /** 提醒通知音效設定 */
+    reminderNotificationSound?: {
+      enabled: boolean
+      volume: number
+      customSoundPath?: string
+    }
   }
 }
 

@@ -30,6 +30,32 @@ export default function App() {
   const chatFontSize = settings?.ui.chatFontSize ?? null
   const colorTheme = settings?.ui.colorTheme ?? null
 
+  // 初始化音效播放
+  useEffect(() => {
+    let audio: HTMLAudioElement | null = null
+    const customSoundPath = settings?.ui.reminderNotificationSound?.customSoundPath
+
+    const initAudio = () => {
+      // 優先使用自訂音效，否則使用預設音效
+      const audioPath = customSoundPath
+        ? `file://${customSoundPath.replace(/\\/g, '/')}`
+        : new URL('../../../assets/notification-sound.wav', import.meta.url).href
+      audio = new Audio(audioPath)
+    }
+
+    initAudio()
+
+    const unsub = window.api.on('audio:play-notification', (payload) => {
+      if (!audio) return
+      const { volume = 0.7 } = payload as { volume?: number }
+      audio.volume = Math.max(0, Math.min(1, volume))
+      audio.currentTime = 0
+      audio.play().catch(e => console.error('[Audio] Play failed:', e))
+    })
+
+    return unsub
+  }, [settings?.ui.reminderNotificationSound?.customSoundPath])
+
   useEffect(() => {
     loadAll().catch(e => console.error('[DesktopST] loadAll failed:', e))
     const unsub = subscribeToEvents()

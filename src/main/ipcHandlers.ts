@@ -676,6 +676,13 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     fileStore.saveConversation(conv)
     broadcastConversationUpdate(conv)
     broadcastToAll('character:new-message', { characterId: charId, message: msg })
+
+    // 播放提醒音效
+    if (settings.ui.reminderNotificationSound?.enabled !== false) {
+      const volume = settings.ui.reminderNotificationSound?.volume ?? 0.7
+      broadcastToAll('audio:play-notification', { volume })
+    }
+
     showSpeechBubble(charId, char.name, cleanReply)
   } catch (e) {
     console.error('[reminder] triggerReminderSpeak failed:', e)
@@ -2175,5 +2182,37 @@ export function registerIpcHandlers() {
   ipcMain.handle('reminder:open-manager', () => {
     openRemindersManager()
     return true
+  })
+
+  ipcMain.handle('audio:select-notification-sound', async () => {
+    const result = await dialog.showOpenDialog({
+      title: '選擇通知音效',
+      filters: [
+        { name: '音頻檔案', extensions: ['mp3', 'wav', 'ogg', 'm4a'] },
+        { name: '所有檔案', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const selectedPath = result.filePaths[0]
+    const soundsDir = path.join(fileStore.getDataDir(), 'sounds')
+    fs.mkdirSync(soundsDir, { recursive: true })
+    const filename = path.basename(selectedPath)
+    const destPath = path.join(soundsDir, filename)
+    try {
+      fs.copyFileSync(selectedPath, destPath)
+      settings.ui.reminderNotificationSound = {
+        ...settings.ui.reminderNotificationSound,
+        enabled: settings.ui.reminderNotificationSound?.enabled ?? true,
+        volume: settings.ui.reminderNotificationSound?.volume ?? 0.7,
+        customSoundPath: destPath
+      }
+      fileStore.saveSettings(settings)
+      broadcastToAll('settings:updated', settings)
+      return { path: destPath, filename }
+    } catch (e) {
+      console.error('[audio] select-notification-sound failed:', e)
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
   })
 }

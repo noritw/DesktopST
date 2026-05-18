@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import MessageText from '../components/MessageText'
 import MonoIcon from '../components/MonoIcon'
+import { useAppStore } from '../stores/useAppStore'
 
 interface Props {
   characterId: string
@@ -29,6 +30,7 @@ export default function BubbleWindow({ characterId }: Props) {
   const contentRef = useRef<HTMLDivElement>(null)
   const lastSizeRef = useRef<{ width: number; height: number }>({ width: 280, height: 120 })
 
+  const settings = useAppStore(s => s.settings)
   const displayText = useMemo(() => String(text ?? ''), [text])
 
   const clearTimer = () => {
@@ -111,7 +113,14 @@ export default function BubbleWindow({ characterId }: Props) {
       setVisible(true)
 
       if (!p.persistUntilClosed) {
-        const autoCloseMs = Math.max(8000, Number(p.autoCloseMs) || 8000)
+        // 優先使用設定中的自動消失時間
+        let autoCloseMs = 8000
+        if (settings?.ui.chatBubbleAutoClose?.enabled) {
+          const seconds = settings.ui.chatBubbleAutoClose.seconds
+          autoCloseMs = Math.max(1000, seconds * 1000)
+        } else if (Number(p.autoCloseMs)) {
+          autoCloseMs = Math.max(8000, Number(p.autoCloseMs))
+        }
         timerRef.current = setTimeout(closeBubble, autoCloseMs)
       }
     })
@@ -127,7 +136,7 @@ export default function BubbleWindow({ characterId }: Props) {
       unsubShow()
       unsubPersist()
     }
-  }, [characterId])
+  }, [characterId, settings?.ui.chatBubbleAutoClose])
 
   useEffect(() => {
     if (!visible) return

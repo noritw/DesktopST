@@ -1085,6 +1085,87 @@ export default function SettingsWindow() {
               </Field>
               <p className="text-xs text-secondary">僅在對白框可見時套用；0% 為完全透明，100% 為不透明。</p>
             </div>
+
+            <div className="border-t border-border pt-3" />
+            <p className="text-xs font-medium text-secondary">對話泡泡</p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draft.ui.chatBubbleAutoClose?.enabled ?? false}
+                onChange={e => {
+                  if (e.target.checked) {
+                    set('ui.chatBubbleAutoClose', { enabled: true, seconds: draft.ui.chatBubbleAutoClose?.seconds ?? 8 })
+                  } else {
+                    set('ui.chatBubbleAutoClose', { enabled: false, seconds: draft.ui.chatBubbleAutoClose?.seconds ?? 8 })
+                  }
+                }}
+                className="accent-teal w-4 h-4"
+              />
+              <span className="text-sm text-primary">顯示</span>
+              <input
+                type="number"
+                min={1}
+                max={120}
+                value={draft.ui.chatBubbleAutoClose?.seconds ?? 8}
+                onChange={e => {
+                  const seconds = Math.max(1, Math.min(120, Number(e.target.value)))
+                  set('ui.chatBubbleAutoClose', { enabled: draft.ui.chatBubbleAutoClose?.enabled ?? false, seconds })
+                }}
+                className="input-field w-16 text-center text-sm px-2 py-1"
+              />
+              <span className="text-sm text-primary">秒後自動消失</span>
+            </label>
+            <p className="text-xs text-secondary ml-6">不勾選的話，對話泡泡會一直留在畫面上，直到手動關閉或下一句對話出現。</p>
+
+            <div className="border-t border-border pt-3" />
+            <p className="text-xs font-medium text-secondary">提醒通知</p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draft.ui.reminderNotificationSound?.enabled ?? true}
+                onChange={e => {
+                  set('ui.reminderNotificationSound', {
+                    enabled: e.target.checked,
+                    volume: draft.ui.reminderNotificationSound?.volume ?? 0.7
+                  })
+                }}
+                className="accent-teal w-4 h-4"
+              />
+              <span className="text-sm text-primary">觸發提醒時播放通知音</span>
+            </label>
+            {draft.ui.reminderNotificationSound?.enabled !== false && (
+              <div className="ml-6 space-y-2">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-secondary">音量：</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round((draft.ui.reminderNotificationSound?.volume ?? 0.7) * 100)}
+                    onChange={e => {
+                      set('ui.reminderNotificationSound', {
+                        enabled: draft.ui.reminderNotificationSound?.enabled ?? true,
+                        volume: Number(e.target.value) / 100
+                      })
+                    }}
+                    className="flex-1 accent-teal"
+                  />
+                  <span className="text-xs text-secondary w-8 text-right">{Math.round((draft.ui.reminderNotificationSound?.volume ?? 0.7) * 100)}%</span>
+                </div>
+                <button
+                  type="button"
+                  className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint-40 transition-all"
+                  onClick={() => window.api.invoke('audio:select-notification-sound')}
+                >
+                  選擇自訂音效
+                </button>
+                {draft.ui.reminderNotificationSound?.customSoundPath && (
+                  <p className="text-xs text-secondary break-all">
+                    目前：{draft.ui.reminderNotificationSound.customSoundPath.split(/[/\\]/).pop()}
+                  </p>
+                )}
+              </div>
+            )}
           </>
         )}
 

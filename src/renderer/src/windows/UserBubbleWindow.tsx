@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import MessageText from '../components/MessageText'
 import MonoIcon from '../components/MonoIcon'
+import { useAppStore } from '../stores/useAppStore'
 
 export default function UserBubbleWindow() {
   const [visible, setVisible] = useState(false)
@@ -9,6 +10,7 @@ export default function UserBubbleWindow() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const contentRef = useRef<HTMLDivElement>(null)
 
+  const settings = useAppStore(s => s.settings)
   const displayText = useMemo(() => String(text ?? ''), [text])
 
   const clearTimer = () => {
@@ -37,7 +39,13 @@ export default function UserBubbleWindow() {
       setVisible(true)
 
       if (!p.persistUntilClosed) {
-        const autoCloseMs = Math.max(8000, Number(p.autoCloseMs) || 8000)
+        let autoCloseMs = 8000
+        if (settings?.ui.chatBubbleAutoClose?.enabled) {
+          const seconds = settings.ui.chatBubbleAutoClose.seconds
+          autoCloseMs = Math.max(1000, seconds * 1000)
+        } else if (Number(p.autoCloseMs)) {
+          autoCloseMs = Math.max(8000, Number(p.autoCloseMs))
+        }
         timerRef.current = setTimeout(closeBubble, autoCloseMs)
       }
     })
@@ -46,7 +54,7 @@ export default function UserBubbleWindow() {
       clearTimer()
       unsubShow()
     }
-  }, [])
+  }, [settings?.ui.chatBubbleAutoClose])
 
   useEffect(() => {
     if (!visible) return

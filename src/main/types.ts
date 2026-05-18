@@ -134,6 +134,17 @@ export interface AppSettings {
     pinnedNotes?: PinnedNote[]
     /** 角色視窗保持在最上層（預設 true）*/
     alwaysOnTop?: boolean
+    /** 對話泡泡自動消失設定 */
+    chatBubbleAutoClose?: {
+      enabled: boolean
+      seconds: number
+    }
+    /** 提醒通知音效設定 */
+    reminderNotificationSound?: {
+      enabled: boolean
+      volume: number
+      customSoundPath?: string
+    }
   }
 }
 
@@ -195,6 +206,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
     theme: 'light',
     hoverMenuOnHover: true,
     onboardingCompleted: false,
-    alwaysOnTop: true
+    alwaysOnTop: true,
+    chatBubbleAutoClose: {
+      enabled: false,
+      seconds: 8
+    },
+    reminderNotificationSound: {
+      enabled: true,
+      volume: 0.7
+    }
   }
 }

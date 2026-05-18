@@ -9,3 +9,4 @@ dist/
 !.env.example
 .claude/settings.local.json
 DesktopST-dev.bat
+scripts/generateNotificationSound.js
