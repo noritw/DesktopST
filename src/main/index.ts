@@ -12,6 +12,7 @@ import {
   isCursorOverInteractiveCharacter,
   shouldSuppressAuxAutoHide,
   openSettingsWindow,
+  openPinnedNotesManager,
   getCharacterWindowSize,
   suppressAuxAutoHide,
   setCharactersAlwaysOnTop,
@@ -176,6 +177,7 @@ function setupTray(appRoot: string) {
     const isAlwaysOnTop = getCharactersAlwaysOnTop()
     const menu = Menu.buildFromTemplate([
       { label: '開啟輸入視窗', click: () => toggleInputWindow() },
+      { label: '開啟便利貼管理', click: () => openPinnedNotesManager() },
       auxAction,
       { type: 'separator' },
       {

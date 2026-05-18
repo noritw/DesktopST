@@ -2,19 +2,85 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
-import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, LegacyAppSettings } from './types'
+import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, LegacyAppSettings, PinnedNote } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
-const DATA_DIR = path.join(app.getPath('userData'), 'DesktopST')
-const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
-const CHARS_DIR = path.join(DATA_DIR, 'characters')
-const CONVS_DIR = path.join(DATA_DIR, 'conversations')
-const PERSONAS_DIR = path.join(DATA_DIR, 'personas')
-const WORLDS_DIR = path.join(DATA_DIR, 'worlds')
+const DEFAULT_DATA_DIR = path.join(app.getPath('userData'), 'DesktopST')
+const STORAGE_META_FILE = path.join(app.getPath('userData'), 'DesktopST-storage.json')
+
+let DATA_DIR = DEFAULT_DATA_DIR
+let SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
+let PINNED_NOTES_FILE = path.join(DATA_DIR, 'pinned-notes.json')
+let CHARS_DIR = path.join(DATA_DIR, 'characters')
+let CONVS_DIR = path.join(DATA_DIR, 'conversations')
+let PERSONAS_DIR = path.join(DATA_DIR, 'personas')
+let WORLDS_DIR = path.join(DATA_DIR, 'worlds')
+
+type DataDirMeta = { dataDir?: string }
+
+function refreshPaths(nextDir: string): void {
+  DATA_DIR = path.resolve(nextDir)
+  SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
+  PINNED_NOTES_FILE = path.join(DATA_DIR, 'pinned-notes.json')
+  CHARS_DIR = path.join(DATA_DIR, 'characters')
+  CONVS_DIR = path.join(DATA_DIR, 'conversations')
+  PERSONAS_DIR = path.join(DATA_DIR, 'personas')
+  WORLDS_DIR = path.join(DATA_DIR, 'worlds')
+}
+
+function loadDataDirFromMeta(): string {
+  if (!fs.existsSync(STORAGE_META_FILE)) return DEFAULT_DATA_DIR
+  try {
+    const raw = JSON.parse(fs.readFileSync(STORAGE_META_FILE, 'utf-8')) as DataDirMeta
+    const configured = typeof raw?.dataDir === 'string' ? raw.dataDir.trim() : ''
+    return configured ? path.resolve(configured) : DEFAULT_DATA_DIR
+  } catch {
+    return DEFAULT_DATA_DIR
+  }
+}
+
+function saveDataDirMeta(targetDir: string): void {
+  try {
+    fs.writeFileSync(
+      STORAGE_META_FILE,
+      JSON.stringify({ dataDir: path.resolve(targetDir) } satisfies DataDirMeta, null, 2),
+      'utf-8'
+    )
+  } catch (e) {
+    console.error('[fileStore] saveDataDirMeta failed:', e)
+  }
+}
+
+refreshPaths(loadDataDirFromMeta())
 
 function ensureDirs() {
   for (const dir of [DATA_DIR, CHARS_DIR, CONVS_DIR, PERSONAS_DIR, WORLDS_DIR]) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  }
+}
+
+function isPinnedNote(value: unknown): value is PinnedNote {
+  if (!value || typeof value !== 'object') return false
+  const note = value as PinnedNote
+  return typeof note.id === 'string' &&
+    typeof note.title === 'string' &&
+    typeof note.content === 'string' &&
+    typeof note.color === 'string' &&
+    typeof note.visible === 'boolean' &&
+    !!note.position &&
+    typeof note.position.x === 'number' &&
+    typeof note.position.y === 'number'
+}
+
+export function loadPinnedNotes(): PinnedNote[] {
+  ensureDirs()
+  if (!fs.existsSync(PINNED_NOTES_FILE)) return []
+  try {
+    const raw = JSON.parse(fs.readFileSync(PINNED_NOTES_FILE, 'utf-8'))
+    if (!Array.isArray(raw)) return []
+    return raw.filter(isPinnedNote)
+  } catch {
+    return []
   }
 }
 
@@ -70,7 +136,15 @@ function migrateLegacySettings(raw: Record<string, unknown>): { migratedPersonaI
 
 export function loadSettings(): AppSettings {
   ensureDirs()
-  if (!fs.existsSync(SETTINGS_FILE)) return { ...DEFAULT_SETTINGS }
+  if (!fs.existsSync(SETTINGS_FILE)) {
+    return {
+      ...DEFAULT_SETTINGS,
+      ui: {
+        ...DEFAULT_SETTINGS.ui,
+        pinnedNotes: loadPinnedNotes()
+      }
+    }
+  }
   try {
     const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8')) as Record<string, unknown> | null
     const s = raw && typeof raw === 'object' ? raw : {} as Record<string, unknown>
@@ -87,6 +161,11 @@ export function loadSettings(): AppSettings {
     }
 
     const typed = s as Partial<AppSettings>
+    const hasLegacyPinnedNotesField = !!typed.ui && Object.prototype.hasOwnProperty.call(typed.ui, 'pinnedNotes')
+    const legacyPinnedNotes = Array.isArray(typed.ui?.pinnedNotes) ? typed.ui.pinnedNotes.filter(isPinnedNote) : []
+    const pinnedNotesFromFile = loadPinnedNotes()
+    const shouldMigratePinnedNotes = pinnedNotesFromFile.length === 0 && legacyPinnedNotes.length > 0
+    const pinnedNotes = shouldMigratePinnedNotes ? legacyPinnedNotes : pinnedNotesFromFile
 
     const settings: AppSettings = {
       ...DEFAULT_SETTINGS,
@@ -111,6 +190,7 @@ export function loadSettings(): AppSettings {
       ui: {
         ...DEFAULT_SETTINGS.ui,
         ...typed.ui,
+        pinnedNotes,
         desktopCharacters: (typed.ui?.desktopCharacters ?? DEFAULT_SETTINGS.ui.desktopCharacters).map(dc => ({
           ...dc,
           flipped: !!dc?.flipped
@@ -123,22 +203,56 @@ export function loadSettings(): AppSettings {
       }
     }
 
-    if (needsMigration) {
+    if (shouldMigratePinnedNotes) {
+      savePinnedNotes(pinnedNotes)
+    }
+
+    if (needsMigration || hasLegacyPinnedNotesField) {
       saveSettings(settings)
     }
 
     return settings
   } catch {
-    return { ...DEFAULT_SETTINGS }
+    return {
+      ...DEFAULT_SETTINGS,
+      ui: {
+        ...DEFAULT_SETTINGS.ui,
+        pinnedNotes: loadPinnedNotes()
+      }
+    }
   }
 }
 
 let _pendingSettingsJson: string | null = null
 let _saveSettingsTimer: ReturnType<typeof setTimeout> | null = null
+let _pendingPinnedNotesJson: string | null = null
+let _savePinnedNotesTimer: ReturnType<typeof setTimeout> | null = null
+
+export function savePinnedNotes(notes: PinnedNote[]): void {
+  ensureDirs()
+  _pendingPinnedNotesJson = JSON.stringify(Array.isArray(notes) ? notes.filter(isPinnedNote) : [], null, 2)
+  if (_savePinnedNotesTimer) clearTimeout(_savePinnedNotesTimer)
+  _savePinnedNotesTimer = setTimeout(() => {
+    _savePinnedNotesTimer = null
+    const json = _pendingPinnedNotesJson
+    _pendingPinnedNotesJson = null
+    if (json) fs.writeFile(PINNED_NOTES_FILE, json, 'utf-8', (err) => {
+      if (err) console.error('[fileStore] savePinnedNotes failed:', err)
+    })
+  }, 150)
+}
 
 export function saveSettings(settings: AppSettings): void {
   ensureDirs()
-  _pendingSettingsJson = JSON.stringify(settings, null, 2)
+  savePinnedNotes(settings.ui.pinnedNotes ?? [])
+  const persisted: AppSettings = {
+    ...settings,
+    ui: {
+      ...settings.ui
+    }
+  }
+  delete persisted.ui.pinnedNotes
+  _pendingSettingsJson = JSON.stringify(persisted, null, 2)
   if (_saveSettingsTimer) clearTimeout(_saveSettingsTimer)
   _saveSettingsTimer = setTimeout(() => {
     _saveSettingsTimer = null
@@ -159,6 +273,14 @@ export function flushSaveSettings(): void {
   if (_pendingSettingsJson) {
     try { fs.writeFileSync(SETTINGS_FILE, _pendingSettingsJson, 'utf-8') } catch { /* ignore */ }
     _pendingSettingsJson = null
+  }
+  if (_savePinnedNotesTimer) {
+    clearTimeout(_savePinnedNotesTimer)
+    _savePinnedNotesTimer = null
+  }
+  if (_pendingPinnedNotesJson) {
+    try { fs.writeFileSync(PINNED_NOTES_FILE, _pendingPinnedNotesJson, 'utf-8') } catch { /* ignore */ }
+    _pendingPinnedNotesJson = null
   }
 }
 
@@ -436,4 +558,118 @@ export function initDefaultCharacters(appRoot: string): { chars: Character[]; de
 
 export function getDataDir(): string {
   return DATA_DIR
+}
+
+export function getDefaultDataDir(): string {
+  return DEFAULT_DATA_DIR
+}
+
+function isSamePath(a: string, b: string): boolean {
+  return path.resolve(a) === path.resolve(b)
+}
+
+function isNestedPath(a: string, b: string): boolean {
+  const aa = path.resolve(a)
+  const bb = path.resolve(b)
+  return aa.startsWith(`${bb}${path.sep}`) || bb.startsWith(`${aa}${path.sep}`)
+}
+
+function remapAbsolutePathPrefix(value: string, oldRoot: string, newRoot: string): string {
+  const resolved = path.resolve(value)
+  const oldResolved = path.resolve(oldRoot)
+  if (resolved === oldResolved || resolved.startsWith(`${oldResolved}${path.sep}`)) {
+    return path.join(newRoot, path.relative(oldResolved, resolved))
+  }
+  return value
+}
+
+function rewriteCharacterPathsForRelocatedDir(oldDir: string, newDir: string): void {
+  const chars = loadCharacters()
+  for (const char of chars) {
+    const nextAvatar = char.avatar ? remapAbsolutePathPrefix(char.avatar, oldDir, newDir) : char.avatar
+    const nextEmotions: Record<string, string> = {}
+    for (const [k, v] of Object.entries(char.emotions ?? {})) {
+      nextEmotions[k] = typeof v === 'string' ? remapAbsolutePathPrefix(v, oldDir, newDir) : v
+    }
+    const nextSpriteIds: Record<string, string> | undefined = char.spriteIds
+      ? Object.fromEntries(Object.entries(char.spriteIds).map(([k, v]) => [remapAbsolutePathPrefix(k, oldDir, newDir), v]))
+      : undefined
+    saveCharacter({
+      ...char,
+      avatar: nextAvatar,
+      emotions: nextEmotions,
+      ...(nextSpriteIds ? { spriteIds: nextSpriteIds } : {})
+    })
+  }
+}
+
+export function relocateDataDir(targetDir: string): { ok: true; dataDir: string } | { ok: false; error: string } {
+  const next = path.resolve(String(targetDir ?? '').trim())
+  if (!next) return { ok: false, error: '目標資料夾無效。' }
+  if (isSamePath(next, DATA_DIR)) return { ok: true, dataDir: DATA_DIR }
+  if (isNestedPath(next, DATA_DIR)) {
+    return { ok: false, error: '新路徑不可與舊資料夾互為包含關係。請改選其他資料夾。' }
+  }
+
+  flushSaveSettings()
+  try {
+    if (!fs.existsSync(next)) fs.mkdirSync(next, { recursive: true })
+    if (fs.existsSync(DATA_DIR)) {
+      const entries = fs.readdirSync(DATA_DIR)
+      for (const name of entries) {
+        const src = path.join(DATA_DIR, name)
+        const dst = path.join(next, name)
+        fs.cpSync(src, dst, { recursive: true, force: true })
+      }
+    }
+    const oldDir = DATA_DIR
+    refreshPaths(next)
+    ensureDirs()
+    rewriteCharacterPathsForRelocatedDir(oldDir, DATA_DIR)
+    saveDataDirMeta(next)
+    try {
+      if (fs.existsSync(oldDir)) fs.rmSync(oldDir, { recursive: true, force: true })
+    } catch {
+      // 搬移成功但清除舊資料夾失敗不阻擋流程。
+    }
+    return { ok: true, dataDir: DATA_DIR }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+function getPathSizeBytes(targetPath: string): number {
+  if (!fs.existsSync(targetPath)) return 0
+  try {
+    const stat = fs.statSync(targetPath)
+    if (stat.isFile()) return stat.size
+    if (!stat.isDirectory()) return 0
+    let total = 0
+    for (const name of fs.readdirSync(targetPath)) {
+      total += getPathSizeBytes(path.join(targetPath, name))
+    }
+    return total
+  } catch {
+    return 0
+  }
+}
+
+export function getDataDirSummary(): {
+  dataDir: string
+  estimatedSizeBytes: number
+  characters: number
+  conversations: number
+  personas: number
+  worlds: number
+  pinnedNotes: number
+} {
+  return {
+    dataDir: getDataDir(),
+    estimatedSizeBytes: getPathSizeBytes(getDataDir()),
+    characters: loadCharacters().length,
+    conversations: listConversationIds().length,
+    personas: loadPersonaPresets().length,
+    worlds: loadWorldPresets().length,
+    pinnedNotes: loadPinnedNotes().length
+  }
 }

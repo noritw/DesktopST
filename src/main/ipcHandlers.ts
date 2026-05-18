@@ -1166,6 +1166,47 @@ export function registerIpcHandlers() {
     return true
   })
 
+  ipcMain.handle('data:get-dir', () => {
+    return {
+      dataDir: fileStore.getDataDir(),
+      defaultDataDir: fileStore.getDefaultDataDir()
+    }
+  })
+
+  ipcMain.handle('data:get-relocate-summary', () => {
+    return fileStore.getDataDirSummary()
+  })
+
+  ipcMain.handle('data:change-dir', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const result = win && !win.isDestroyed()
+      ? await dialog.showOpenDialog(win, {
+        title: '選擇資料儲存資料夾',
+        properties: ['openDirectory', 'createDirectory'],
+        defaultPath: fileStore.getDataDir(),
+      })
+      : await dialog.showOpenDialog({
+        title: '選擇資料儲存資料夾',
+        properties: ['openDirectory', 'createDirectory'],
+        defaultPath: fileStore.getDataDir(),
+      })
+    if (result.canceled || result.filePaths.length === 0) {
+      return { ok: false as const, canceled: true as const, dataDir: fileStore.getDataDir() }
+    }
+
+    const relocated = fileStore.relocateDataDir(result.filePaths[0])
+    if (!relocated.ok) {
+      return { ok: false as const, canceled: false as const, error: relocated.error, dataDir: fileStore.getDataDir() }
+    }
+
+    settings = fileStore.loadSettings()
+    characters = fileStore.loadCharacters()
+    broadcastToAll('settings:updated', settings)
+    broadcastToAll('characters:updated', characters)
+    broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
+    return { ok: true as const, canceled: false as const, dataDir: relocated.dataDir }
+  })
+
   // Conversation
   ipcMain.handle('conversation:get', () => getActiveConversation())
 

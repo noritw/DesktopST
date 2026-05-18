@@ -199,6 +199,8 @@ export default function SettingsWindow() {
   const [connResult, setConnResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [msgTesting, setMsgTesting] = useState(false)
   const [msgResult, setMsgResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [dataDir, setDataDir] = useState('')
+  const [changingDataDir, setChangingDataDir] = useState(false)
 
   useEffect(() => {
     persistLastSettingsTab(tab)
@@ -211,6 +213,13 @@ export default function SettingsWindow() {
       persistLastSettingsTab(nextTab)
     })
     return unsub
+  }, [])
+
+  useEffect(() => {
+    void (async () => {
+      const result = await window.api.invoke('data:get-dir') as { dataDir?: string }
+      setDataDir(typeof result?.dataDir === 'string' ? result.dataDir : '')
+    })()
   }, [])
 
   useEffect(() => {
@@ -416,6 +425,54 @@ export default function SettingsWindow() {
     }
     await saveSettings(next)
     setDraft(JSON.parse(JSON.stringify(next)) as AppSettings)
+  }
+
+  const changeDataDir = async () => {
+    const summary = await window.api.invoke('data:get-relocate-summary') as {
+      dataDir?: string
+      estimatedSizeBytes?: number
+      characters?: number
+      conversations?: number
+      personas?: number
+      worlds?: number
+      pinnedNotes?: number
+    }
+    const sizeMb = ((summary?.estimatedSizeBytes ?? 0) / (1024 * 1024)).toFixed(2)
+    const confirmed = window.confirm(
+      [
+        '即將搬移以下資料到新位置：',
+        `- 目前路徑：${summary?.dataDir ?? (dataDir || '未知')}`,
+        `- 角色：${summary?.characters ?? 0} 位`,
+        `- 對話：${summary?.conversations ?? 0} 份`,
+        `- 使用者預設：${summary?.personas ?? 0} 組`,
+        `- 世界觀預設：${summary?.worlds ?? 0} 組`,
+        `- 便利貼：${summary?.pinnedNotes ?? 0} 張`,
+        `- 預估資料量：約 ${sizeMb} MB`,
+        '',
+        '是否繼續選擇新的資料夾位置？'
+      ].join('\n')
+    )
+    if (!confirmed) return
+
+    setChangingDataDir(true)
+    try {
+      const result = await window.api.invoke('data:change-dir') as {
+        ok?: boolean
+        canceled?: boolean
+        error?: string
+        dataDir?: string
+      }
+      if (typeof result?.dataDir === 'string') setDataDir(result.dataDir)
+      if (result?.ok) {
+        window.alert('資料已搬移到新路徑。')
+        return
+      }
+      if (!result?.canceled) {
+        window.alert(result?.error || '修改資料夾位置失敗。')
+      }
+    } finally {
+      setChangingDataDir(false)
+    }
   }
 
   return (
@@ -1035,14 +1092,25 @@ export default function SettingsWindow() {
           <div className="space-y-3">
             <p className="text-sm text-secondary">所有資料存放於：</p>
             <p className="text-xs font-mono bg-surface border border-border rounded-lg px-3 py-2 text-primary break-all">
-              %APPDATA%\DesktopST\
+              {dataDir || '讀取中...'}
             </p>
-            <button
-              className="btn-round w-auto px-4 rounded-full h-auto py-2 text-sm"
-              onClick={() => window.api.invoke('window:open-data-folder')}
-            >
-               開啟資料夾
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                className="btn-round w-auto px-4 rounded-full h-auto py-2 text-sm"
+                onClick={() => window.api.invoke('window:open-data-folder')}
+                disabled={changingDataDir}
+              >
+                開啟資料夾
+              </button>
+              <button
+                type="button"
+                className="btn-round w-auto px-4 rounded-full h-auto py-2 text-sm"
+                onClick={() => void changeDataDir()}
+                disabled={changingDataDir}
+              >
+                {changingDataDir ? '搬移中...' : '修改資料夾位置'}
+              </button>
+            </div>
           </div>
         )}
       </div>
