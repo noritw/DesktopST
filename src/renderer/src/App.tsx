@@ -39,7 +39,7 @@ export default function App() {
       // 優先使用自訂音效，否則使用預設音效
       const audioPath = customSoundPath
         ? `file://${customSoundPath.replace(/\\/g, '/')}`
-        : new URL('../../../assets/notification-sound.wav', import.meta.url).href
+        : '/notification-sound.wav'
       audio = new Audio(audioPath)
     }
 
@@ -50,7 +50,7 @@ export default function App() {
       const { volume = 0.7 } = payload as { volume?: number }
       audio.volume = Math.max(0, Math.min(1, volume))
       audio.currentTime = 0
-      audio.play().catch(e => console.error('[Audio] Play failed:', e))
+      audio.play().catch((e: unknown) => console.error('[Audio] Play failed:', e))
     })
 
     return unsub

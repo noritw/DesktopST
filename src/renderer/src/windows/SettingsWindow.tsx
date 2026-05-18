@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import {
   OPENAI_DATA_SHARING_INCENTIVE_10M_GROUP,
@@ -201,6 +201,29 @@ export default function SettingsWindow() {
   const [msgResult, setMsgResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [dataDir, setDataDir] = useState('')
   const [changingDataDir, setChangingDataDir] = useState(false)
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null)
+  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // 音效路徑改變時重新建立 Audio 實例（只載入一次）
+  const customSoundPath = draft?.ui.reminderNotificationSound?.customSoundPath
+  useEffect(() => {
+    const audioPath = customSoundPath
+      ? `file://${customSoundPath.replace(/\\/g, '/')}`
+      : '/notification-sound.wav'
+    previewAudioRef.current = new Audio(audioPath)
+  }, [customSoundPath])
+
+  // debounce：停止拖動 400ms 後才播放，避免連續觸發
+  const playPreviewSound = (volume: number) => {
+    if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
+    previewTimerRef.current = setTimeout(() => {
+      const audio = previewAudioRef.current
+      if (!audio) return
+      audio.volume = Math.max(0, Math.min(1, volume))
+      audio.currentTime = 0
+      audio.play().catch((e: unknown) => console.error('[Audio Preview] Play failed:', e))
+    }, 400)
+  }
 
   useEffect(() => {
     persistLastSettingsTab(tab)
@@ -1143,10 +1166,13 @@ export default function SettingsWindow() {
                     max={100}
                     value={Math.round((draft.ui.reminderNotificationSound?.volume ?? 0.7) * 100)}
                     onChange={e => {
+                      const volume = Number(e.target.value) / 100
                       set('ui.reminderNotificationSound', {
                         enabled: draft.ui.reminderNotificationSound?.enabled ?? true,
-                        volume: Number(e.target.value) / 100
+                        volume
                       })
+                      // 播放試聽音效
+                      playPreviewSound(volume)
                     }}
                     className="flex-1 accent-teal"
                   />
@@ -1201,6 +1227,7 @@ export default function SettingsWindow() {
           {isSaving ? '儲存中…' : dirty ? '有未儲存的變更' : '已儲存'}
         </span>
       </div>
+
     </div>
   )
 }
