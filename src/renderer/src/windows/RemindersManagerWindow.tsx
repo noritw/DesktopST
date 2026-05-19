@@ -268,8 +268,10 @@ function ReminderCard({
           type="button"
           title={reminder.enabled ? '點選停用' : '點選啟用'}
           onClick={() => onToggle(reminder.id, !reminder.enabled)}
-          className={`mt-0.5 shrink-0 w-4 h-4 rounded-full border-2 transition-colors ${reminder.enabled ? 'border-teal bg-teal' : 'border-border bg-transparent'}`}
-        />
+          className={`shrink-0 relative w-10 h-5 rounded-full border-2 transition-all duration-200 ${reminder.enabled ? 'bg-teal border-teal' : 'bg-transparent border-border'}`}
+        >
+          <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full transition-transform duration-200 ${reminder.enabled ? 'bg-white translate-x-5' : 'bg-border translate-x-0'}`} />
+        </button>
         <div className="flex-1 min-w-0">
           <div className="text-sm font-semibold text-primary truncate">{reminder.label}</div>
           <div className="text-xs text-secondary mt-0.5">{scheduleLabel(reminder.schedule)}</div>
