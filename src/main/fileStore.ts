@@ -558,6 +558,9 @@ export async function initDefaultCharacters(appRoot: string): Promise<{ chars: C
         const newId = uuidv4()
         const destDir = path.join(CHARS_DIR, newId)
         await extractCharacterDirFromZip(zip, prefix, destDir)
+        const extractedFiles = fs.readdirSync(destDir)
+        fs.writeFileSync(path.join(destDir, '_extract_debug.txt'), `Extracted ${charPreview.name}\nFiles: ${extractedFiles.join('\n')}`)
+        console.log(`[fileStore] Extracted character ${charPreview.name} to ${destDir}, files: ${extractedFiles.join(', ')}`)
 
         let diskCard: Character
         try {
@@ -573,23 +576,34 @@ export async function initDefaultCharacters(appRoot: string): Promise<{ chars: C
         const avatarRaw = (diskCard.avatar || '').trim()
         let resolved = ''
 
+        console.log(`[fileStore] Fixing avatar for ${diskCard.name}: raw="${avatarRaw}"`)
+
         // If avatar exists as absolute path, use it
         if (avatarRaw && fs.existsSync(avatarRaw)) {
           resolved = avatarRaw
+          console.log(`[fileStore]   → found absolute path: ${resolved}`)
         } else if (avatarRaw && !path.isAbsolute(avatarRaw)) {
           // If relative path, resolve within destDir
           const abs = path.join(destDir, avatarRaw)
           if (fs.existsSync(abs)) {
             resolved = abs
+            console.log(`[fileStore]   → found relative path: ${resolved}`)
           }
         }
 
         // If not resolved, look for avatar.* in destDir
         if (!resolved) {
+          const files = fs.readdirSync(destDir)
+          console.log(`[fileStore]   → files in ${destDir}: ${files.join(', ')}`)
           const cand = ['avatar.png', 'avatar.jpg', 'avatar.jpeg', 'avatar.webp']
             .map(n => path.join(destDir, n))
             .find(p => fs.existsSync(p))
           resolved = cand ?? ''
+          if (resolved) {
+            console.log(`[fileStore]   → found auto: ${resolved}`)
+          } else {
+            console.log(`[fileStore]   → NOT FOUND`)
+          }
         }
 
         diskCard.avatar = resolved
