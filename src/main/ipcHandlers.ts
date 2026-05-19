@@ -440,10 +440,18 @@ function fixCharacterPathsAfterImport(char: Character, dir: string): Character {
   }
 
   if (!avatar || !fs.existsSync(avatar)) {
-    const cand = ['avatar.png', 'avatar.jpg', 'avatar.jpeg', 'avatar.webp', 'avatar.gif']
+    // 先找固定名稱，再用正則搜索（支援帶時間戳的 avatar-xxxxxxxx.png）
+    const fixedCand = ['avatar.png', 'avatar.jpg', 'avatar.jpeg', 'avatar.webp', 'avatar.gif']
       .map(n => path.join(dir, n))
       .find(p => fs.existsSync(p))
-    avatar = cand ?? ''
+    if (fixedCand) {
+      avatar = fixedCand
+    } else {
+      const avatarFile = fs.readdirSync(dir).find(f =>
+        /^avatar[-.]?\w*\.(png|jpg|jpeg|webp)$/i.test(f)
+      )
+      avatar = avatarFile ? path.join(dir, avatarFile) : ''
+    }
   } else {
     const resolvedA = path.resolve(avatar)
     const resolvedD = path.resolve(dir)
