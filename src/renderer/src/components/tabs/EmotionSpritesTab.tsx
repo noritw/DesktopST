@@ -23,6 +23,7 @@ export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [entries, setEntries] = useState<SpriteEntry[]>(() => buildSpriteEntries(draft.emotions ?? {}, draft.spriteIds))
   const [editingImagePath, setEditingImagePath] = useState<string | null>(null)
+  const [replacingImagePath, setReplacingImagePath] = useState<string | null>(null)
 
   useEffect(() => {
     setEntries(prev => {
@@ -80,7 +81,52 @@ export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
     }
     const newPath = (res as { path?: string }).path
     if (!newPath) return
-    setEntries(prev => [...prev, { imagePath: newPath, filename: newPath.split(/[/\\]/).pop() ?? '', dimensions: null, assignedEmotions: [] }])
+
+    // 替換模式：保留情緒分配和自訂 ID
+    if (replacingImagePath) {
+      const oldEntry = entries.find(e => e.imagePath === replacingImagePath)
+      if (oldEntry) {
+        setDraft(prev => {
+          const nextEmotions = { ...prev.emotions ?? {} }
+          const nextSpriteIds = { ...prev.spriteIds ?? {} }
+
+          // 轉移情緒映射
+          for (const emo of oldEntry.assignedEmotions) {
+            nextEmotions[emo] = newPath
+          }
+          // 清除舊路徑的其他映射
+          for (const [emo, path] of Object.entries(nextEmotions)) {
+            if (path === replacingImagePath && !oldEntry.assignedEmotions.includes(emo)) {
+              delete nextEmotions[emo]
+            }
+          }
+
+          // 轉移自訂 ID
+          if (oldEntry.customId) {
+            nextSpriteIds[newPath] = oldEntry.customId
+          }
+          delete nextSpriteIds[replacingImagePath]
+
+          return { ...prev, emotions: nextEmotions, spriteIds: nextSpriteIds }
+        })
+
+        setEntries(prev => {
+          const newEntries = prev.filter(e => e.imagePath !== replacingImagePath)
+          newEntries.push({
+            imagePath: newPath,
+            filename: newPath.split(/[/\\]/).pop() ?? '',
+            dimensions: null,
+            assignedEmotions: oldEntry.assignedEmotions,
+            customId: oldEntry.customId
+          })
+          return newEntries
+        })
+      }
+      setReplacingImagePath(null)
+    } else {
+      // 新增模式：保持原有邏輯
+      setEntries(prev => [...prev, { imagePath: newPath, filename: newPath.split(/[/\\]/).pop() ?? '', dimensions: null, assignedEmotions: [] }])
+    }
   }
 
   const updateEntryEmotions = (imagePath: string, selected: string[]) => {
@@ -230,13 +276,22 @@ export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
                 )}
               </div>
 
-              <button
-                type="button"
-                className="absolute bottom-3 right-3 text-xs text-[#C44B34] hover:underline"
-                onClick={() => removeEntry(entry.imagePath)}
-              >
-                移除此圖片
-              </button>
+              <div className="absolute bottom-3 right-3 flex gap-2">
+                <button
+                  type="button"
+                  className="text-xs text-[#4A9D7D] hover:underline"
+                  onClick={() => setReplacingImagePath(entry.imagePath) || fileRef.current?.click()}
+                >
+                  重新上傳圖片
+                </button>
+                <button
+                  type="button"
+                  className="text-xs text-[#C44B34] hover:underline"
+                  onClick={() => removeEntry(entry.imagePath)}
+                >
+                  移除此圖片
+                </button>
+              </div>
             </div>
           )
         })}
