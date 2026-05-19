@@ -111,6 +111,16 @@ export async function buildDstPackBuffer(opts: {
         card.spriteIds = newSpriteIds
       }
 
+      // 轉換 avatar：絕對路徑 → 相對於角色資料夾的相對路徑
+      if (card.avatar && typeof card.avatar === 'string') {
+        try {
+          const relPath = path.relative(dir, card.avatar)
+          card.avatar = relPath.replace(/\\/g, '/')
+        } catch {
+          // 保留原值
+        }
+      }
+
       zip.file(`characters/${id}/card.json`, JSON.stringify(card, null, 2))
     }
 

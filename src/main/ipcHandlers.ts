@@ -433,6 +433,12 @@ function pickNextConversationId(excludingId?: string): string | null {
 
 function fixCharacterPathsAfterImport(char: Character, dir: string): Character {
   let avatar = (char.avatar || '').trim()
+
+  // 如果是相對路徑，轉換為絕對路徑
+  if (avatar && !path.isAbsolute(avatar)) {
+    avatar = path.resolve(dir, avatar)
+  }
+
   if (!avatar || !fs.existsSync(avatar)) {
     const cand = ['avatar.png', 'avatar.jpg', 'avatar.jpeg', 'avatar.webp', 'avatar.gif']
       .map(n => path.join(dir, n))
