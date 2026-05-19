@@ -7,9 +7,15 @@ const VITE_DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL']
 const DEVTOOLS_ENABLED = process.env['DESKTOPST_DEVTOOLS'] === '1'
 const CHARACTER_ALWAYS_ON_TOP_LEVEL = 'floating' as const
 const BUBBLE_ALWAYS_ON_TOP_LEVEL = 'screen-saver' as const
+function getAssetsRoot(): string {
+  return app.isPackaged
+    ? path.join(path.dirname(app.getPath('exe')), 'assets')
+    : path.join(app.getAppPath(), 'assets')
+}
+
 function getAppIcon(): Electron.NativeImage | undefined {
-  const appRoot = app.getAppPath()
-  const candidates = ['icon.ico', 'icon.png'].map(f => path.join(appRoot, 'assets', f))
+  const assetsRoot = getAssetsRoot()
+  const candidates = ['icon.ico', 'icon.png'].map(f => path.join(assetsRoot, f))
   const found = candidates.find(p => fs.existsSync(p))
   return found ? nativeImage.createFromPath(found) : undefined
 }
@@ -438,20 +444,68 @@ export function getCharacterWindow(characterId: string): BrowserWindow | undefin
   return characterWindows.get(characterId)
 }
 
+const scaleModeAnchorFeet = new Map<string, { x: number; y: number }>()
+
+export function enterCharacterScaleMode(characterId: string): void {
+  const win = getCharacterWindow(characterId)
+  if (!win || win.isDestroyed()) return
+  const b = win.getBounds()
+  scaleModeAnchorFeet.set(characterId, {
+    x: b.x + b.width / 2,
+    y: b.y + b.height
+  })
+}
+
+export function exitCharacterScaleMode(characterId: string): void {
+  scaleModeAnchorFeet.delete(characterId)
+}
+
+export function enterScaleModeWindow(characterId: string): void {
+  const win = getCharacterWindow(characterId)
+  if (!win || win.isDestroyed()) return
+
+  const oldBounds = win.getBounds()
+  const feetX = oldBounds.x + oldBounds.width / 2
+  const feetY = oldBounds.y + oldBounds.height
+  scaleModeAnchorFeet.set(characterId, { x: feetX, y: feetY })
+
+  const display = screen.getDisplayNearestPoint({ x: feetX, y: feetY })
+  const wa = display.workArea
+
+  const maxScale = clampCharacterScaleForDisplay(4, { x: feetX, y: feetY })
+  const maxSize = getCharacterWindowSize(maxScale)
+
+  // Only expand height upward — keep original width so the window X doesn't shift.
+  // Cap height so window.y >= workArea.y, guaranteeing window.bottom == feetY.
+  const expandedHeight = Math.min(maxSize.height, feetY - wa.y)
+  const expandedWidth = oldBounds.width
+
+  const pos = normalizeWindowPosition(
+    { x: oldBounds.x, y: Math.round(feetY - expandedHeight) },
+    { width: expandedWidth, height: expandedHeight }
+  )
+  win.setBounds({ x: pos.x, y: pos.y, width: expandedWidth, height: expandedHeight }, false)
+  syncSpeechBubblePosition(characterId, pos)
+}
+
 export function resizeCharacterWindow(characterId: string, size: number): { position: { x: number; y: number }; size: number } | null {
   const win = getCharacterWindow(characterId)
   if (!win || win.isDestroyed()) return null
 
   const oldBounds = win.getBounds()
+  const anchor = scaleModeAnchorFeet.get(characterId)
+  const feetX = anchor?.x ?? (oldBounds.x + oldBounds.width / 2)
+  const feetY = anchor?.y ?? (oldBounds.y + oldBounds.height)
+
   const scale = clampCharacterScaleForDisplay(Number.isFinite(size) ? size : 1, {
-    x: oldBounds.x,
-    y: oldBounds.y + oldBounds.height
+    x: feetX,
+    y: feetY
   })
   const nextSize = getCharacterWindowSize(scale)
   const nextPosition = normalizeWindowPosition(
     {
-      x: oldBounds.x,
-      y: oldBounds.y + oldBounds.height - nextSize.height
+      x: Math.round(feetX - nextSize.width / 2),
+      y: Math.round(feetY - nextSize.height)
     },
     nextSize
   )

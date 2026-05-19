@@ -54,7 +54,9 @@ app.on('ready', async () => {
     callback({ path: decodeURIComponent(raw) })
   })
 
-  const appRoot = app.getAppPath()
+  const appRoot = app.isPackaged
+    ? path.dirname(app.getPath('exe'))
+    : app.getAppPath()
 
   // Load settings
   const settings = loadSettings()
@@ -65,7 +67,7 @@ app.on('ready', async () => {
   let desktopState = settings.ui.desktopCharacters
 
   if (existingChars.length === 0) {
-    const result = initDefaultCharacters(appRoot)
+    const result = await initDefaultCharacters(appRoot)
     chars = result.chars
     desktopState = result.desktopState
     if (desktopState.length > 0) {

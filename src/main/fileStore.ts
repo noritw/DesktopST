@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid'
 import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, LegacyAppSettings, PinnedNote, Reminder } from './types'
 import { DEFAULT_SETTINGS } from './types'
 import * as secureStore from './secureStore'
+import { loadDstPackZip, readCharacterFromZip, extractCharacterDirFromZip } from './dstPack'
 
 const DEFAULT_DATA_DIR = path.join(app.getPath('userData'), 'DesktopST')
 const STORAGE_META_FILE = path.join(app.getPath('userData'), 'DesktopST-storage.json')
@@ -528,73 +529,91 @@ export function deleteConversation(id: string): void {
 
 // ── Init default characters ───────────────────────────────
 
-export function initDefaultCharacters(appRoot: string): { chars: Character[]; desktopState: DesktopCharacterState[] } {
+export async function initDefaultCharacters(appRoot: string): Promise<{ chars: Character[]; desktopState: DesktopCharacterState[] }> {
   const existing = loadCharacters()
   if (existing.length > 0) {
-    return {
-      chars: existing,
-      desktopState: []
-    }
+    return { chars: existing, desktopState: [] }
   }
 
-  const defaultChars: Array<{ jsonFile: string; imgFile: string; imgKey: string }> = [
-    { jsonFile: '星離宸_DesktopST.json', imgFile: 'star_default.png', imgKey: 'star' },
-    { jsonFile: '琉緋璃_DesktopST.json', imgFile: 'liu_default.png', imgKey: 'liu' }
-  ]
+  const packPath = path.join(appRoot, 'assets', 'DesktopST_DefaultChara.dstpack')
+  if (!fs.existsSync(packPath)) {
+    console.warn('[fileStore] Default character pack not found:', packPath)
+    return { chars: [], desktopState: [] }
+  }
 
-  const created: Character[] = []
+  try {
+    const buffer = fs.readFileSync(packPath)
+    const { parsed, zip } = await loadDstPackZip(buffer)
 
-  for (const { jsonFile, imgFile } of defaultChars) {
-    const jsonPath = path.join(appRoot, 'assets', jsonFile)
-    const imgSrc = path.join(appRoot, 'assets', imgFile)
-    const fallbackImg = path.join(appRoot, 'assets', 'AppIcon.png')
-    if (!fs.existsSync(jsonPath)) continue
+    const created: Character[] = []
+    ensureDirs()
 
-    try {
-      const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'))
-      const id = uuidv4()
-      const charDir = path.join(CHARS_DIR, id)
-      fs.mkdirSync(charDir, { recursive: true })
+    for (const prefix of parsed.characterZipPrefixes) {
+      const segs = prefix.split('/').filter(Boolean)
+      const packFolderId = segs[1] ?? ''
+      if (!packFolderId) continue
 
-      // Copy avatar (use fallback if primary image missing)
-      const avatarDest = path.join(charDir, 'avatar.png')
-      const sourceImg = fs.existsSync(imgSrc) ? imgSrc : (fs.existsSync(fallbackImg) ? fallbackImg : null)
-      if (sourceImg) fs.copyFileSync(sourceImg, avatarDest)
+      try {
+        const charPreview = await readCharacterFromZip(zip, prefix)
+        const newId = uuidv4()
+        const destDir = path.join(CHARS_DIR, newId)
+        await extractCharacterDirFromZip(zip, prefix, destDir)
 
-      const data = raw.data ?? raw
-      const char: Character = {
-        id,
-        name: data.name ?? raw.name ?? 'Unknown',
-        nicknames: [],
-        avatar: fs.existsSync(imgSrc) ? avatarDest : '',
-        description: data.description ?? '',
-        personality: data.personality ?? '',
-        firstMessage: data.first_mes ?? raw.first_mes ?? '',
-        exampleDialogue: data.mes_example ?? raw.mes_example ?? '',
-        emotions: {},
-        scenario: data.scenario ?? raw.scenario,
-        systemPromptOverride: data.system_prompt ?? raw.system_prompt,
-        creatorNotes: data.creator_notes ?? raw.creatorcomment,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
+        let diskCard: Character
+        try {
+          diskCard = JSON.parse(fs.readFileSync(path.join(destDir, 'card.json'), 'utf-8')) as Character
+        } catch {
+          diskCard = charPreview
+        }
+        diskCard.id = newId
+        diskCard.createdAt = diskCard.createdAt || Date.now()
+        diskCard.updatedAt = Date.now()
+
+        // Fix avatar path: resolve relative paths to absolute within destDir
+        const avatarRaw = (diskCard.avatar || '').trim()
+        if (!avatarRaw || !fs.existsSync(avatarRaw)) {
+          const cand = ['avatar.png', 'avatar.jpg', 'avatar.jpeg', 'avatar.webp']
+            .map(n => path.join(destDir, n))
+            .find(p => fs.existsSync(p))
+          diskCard.avatar = cand ?? ''
+        } else if (!path.isAbsolute(avatarRaw)) {
+          diskCard.avatar = path.join(destDir, avatarRaw)
+        }
+
+        // Fix emotion paths similarly
+        const emotions: Record<string, string> = {}
+        for (const [k, v] of Object.entries(diskCard.emotions ?? {})) {
+          if (v && fs.existsSync(v)) {
+            emotions[k] = v
+          } else {
+            const base = path.basename(v || '')
+            const local = base ? path.join(destDir, base) : ''
+            emotions[k] = local && fs.existsSync(local) ? local : (v || '')
+          }
+        }
+        diskCard.emotions = emotions
+
+        saveCharacter(diskCard)
+        created.push(diskCard)
+      } catch (e) {
+        console.error('[fileStore] Failed to import default character from pack:', prefix, e)
       }
-      saveCharacter(char)
-      created.push(char)
-    } catch (e) {
-      console.error('Failed to init default character', jsonFile, e)
     }
+
+    const desktopState: DesktopCharacterState[] = created.map((c, i) => ({
+      characterId: c.id,
+      position: { x: 80 + i * 220, y: 400 },
+      size: 1,
+      flipped: false,
+      muted: false,
+      zIndex: i + 1
+    }))
+
+    return { chars: created, desktopState }
+  } catch (e) {
+    console.error('[fileStore] Failed to load default character pack:', e)
+    return { chars: [], desktopState: [] }
   }
-
-  const desktopState: DesktopCharacterState[] = created.map((c, i) => ({
-    characterId: c.id,
-    position: { x: 80 + i * 220, y: 400 },
-    size: 1,
-    flipped: false,
-    muted: false,
-    zIndex: i + 1
-  }))
-
-  return { chars: created, desktopState }
 }
 
 // ── File serving path ─────────────────────────────────────

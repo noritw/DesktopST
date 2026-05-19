@@ -30,15 +30,18 @@ export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
       const baseMap = new Map(base.map(b => [b.imagePath, b]))
       const prevMap = new Map(prev.map(p => [p.imagePath, p]))
 
-      // 保持原有順序，只更新情緒和尺寸
-      const result = prev
-        .filter(p => baseMap.has(p.imagePath))
-        .map(p => {
+      // 保持原有順序，更新情緒分配與 customId；無情緒的新圖保留不動
+      const result = prev.map(p => {
+        if (baseMap.has(p.imagePath)) {
           const updated = baseMap.get(p.imagePath)!
           return { ...updated, dimensions: p.dimensions }
-        })
+        }
+        // 尚未分配情緒的圖片：只更新 customId（避免 draft reload 後遺失）
+        const customId = draft.spriteIds?.[p.imagePath]
+        return { ...p, customId: customId || undefined }
+      })
 
-      // 添加新增的圖片
+      // 添加 draft.emotions 裡有、但 entries 還沒有的圖片
       for (const b of base) {
         if (!prevMap.has(b.imagePath)) {
           result.push(b)
@@ -47,7 +50,7 @@ export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
 
       return result
     })
-  }, [draft.emotions])
+  }, [draft.emotions, draft.spriteIds])
 
   const addSprite = () => fileRef.current?.click()
 

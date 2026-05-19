@@ -195,7 +195,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     provider: 'openai',
     apiKey: '',
     apiKeys: { openai: '', claude: '', gemini: '', grok: '' },
-    model: 'gpt-4o',
+    model: 'gpt-5.4-nano-2026-03-17',
     maxResponseTokens: 360,
     maxGroupRounds: 3,
     maxImagesPerMessage: 5,

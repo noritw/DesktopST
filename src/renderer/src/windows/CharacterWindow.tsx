@@ -317,7 +317,7 @@ export default function CharacterWindow({ characterId }: Props) {
     setScaleDraft(clamped)
     setScaleText(clamped.toFixed(2).replace(/\.?0+$/, ''))
     setFlipDraft(flipped)
-    window.api.invoke('desktop:preview-size', characterId, maxVisibleScale)
+    window.api.invoke('desktop:enter-scale-mode', characterId)
     setScaleMode(true)
     setMenuPinned(true)
     setHoverSuppressed(false)

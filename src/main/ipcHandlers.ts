@@ -17,7 +17,7 @@ import {
 import { reloadReminders } from './reminderScheduler'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow,
-  resizeCharacterWindow, getCharacterWindowSize,
+  resizeCharacterWindow, getCharacterWindowSize, enterCharacterScaleMode, exitCharacterScaleMode, enterScaleModeWindow,
   toggleInputWindow, toggleLogWindow, openLogWindow, openSettingsWindow,
   broadcastToAll, getAllCharacterWindows, setCharacterWindowClickThrough,
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
@@ -1166,6 +1166,7 @@ export function registerIpcHandlers() {
     const nextSize = Math.min(4, Math.max(0.25, Number(size) || 1))
     const d = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
     const nextPos = resizeCharacterWindow(characterId, nextSize)
+    exitCharacterScaleMode(characterId)
     if (d) {
       d.size = nextPos?.size ?? nextSize
       if (nextPos) d.position = nextPos.position
@@ -1175,8 +1176,14 @@ export function registerIpcHandlers() {
     return true
   })
 
+  ipcMain.handle('desktop:enter-scale-mode', (_, characterId: string) => {
+    enterScaleModeWindow(characterId)
+    return true
+  })
+
   ipcMain.handle('desktop:preview-size', (_, characterId: string, size: number) => {
     const nextSize = Math.min(4, Math.max(0.25, Number(size) || 1))
+    enterCharacterScaleMode(characterId)
     resizeCharacterWindow(characterId, nextSize)
     return true
   })

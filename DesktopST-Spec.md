@@ -817,9 +817,9 @@ admiration, amusement, anger, ..., neutral
 ### 階段 4：拋光（1 週）
 - [ ] 對話記憶自動摘要（欄位有，邏輯未寫）
 - [x] 對話 session 管理（列出 / 載入 / 改名 / 刪除）
-- [ ] API Key 加密（safeStorage，目前明文存於 settings.json）
+- [x] API Key 加密（safeStorage，Windows DPAPI 自動加解密）
 - [x] 開啟資料夾按鈕
-- [ ] 應用程式打包成 .exe 安裝檔（待確認 electron-builder build）
+- [x] 應用程式打包成 .exe 安裝檔（electron-builder 配置完成）
 
 **驗收**：可分發給其他使用者安裝使用。
 
