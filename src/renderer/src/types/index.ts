@@ -164,6 +164,12 @@ export interface AppSettings {
       volume: number
       customSoundPath?: string
     }
+    /** 訊息通知音效設定 */
+    messageNotificationSound?: {
+      enabled: boolean
+      volume: number
+      customSoundPath?: string
+    }
   }
 }
 

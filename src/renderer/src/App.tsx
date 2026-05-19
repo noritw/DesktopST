@@ -30,7 +30,7 @@ export default function App() {
   const chatFontSize = settings?.ui.chatFontSize ?? null
   const colorTheme = settings?.ui.colorTheme ?? null
 
-  // 初始化音效播放
+  // 初始化提醒音效播放
   useEffect(() => {
     let audio: HTMLAudioElement | null = null
     const customSoundPath = settings?.ui.reminderNotificationSound?.customSoundPath
@@ -55,6 +55,32 @@ export default function App() {
 
     return unsub
   }, [settings?.ui.reminderNotificationSound?.customSoundPath])
+
+  // 初始化訊息音效播放
+  useEffect(() => {
+    let audio: HTMLAudioElement | null = null
+    const customSoundPath = settings?.ui.messageNotificationSound?.customSoundPath
+
+    const initAudio = () => {
+      // 優先使用自訂音效，否則使用預設音效
+      const audioPath = customSoundPath
+        ? `file://${customSoundPath.replace(/\\/g, '/')}`
+        : '/message-notification-sound.wav'
+      audio = new Audio(audioPath)
+    }
+
+    initAudio()
+
+    const unsub = window.api.on('audio:play-message-notification', (payload) => {
+      if (!audio) return
+      const { volume = 0.7 } = payload as { volume?: number }
+      audio.volume = Math.max(0, Math.min(1, volume))
+      audio.currentTime = 0
+      audio.play().catch((e: unknown) => console.error('[Audio] Play message notification failed:', e))
+    })
+
+    return unsub
+  }, [settings?.ui.messageNotificationSound?.customSoundPath])
 
   useEffect(() => {
     loadAll().catch(e => console.error('[DesktopST] loadAll failed:', e))

@@ -1565,6 +1565,16 @@ export function registerIpcHandlers() {
       conv.updatedAt = Date.now()
       broadcastConversationUpdate(conv)
       broadcastToAll('character:new-message', { characterId: primaryId, message: charMsg })
+
+      // 播放訊息通知音
+      if (settings.ui.messageNotificationSound?.enabled !== false) {
+        const volume = settings.ui.messageNotificationSound?.volume ?? 0.7
+        const charWin = getCharacterWindow(primaryId)
+        if (charWin && !charWin.isDestroyed()) {
+          charWin.webContents.send('audio:play-message-notification', { volume })
+        }
+      }
+
       showSpeechBubble(primaryId, primaryChar.name, primaryReply)
       broadcastToAll('character:thinking', { characterId: primaryId, thinking: false })
     } catch (e: unknown) {
@@ -1653,6 +1663,16 @@ export function registerIpcHandlers() {
         conv.updatedAt = Date.now()
         broadcastConversationUpdate(conv)
         broadcastToAll('character:new-message', { characterId: charId, message: charMsg })
+
+        // 播放訊息通知音
+        if (settings.ui.messageNotificationSound?.enabled !== false) {
+          const volume = settings.ui.messageNotificationSound?.volume ?? 0.7
+          const charWin = getCharacterWindow(charId)
+          if (charWin && !charWin.isDestroyed()) {
+            charWin.webContents.send('audio:play-message-notification', { volume })
+          }
+        }
+
         showSpeechBubble(charId, char.name, cleanReply)
         broadcastToAll('character:thinking', { characterId: charId, thinking: false })
       } catch (e: unknown) {
@@ -2227,6 +2247,38 @@ export function registerIpcHandlers() {
       return { path: destPath, filename }
     } catch (e) {
       console.error('[audio] select-notification-sound failed:', e)
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('audio:select-message-notification-sound', async () => {
+    const result = await dialog.showOpenDialog({
+      title: '選擇訊息通知音效',
+      filters: [
+        { name: '音頻檔案', extensions: ['mp3', 'wav', 'ogg', 'm4a'] },
+        { name: '所有檔案', extensions: ['*'] }
+      ],
+      properties: ['openFile']
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    const selectedPath = result.filePaths[0]
+    const soundsDir = path.join(fileStore.getDataDir(), 'sounds')
+    fs.mkdirSync(soundsDir, { recursive: true })
+    const filename = path.basename(selectedPath)
+    const destPath = path.join(soundsDir, filename)
+    try {
+      fs.copyFileSync(selectedPath, destPath)
+      settings.ui.messageNotificationSound = {
+        ...settings.ui.messageNotificationSound,
+        enabled: settings.ui.messageNotificationSound?.enabled ?? true,
+        volume: settings.ui.messageNotificationSound?.volume ?? 0.7,
+        customSoundPath: destPath
+      }
+      fileStore.saveSettings(settings)
+      broadcastToAll('settings:updated', settings)
+      return { path: destPath, filename }
+    } catch (e) {
+      console.error('[audio] select-message-notification-sound failed:', e)
       return { error: e instanceof Error ? e.message : String(e) }
     }
   })

@@ -145,6 +145,12 @@ export interface AppSettings {
       volume: number
       customSoundPath?: string
     }
+    /** 訊息通知音效設定 */
+    messageNotificationSound?: {
+      enabled: boolean
+      volume: number
+      customSoundPath?: string
+    }
   }
 }
 
@@ -212,6 +218,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
       seconds: 8
     },
     reminderNotificationSound: {
+      enabled: true,
+      volume: 0.7
+    },
+    messageNotificationSound: {
       enabled: true,
       volume: 0.7
     }

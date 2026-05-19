@@ -202,9 +202,11 @@ export default function SettingsWindow() {
   const [dataDir, setDataDir] = useState('')
   const [changingDataDir, setChangingDataDir] = useState(false)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
+  const messagePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const messagePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // 音效路徑改變時重新建立 Audio 實例（只載入一次）
+  // 提醒音效路徑改變時重新建立 Audio 實例（只載入一次）
   const customSoundPath = draft?.ui.reminderNotificationSound?.customSoundPath
   useEffect(() => {
     const audioPath = customSoundPath
@@ -212,6 +214,15 @@ export default function SettingsWindow() {
       : '/notification-sound.wav'
     previewAudioRef.current = new Audio(audioPath)
   }, [customSoundPath])
+
+  // 訊息音效路徑改變時重新建立 Audio 實例（只載入一次）
+  const messageCustomSoundPath = draft?.ui.messageNotificationSound?.customSoundPath
+  useEffect(() => {
+    const audioPath = messageCustomSoundPath
+      ? `file://${messageCustomSoundPath.replace(/\\/g, '/')}`
+      : '/message-notification-sound.wav'
+    messagePreviewAudioRef.current = new Audio(audioPath)
+  }, [messageCustomSoundPath])
 
   // debounce：停止拖動 400ms 後才播放，避免連續觸發
   const playPreviewSound = (volume: number) => {
@@ -222,6 +233,18 @@ export default function SettingsWindow() {
       audio.volume = Math.max(0, Math.min(1, volume))
       audio.currentTime = 0
       audio.play().catch((e: unknown) => console.error('[Audio Preview] Play failed:', e))
+    }, 400)
+  }
+
+  // 訊息音效預覽播放
+  const playMessagePreviewSound = (volume: number) => {
+    if (messagePreviewTimerRef.current) clearTimeout(messagePreviewTimerRef.current)
+    messagePreviewTimerRef.current = setTimeout(() => {
+      const audio = messagePreviewAudioRef.current
+      if (!audio) return
+      audio.volume = Math.max(0, Math.min(1, volume))
+      audio.currentTime = 0
+      audio.play().catch((e: unknown) => console.error('[Audio Preview] Message sound failed:', e))
     }, 400)
   }
 
@@ -1188,6 +1211,59 @@ export default function SettingsWindow() {
                 {draft.ui.reminderNotificationSound?.customSoundPath && (
                   <p className="text-xs text-secondary break-all">
                     目前：{draft.ui.reminderNotificationSound.customSoundPath.split(/[/\\]/).pop()}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="border-t border-border pt-3 mt-3" />
+            <p className="text-xs font-medium text-secondary">訊息通知</p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draft.ui.messageNotificationSound?.enabled ?? true}
+                onChange={e => {
+                  set('ui.messageNotificationSound', {
+                    enabled: e.target.checked,
+                    volume: draft.ui.messageNotificationSound?.volume ?? 0.7
+                  })
+                }}
+                className="accent-teal w-4 h-4"
+              />
+              <span className="text-sm text-primary">收到訊息時播放通知音</span>
+            </label>
+            {draft.ui.messageNotificationSound?.enabled !== false && (
+              <div className="ml-6 space-y-2">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-secondary">音量：</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={Math.round((draft.ui.messageNotificationSound?.volume ?? 0.7) * 100)}
+                    onChange={e => {
+                      const volume = Number(e.target.value) / 100
+                      set('ui.messageNotificationSound', {
+                        enabled: draft.ui.messageNotificationSound?.enabled ?? true,
+                        volume
+                      })
+                      // 播放試聽音效
+                      playMessagePreviewSound(volume)
+                    }}
+                    className="flex-1 accent-teal"
+                  />
+                  <span className="text-xs text-secondary w-8 text-right">{Math.round((draft.ui.messageNotificationSound?.volume ?? 0.7) * 100)}%</span>
+                </div>
+                <button
+                  type="button"
+                  className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint-40 transition-all"
+                  onClick={() => window.api.invoke('audio:select-message-notification-sound')}
+                >
+                  選擇自訂音效
+                </button>
+                {draft.ui.messageNotificationSound?.customSoundPath && (
+                  <p className="text-xs text-secondary break-all">
+                    目前：{draft.ui.messageNotificationSound.customSoundPath.split(/[/\\]/).pop()}
                   </p>
                 )}
               </div>

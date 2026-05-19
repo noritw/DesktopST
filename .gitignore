@@ -10,3 +10,4 @@ dist/
 .claude/settings.local.json
 DesktopST-dev.bat
 scripts/generateNotificationSound.js
+generate-sounds.js
