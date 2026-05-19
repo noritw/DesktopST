@@ -2094,8 +2094,8 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('app:open-api-guide', () => {
-    const appRoot = app.getAppPath()
-    const guideFile = path.join(appRoot, 'docs/api-key-guide.html')
+    // process.resourcesPath = win-unpacked/resources，向上一層是 win-unpacked
+    const guideFile = path.join(process.resourcesPath, '../docs/api-key-guide.html')
     return shell.openPath(guideFile)
   })
 

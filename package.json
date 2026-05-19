@@ -7,7 +7,7 @@
     "predev": "npm install --prefer-offline --no-audit --no-fund",
     "dev": "electron-vite dev",
     "prebuild": "npm install --prefer-offline --no-audit --no-fund",
-    "build": "electron-vite build && electron-builder",
+    "build": "electron-vite build && node -e \"require('fs').cpSync('src/renderer/public', 'out/renderer', {recursive: true})\" && electron-builder",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "eslint src --ext .ts,.tsx"
   },
@@ -53,8 +53,13 @@
       {
         "from": "assets",
         "to": "assets"
+      },
+      {
+        "from": "docs",
+        "to": "docs"
       }
     ],
+    "asarUnpack": ["docs/**/*"],
     "win": {
       "target": ["portable"],
       "icon": "assets/icon.ico"

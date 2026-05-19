@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { staticFileUrl } from '../utils/resourcePath'
 import { v4 as uuidv4 } from 'uuid'
 import {
   OPENAI_DATA_SHARING_INCENTIVE_10M_GROUP,
@@ -211,7 +212,7 @@ export default function SettingsWindow() {
   useEffect(() => {
     const audioPath = customSoundPath
       ? `file://${customSoundPath.replace(/\\/g, '/')}`
-      : '/notification-sound.wav'
+      : staticFileUrl('notification-sound.wav')
     previewAudioRef.current = new Audio(audioPath)
   }, [customSoundPath])
 
@@ -220,7 +221,7 @@ export default function SettingsWindow() {
   useEffect(() => {
     const audioPath = messageCustomSoundPath
       ? `file://${messageCustomSoundPath.replace(/\\/g, '/')}`
-      : '/message-notification-sound.wav'
+      : staticFileUrl('message-notification-sound.wav')
     messagePreviewAudioRef.current = new Audio(audioPath)
   }, [messageCustomSoundPath])
 

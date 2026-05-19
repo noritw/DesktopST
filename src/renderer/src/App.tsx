@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useAppStore } from './stores/useAppStore'
+import { staticFileUrl } from './utils/resourcePath'
 import CharacterWindow from './windows/CharacterWindow'
 import InputWindow from './windows/InputWindow'
 import SettingsWindow from './windows/SettingsWindow'
@@ -39,7 +40,7 @@ export default function App() {
       // 優先使用自訂音效，否則使用預設音效
       const audioPath = customSoundPath
         ? `file://${customSoundPath.replace(/\\/g, '/')}`
-        : '/notification-sound.wav'
+        : staticFileUrl('notification-sound.wav')
       audio = new Audio(audioPath)
     }
 
@@ -65,7 +66,7 @@ export default function App() {
       // 優先使用自訂音效，否則使用預設音效
       const audioPath = customSoundPath
         ? `file://${customSoundPath.replace(/\\/g, '/')}`
-        : '/message-notification-sound.wav'
+        : staticFileUrl('message-notification-sound.wav')
       audio = new Audio(audioPath)
     }
 
