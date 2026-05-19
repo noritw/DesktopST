@@ -25,10 +25,11 @@ export interface DstPackGlobalPartial {
   }
 }
 
-function addDiskDirToZip(zip: JSZip, diskRoot: string, zipPrefix: string): void {
+function addDiskDirToZip(zip: JSZip, diskRoot: string, zipPrefix: string, skipFile?: string): void {
   if (!fs.existsSync(diskRoot)) return
   const entries = fs.readdirSync(diskRoot, { withFileTypes: true })
   for (const ent of entries) {
+    if (skipFile && ent.name === skipFile) continue
     const abs = path.join(diskRoot, ent.name)
     const zpath = `${zipPrefix}/${ent.name}`.replace(/\\/g, '/')
     if (ent.isDirectory()) addDiskDirToZip(zip, abs, zpath)
@@ -72,7 +73,49 @@ export async function buildDstPackBuffer(opts: {
   for (const id of characterIds) {
     const dir = path.join(charsRoot, id)
     if (!fs.existsSync(dir)) continue
-    addDiskDirToZip(zip, dir, `characters/${id}`)
+
+    // 讀取並轉換 card.json 中的路徑（emotions/spriteIds 改為相對路徑）
+    const cardPath = path.join(dir, 'card.json')
+    if (fs.existsSync(cardPath)) {
+      let card = JSON.parse(fs.readFileSync(cardPath, 'utf-8')) as any
+
+      // 轉換 emotions：絕對路徑 → 相對於角色資料夾的相對路徑
+      if (card.emotions && typeof card.emotions === 'object') {
+        const newEmotions: Record<string, string> = {}
+        for (const [emotionId, emotionPath] of Object.entries(card.emotions)) {
+          if (typeof emotionPath === 'string') {
+            try {
+              const relPath = path.relative(dir, emotionPath)
+              newEmotions[emotionId] = relPath.replace(/\\/g, '/')
+            } catch {
+              newEmotions[emotionId] = emotionPath
+            }
+          }
+        }
+        card.emotions = newEmotions
+      }
+
+      // 轉換 spriteIds：同上
+      if (card.spriteIds && typeof card.spriteIds === 'object') {
+        const newSpriteIds: Record<string, string> = {}
+        for (const [spritePath, spriteId] of Object.entries(card.spriteIds)) {
+          if (typeof spritePath === 'string' && typeof spriteId === 'string') {
+            try {
+              const relPath = path.relative(dir, spritePath)
+              newSpriteIds[relPath.replace(/\\/g, '/')] = spriteId
+            } catch {
+              newSpriteIds[spritePath] = spriteId
+            }
+          }
+        }
+        card.spriteIds = newSpriteIds
+      }
+
+      zip.file(`characters/${id}/card.json`, JSON.stringify(card, null, 2))
+    }
+
+    // 添加其他文件（不包括 card.json，因為已經處理過了）
+    addDiskDirToZip(zip, dir, `characters/${id}`, 'card.json')
   }
 
   return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' })

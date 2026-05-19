@@ -448,8 +448,19 @@ function fixCharacterPathsAfterImport(char: Character, dir: string): Character {
   }
   const emotions: Record<string, string> = { ...(char.emotions || {}) }
   for (const k of Object.keys(emotions)) {
-    const v = emotions[k]
-    if (v && fs.existsSync(v)) continue
+    let v = emotions[k]
+    if (!v) continue
+
+    // 如果是相對路徑，轉換為絕對路徑
+    if (!path.isAbsolute(v)) {
+      v = path.resolve(dir, v)
+    }
+
+    if (fs.existsSync(v)) {
+      emotions[k] = v
+      continue
+    }
+
     const base = path.basename(v || '')
     if (!base) {
       emotions[k] = ''
@@ -459,7 +470,21 @@ function fixCharacterPathsAfterImport(char: Character, dir: string): Character {
     const inRoot = path.join(dir, base)
     emotions[k] = fs.existsSync(inEmo) ? inEmo : fs.existsSync(inRoot) ? inRoot : ''
   }
-  return { ...char, avatar, emotions }
+
+  // 同樣修復 spriteIds 的路徑
+  const spriteIds: Record<string, string> = { ...(char.spriteIds || {}) }
+  for (const [k, v] of Object.entries(spriteIds)) {
+    if (!k) continue
+    let resolvedKey = k
+    // 如果 key 是相對路徑，轉換為絕對路徑
+    if (!path.isAbsolute(k)) {
+      resolvedKey = path.resolve(dir, k)
+    }
+    spriteIds[resolvedKey] = v
+    if (resolvedKey !== k) delete spriteIds[k]
+  }
+
+  return { ...char, avatar, emotions, spriteIds: Object.keys(spriteIds).length > 0 ? spriteIds : char.spriteIds }
 }
 
 type DismissedAuxWindowSnapshot = {
