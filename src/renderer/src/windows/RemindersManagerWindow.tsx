@@ -336,8 +336,9 @@ export default function RemindersManagerWindow() {
   useEffect(() => {
     reload()
     window.api.invoke('characters:list').then(list => setCharacters((list as Character[]) ?? []))
-    const unsub = window.api.on('reminders:updated', () => reload())
-    return unsub
+    const unsubUpdated = window.api.on('reminders:updated', () => reload())
+    const unsubNew = window.api.on('reminder:trigger-new', () => setAdding(true))
+    return () => { unsubUpdated(); unsubNew() }
   }, [])
 
   const handleToggle = async (id: string, enabled: boolean) => {

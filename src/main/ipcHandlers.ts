@@ -2219,6 +2219,12 @@ export function registerIpcHandlers() {
     return true
   })
 
+  ipcMain.handle('reminder:open-manager-new', () => {
+    const win = openRemindersManager()
+    win.webContents.send('reminder:trigger-new')
+    return true
+  })
+
   ipcMain.handle('audio:select-notification-sound', async () => {
     const result = await dialog.showOpenDialog({
       title: '選擇通知音效',

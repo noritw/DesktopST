@@ -18,6 +18,7 @@ export type MonoIconName =
   | 'pin'
   | 'copy'
   | 'alarm'
+  | 'bell'
 
 export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIconName; className?: string }) {
   const common = {
@@ -159,10 +160,28 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
       )}
       {name === 'alarm' && (
         <>
+          {/* 鐘身 */}
           <circle {...common} cx="12" cy="13" r="7" />
-          <path {...common} d="M5 6L2 3" />
-          <path {...common} d="M19 6l3-3" />
+          {/* 左角 */}
+          <path {...common} d="M6.5 8l-1.5-2" />
+          {/* 左錘（半圓，逆時針旋轉） */}
+          <ellipse {...common} cx="4.5" cy="4.5" rx="1.8" ry="0.6" transform="rotate(-30 4.5 4.5)" />
+          {/* 右角 */}
+          <path {...common} d="M17.5 8l1.5-2" />
+          {/* 右錘（半圓，順時針旋轉） */}
+          <ellipse {...common} cx="19.5" cy="4.5" rx="1.8" ry="0.6" transform="rotate(30 19.5 4.5)" />
+          {/* 指針 */}
           <path {...common} d="M12 10v3l2 1" />
+          {/* 左腳 */}
+          <path {...common} d="M7 20v2" />
+          {/* 右腳 */}
+          <path {...common} d="M17 20v2" />
+        </>
+      )}
+      {name === 'bell' && (
+        <>
+          <path {...common} d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path {...common} d="M13.73 21a2 2 0 0 1-3.46 0" />
         </>
       )}
     </svg>

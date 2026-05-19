@@ -86,7 +86,7 @@ let unfocusedBubbleOpacity = DEFAULT_UNFOCUSED_BUBBLE_OPACITY
 export function getCharacterWindowSize(scale: number): { width: number; height: number } {
   return {
     width: Math.max(280, Math.round(220 * scale)),
-    height: Math.max(220, Math.round(380 * scale))
+    height: Math.max(272, Math.round(432 * scale))
   }
 }
 

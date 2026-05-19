@@ -154,10 +154,6 @@ export default function InputWindow() {
     }
   }
 
-  const openNotesManager = () => {
-    window.api.invoke('pinned-note:open-manager')
-  }
-
   return (
     <div
       style={{
@@ -373,18 +369,10 @@ export default function InputWindow() {
               <button
                 type="button"
                 className="btn-round w-7 h-7 text-xs"
-                title="管理便利貼"
-                onClick={openNotesManager}
+                title="新建提醒"
+                onClick={() => window.api.invoke('reminder:open-manager-new')}
               >
-                <MonoIcon name="notes" className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                className="btn-round w-7 h-7 text-xs"
-                title="管理提醒"
-                onClick={() => window.api.invoke('reminder:open-manager')}
-              >
-                <MonoIcon name="alarm" className="w-3.5 h-3.5" />
+                <MonoIcon name="bell" className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>

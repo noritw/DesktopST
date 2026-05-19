@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useAppStore, selectCharacter, selectDesktopChar, selectCharacterLastMessage } from '../stores/useAppStore'
 import CharacterSprite, { type CharacterSpriteHandle } from '../components/CharacterSprite'
 import HoverMenu, { HoverMenuIcon } from '../components/HoverMenu'
+import MonoIcon from '../components/MonoIcon'
 
 /** CharacterSprite 框高為 260×scale；object-fit:contain 時腳常在框內偏上，左右欄需上移才能與視覺腳底對齊 */
 const SIDE_TOOLBAR_FOOT_LIFT_RATIO = 0.072
@@ -85,7 +86,7 @@ export default function CharacterWindow({ characterId }: Props) {
   const hoverMenuButtonsRef = useRef<HTMLDivElement | null>(null)
   const leftStackRef = useRef<HTMLDivElement | null>(null)
   const headActionsRef = useRef<HTMLDivElement | null>(null)
-  const closeMenuRef = useRef<HTMLButtonElement | null>(null)
+  const closeMenuRef = useRef<HTMLDivElement | null>(null)
   const scaleControlsRef = useRef<HTMLDivElement | null>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const didDragRef = useRef(false)
@@ -328,7 +329,7 @@ export default function CharacterWindow({ characterId }: Props) {
     >
       {/* Character sprite — lifts up in scale mode to leave room for the fixed control panel */}
       <div
-        className={`absolute left-0 flex items-end ${scaleMode ? 'bottom-24' : 'bottom-0'}`}
+        className={`absolute left-0 flex items-end ${scaleMode ? 'bottom-24' : 'bottom-[52px]'}`}
         style={{ pointerEvents: 'auto' }}
         ref={interactiveRef}
       >
@@ -468,19 +469,34 @@ export default function CharacterWindow({ characterId }: Props) {
             />
           </div>
 
-          {!scaleMode && menuVisible && (
+          <div
+            ref={closeMenuRef}
+            className="absolute left-0 right-0 z-[12] flex justify-center gap-3 no-drag"
+            style={{
+              top: '100%',
+              marginTop: 6,
+              opacity: menuVisible ? 1 : 0,
+              transition: 'opacity 0.2s ease',
+              pointerEvents: menuVisible ? 'auto' : 'none'
+            }}
+          >
             <button
-              ref={closeMenuRef}
               type="button"
-              title="關閉角色選單（也可用右鍵點角色）"
-              aria-label="關閉角色選單（也可用右鍵點角色）"
-              onClick={() => handleCloseMenu()}
-              className="btn-round text-primary absolute left-1/2 z-[12] -translate-x-1/2 no-drag"
-              style={{ top: '100%', marginTop: 6, pointerEvents: 'auto' }}
+              title="便利貼管理"
+              onClick={() => window.api.invoke('pinned-note:open-manager')}
+              className="btn-round text-primary !bg-mint hover:!bg-teal-20"
             >
-              <HoverMenuIcon name="close" />
+              <MonoIcon name="notes" className="w-5 h-5" />
             </button>
-          )}
+            <button
+              type="button"
+              title="提醒管理"
+              onClick={() => window.api.invoke('reminder:open-manager')}
+              className="btn-round text-primary !bg-mint hover:!bg-teal-20"
+            >
+              <MonoIcon name="alarm" className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {!scaleMode && (
