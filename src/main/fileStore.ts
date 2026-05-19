@@ -627,6 +627,20 @@ export async function initDefaultCharacters(appRoot: string): Promise<{ chars: C
         }
         diskCard.emotions = emotions
 
+        // Fix spriteIds: convert relative path keys to absolute
+        if (diskCard.spriteIds && typeof diskCard.spriteIds === 'object') {
+          const newSpriteIds: Record<string, string> = {}
+          for (const [k, v] of Object.entries(diskCard.spriteIds)) {
+            if (!k || typeof v !== 'string') continue
+            let resolvedKey = k
+            if (!path.isAbsolute(k)) {
+              resolvedKey = path.resolve(destDir, k)
+            }
+            newSpriteIds[resolvedKey] = v
+          }
+          diskCard.spriteIds = newSpriteIds
+        }
+
         saveCharacter(diskCard)
         created.push(diskCard)
       } catch (e) {
