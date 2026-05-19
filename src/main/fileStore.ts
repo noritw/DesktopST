@@ -591,15 +591,16 @@ export async function initDefaultCharacters(appRoot: string): Promise<{ chars: C
           }
         }
 
-        // If not resolved, look for avatar.* in destDir
+        // If not resolved, look for avatar.* in destDir (including avatar-*.png with timestamps)
         if (!resolved) {
           const files = fs.readdirSync(destDir)
           console.log(`[fileStore]   → files in ${destDir}: ${files.join(', ')}`)
-          const cand = ['avatar.png', 'avatar.jpg', 'avatar.jpeg', 'avatar.webp']
-            .map(n => path.join(destDir, n))
-            .find(p => fs.existsSync(p))
-          resolved = cand ?? ''
-          if (resolved) {
+          // Look for any file starting with "avatar" that's an image
+          const avatarFile = files.find(f =>
+            /^avatar[-.]?\w*\.(png|jpg|jpeg|webp)$/i.test(f)
+          )
+          if (avatarFile) {
+            resolved = path.join(destDir, avatarFile)
             console.log(`[fileStore]   → found auto: ${resolved}`)
           } else {
             console.log(`[fileStore]   → NOT FOUND`)
