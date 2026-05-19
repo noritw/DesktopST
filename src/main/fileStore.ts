@@ -586,8 +586,13 @@ export async function initDefaultCharacters(appRoot: string): Promise<{ chars: C
           if (v && fs.existsSync(v)) {
             emotions[k] = v
           } else {
-            const base = path.basename(v || '')
-            const local = base ? path.join(destDir, base) : ''
+            // Try relative path first (emotions/xxx.png)
+            let local = path.join(destDir, v || '')
+            if (!fs.existsSync(local)) {
+              // Fallback: look for the file in emotions/ subfolder
+              const base = path.basename(v || '')
+              local = base ? path.join(destDir, 'emotions', base) : ''
+            }
             emotions[k] = local && fs.existsSync(local) ? local : (v || '')
           }
         }
