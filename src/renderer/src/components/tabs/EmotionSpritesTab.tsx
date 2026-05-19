@@ -280,7 +280,10 @@ export default function EmotionSpritesTab({ draft, setDraft, onError }: Props) {
                 <button
                   type="button"
                   className="text-xs text-[#4A9D7D] hover:underline"
-                  onClick={() => setReplacingImagePath(entry.imagePath) || fileRef.current?.click()}
+                  onClick={() => {
+                    setReplacingImagePath(entry.imagePath)
+                    fileRef.current?.click()
+                  }}
                 >
                   重新上傳圖片
                 </button>
