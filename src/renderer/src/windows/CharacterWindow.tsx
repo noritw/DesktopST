@@ -484,7 +484,7 @@ export default function CharacterWindow({ characterId }: Props) {
               type="button"
               title="便利貼管理"
               onClick={() => window.api.invoke('pinned-note:open-manager')}
-              className="btn-round text-primary !bg-mint hover:!bg-teal-20"
+              className="btn-round text-primary !bg-mint hover:!bg-white hover:!text-black"
             >
               <MonoIcon name="notes" className="w-5 h-5" />
             </button>
@@ -492,7 +492,7 @@ export default function CharacterWindow({ characterId }: Props) {
               type="button"
               title="提醒管理"
               onClick={() => window.api.invoke('reminder:open-manager')}
-              className="btn-round text-primary !bg-mint hover:!bg-teal-20"
+              className="btn-round text-primary !bg-mint hover:!bg-white hover:!text-black"
             >
               <MonoIcon name="alarm" className="w-5 h-5" />
             </button>
