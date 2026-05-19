@@ -33,6 +33,14 @@ export function importStJson(raw: unknown, id: string): Character {
   const now = Date.now()
   const creatorRaw = data.creator_notes ?? (data as { creatorcomment?: unknown }).creatorcomment
 
+  // 從 DesktopST 擴充欄位恢復情緒和精靈 ID（如果存在）
+  const emotions = (data.emotions && typeof data.emotions === 'object')
+    ? (data.emotions as Record<string, string>)
+    : {}
+  const spriteIds = (data.spriteIds && typeof data.spriteIds === 'object')
+    ? (data.spriteIds as Record<string, string>)
+    : undefined
+
   return {
     id,
     name,
@@ -42,7 +50,8 @@ export function importStJson(raw: unknown, id: string): Character {
     personality,
     firstMessage: trimStr(data.first_mes),
     exampleDialogue: trimStr(data.mes_example),
-    emotions: {},
+    emotions,
+    spriteIds,
     scenario: data.scenario !== undefined ? trimStr(data.scenario) : undefined,
     systemPromptOverride: data.system_prompt !== undefined ? trimStr(data.system_prompt) : undefined,
     creatorNotes: creatorRaw !== undefined ? trimStr(creatorRaw) : undefined,
@@ -64,7 +73,10 @@ export function exportToStJson(char: Character): string {
     mes_example: char.exampleDialogue ?? '',
     scenario: char.scenario ?? '',
     creator_notes: char.creatorNotes ?? '',
-    system_prompt: char.systemPromptOverride ?? ''
+    system_prompt: char.systemPromptOverride ?? '',
+    // DesktopST 擴充欄位：情緒和精靈 ID 映射
+    emotions: char.emotions ?? {},
+    spriteIds: char.spriteIds ?? {}
   }
   return JSON.stringify({
     spec: 'chara_card_v2',
