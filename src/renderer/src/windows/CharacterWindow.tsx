@@ -238,21 +238,44 @@ export default function CharacterWindow({ characterId }: Props) {
       const spriteEl = spriteDivRef.current
       if (!containerEl || !spriteEl) return
 
-      const containerRect = containerEl.getBoundingClientRect()
-      const inContainer = (
-        event.clientX >= containerRect.left &&
-        event.clientX <= containerRect.right &&
-        event.clientY >= containerRect.top &&
-        event.clientY <= containerRect.bottom
+      // 計算所有互動元素的最小外包矩形，橋接按鈕與角色框之間的空隙
+      const clusterBounds = (() => {
+        const els: (Element | null)[] = [containerEl, headActionsRef.current, closeMenuRef.current, hoverMenuButtonsRef.current]
+        let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity
+        for (const el of els) {
+          if (!el) continue
+          const rect = el.getBoundingClientRect()
+          if (rect.width === 0 && rect.height === 0) continue
+          l = Math.min(l, rect.left); t = Math.min(t, rect.top)
+          r = Math.max(r, rect.right); b = Math.max(b, rect.bottom)
+        }
+        return { left: l, top: t, right: r, bottom: b }
+      })()
+
+      const inCluster = (
+        event.clientX >= clusterBounds.left && event.clientX <= clusterBounds.right &&
+        event.clientY >= clusterBounds.top && event.clientY <= clusterBounds.bottom
       )
 
-      if (!inContainer) {
-        // 游標完全離開整個容器
+      if (!inCluster) {
+        // 游標完全離開整個互動區域（含按鈕）
         setSpriteOpaque(false)
         if (!menuPinnedRef.current) {
           setHovered(false)
           setHoverSuppressed(false)
         }
+        return
+      }
+
+      const containerRect = containerEl.getBoundingClientRect()
+      const inContainer = (
+        event.clientX >= containerRect.left && event.clientX <= containerRect.right &&
+        event.clientY >= containerRect.top && event.clientY <= containerRect.bottom
+      )
+
+      if (!inContainer) {
+        // 游標在按鈕上或空隙中，不重置 hovered
+        setSpriteOpaque(false)
         return
       }
 
@@ -475,9 +498,9 @@ export default function CharacterWindow({ characterId }: Props) {
             style={{
               top: '100%',
               marginTop: 6,
-              opacity: menuVisible ? 1 : 0,
+              opacity: menuVisible && !scaleMode ? 1 : 0,
               transition: 'opacity 0.2s ease',
-              pointerEvents: menuVisible ? 'auto' : 'none'
+              pointerEvents: menuVisible && !scaleMode ? 'auto' : 'none'
             }}
           >
             <button

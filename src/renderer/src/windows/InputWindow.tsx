@@ -194,13 +194,13 @@ export default function InputWindow() {
         <div className="h-full flex flex-col bg-bg border border-border rounded-2xl overflow-hidden pt-4 shadow-panel">
           {settings && !(settings.llm?.apiKeys?.[settings.llm?.provider ?? 'openai'] ?? settings.llm?.apiKey ?? '').trim() && (
             <div className="px-3 py-1.5 text-[11px] text-primary bg-mint-20 border-b border-border no-drag flex items-center justify-between gap-2 shrink-0">
-              <span>尚未完成初始設定或缺少 API Key。</span>
+              <span>⚠️ 尚無 API Key。可先操作角色，對話時會提示需要設定。</span>
               <button
                 type="button"
                 className="shrink-0 text-[11px] px-2 py-0.5 rounded-full bg-mint font-semibold"
                 onClick={() => void window.api.invoke('window:open-settings', 'llm')}
               >
-                開啟設定
+                現在設定
               </button>
             </div>
           )}

@@ -30,8 +30,8 @@ import {
   hideAllWindowsForScreenshot, hideAuxWindowsForScreenshotKeepingCharacters, restoreAllWindowsAfterScreenshot,
   showPreviewWindow,
   createPinnedNoteWindow, updatePinnedNoteContent, updatePinnedNoteColor, closePinnedNote, getPinnedNoteWindow, getPinnedNoteWindowState,
-  openPinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
-  openRemindersManager,
+  openPinnedNotesManager, closePinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
+  openRemindersManager, closeRemindersManager,
   hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu, raiseCharactersAbovePinnedNotes,
   createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow, getInputWindow,
   getLogWindow, getVisibleAuxWindowSnapshot, restoreAuxWindowsFromSnapshot, getVisiblePinnedNoteWindowIds,
@@ -652,24 +652,40 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   }
   const extraSystemContext = ctxParts.join('\n\n') || undefined
 
+  // 檢查是否有 API Key
+  const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+
   raiseCharactersAbovePinnedNotes()
   broadcastToAll('character:thinking', { characterId: charId, thinking: true })
   try {
-    const { content, emotion, debugPrompt } = await chatWithLLM({
-      settings,
-      character: char,
-      messages: [],
-      speakerNameById: getSpeakerNameById(),
-      persona: activePersona,
-      world: activeWorld,
-      desktopCharacterNames: [],
-      extraSystemContext,
-      isReminder: true
-    })
-    const cleanReply = stripOtherCharacterSpeakerLines(
-      normalizeCharacterDialogue(content, char),
-      char.id
-    )
+    let cleanReply = ''
+    let emotion = 'neutral'
+    let debugPrompt = ''
+
+    if (hasApiKey) {
+      // 有 API Key：調用 LLM 生成角色化回應
+      const { content, emotion: llmEmotion, debugPrompt: llmDebugPrompt } = await chatWithLLM({
+        settings,
+        character: char,
+        messages: [],
+        speakerNameById: getSpeakerNameById(),
+        persona: activePersona,
+        world: activeWorld,
+        desktopCharacterNames: [],
+        extraSystemContext,
+        isReminder: true
+      })
+      cleanReply = stripOtherCharacterSpeakerLines(
+        normalizeCharacterDialogue(content, char),
+        char.id
+      )
+      emotion = llmEmotion
+      debugPrompt = llmDebugPrompt
+    } else {
+      // 無 API Key：離線模式，直接使用提醒文字
+      cleanReply = reminder.prompt?.trim() || `📢 ${reminder.label || '提醒'}`
+    }
+
     if (!cleanReply) return
 
     const msg: Message = {
@@ -677,9 +693,9 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       role: 'character',
       characterId: charId,
       content: cleanReply,
-      llmProvider: settings.llm.provider,
-      llmModel: resolveModel(settings),
-      debugPrompt,
+      llmProvider: hasApiKey ? settings.llm.provider : undefined,
+      llmModel: hasApiKey ? resolveModel(settings) : undefined,
+      debugPrompt: hasApiKey ? debugPrompt : undefined,
       emotion,
       timestamp: Date.now()
     }
@@ -1309,6 +1325,26 @@ export function registerIpcHandlers() {
     return true
   })
 
+  ipcMain.handle('window:open-pinned-notes-manager', () => {
+    openPinnedNotesManager()
+    return true
+  })
+
+  ipcMain.handle('window:close-pinned-notes-manager', () => {
+    closePinnedNotesManager()
+    return true
+  })
+
+  ipcMain.handle('window:open-reminders-manager', () => {
+    openRemindersManager()
+    return true
+  })
+
+  ipcMain.handle('window:close-reminders-manager', () => {
+    closeRemindersManager()
+    return true
+  })
+
   ipcMain.handle('data:get-dir', () => {
     return {
       dataDir: fileStore.getDataDir(),
@@ -1524,6 +1560,26 @@ export function registerIpcHandlers() {
     const primaryChar = getCharacter(primaryId)
     if (!primaryChar) return { ok: true }
 
+    // 檢查是否有 API Key
+    const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+    if (!hasApiKey) {
+      const noKeyText = '（系統提示：尚未設定 API Key，我沒辦法回應你喔。請點右上角的設定圖示，前往「LLM」分頁填入 API Key，就可以開始聊天囉！）'
+      const noApiKeyMsg: Message = {
+        id: uuidv4(),
+        role: 'character',
+        characterId: primaryId,
+        content: noKeyText,
+        timestamp: Date.now()
+      }
+      conv.messages.push(noApiKeyMsg)
+      conv.updatedAt = Date.now()
+      broadcastConversationUpdate(conv)
+      broadcastToAll('character:new-message', { characterId: primaryId, message: noApiKeyMsg })
+      showSpeechBubble(primaryId, primaryChar.name, noKeyText)
+      fileStore.saveConversation(conv)
+      return { ok: true }
+    }
+
     const recentMessagesBase = [...conv.messages.slice(0, -1), userMsgForPrompt].slice(-(settings.memory.keepRecentN))
     let lastReplyText = ''
 
@@ -1690,6 +1746,26 @@ export function registerIpcHandlers() {
     const conv = getActiveConversation()
     const char = getCharacter(characterId)
     if (!conv || !char) return { error: 'Not found' }
+
+    // 沒有 API Key 時直接說提示訊息，不進 LLM
+    const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+    if (!hasApiKey) {
+      const noKeyText = '（系統提示：尚未設定 API Key，我沒辦法回應你喔。請點右上角的設定圖示，前往「LLM」分頁填入 API Key，就可以開始聊天囉！）'
+      const msg: Message = {
+        id: uuidv4(),
+        role: 'character',
+        characterId,
+        content: noKeyText,
+        timestamp: Date.now()
+      }
+      conv.messages.push(msg)
+      conv.updatedAt = Date.now()
+      broadcastConversationUpdate(conv)
+      broadcastToAll('character:new-message', { characterId, message: msg })
+      showSpeechBubble(characterId, char.name, noKeyText)
+      fileStore.saveConversation(conv)
+      return { ok: true }
+    }
 
     const activePersona = getActivePersona()
     const activeWorld = getActiveWorld()

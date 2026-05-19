@@ -532,6 +532,7 @@ export function initDefaultCharacters(appRoot: string): { chars: Character[]; de
   for (const { jsonFile, imgFile } of defaultChars) {
     const jsonPath = path.join(appRoot, 'assets', jsonFile)
     const imgSrc = path.join(appRoot, 'assets', imgFile)
+    const fallbackImg = path.join(appRoot, 'assets', 'AppIcon.png')
     if (!fs.existsSync(jsonPath)) continue
 
     try {
@@ -540,9 +541,10 @@ export function initDefaultCharacters(appRoot: string): { chars: Character[]; de
       const charDir = path.join(CHARS_DIR, id)
       fs.mkdirSync(charDir, { recursive: true })
 
-      // Copy avatar
+      // Copy avatar (use fallback if primary image missing)
       const avatarDest = path.join(charDir, 'avatar.png')
-      if (fs.existsSync(imgSrc)) fs.copyFileSync(imgSrc, avatarDest)
+      const sourceImg = fs.existsSync(imgSrc) ? imgSrc : (fs.existsSync(fallbackImg) ? fallbackImg : null)
+      if (sourceImg) fs.copyFileSync(sourceImg, avatarDest)
 
       const data = raw.data ?? raw
       const char: Character = {

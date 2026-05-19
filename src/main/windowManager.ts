@@ -1838,6 +1838,18 @@ export function openRemindersManager(): BrowserWindow {
   return remindersManagerWindow
 }
 
+export function closePinnedNotesManager(): void {
+  if (pinnedNotesManagerWindow && !pinnedNotesManagerWindow.isDestroyed()) {
+    pinnedNotesManagerWindow.close()
+  }
+}
+
+export function closeRemindersManager(): void {
+  if (remindersManagerWindow && !remindersManagerWindow.isDestroyed()) {
+    remindersManagerWindow.close()
+  }
+}
+
 // ── Hide all auxiliary windows (non-pinned-note, used by dismissAllAuxWindows) ──
 
 function pushVisibleAuxSnapshot(

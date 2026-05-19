@@ -122,10 +122,13 @@ app.on('ready', async () => {
 
   const noCharacters = chars.length === 0
   const onboardingPending = settings.ui.onboardingCompleted === false
+
+  // 只在「真的需要設定」時強制開啟設定視窗
+  // 無 API Key 時允許先操作，在對話時再提示
   if (noCharacters || onboardingPending) {
     suppressAuxAutoHide(5000)
     setImmediate(() => {
-      openSettingsWindow('llm')
+      openSettingsWindow(onboardingPending ? 'llm' : 'general')
     })
   }
 

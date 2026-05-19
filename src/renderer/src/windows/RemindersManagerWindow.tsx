@@ -55,6 +55,9 @@ function ReminderForm({
   onCancel: () => void
   desktopCharacterIds: string[]
 }) {
+  const settings = useAppStore(s => s.settings)
+  const hasApiKey = !!settings?.llm?.apiKeys?.[settings?.llm?.provider ?? 'openai']?.trim()
+
   const [label, setLabel] = useState(initial.label)
   const [charId, setCharId] = useState(initial.characterId ?? '')
   const [schedType, setSchedType] = useState<ReminderSchedule['type']>(initial.schedule.type)
@@ -208,7 +211,13 @@ function ReminderForm({
           onChange={e => setPrompt(e.target.value)}
           placeholder="例：提醒我喝水"
         />
-        <p className="text-[11px] text-secondary mt-1">角色說話前會收到這段指令，空白則自然發話。</p>
+        {hasApiKey ? (
+          <p className="text-[11px] text-secondary mt-1">角色說話前會收到這段指令，空白則自然發話。</p>
+        ) : (
+          <p className="text-[11px] text-orange-600 mt-1">
+            ⚠️ 離線模式：你輸入的內容會直接作為提醒文字出現，不會有角色風格。設定 API Key 後，角色會根據你的指令生成風格化回應。
+          </p>
+        )}
       </div>
 
       <label className="flex items-center gap-2 cursor-pointer select-none">
