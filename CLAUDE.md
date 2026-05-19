@@ -167,78 +167,26 @@ npm run typecheck # 型別檢查
 - [x] 系統托盤強化
   - 收起 / 重新開啟所有輔助視窗
   - 角色保持在最上層（always-on-top checkbox）
+- [x] 提醒 / 定時發話
+  - 主程序排程器 `src/main/reminderScheduler.ts`，管理 `setTimeout` 排程
+  - 支援四種排程：`startup`（開機後 3 秒）/ `once`（一次性時間戳）/ `daily`（每天固定時間）/ `interval`（每 N 毫秒）
+  - 觸發時呼叫 `character:force-speak`，可選擇指定角色或隨機桌面未靜音角色
+  - `injectPinnedNotes` 開啟時，把 `visible: true` 便利貼標題+內文附入 prompt
+  - 提醒管理視窗 `RemindersManagerWindow.tsx`（CRUD + 啟用/停用）
+  - Tray 選單加入「管理提醒」入口
+  - 資料存於 `%APPDATA%\DesktopST\reminders.json`
+- [x] API Key safeStorage 加密
+  - `src/main/secureStore.ts`：以 Electron `safeStorage`（Windows DPAPI）加解密
+  - `fileStore.ts` 在讀取時解密、寫入時加密；前綴 `enc:v1:` 區分明文舊金鑰
+  - 自動 migration：讀到未加密舊金鑰 → 加密並覆寫
+  - `safeStorage` 不可用時 fallback 純文字並印警告
+  - DST Pack 匯出排除 API Key，UI 提示換機需重新輸入
+  - 設定視窗 API Key 欄位下方顯示本機加密說明
 
 **尚未實作（第一版排除）：**
 - Lorebook
-- 提醒 / 定時發話（目前評估中，見下）
 - TTS（文字轉語音）
 - Live2D
 - SillyTavern 對話記錄匯入
-- API Key safeStorage 加密（目前存明文，待補）
 
 詳細開發階段見規格書 §11。
-
----
-
-## 提醒 / 定時發話功能評估
-
-> 規格書原列「第一版不實作：自動發話」，此節評估是否可啟動實作。
-
-### 所需元件
-
-| 元件 | 現況 |
-|---|---|
-| 角色強制說話 (`character:force-speak`) | ✅ 已有 |
-| LLM 呼叫流程 | ✅ 已有 |
-| 主程序長駐排程器 | ❌ 需新增（Node.js `setTimeout` / `setInterval` 管理） |
-| 提醒資料結構 (`Reminder`) | ❌ 需新增 |
-| 設定 UI（新增/刪除提醒） | ❌ 需新增 |
-| IPC（CRUD + 觸發通知） | ❌ 需新增 |
-
-### UI 入口設計（已決定）
-
-- **Tray Icon 選單** 加入「管理提醒」項目（主要入口）
-- 獨立的**提醒管理視窗**（類似 pinned-notes-manager），不綁角色
-- **右鍵角色 HoverMenu**：待試用後決定是否加入快速新增
-
-### 建議資料結構
-
-```typescript
-interface Reminder {
-  id: string
-  characterId?: string       // 指定角色；未設定則觸發時隨機選桌面上一個角色
-  label: string              // 使用者自訂名稱
-  prompt: string             // 注入 LLM 的額外指令（可空白）
-  schedule: ReminderSchedule
-  enabled: boolean
-  injectPinnedNotes?: boolean  // 觸發時把桌面上可見的便利貼（visible:true）標題+內文附入 prompt
-  lastTriggeredAt?: number
-  createdAt: number
-}
-
-type ReminderSchedule =
-  | { type: 'startup' }                                       // 每次啟動（可開關）
-  | { type: 'once';     at: number }                          // 一次性（timestamp）
-  | { type: 'daily';    hour: number; minute: number }        // 每天固定時間
-  | { type: 'interval'; intervalMs: number }                  // 每 N 分鐘
-```
-
-**觸發時的 prompt 上下文組裝：**
-- 當前時間：`injectSystemTime` 已有，觸發時永遠注入
-- 便利貼：`injectPinnedNotes: true` 時，抓 `visible: true` 的便利貼，格式化為：
-  ```
-  [桌面便利貼]
-  - 《標題》內容...
-  - 《標題》內容...
-  ```
-  附加在 reminder prompt 後面送給 LLM
-
-### 實作工作量估計
-
-約 4 個子任務：
-1. 資料結構 + 持久化（`%APPDATA%\DesktopST\reminders.json`）
-2. 主程序排程器（`reminderScheduler.ts`）+ IPC CRUD
-3. 提醒管理視窗（`window type: reminders-manager`）
-4. Tray 選單新增入口 + 觸發時呼叫 `character:force-speak` 並注入 prompt 上下文
-
-**結論**：基礎設施齊全，可以開始實作。

@@ -183,7 +183,7 @@ export default function CharacterLibraryWindow() {
     if (!fp) return
     const wr = (await window.api.invoke('file:write-file', { path: fp, data: buf })) as { ok?: boolean; error?: string }
     if (wr && 'error' in wr && wr.error) setToast(wr.error)
-    else setToast('已匯出搬家包')
+    else setToast('已匯出搬家包（API Key 未包含，換機後請重新輸入）')
   }
 
   const openExportModal = () => {

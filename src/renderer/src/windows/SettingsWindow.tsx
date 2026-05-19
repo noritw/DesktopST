@@ -740,6 +740,9 @@ export default function SettingsWindow() {
                 onChange={e => set(`llm.apiKeys.${draft.llm.provider}`, e.target.value)}
                 placeholder={PROVIDER_KEY_PLACEHOLDER[draft.llm.provider] ?? 'API Key'}
               />
+              <p className="text-[11px] text-secondary mt-1 leading-relaxed">
+                金鑰以系統加密儲存於本機。換電腦或重灌系統後無法自動還原，需重新輸入；對話記錄與角色資料不受影響。
+              </p>
               <div className="flex gap-2 mt-2 items-center flex-wrap">
                 <button
                   type="button"

@@ -4,6 +4,7 @@ import { app } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
 import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, LegacyAppSettings, PinnedNote, Reminder } from './types'
 import { DEFAULT_SETTINGS } from './types'
+import * as secureStore from './secureStore'
 
 const DEFAULT_DATA_DIR = path.join(app.getPath('userData'), 'DesktopST')
 const STORAGE_META_FILE = path.join(app.getPath('userData'), 'DesktopST-storage.json')
@@ -209,7 +210,18 @@ export function loadSettings(): AppSettings {
       savePinnedNotes(pinnedNotes)
     }
 
-    if (needsMigration || hasLegacyPinnedNotesField) {
+    // Detect plaintext keys that need migration to encrypted storage
+    const rawApiKeys = typed.llm?.apiKeys ?? {}
+    const needsKeyMigration = Object.values(rawApiKeys).some(
+      v => typeof v === 'string' && v.trim() && !v.startsWith('enc:v1:')
+    )
+
+    // Decrypt API keys for in-memory use
+    for (const k of Object.keys(settings.llm.apiKeys)) {
+      settings.llm.apiKeys[k] = secureStore.decrypt(settings.llm.apiKeys[k] ?? '')
+    }
+
+    if (needsMigration || hasLegacyPinnedNotesField || needsKeyMigration) {
       saveSettings(settings)
     }
 
@@ -271,11 +283,14 @@ export function saveReminders(reminders: Reminder[]): void {
 export function saveSettings(settings: AppSettings): void {
   ensureDirs()
   savePinnedNotes(settings.ui.pinnedNotes ?? [])
+  const encryptedApiKeys: Record<string, string> = {}
+  for (const [k, v] of Object.entries(settings.llm.apiKeys)) {
+    encryptedApiKeys[k] = secureStore.encrypt(v)
+  }
   const persisted: AppSettings = {
     ...settings,
-    ui: {
-      ...settings.ui
-    }
+    llm: { ...settings.llm, apiKeys: encryptedApiKeys },
+    ui: { ...settings.ui }
   }
   delete persisted.ui.pinnedNotes
   _pendingSettingsJson = JSON.stringify(persisted, null, 2)
