@@ -569,16 +569,30 @@ export async function initDefaultCharacters(appRoot: string): Promise<{ chars: C
         diskCard.createdAt = diskCard.createdAt || Date.now()
         diskCard.updatedAt = Date.now()
 
-        // Fix avatar path: resolve relative paths to absolute within destDir
+        // Fix avatar path: avatar should be absolute path within destDir
         const avatarRaw = (diskCard.avatar || '').trim()
-        if (!avatarRaw || !fs.existsSync(avatarRaw)) {
+        let resolved = ''
+
+        // If avatar exists as absolute path, use it
+        if (avatarRaw && fs.existsSync(avatarRaw)) {
+          resolved = avatarRaw
+        } else if (avatarRaw && !path.isAbsolute(avatarRaw)) {
+          // If relative path, resolve within destDir
+          const abs = path.join(destDir, avatarRaw)
+          if (fs.existsSync(abs)) {
+            resolved = abs
+          }
+        }
+
+        // If not resolved, look for avatar.* in destDir
+        if (!resolved) {
           const cand = ['avatar.png', 'avatar.jpg', 'avatar.jpeg', 'avatar.webp']
             .map(n => path.join(destDir, n))
             .find(p => fs.existsSync(p))
-          diskCard.avatar = cand ?? ''
-        } else if (!path.isAbsolute(avatarRaw)) {
-          diskCard.avatar = path.join(destDir, avatarRaw)
+          resolved = cand ?? ''
         }
+
+        diskCard.avatar = resolved
 
         // Fix emotion paths similarly
         const emotions: Record<string, string> = {}
