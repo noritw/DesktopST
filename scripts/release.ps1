@@ -1,21 +1,19 @@
-﻿# DesktopST 一鍵包版腳本
+# DesktopST 一鍵包版腳本
 # 用法：雙擊 release.bat，或在專案根目錄執行 .\scripts\release.ps1
+# 需要 GitHub CLI（gh）才能自動建立 Release：winget install --id GitHub.cli
 
 Set-StrictMode -Off
 $ErrorActionPreference = 'Stop'
 
-# ══════════════════════════════════════════════════════════════
-#  設定區（第一次用請修改這裡）
-# ══════════════════════════════════════════════════════════════
-$DropboxPath = "C:\Users\nori9\Dropbox\AI\DesktopST\Build"   # ← 改成你的 Dropbox 路徑
-# ══════════════════════════════════════════════════════════════
-
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $ProjectRoot
 
-# ── 讀取目前版本 ───────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  讀取目前版本
+# ══════════════════════════════════════════════════════════════
 $pkg = Get-Content "package.json" -Raw | ConvertFrom-Json
 $currentVersion = $pkg.version
+
 Write-Host ""
 Write-Host "=====================================" -ForegroundColor Cyan
 Write-Host "  DesktopST 包版工具" -ForegroundColor Cyan
@@ -80,7 +78,9 @@ if ($doVersionBump) {
     }
 }
 
-# ── [1/5] 檢查 git 狀態 ────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  [1/5] 檢查 git 狀態
+# ══════════════════════════════════════════════════════════════
 Write-Host ""
 Write-Host "[1/5] 檢查 git 狀態..." -ForegroundColor Cyan
 $gitStatus = git status --porcelain 2>&1
@@ -98,7 +98,9 @@ if ($modified) {
 }
 Write-Host "      OK" -ForegroundColor Green
 
-# ── [2/5] 升版號 ───────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  [2/5] 升版號
+# ══════════════════════════════════════════════════════════════
 Write-Host ""
 if ($doVersionBump) {
     Write-Host "[2/5] 升級版本號至 v$newVersion..." -ForegroundColor Cyan
@@ -113,7 +115,9 @@ if ($doVersionBump) {
     Write-Host "[2/5] 略過版本升級。" -ForegroundColor Gray
 }
 
-# ── [3/5] 打包 ─────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  [3/5] 打包
+# ══════════════════════════════════════════════════════════════
 Write-Host ""
 Write-Host "[3/5] 執行打包（這需要一點時間...）" -ForegroundColor Cyan
 Write-Host ""
@@ -131,75 +135,107 @@ $exeName = "DesktopST $ver.exe"
 $exePath  = "dist\$exeName"
 
 if (-not (Test-Path $exePath)) {
-    Write-Host "找不到打包輸出：$exePath" -ForegroundColor Red
+    Write-Host "找不到安裝檔：$exePath" -ForegroundColor Red
     Read-Host "按 Enter 結束"
     exit 1
 }
-$sizeMB = [math]::Round((Get-Item $exePath).Length / 1MB, 1)
+$exeSizeMB = [math]::Round((Get-Item $exePath).Length / 1MB, 1)
 Write-Host ""
-Write-Host "      $exePath ($sizeMB MB)" -ForegroundColor Yellow
+Write-Host "      安裝檔：$exePath ($exeSizeMB MB)" -ForegroundColor Yellow
 
-# ── [4/5] 壓縮成 zip ───────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  [4/5] 建立免安裝版 zip（win-unpacked 全體）
+# ══════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[4/5] 壓縮成 zip..." -ForegroundColor Cyan
+Write-Host "[4/5] 建立免安裝版 zip..." -ForegroundColor Cyan
 
-$zipName = "DesktopST-v$ver-portable.zip"
-$zipPath = "dist\$zipName"
+$zipPath = $null
+$unpackedDir = "dist\win-unpacked"
 
-# 清掉舊的同名 zip
-if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+if (-not (Test-Path $unpackedDir)) {
+    Write-Host "      找不到 win-unpacked，略過 zip 建立。" -ForegroundColor Yellow
+} else {
+    $zipName = "DesktopST-v$ver-full.zip"
+    $zipPath = "dist\$zipName"
+    if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 
-# 建立暫存資料夾，複製要打包的檔案
-$tmpDir = "dist\_zip_tmp"
-if (Test-Path $tmpDir) { Remove-Item $tmpDir -Recurse -Force }
-New-Item -ItemType Directory -Path $tmpDir | Out-Null
+    Write-Host "      壓縮中（約需 30 秒）..." -ForegroundColor Gray
+    Compress-Archive -Path "$unpackedDir\*" -DestinationPath $zipPath -CompressionLevel Optimal
 
-Copy-Item $exePath "$tmpDir\$exeName"
-if (Test-Path "docs") {
-    Copy-Item "docs" "$tmpDir\docs" -Recurse
+    $zipSizeMB = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
+    Write-Host "      免安裝版：$zipPath ($zipSizeMB MB)" -ForegroundColor Yellow
 }
 
-Compress-Archive -Path "$tmpDir\*" -DestinationPath $zipPath -CompressionLevel Optimal
-Remove-Item $tmpDir -Recurse -Force
-
-$zipSizeMB = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
-Write-Host "      $zipPath ($zipSizeMB MB)" -ForegroundColor Yellow
-
-# ── 複製到 Dropbox ─────────────────────────────────────────
-if ($DropboxPath -and (Test-Path (Split-Path $DropboxPath -Parent))) {
-    if (-not (Test-Path $DropboxPath)) {
-        New-Item -ItemType Directory -Path $DropboxPath | Out-Null
-    }
-    $destZip = Join-Path $DropboxPath $zipName
-    Copy-Item $zipPath $destZip -Force
-    Write-Host "      已複製到 Dropbox：$destZip" -ForegroundColor Green
-} elseif ($DropboxPath) {
-    Write-Host "      警告：Dropbox 路徑不存在，略過複製。($DropboxPath)" -ForegroundColor Yellow
-    Write-Host "      請確認 release.ps1 頂端的 `$DropboxPath 設定是否正確。" -ForegroundColor Gray
-}
-
-# ── [5/5] Git commit + tag + push ─────────────────────────
+# ══════════════════════════════════════════════════════════════
+#  [5/5] Git commit + tag + push + GitHub Release
+# ══════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[5/5] Git 推送" -ForegroundColor Cyan
-if ($doVersionBump) {
-    $pushChoice = Read-Host "要推送到 GitHub 嗎？(git commit + tag + push) (y/N)"
-    if ($pushChoice -match '^[Yy]$') {
+Write-Host "[5/5] Git 推送與 GitHub Release..." -ForegroundColor Cyan
+
+if (-not $doVersionBump) {
+    Write-Host "      （未升版，略過 git push 與 Release）" -ForegroundColor Gray
+} else {
+    $pushChoice = Read-Host "要推送並自動建立 GitHub Release 嗎？(y/N)"
+    if ($pushChoice -notmatch '^[Yy]$') {
+        Write-Host "      略過。" -ForegroundColor Gray
+    } else {
+        # git commit + tag + push
         git add package.json package-lock.json
         git commit -m "release: v$ver"
         git tag "v$ver"
         git push origin main
         git push origin "v$ver"
-        Write-Host ""
-        Write-Host "      已推送！tag v$ver 已建立在 GitHub。" -ForegroundColor Green
-        Write-Host ""
-        Write-Host "      前往 GitHub 上傳 Release：" -ForegroundColor Cyan
-        Write-Host "      https://github.com/noritw/DesktopST/releases/new?tag=v$ver" -ForegroundColor White
-        Write-Host "      上傳檔案：$zipPath" -ForegroundColor White
-    } else {
-        Write-Host "      略過 git push。" -ForegroundColor Gray
+        Write-Host "      Git push 完成，tag v$ver 已建立。" -ForegroundColor Green
+
+        # 建立上傳檔案清單
+        $uploadFiles = @($exePath)
+        if ($zipPath -and (Test-Path $zipPath)) { $uploadFiles += $zipPath }
+
+        # 檢查 gh 是否安裝
+        $ghCmd = Get-Command gh -ErrorAction SilentlyContinue
+        if (-not $ghCmd) {
+            Write-Host ""
+            Write-Host "      未找到 gh 指令，無法自動建立 Release。" -ForegroundColor Yellow
+            Write-Host "      請先安裝 GitHub CLI：" -ForegroundColor White
+            Write-Host "        winget install --id GitHub.cli" -ForegroundColor Gray
+            Write-Host "      安裝後執行 gh auth login 完成授權，下次即可全自動。" -ForegroundColor Gray
+            Write-Host ""
+            Write-Host "      手動建立 Release：" -ForegroundColor Cyan
+            Write-Host "        https://github.com/noritw/DesktopST/releases/new?tag=v$ver" -ForegroundColor White
+            foreach ($f in $uploadFiles) {
+                Write-Host "        上傳：$f" -ForegroundColor White
+            }
+        } else {
+            Write-Host ""
+            Write-Host "      建立 GitHub Release v$ver..." -ForegroundColor Cyan
+
+            # 寫 Release notes 到暫存檔
+            $notesFile = [System.IO.Path]::GetTempFileName()
+            $notesLines = @(
+                "## 下載",
+                "",
+                "- **安裝檔**（建議）：``DesktopST $ver.exe``",
+                "- **免安裝版**：``DesktopST-v$ver-full.zip``（解壓縮後直接執行 ``DesktopST.exe``）"
+            )
+            $notesLines | Set-Content -Path $notesFile -Encoding utf8
+
+            # 呼叫 gh release create
+            $ghArgs = @("release", "create", "v$ver", "--title", "v$ver", "--notes-file", $notesFile) + $uploadFiles
+            & gh @ghArgs
+            $ghExit = $LASTEXITCODE
+
+            Remove-Item $notesFile -Force -ErrorAction SilentlyContinue
+
+            if ($ghExit -eq 0) {
+                Write-Host ""
+                Write-Host "      GitHub Release 建立完成！" -ForegroundColor Green
+                Write-Host "      https://github.com/noritw/DesktopST/releases/tag/v$ver" -ForegroundColor Cyan
+            } else {
+                Write-Host "      Release 建立失敗（exit $ghExit），請手動處理。" -ForegroundColor Red
+                Write-Host "      https://github.com/noritw/DesktopST/releases/new?tag=v$ver" -ForegroundColor White
+            }
+        }
     }
-} else {
-    Write-Host "      （未升版，略過 git push）" -ForegroundColor Gray
 }
 
 Write-Host ""
