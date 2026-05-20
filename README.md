@@ -2,9 +2,9 @@
 
 > Windows 桌面 AI 角色扮演寵物程式
 
-讓 AI 角色以桌面寵物的形式常駐在你的螢幕上，點一下就能聊天，支援多角色群組對話，相容 SillyTavern 角色卡格式。
+![DesktopST 桌友 - 桌面 AI 角色寵物](assets/git_Repo_Banner.png)
 
-![DesktopST 桌友 - 桌面 AI 角色寵物](https://opengraph.githubassets.com/noritw/DesktopST)
+讓 AI 角色以桌面寵物的形式常駐在你的螢幕上，點一下就能聊天，支援多角色群組對話，相容 SillyTavern 角色卡格式。
 
 ---
 
