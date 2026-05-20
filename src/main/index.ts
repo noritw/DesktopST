@@ -1,4 +1,4 @@
-import { app, Tray, Menu, nativeImage, protocol, screen, shell, BrowserWindow } from 'electron'
+import { app, Tray, Menu, nativeImage, protocol, screen, shell, BrowserWindow, globalShortcut } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets } from './fileStore'
@@ -158,6 +158,33 @@ app.on('ready', async () => {
     suppressAuxAutoHide(5000)
     setImmediate(() => {
       openSettingsWindow(onboardingPending ? 'llm' : 'general')
+    })
+  }
+
+  // 註冊開發者工具快捷鍵
+  if (!app.isPackaged) {
+    globalShortcut.register('F12', () => {
+      BrowserWindow.getAllWindows().forEach(win => {
+        if (!win.isDestroyed() && win.webContents) {
+          if (win.webContents.isDevToolsOpened()) {
+            win.webContents.closeDevTools()
+          } else {
+            win.webContents.openDevTools({ mode: 'detach' })
+          }
+        }
+      })
+    })
+
+    globalShortcut.register('CmdOrCtrl+Shift+I', () => {
+      BrowserWindow.getAllWindows().forEach(win => {
+        if (!win.isDestroyed() && win.webContents) {
+          if (win.webContents.isDevToolsOpened()) {
+            win.webContents.closeDevTools()
+          } else {
+            win.webContents.openDevTools({ mode: 'detach' })
+          }
+        }
+      })
     })
   }
 
