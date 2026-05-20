@@ -146,20 +146,28 @@ export default function CharacterWindow({ characterId }: Props) {
 
   const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
+    // Validate coordinates are finite numbers
+    const x = Number(event.screenX)
+    const y = Number(event.screenY)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     window.api.invoke('ui:character-activated', characterId)
-    window.api.invoke('desktop:drag-start', characterId, event.screenX, event.screenY)
+    window.api.invoke('desktop:drag-start', characterId, x, y)
     didDragRef.current = false
-    dragStartRef.current = { x: event.screenX, y: event.screenY }
+    dragStartRef.current = { x, y }
 
     const target = event.currentTarget
     const onMove = (moveEvent: PointerEvent) => {
       if (!dragStartRef.current) return
-      const dx = moveEvent.screenX - dragStartRef.current.x
-      const dy = moveEvent.screenY - dragStartRef.current.y
+      // Validate coordinates are finite numbers before sending
+      const x = Number(moveEvent.screenX)
+      const y = Number(moveEvent.screenY)
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return
+      const dx = x - dragStartRef.current.x
+      const dy = y - dragStartRef.current.y
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDragRef.current = true
-      window.api.send('desktop:drag-move', characterId, moveEvent.screenX, moveEvent.screenY)
+      window.api.send('desktop:drag-move', characterId, x, y)
     }
 
     const onUp = () => {

@@ -1262,15 +1262,21 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('desktop:drag-start', (_, characterId: string, startX: number, startY: number) => {
-    const ok = beginCharacterDrag(characterId, startX, startY, pos => {
-      const d = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
-      if (d) d.position = pos
-    })
-    return ok
+    if (typeof characterId === 'string' && Number.isFinite(startX) && Number.isFinite(startY)) {
+      const ok = beginCharacterDrag(characterId, startX, startY, pos => {
+        const d = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
+        if (d) d.position = pos
+      })
+      return ok
+    }
+    return false
   })
 
   ipcMain.on('desktop:drag-move', (_, characterId: string, cursorX: number, cursorY: number) => {
-    moveDraggedCharacter(characterId, cursorX, cursorY)
+    // Validate coordinates are finite numbers
+    if (typeof characterId === 'string' && Number.isFinite(cursorX) && Number.isFinite(cursorY)) {
+      moveDraggedCharacter(characterId, cursorX, cursorY)
+    }
   })
 
   ipcMain.handle('desktop:drag-end', (_, characterId: string) => {
