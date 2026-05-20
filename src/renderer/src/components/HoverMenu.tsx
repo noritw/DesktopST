@@ -107,6 +107,11 @@ export default function HoverMenu({ visible, onSettings, onScale, onButtonsEl }:
       icon: <HoverMenuIcon name="settings" />,
       title: '共通設定',
       onClick: () => window.api.invoke('window:open-settings')
+    },
+    {
+      icon: <span aria-hidden="true" className="text-base font-bold leading-none">?</span>,
+      title: '新手教學',
+      onClick: () => void window.api.invoke('app:open-getting-started')
     }
   ]
 

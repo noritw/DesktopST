@@ -1,4 +1,5 @@
 import { ipcMain, shell, BrowserWindow, dialog, app, desktopCapturer, clipboard, nativeImage, screen } from 'electron'
+import { checkForUpdates } from './updateChecker'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -2099,6 +2100,13 @@ export function registerIpcHandlers() {
     return shell.openPath(guideFile)
   })
 
+  ipcMain.handle('app:open-getting-started', () => {
+    const guideFile = app.isPackaged
+      ? path.join(process.resourcesPath, '../docs/getting-started.html')
+      : path.join(app.getAppPath(), 'docs/getting-started.html')
+    return shell.openPath(guideFile)
+  })
+
   // ── Pinned Notes ──────────────────────────────────────────
   const DEFAULT_NOTE_COLOR = '#FFE8AA'
   function defaultNoteFontSize(): number {
@@ -2409,5 +2417,17 @@ export function registerIpcHandlers() {
       console.error('[audio] select-message-notification-sound failed:', e)
       return { error: e instanceof Error ? e.message : String(e) }
     }
+  })
+
+  ipcMain.handle('app:get-version', () => app.getVersion())
+
+  ipcMain.handle('updates:check-now', async () => {
+    const result = await checkForUpdates({ silent: false, dismissedVersion: settings.updates?.dismissedVersion })
+    if (result.dismissed && result.latestVersion) {
+      settings.updates = { ...settings.updates, dismissedVersion: result.latestVersion }
+      fileStore.saveSettings(settings)
+      broadcastToAll('settings:updated', settings)
+    }
+    return result
   })
 }

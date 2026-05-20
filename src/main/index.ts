@@ -1,11 +1,13 @@
-import { app, Tray, Menu, nativeImage, protocol, screen, BrowserWindow } from 'electron'
+import { app, Tray, Menu, nativeImage, protocol, screen, shell, BrowserWindow } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets } from './fileStore'
 import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, triggerReminderSpeak } from './ipcHandlers'
+import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler } from './reminderScheduler'
 import {
   createCharacterWindow,
+  createCharacterLibraryWindow,
   toggleInputWindow,
   broadcastToAll,
   hideAuxWindowsRememberingState,
@@ -86,6 +88,17 @@ app.on('ready', async () => {
     saveSettings(settings)
   }
 
+  // Filter out desktop entries whose character card no longer exists
+  if (chars.length > 0 && desktopState.length > 0) {
+    const charIds = new Set(chars.map(c => c.id))
+    const valid = desktopState.filter(ds => charIds.has(ds.characterId))
+    if (valid.length !== desktopState.length) {
+      desktopState = valid
+      settings.ui.desktopCharacters = valid
+      saveSettings(settings)
+    }
+  }
+
   // Safety: if we have characters but none on desktop, put at least one on.
   if (chars.length > 0 && (!desktopState || desktopState.length === 0)) {
     desktopState = [{
@@ -108,6 +121,20 @@ app.on('ready', async () => {
 
   // Init reminder scheduler (after state is ready)
   initReminderScheduler(triggerReminderSpeak)
+
+  // Version check on startup (5s delay so UI is ready first)
+  setTimeout(() => {
+    const s = getSettings()
+    if (s.updates?.checkOnStartup !== false) {
+      void checkForUpdates({ silent: true, dismissedVersion: s.updates?.dismissedVersion }).then(result => {
+        if (result.dismissed && result.latestVersion) {
+          s.updates = { ...s.updates, dismissedVersion: result.latestVersion }
+          saveSettings(s)
+          broadcastToAll('settings:updated', s)
+        }
+      })
+    }
+  }, 5000)
 
   // Create character windows for all desktop characters
   let didFixOffscreen = false
@@ -187,6 +214,7 @@ function setupTray(appRoot: string) {
     const isAlwaysOnTop = getCharactersAlwaysOnTop()
     const menu = Menu.buildFromTemplate([
       { label: '開啟輸入視窗', click: () => toggleInputWindow() },
+      { label: '開啟角色庫', click: () => createCharacterLibraryWindow({ mode: 'home' }) },
       { label: '開啟便利貼管理', click: () => openPinnedNotesManager() },
       { label: '管理提醒', click: () => openRemindersManager() },
       auxAction,
@@ -207,6 +235,28 @@ function setupTray(appRoot: string) {
       },
       { type: 'separator' },
       { label: '開啟設定', click: () => openSettingsWindow('llm') },
+      {
+        label: '檢查更新',
+        click: () => {
+          const s = getSettings()
+          void checkForUpdates({ silent: false, dismissedVersion: s.updates?.dismissedVersion }).then(result => {
+            if (result.dismissed && result.latestVersion) {
+              s.updates = { ...s.updates, dismissedVersion: result.latestVersion }
+              saveSettings(s)
+              broadcastToAll('settings:updated', s)
+            }
+          })
+        }
+      },
+      {
+        label: '新手教學',
+        click: () => {
+          const guideFile = app.isPackaged
+            ? path.join(process.resourcesPath, '../docs/getting-started.html')
+            : path.join(app.getAppPath(), 'docs/getting-started.html')
+          void shell.openPath(guideFile)
+        }
+      },
       { type: 'separator' },
       { label: '結束', click: () => app.exit(0) }
     ])

@@ -101,7 +101,7 @@ const PROVIDER_KEY_PLACEHOLDER: Record<string, string> = {
 }
 
 const LEFT_TABS = ['LLM 設定', '記憶', '資料'] as const
-const RIGHT_TABS = ['世界觀', '使用者', '介面'] as const
+const RIGHT_TABS = ['世界觀', '使用者', '介面', '關於'] as const
 const TABS = [...LEFT_TABS, ...RIGHT_TABS] as const
 type Tab = typeof TABS[number]
 const SETTINGS_LAST_TAB_KEY = 'desktopst.settings.lastTab'
@@ -132,12 +132,14 @@ const TAB_PARAM_ALIASES: Record<string, Tab> = {
   memory: '記憶',
   ui: '介面',
   data: '資料',
+  about: '關於',
   'LLM 設定': 'LLM 設定',
   世界觀: '世界觀',
   使用者: '使用者',
   記憶: '記憶',
   介面: '介面',
-  資料: '資料'
+  資料: '資料',
+  關於: '關於'
 }
 
 function tabFromLocation(): Tab {
@@ -202,6 +204,8 @@ export default function SettingsWindow() {
   const [msgResult, setMsgResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [dataDir, setDataDir] = useState('')
   const [changingDataDir, setChangingDataDir] = useState(false)
+  const [appVersion, setAppVersion] = useState('')
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
   const messagePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -267,6 +271,12 @@ export default function SettingsWindow() {
       const result = await window.api.invoke('data:get-dir') as { dataDir?: string }
       setDataDir(typeof result?.dataDir === 'string' ? result.dataDir : '')
     })()
+  }, [])
+
+  useEffect(() => {
+    void window.api.invoke('app:get-version').then((v: unknown) => {
+      if (typeof v === 'string') setAppVersion(v)
+    })
   }, [])
 
   useEffect(() => {
@@ -527,23 +537,42 @@ export default function SettingsWindow() {
       {/* Title bar */}
       <div className="drag-region flex items-center justify-between px-4 py-3 border-b border-border">
         <span className="font-semibold text-primary no-drag"> 設定</span>
-        <button
-          type="button"
-          className="btn-round w-7 h-7 text-sm no-drag"
-          title="Close settings"
-          aria-label="Close settings"
-          onMouseDown={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-          }}
-          onClick={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            window.api.invoke('window:close-self')
-          }}
-        >
-          <MonoIcon name="close" className="w-3.5 h-3.5" />
-        </button>
+        <div className="flex items-center gap-1 no-drag">
+          <button
+            type="button"
+            className="btn-round w-7 h-7 text-sm no-drag font-bold"
+            title="開啟新手教學"
+            aria-label="開啟新手教學"
+            onMouseDown={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+            }}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              void window.api.invoke('app:open-getting-started')
+            }}
+          >
+            <span aria-hidden="true">?</span>
+          </button>
+          <button
+            type="button"
+            className="btn-round w-7 h-7 text-sm no-drag"
+            title="Close settings"
+            aria-label="Close settings"
+            onMouseDown={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+            }}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              window.api.invoke('window:close-self')
+            }}
+          >
+            <MonoIcon name="close" className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -574,7 +603,15 @@ export default function SettingsWindow() {
       </div>
 
       {onboardingIncomplete && (
-        <div className="px-4 py-3 border-b border-border bg-mint-20 no-drag space-y-2 shrink-0">
+        <div className="px-4 py-3 border-b border-border bg-mint-20 no-drag space-y-3 shrink-0">
+          <button
+            type="button"
+            onClick={() => void window.api.invoke('app:open-getting-started')}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-teal hover:bg-mint font-bold text-primary text-base shadow-sm transition-all cursor-pointer"
+          >
+            <span aria-hidden="true" className="text-xl">📖</span>
+            <span>第一次使用?點我看新手教學</span>
+          </button>
           <p className="text-sm font-semibold text-primary">歡迎使用 DesktopST · 首次設定</p>
           <ol className="text-xs text-secondary list-decimal pl-4 space-y-1 leading-relaxed">
             <li>在「LLM 設定」選擇服務商並填寫對應的 API Key。</li>
@@ -1297,6 +1334,41 @@ export default function SettingsWindow() {
               >
                 {changingDataDir ? '搬移中...' : '修改資料夾位置'}
               </button>
+            </div>
+          </div>
+        )}
+
+        {tab === '關於' && (
+          <div className="space-y-4">
+            <div className="rounded-xl bg-surface border border-border px-4 py-3 space-y-0.5">
+              <p className="text-xs text-secondary">目前版本</p>
+              <p className="text-base font-semibold text-primary">DesktopST{appVersion ? ` v${appVersion}` : ''}</p>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-primary">
+              <input
+                type="checkbox"
+                checked={draft?.updates?.checkOnStartup !== false}
+                onChange={e => setDraft(prev => prev ? {
+                  ...prev,
+                  updates: { ...prev.updates, checkOnStartup: e.target.checked }
+                } : prev)}
+              />
+              啟動時自動檢查更新
+            </label>
+            <button
+              className="btn-round w-auto px-4 rounded-full h-auto py-2 text-sm"
+              disabled={checkingUpdate}
+              onClick={async () => {
+                setCheckingUpdate(true)
+                await window.api.invoke('updates:check-now')
+                setCheckingUpdate(false)
+              }}
+            >
+              {checkingUpdate ? '檢查中...' : '立即檢查更新'}
+            </button>
+            <div className="text-xs text-secondary space-y-0.5 pt-1">
+              <p>程式碼授權：MIT License</p>
+              <p>美術素材授權：CC BY-NC 4.0</p>
             </div>
           </div>
         )}

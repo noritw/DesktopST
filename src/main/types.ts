@@ -115,6 +115,10 @@ export interface AppSettings {
     keepRecentN: number
     autoSummarizeAfter: number
   }
+  updates?: {
+    checkOnStartup?: boolean
+    dismissedVersion?: string
+  }
   ui: {
     desktopCharacters: DesktopCharacterState[]
     inputWindowPosition: { x: number; y: number }

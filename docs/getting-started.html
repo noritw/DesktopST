@@ -1,0 +1,994 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DesktopST 新手教學</title>
+  <style>
+    :root {
+      --bg: #f7fffc;
+      --surface: #ffffff;
+      --surface-soft: #effcf7;
+      --mint: #cbfbc4;
+      --teal: #aaeedd;
+      --sky: #aaeeff;
+      --yellow: #ffe8aa;
+      --pink: #ffbbbb;
+      --lavender: #f0bbff;
+      --text: #3d5a52;
+      --muted: #6f968a;
+      --border: #d8f5ec;
+      --strong: #267668;
+      --danger: #9b4e58;
+      --warning: #8a6a25;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --radius-sm: 12px;
+      --shadow: 0 10px 30px rgba(170, 238, 221, 0.24);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(203, 251, 196, 0.48), transparent 32rem),
+        radial-gradient(circle at 85% 0%, rgba(170, 238, 255, 0.38), transparent 34rem),
+        var(--bg);
+      color: var(--text);
+      font-family: "Noto Sans TC", "M PLUS Rounded 1c", "Microsoft JhengHei", system-ui, sans-serif;
+      line-height: 1.75;
+    }
+
+    a {
+      color: var(--strong);
+      font-weight: 700;
+      text-decoration: none;
+      border-bottom: 2px solid rgba(170, 238, 221, 0.9);
+    }
+    a:hover {
+      background: rgba(203, 251, 196, 0.5);
+      border-radius: 6px;
+    }
+
+    .page {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 56px;
+    }
+
+    .hero {
+      min-height: 56vh;
+      display: grid;
+      align-items: center;
+      padding: 44px 0 28px;
+    }
+
+    .hero-inner {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+      gap: 28px;
+      align-items: center;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      width: fit-content;
+      padding: 6px 12px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.74);
+      color: var(--muted);
+      font-size: 0.92rem;
+      font-weight: 700;
+    }
+
+    h1, h2, h3 {
+      line-height: 1.22;
+      letter-spacing: 0;
+      color: var(--text);
+    }
+
+    h1 {
+      margin: 18px 0 16px;
+      font-size: clamp(2.1rem, 4.4vw, 3.8rem);
+      max-width: 820px;
+    }
+
+    h2 {
+      margin: 0 0 18px;
+      font-size: clamp(1.45rem, 2.8vw, 2.15rem);
+    }
+
+    h3 {
+      margin: 0 0 10px;
+      font-size: 1.15rem;
+    }
+
+    p { margin: 0 0 14px; }
+
+    .lead {
+      max-width: 760px;
+      font-size: 1.16rem;
+      color: #4d7168;
+    }
+
+    .hero-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.84);
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+
+    .pet-window {
+      aspect-ratio: 1 / 1;
+      display: grid;
+      place-items: center;
+      border-radius: 36px;
+      background:
+        linear-gradient(160deg, rgba(203, 251, 196, 0.8), rgba(170, 238, 255, 0.68)),
+        var(--surface);
+      border: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .pet-face {
+      width: min(72%, 250px);
+      aspect-ratio: 1 / 1;
+      border-radius: 45% 45% 40% 40%;
+      background: #fff8ed;
+      border: 8px solid rgba(255, 255, 255, 0.86);
+      position: relative;
+      box-shadow: inset 0 -18px 0 rgba(255, 187, 187, 0.16);
+    }
+
+    .pet-face::before,
+    .pet-face::after {
+      content: "";
+      position: absolute;
+      top: 43%;
+      width: 15%;
+      aspect-ratio: 1 / 1;
+      border-radius: 50%;
+      background: #3d5a52;
+    }
+    .pet-face::before { left: 26%; }
+    .pet-face::after { right: 26%; }
+
+    .pet-mouth {
+      position: absolute;
+      left: 50%;
+      top: 62%;
+      width: 54px;
+      height: 24px;
+      transform: translateX(-50%);
+      border-bottom: 5px solid #3d5a52;
+      border-radius: 0 0 999px 999px;
+    }
+
+    .speech {
+      position: absolute;
+      right: 18px;
+      bottom: 18px;
+      max-width: 210px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-weight: 700;
+      font-size: 0.92rem;
+    }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 22px 0 0;
+    }
+
+    nav a {
+      display: inline-flex;
+      align-items: center;
+      min-height: 42px;
+      padding: 8px 14px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.8);
+      color: var(--text);
+      box-shadow: none;
+    }
+
+    section {
+      margin: 28px 0;
+      padding: 32px;
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid var(--border);
+      box-shadow: 0 6px 20px rgba(170, 238, 221, 0.16);
+    }
+
+    .soft-band {
+      background: linear-gradient(180deg, rgba(239, 252, 247, 0.94), rgba(255, 255, 255, 0.9));
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      padding: 20px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    .note, .warning, .success {
+      padding: 16px 18px;
+      border-radius: var(--radius-md);
+      margin: 16px 0;
+      border: 1px solid;
+    }
+
+    .note {
+      background: rgba(170, 238, 255, 0.2);
+      border-color: rgba(170, 238, 255, 0.72);
+    }
+
+    .warning {
+      background: rgba(255, 232, 170, 0.36);
+      border-color: rgba(255, 210, 110, 0.9);
+      color: var(--warning);
+    }
+
+    .success {
+      background: rgba(203, 251, 196, 0.34);
+      border-color: rgba(170, 238, 221, 0.9);
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 34px;
+      padding: 5px 11px;
+      border-radius: 999px;
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    .steps {
+      counter-reset: step;
+      display: grid;
+      gap: 12px;
+      margin: 18px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .steps li {
+      counter-increment: step;
+      display: grid;
+      grid-template-columns: 42px 1fr;
+      gap: 12px;
+      align-items: start;
+      padding: 16px;
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+
+    .steps li::before {
+      content: counter(step);
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: var(--mint);
+      color: var(--text);
+      font-weight: 900;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+
+    th, td {
+      padding: 14px 16px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      background: var(--surface-soft);
+      color: var(--text);
+      font-size: 0.94rem;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    code {
+      padding: 2px 6px;
+      border-radius: 7px;
+      background: #edf8f4;
+      color: #2f695f;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .checklist {
+      display: grid;
+      gap: 10px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .checklist li {
+      padding: 12px 14px 12px 42px;
+      border-radius: var(--radius-sm);
+      background: rgba(239, 252, 247, 0.75);
+      border: 1px solid var(--border);
+      position: relative;
+    }
+
+    .checklist li::before {
+      content: "";
+      position: absolute;
+      left: 16px;
+      top: 18px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--teal);
+      box-shadow: 0 0 0 4px rgba(170, 238, 221, 0.26);
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 0.94rem;
+    }
+
+    .kbd {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface-soft);
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 0.88em;
+      color: var(--strong);
+    }
+
+    .tip-row {
+      display: grid;
+      grid-template-columns: 56px 1fr;
+      gap: 14px;
+      align-items: start;
+      padding: 14px;
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      margin: 10px 0;
+    }
+
+    .tip-row .badge {
+      display: grid;
+      place-items: center;
+      width: 56px;
+      height: 56px;
+      border-radius: 14px;
+      background: var(--mint);
+      color: var(--strong);
+      font-weight: 900;
+      font-size: 1.5rem;
+    }
+
+    .tip-row .badge.yellow { background: var(--yellow); }
+    .tip-row .badge.pink { background: var(--pink); }
+    .tip-row .badge.sky { background: var(--sky); }
+    .tip-row .badge.lavender { background: var(--lavender); }
+
+    .toc-list {
+      columns: 2;
+      column-gap: 24px;
+      padding-left: 18px;
+    }
+    .toc-list li {
+      break-inside: avoid;
+      margin: 0 0 8px;
+    }
+
+    @media (max-width: 820px) {
+      .hero { min-height: auto; padding-top: 26px; }
+      .hero-inner, .grid, .grid-3 { grid-template-columns: 1fr; }
+      section { padding: 22px; }
+      .toc-list { columns: 1; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div class="hero-inner">
+        <div>
+          <span class="eyebrow">DesktopST 使用者教學</span>
+          <h1>第一次使用 DesktopST？這份文件帶你跑完所有功能</h1>
+          <p class="lead">DesktopST 是一隻會聊天的桌面寵物。角色站在你的桌面上，點一下身體叫出輸入框，他就會用自己的個性回你。多放幾隻在桌面上，他們還會自己互相對話。</p>
+          <p class="lead">這份文件不需要任何程式經驗。整份照順序看下來大約 15 分鐘，就能用熟所有功能。</p>
+          <nav aria-label="章節導覽">
+            <a href="#start">開始聊天</a>
+            <a href="#move">移動縮放</a>
+            <a href="#log">對話記錄</a>
+            <a href="#character">自訂角色</a>
+            <a href="#group">群組對話</a>
+            <a href="#images">傳圖片</a>
+            <a href="#notes">便利貼</a>
+            <a href="#reminders">提醒</a>
+            <a href="#persona">使用者與世界觀</a>
+            <a href="#look">外觀</a>
+            <a href="#share">分享角色</a>
+            <a href="#data">資料與備份</a>
+            <a href="#tray">系統托盤</a>
+            <a href="#advanced">進階</a>
+          </nav>
+        </div>
+        <aside class="hero-card" aria-label="桌面寵物示意">
+          <div class="pet-window">
+            <div class="pet-face"><span class="pet-mouth"></span></div>
+            <div class="speech">點我，就可以開始聊天囉！</div>
+          </div>
+        </aside>
+      </div>
+    </header>
+
+    <section id="start" class="soft-band">
+      <h2>1. 怎麼跟角色聊天？</h2>
+      <p>角色要能講話，需要先連到一家 AI 服務（OpenAI / Gemini / Grok / Claude 任選）。連線用的是「API Key」，你可以把它想成 AI 公司發的通行證。</p>
+      <ol class="steps">
+        <li><div><strong>申請 API Key</strong>。第一次使用建議從 Gemini 開始，因為它最容易用免費額度測試。詳細步驟在另一份文件：<a href="api-key-guide.html">API Key 新手申請與省錢測試指南</a>。</div></li>
+        <li><div><strong>把 Key 貼進 DesktopST</strong>。滑鼠移到角色身上，點齒輪圖示「共通設定」→ 切到「LLM」分頁 → 選服務商 → 把 Key 貼進對應欄位 → 選一個模型。</div></li>
+        <li><div><strong>點角色身體</strong>。輸入視窗會從畫面下方跳出來。</div></li>
+        <li><div><strong>打字、按 Enter</strong>（換行用 <span class="kbd">Shift</span>+<span class="kbd">Enter</span>）。角色頭上會冒出一個泡泡顯示回應，幾秒後自動消失。</div></li>
+      </ol>
+      <div class="success">
+        <strong>小撇步：</strong>第一次測試先問短句，例如「請用一句話自我介紹」，確認連線正常再開始長聊。長對話比較花錢，新手容易嚇到。
+      </div>
+      <div class="warning">
+        看到 <code>Invalid API key</code> 或 <code>Quota exceeded</code> 不是程式壞了，是 AI 服務那邊的提示。請對照 <a href="api-key-guide.html#troubleshooting">API Key 教學第 11 節</a>處理。
+      </div>
+    </section>
+
+    <section id="move">
+      <h2>2. 怎麼移動、縮放、翻轉角色？</h2>
+      <h3>移動</h3>
+      <p>直接<strong>拖角色身體</strong>就可以。桌面上沒有看到視窗邊框是正常的，因為角色背景是透明的——點不到的「空白區域」不是 bug，是程式刻意讓滑鼠穿過去點到下面的東西。</p>
+
+      <h3>滑鼠移上去會出現的選單</h3>
+      <p>滑鼠停在角色身上，左側會出現三個圓形按鈕：</p>
+      <div class="grid-3">
+        <div class="card">
+          <h3>👤 角色設定</h3>
+          <p>開啟角色庫 / 此角色的角色卡編輯視窗。可以改名字、個性、招呼語、情緒圖等。</p>
+        </div>
+        <div class="card">
+          <h3>↘ 縮放角色</h3>
+          <p>進入縮放模式。可以拖 slider 即時預覽，或直接打數字。按確定才會存檔。</p>
+        </div>
+        <div class="card">
+          <h3>⚙ 共通設定</h3>
+          <p>API Key、世界觀、Persona、介面外觀、資料路徑等全域設定都在這。</p>
+        </div>
+      </div>
+      <p>另外，角色<strong>頭頂</strong>會浮現兩個小按鈕：</p>
+      <ul class="checklist">
+        <li><strong>說點什麼</strong>（對話框圖示）：讓這個角色立刻根據目前對話發一句話，不需要使用者開口。</li>
+        <li><strong>禁言 / 取消禁言</strong>（喇叭圖示）：群組對話時這個角色是否會跟著講。被禁言時頭頂圖示變叉叉。</li>
+      </ul>
+      <p>桌面上有<strong>兩個以上</strong>角色時，還會多出「加入角色」「開啟角色庫」「從桌面移除」三個按鈕。只剩一個角色時，移除按鈕會自動隱藏，避免桌面空無一人。</p>
+
+      <h3>翻轉</h3>
+      <p>角色想朝另一邊看？右鍵角色→「水平翻轉」。設定會記下來，下次開啟還是翻著的。</p>
+
+      <div class="note">
+        <strong>關不掉輸入視窗？</strong>再點一次角色身體就會收起來。或者按輸入視窗右上角的叉叉。
+      </div>
+    </section>
+
+    <section id="log" class="soft-band">
+      <h2>3. 看對話記錄、調整角色表情</h2>
+      <h3>打開對話記錄</h3>
+      <p>點輸入視窗右上角的「對話記錄」圖示，會跳出 Log 視窗，裡面是這次對話的完整歷史。</p>
+
+      <h3>對訊息可以做什麼？</h3>
+      <p>把滑鼠移到一則訊息上，會出現操作按鈕：</p>
+      <table>
+        <thead>
+          <tr>
+            <th>動作</th>
+            <th>用途</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>🗑 刪除</td>
+            <td>把這則訊息從記錄移除（也不會再餵給 AI）。</td>
+          </tr>
+          <tr>
+            <td>✏ 編輯</td>
+            <td>修改訊息文字。同樣會影響後續 AI 看到的上下文。</td>
+          </tr>
+          <tr>
+            <td>🔄 重新生成</td>
+            <td>讓 AI 重講一次最後一句（覺得回得不好用的）。</td>
+          </tr>
+          <tr>
+            <td>🎭 換表情</td>
+            <td>角色訊息可以下拉選表情，立刻在桌面上反映。</td>
+          </tr>
+          <tr>
+            <td>🔍 看完整指令</td>
+            <td>展開 debug 區塊，可看到這次送給 AI 的完整 prompt（角色卡 + 世界觀 + 歷史）。</td>
+          </tr>
+          <tr>
+            <td>👆 點訊息本身</td>
+            <td>把這句話重新顯示在角色頭上的泡泡裡。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>調表情有兩種方式</h3>
+      <ol class="steps">
+        <li><div><strong>讓 AI 自己決定</strong>。AI 回應的第一行會有 <code>[joy]</code> 這種標記，程式會根據這個切到對應的情緒圖。</div></li>
+        <li><div><strong>使用者手動覆蓋</strong>。在 Log 視窗對某則訊息的表情下拉換成想要的，桌面角色會立刻換圖。</div></li>
+      </ol>
+
+      <h3>多組對話</h3>
+      <p>Log 視窗也是對話切換的入口。可以新增對話、重新命名、刪除、切換到舊對話。切換後桌面角色和記憶都會跟著改變，舊對話保留在硬碟裡不會弄丟。</p>
+    </section>
+
+    <section id="character">
+      <h2>4. 自訂自己的角色</h2>
+      <p>點任何角色身上的「角色設定」按鈕，就會開啟角色卡編輯視窗。也可以從「共通設定」→ 角色庫 → 新增。</p>
+
+      <h3>角色卡有什麼欄位？</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>欄位</th>
+            <th>建議怎麼填</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>名字</strong></td>
+            <td>角色的名字。AI 對話中會用這個稱呼自己。</td>
+          </tr>
+          <tr>
+            <td><strong>頭像</strong></td>
+            <td>沒有設定情緒圖時，桌面上會顯示這張。透明背景的 PNG 效果最好。</td>
+          </tr>
+          <tr>
+            <td><strong>簡介</strong></td>
+            <td>短短一兩句，用來在角色庫卡片上顯示，不送 AI。</td>
+          </tr>
+          <tr>
+            <td><strong>個性</strong></td>
+            <td>送 AI 的主要設定。寫得越具體越好（性格、口頭禪、喜好、語氣）。</td>
+          </tr>
+          <tr>
+            <td><strong>招呼語</strong></td>
+            <td>新對話開始時這個角色自動講的第一句話。</td>
+          </tr>
+          <tr>
+            <td><strong>對話範例</strong></td>
+            <td>教 AI「這個角色平常怎麼講話」。寫個 2-3 組來回最有效。</td>
+          </tr>
+          <tr>
+            <td><strong>Scenario（進階）</strong></td>
+            <td>這次對話的場景背景（例如「主角是咖啡店店員，使用者是客人」）。</td>
+          </tr>
+          <tr>
+            <td><strong>System Prompt 覆蓋（進階）</strong></td>
+            <td>留空就用全域世界觀。除非你很清楚在做什麼，否則留空。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>角色卡怎麼寫才好用？</h3>
+      <ul class="checklist">
+        <li><strong>第一版先寫短一點。</strong>個性 100-300 字就好，先確認 AI 抓得到方向。寫太長有時候反而矛盾，AI 會混亂。</li>
+        <li><strong>用具體的描述。</strong>「溫柔」太抽象，「講話末尾常加『呢～』、被誇獎會害羞地否認」就具體得多。</li>
+        <li><strong>怕忘的話寫在「對話範例」。</strong>AI 很會模仿範例的語氣，比寫一堆形容詞還準。</li>
+        <li><strong>常見問題：講話太正經、不像角色。</strong>通常是因為個性裡只有形容詞、沒有「實際怎麼說話」的範例。</li>
+      </ul>
+
+      <h3>情緒圖片</h3>
+      <p>角色卡的「情緒圖片」分頁有 28 種預設情緒（joy、sadness、anger、surprise 之類）。每種情緒可以上傳一張圖，AI 回應時會自動切換。沒上傳的情緒會 fallback 回頭像。</p>
+      <div class="note">
+        新手建議：先做 4-5 張就夠用（neutral、joy、sadness、surprise、love）。等用熟了再慢慢補。
+      </div>
+
+      <h3>怎麼傳圖片進來？</h3>
+      <ol class="steps">
+        <li><div>在角色卡的<strong>頭像欄位</strong>或<strong>情緒圖片分頁</strong>點上傳按鈕。</div></li>
+        <li><div>從電腦選一張圖（PNG / JPG 都可以）。建議用透明背景 PNG，桌面顯示效果最好。</div></li>
+        <li><div>程式會把圖片複製到 DesktopST 的資料夾，所以原檔搬走也沒關係。</div></li>
+      </ol>
+
+      <h3>從 SillyTavern 匯入</h3>
+      <p>如果你已經有 SillyTavern 格式的角色卡（JSON 或內嵌資料的 PNG），可以在角色庫直接「匯入 ST 角色卡」。圖片和人格欄位會一起搬過來。</p>
+    </section>
+
+    <section id="group" class="soft-band">
+      <h2>5. 桌面放多個角色 — 群組對話</h2>
+      <p>DesktopST 最有趣的功能之一：<strong>桌面上同時放兩個以上角色，他們會自己互相對話</strong>。</p>
+
+      <h3>怎麼放第二個角色到桌面？</h3>
+      <ol class="steps">
+        <li><div>滑鼠移到桌面角色身上，點「開啟角色庫首頁」（資料夾圖示）。</div></li>
+        <li><div>角色庫視窗會列出所有角色卡。選一個拖到桌面，或點卡片選「召喚到桌面」。</div></li>
+      </ol>
+
+      <h3>群組對話怎麼運作？</h3>
+      <ul class="checklist">
+        <li>你送出一句話，<strong>未被禁言</strong>的角色會依加入桌面的順序輪流回應。</li>
+        <li>訊息中有提到某個角色的名字（例如 @小明 或直接稱呼），那個角色會被優先點名。</li>
+        <li>一次最多跑 N 輪（預設 3，可在共通設定 → LLM 改）。一輪 = 所有未禁言的角色各說一次（也可能選擇不說）。</li>
+      </ul>
+
+      <h3>讓某個角色暫時閉嘴</h3>
+      <p>滑鼠移到該角色，點頭頂的喇叭圖示就會切換禁言。禁言中的角色不會參與群組對話，但你還是可以單獨點他、強制他發話。</p>
+
+      <div class="warning">
+        <strong>群聊比較花 API 用量。</strong>每個角色都是一次獨立的 AI 呼叫，桌面三個角色聊兩輪就是六次呼叫。剛開始建議：兩個角色、一輪、便宜模型。
+      </div>
+    </section>
+
+    <section id="images">
+      <h2>6. 在對話裡傳圖片 / 截圖</h2>
+      <p>輸入視窗下方有兩個跟圖片相關的按鈕：</p>
+      <div class="grid">
+        <div class="card">
+          <h3>🖼 附加圖片</h3>
+          <p>點開檔案選擇器，挑一張或多張圖。也可以直接<strong>拖檔案投到輸入框</strong>，或在輸入框內按 <span class="kbd">Ctrl</span>+<span class="kbd">V</span> 貼上剪貼簿的圖。</p>
+        </div>
+        <div class="card">
+          <h3>📸 截圖</h3>
+          <p>程式會自動隱藏所有視窗、進入框選模式。框完之後截圖會自動附加到訊息。</p>
+        </div>
+      </div>
+
+      <h3>兩種截圖模式</h3>
+      <ul class="checklist">
+        <li><strong>不含角色</strong>：截圖前把 DesktopST 全部視窗藏起來，純截桌面。適合給 AI 看「我電腦螢幕在幹嘛」。</li>
+        <li><strong>含角色</strong>：保留角色在畫面上一起拍。適合做合照、想跟 AI 講「你看你在這裡耶」。</li>
+      </ul>
+
+      <h3>圖片數量上限</h3>
+      <p>單則訊息預設最多 5 張，可在「共通設定 → LLM → 單訊息圖片上限」改。每張圖會被算進輸入 token，<strong>圖片很吃額度</strong>，新手測試先一張兩張就好。</p>
+
+      <div class="note">
+        並不是所有模型都看得到圖。OpenAI 的 4o 系列、Claude 4 系列、Gemini 2/3 系列、Grok 4 系列都支援。如果選了不支援的模型送圖，AI 會回應「我看不到圖」之類的訊息。
+      </div>
+    </section>
+
+    <section id="notes" class="soft-band">
+      <h2>7. 便利貼功能</h2>
+      <p>便利貼是貼在桌面上的小紙條，<strong>不會送進對話、不影響 AI</strong>，純粹當備忘錄。</p>
+
+      <h3>怎麼新增一張便利貼？</h3>
+      <ol class="steps">
+        <li><div>點輸入視窗下方的 <strong>📌 便利貼</strong>按鈕。</div></li>
+        <li><div>桌面會出現一張黃色小卡，點內容就可以直接打字。</div></li>
+        <li><div>拖邊框可以調大小，拖卡身可以移位置。</div></li>
+      </ol>
+
+      <h3>便利貼可以做什麼？</h3>
+      <ul class="checklist">
+        <li><strong>調顏色</strong>：點便利貼上的顏色點，會跳出選色器。</li>
+        <li><strong>調字級</strong>：個別便利貼可以單獨調字大小，重要的東西字放大。</li>
+        <li><strong>隱藏 / 還原</strong>：先收進管理員，之後再拿出來。資料不會消失。</li>
+        <li><strong>刪除</strong>：右上角叉叉，確認後永久刪除。</li>
+      </ul>
+
+      <h3>便利貼管理員</h3>
+      <p>桌面便利貼貼多了會擋畫面。從 Windows 右下角系統托盤點 DesktopST 圖示 → 「開啟便利貼管理」，可以列出所有便利貼（包含隱藏的），統一管理。</p>
+    </section>
+
+    <section id="reminders">
+      <h2>8. 提醒功能</h2>
+      <p>讓角色在指定時間或頻率主動跳出來說話，像個會說話的鬧鐘。</p>
+
+      <h3>怎麼新增提醒？</h3>
+      <ol class="steps">
+        <li><div>點輸入視窗下方的 <strong>⏰ 提醒</strong>按鈕，或從<strong>系統托盤</strong>點「管理提醒」。</div></li>
+        <li><div>填提醒名稱（例如「喝水」、「該休息了」）。</div></li>
+        <li><div>選由哪個角色說話。也可以選「隨機桌面角色」，由當下桌面上未禁言的角色之一講。</div></li>
+        <li><div>選觸發時機（看下面四種）。</div></li>
+        <li><div>選填「自訂指令」。例如填「叫我去喝水，要可愛一點」，AI 就會用這段指示生成符合角色個性的台詞。留空的話會用提醒名稱當指令。</div></li>
+        <li><div>儲存。回到列表，左邊的勾勾可以快速啟用 / 停用。</div></li>
+      </ol>
+
+      <h3>四種觸發時機</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>類型</th>
+            <th>什麼時候會觸發</th>
+            <th>適合用來</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>每次啟動</strong></td>
+            <td>程式開啟後幾秒。</td>
+            <td>早安問候、開機後的小提醒。</td>
+          </tr>
+          <tr>
+            <td><strong>每天</strong></td>
+            <td>每天的指定時間（例如 12:00）。</td>
+            <td>午餐、午睡、下班鈴。</td>
+          </tr>
+          <tr>
+            <td><strong>每隔幾分鐘</strong></td>
+            <td>固定間隔（最少 5 分鐘）。</td>
+            <td>喝水、伸展、休息眼睛。</td>
+          </tr>
+          <tr>
+            <td><strong>一次性</strong></td>
+            <td>指定的某天某時某分一次。</td>
+            <td>會議、約會、生日。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="note">
+        <strong>提醒會吃 API。</strong>每次觸發都是一次 AI 呼叫（要生成符合角色個性的台詞）。設「每 5 分鐘」一整天就會跑很多次，請斟酌。
+      </div>
+      <div class="success">
+        <strong>進階小技巧：</strong>如果你用便利貼記了當天的待辦事項，提醒觸發時 AI 會看到這些便利貼內容（在共通設定打開「注入便利貼」），就會自動把待辦項目融進台詞裡。
+      </div>
+    </section>
+
+    <section id="persona" class="soft-band">
+      <h2>9. 讓 AI 知道「使用者是誰」 — Persona 與世界觀</h2>
+      <p>很多時候角色講話不對勁，不是角色卡有問題，而是 AI<strong>不知道你是誰</strong>，也<strong>不知道你們處在什麼世界</strong>。這兩件事在共通設定的「使用者」和「世界觀」分頁裡。</p>
+
+      <h3>使用者 Persona</h3>
+      <ul class="checklist">
+        <li><strong>顯示名稱</strong>：你希望角色叫你什麼名字。</li>
+        <li><strong>暱稱</strong>：例如「主人」「老闆」「同學」。可以跟名字不同。</li>
+        <li><strong>自我介紹</strong>：你的背景設定。例如「我是一名軟體工程師」「我目前是高中生」。AI 會根據這個調整對話內容。</li>
+      </ul>
+
+      <h3>世界觀</h3>
+      <ul class="checklist">
+        <li><strong>世界觀</strong>：故事背景。例如「現代日常」「奇幻冒險」「賽博龐克城市」。</li>
+        <li><strong>角色互動範例</strong>：跨角色的互動風格，例如「角色之間彼此認識，會互相吐槽」。</li>
+      </ul>
+
+      <h3>多組預設可切換</h3>
+      <p>Persona 和世界觀都支援<strong>多組預設</strong>。可以為不同情境準備不同設定（例如「工作模式」用比較專業的 persona，「放鬆模式」用閒聊的）。下拉選單切換即可，舊的不會被覆蓋。</p>
+
+      <div class="note">
+        新手建議：第一次什麼都不改，用內建的泛用預設先玩。等到發現「角色叫我的方式不對」「世界觀感覺很尷尬」再回來調整。
+      </div>
+    </section>
+
+    <section id="look">
+      <h2>10. 介面外觀 — 配色與字級</h2>
+      <p>共通設定 → 介面分頁裡有兩個外觀調整：</p>
+
+      <div class="grid">
+        <div class="card">
+          <h3>色彩主題（9 種）</h3>
+          <p>mint（薄荷綠，預設）、butter（奶油黃）、peach（蜜桃）、aqua（水藍）、sky（天空藍）、blush（粉紅）、lavender（薰衣草紫）、white（純白）、dark（深色）。</p>
+          <p class="small">這是<strong>介面</strong>的配色，不影響角色本身。</p>
+        </div>
+        <div class="card">
+          <h3>字型大小</h3>
+          <p>從 xs 到 xl 五段。對話框、Log 視窗、設定面板的文字會同步放大或縮小。</p>
+        </div>
+      </div>
+
+      <h3>其他介面選項</h3>
+      <ul class="checklist">
+        <li><strong>未聚焦泡泡透明度</strong>：當你沒在跟角色互動時，他頭上的泡泡會變多淡。設 0 就完全隱形。</li>
+        <li><strong>滑鼠移到角色才顯示選單</strong>：關掉之後選單會一直浮著。常用建議開著。</li>
+        <li><strong>角色保持在最上層</strong>：托盤右鍵可以快速切換。寫文章時角色擋畫面，可以暫時關掉。</li>
+      </ul>
+    </section>
+
+    <section id="share" class="soft-band">
+      <h2>11. 把角色分享給朋友</h2>
+      <p>角色做好了想分享？DesktopST 提供兩種匯出格式：</p>
+
+      <div class="grid">
+        <div class="card">
+          <h3>PNG 角色卡（單角色）</h3>
+          <p>跟 SillyTavern 同格式。匯出一張 PNG 圖，<strong>圖片本身就內含角色資料</strong>。朋友把這張 PNG 拖進 DesktopST 或 SillyTavern 都能用。</p>
+          <p class="small">匯出位置：角色設定 → 匯入 / 匯出分頁。</p>
+        </div>
+        <div class="card">
+          <h3>DST Pack（多角色 + 設定）</h3>
+          <p>DesktopST 自己的格式（<code>.dst</code>）。可以一次打包多個角色、Persona 預設、世界觀預設、便利貼。換電腦或備份角色組合很方便。</p>
+          <p class="small">匯出位置：共通設定 → 資料分頁。</p>
+        </div>
+      </div>
+
+      <div class="warning">
+        <strong>API Key 不會被匯出。</strong>分享出去的檔案不包含你的 Key，朋友收到要自己再貼一次。這是刻意的安全設計。
+      </div>
+    </section>
+
+    <section id="data">
+      <h2>12. 資料存哪裡？備份與換電腦</h2>
+      <h3>你的資料在這裡</h3>
+      <p>所有角色、對話、設定、便利貼預設都存在：</p>
+      <p><code>%APPDATA%\DesktopST\</code></p>
+      <p>在 Windows 檔案總管的網址列貼上這串就會直接打開。或者從「共通設定 → 資料 → 開啟資料夾」按鈕也可以。</p>
+
+      <h3>裡面有什麼？</h3>
+      <table>
+        <thead>
+          <tr><th>資料夾 / 檔案</th><th>內容</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>settings.json</code></td><td>全域設定（含<strong>加密過的 API Key</strong>）</td></tr>
+          <tr><td><code>characters\</code></td><td>所有角色卡與情緒圖</td></tr>
+          <tr><td><code>conversations\</code></td><td>所有對話歷史</td></tr>
+          <tr><td><code>personas\</code></td><td>使用者 Persona 預設組</td></tr>
+          <tr><td><code>worlds\</code></td><td>世界觀預設組</td></tr>
+          <tr><td><code>pinned-notes.json</code></td><td>便利貼</td></tr>
+          <tr><td><code>reminders.json</code></td><td>提醒</td></tr>
+        </tbody>
+      </table>
+
+      <h3>備份</h3>
+      <p>最簡單的備份：把整個 <code>%APPDATA%\DesktopST\</code> 資料夾複製一份到雲端 / 隨身碟。要還原時整包蓋回去即可。</p>
+      <p>或從「共通設定 → 資料 → 備份」匯出整包 ZIP。</p>
+
+      <h3>換電腦時要注意</h3>
+      <div class="warning">
+        <strong>API Key 不能直接搬。</strong>DesktopST 用 Windows 內建的 DPAPI 加密 Key，這個加密<strong>綁在你目前的 Windows 使用者帳號</strong>。整份資料搬到新電腦後，API Key 會解不開——必須打開設定<strong>重新貼一次</strong>。
+      </div>
+      <p>除了 API Key，其他角色、對話、設定、便利貼都可以原樣搬遷。</p>
+
+      <h3>解除安裝會不會刪資料？</h3>
+      <p>不會。DesktopST 解除安裝只會移除程式本體，<code>%APPDATA%\DesktopST\</code> 裡面的資料保留。要徹底清空請手動刪那個資料夾。</p>
+    </section>
+
+    <section id="tray" class="soft-band">
+      <h2>13. 找不到視窗？看右下角系統托盤</h2>
+      <p>DesktopST 的視窗都可以關掉，但程式還在背景跑。找不到時看 Windows<strong>右下角系統托盤</strong>（時鐘旁邊那排小圖示），DesktopST 的圖示就在那。</p>
+
+      <h3>左鍵點托盤圖示</h3>
+      <p>切換輸入視窗的顯示。最常用的「我要打字但輸入視窗不見了」就靠這個。</p>
+
+      <h3>右鍵點托盤圖示</h3>
+      <p>跳出選單，可以：</p>
+      <ul class="checklist">
+        <li>收起 / 重新開啟所有輔助視窗（角色保留在桌面上）</li>
+        <li>開啟輸入視窗</li>
+        <li>開啟便利貼管理</li>
+        <li>管理提醒</li>
+        <li>切換角色是否保持在最上層</li>
+        <li>開啟共通設定</li>
+        <li>結束程式</li>
+      </ul>
+    </section>
+
+    <section id="advanced">
+      <h2>14. 進階：當預設功能不夠用時</h2>
+      <p>DesktopST 是開源軟體（程式碼 MIT 授權），這代表只要你願意花一點時間，幾乎所有功能都能改成自己想要的樣子。下面是三個常見情境的處理方式：</p>
+
+      <div class="tip-row">
+        <div class="badge">A</div>
+        <div>
+          <h3>我想要 XX 功能，但這程式沒有</h3>
+          <p>從 <a href="https://github.com/" target="_blank" rel="noreferrer">DesktopST 的 GitHub repo</a> 把原始碼下載下來。然後用會寫程式的 AI 助手（Claude、ChatGPT、Cursor、Claude Code 都可以），把你的需求說清楚請他幫你改。例如：「幫我新增一個讓角色講話時搖晃的動畫效果」。</p>
+          <p>因為這個專案的程式碼有完整的 <code>CLAUDE.md</code> 和規格書，AI 助手讀完就大致能上手，比從零開始的程式好改很多。</p>
+          <p class="small">改完之後用 <code>npm install</code> 裝套件、<code>npm run build</code> 打包出新的 .exe。</p>
+        </div>
+      </div>
+
+      <div class="tip-row">
+        <div class="badge yellow">B</div>
+        <div>
+          <h3>我不會畫圖，想用自己的角色圖怎麼辦？</h3>
+          <p>三個方向，依預算和需求挑：</p>
+          <ul class="checklist">
+            <li><strong>請 AI 幫你畫</strong>：用 ChatGPT 的 DALL·E、Gemini 的 Imagen、Midjourney、Stable Diffusion 等都可以。生出來通常還要做一點修圖（去背、裁切、調表情），可以用 <a href="https://www.photopea.com/" target="_blank" rel="noreferrer">Photopea</a>（免費網頁版 Photoshop）或 GIMP。</li>
+            <li><strong>用現成素材</strong>：到 SillyTavern 的角色卡分享網站找喜歡的，直接匯入 PNG 即可使用。</li>
+            <li><strong>付錢委託繪師</strong>：在 Twitter / X、Pixiv、Skeb 等平台都可以找接案的繪師。建議跟對方確認「商用 / 非商用」「可改作 / 不可改作」這幾件事。</li>
+          </ul>
+          <div class="note">
+            <strong>圖片格式建議：</strong>透明背景 PNG、長寬比 1:1 或接近正方形、解析度 512×512 起跳。28 種情緒可以分批做，先做 5 種最常用的（neutral、joy、sadness、surprise、love）就夠用很久。
+          </div>
+        </div>
+      </div>
+
+      <div class="tip-row">
+        <div class="badge pink">C</div>
+        <div>
+          <h3>角色講話一直不符合我的期望怎麼辦？</h3>
+          <p>照下面順序排查，通常前兩步就能解決：</p>
+          <ol class="steps">
+            <li><div><strong>看完整指令</strong>。Log 視窗對某則回應點「看完整指令」，會展開實際送給 AI 的 prompt。看看是不是有哪段設定矛盾、或者根本沒注入到。</div></li>
+            <li><div><strong>調整角色卡</strong>。常見問題：個性太抽象（多寫具體行為）、對話範例太少（補幾組來回）、招呼語跟個性不一致。</div></li>
+            <li><div><strong>調整 Persona / 世界觀</strong>。角色不知道你是誰、處在什麼背景，講話自然會卡。回到第 9 章把 persona 補完。</div></li>
+            <li><div><strong>換模型試試</strong>。Gemini Flash 系列很省錢但個性表現相對平淡；Claude Sonnet / GPT-4o / Grok 4 對角色扮演的細膩度普遍更好。</div></li>
+            <li><div><strong>最後手段：改系統指令</strong>。如果上面都試過還不行，下載原始碼，找到 <code>src/main/llm/</code> 裡的 prompt 組裝邏輯，請 AI 助手幫你調整 system prompt 的寫法。這需要一點程式背景，但 AI 助手能幫上大忙。</div></li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section id="cheatsheet" class="soft-band">
+      <h2>15. 快速操作對照表</h2>
+      <table>
+        <thead>
+          <tr><th>想做什麼</th><th>怎麼做</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>叫出輸入視窗</td><td>點角色身體、或左鍵點托盤圖示</td></tr>
+          <tr><td>關掉輸入視窗</td><td>再點一次角色、或按輸入視窗叉叉</td></tr>
+          <tr><td>送訊息</td><td><span class="kbd">Enter</span></td></tr>
+          <tr><td>輸入框換行</td><td><span class="kbd">Shift</span>+<span class="kbd">Enter</span></td></tr>
+          <tr><td>移動角色</td><td>直接拖角色身體</td></tr>
+          <tr><td>縮放角色</td><td>滑鼠移到角色 → 點縮放圖示</td></tr>
+          <tr><td>翻轉角色</td><td>右鍵角色 → 水平翻轉</td></tr>
+          <tr><td>禁言 / 取消禁言</td><td>滑鼠移到角色 → 頭頂的喇叭圖示</td></tr>
+          <tr><td>強制角色說話</td><td>滑鼠移到角色 → 頭頂的對話框圖示</td></tr>
+          <tr><td>打開對話記錄</td><td>輸入視窗右上角的記錄圖示</td></tr>
+          <tr><td>新增便利貼</td><td>輸入視窗下方的 📌 按鈕</td></tr>
+          <tr><td>新增提醒</td><td>輸入視窗下方的 ⏰ 按鈕，或托盤 → 管理提醒</td></tr>
+          <tr><td>新增角色</td><td>滑鼠移到角色 → 角色設定 → 新增</td></tr>
+          <tr><td>打開全域設定</td><td>滑鼠移到角色 → 齒輪圖示，或托盤 → 開啟設定</td></tr>
+          <tr><td>找不到視窗</td><td>右下角系統托盤點 DesktopST 圖示</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="footer">
+      <h2>還有問題？</h2>
+      <ul class="checklist">
+        <li>API Key 怎麼申請 / 怎麼省錢 → 看 <a href="api-key-guide.html">API Key 新手申請與省錢測試指南</a>。</li>
+        <li>看到錯誤訊息不知道意思 → API Key 教學第 11 節列了常見錯誤對照。</li>
+        <li>想客製功能 / 報告 bug → 到 GitHub repo 開 issue 或自己 fork 來改。</li>
+      </ul>
+      <p class="small">這份文件對應 DesktopST v1.x 版本。功能持續更新中，介面細節可能與最新版本略有差異，以實際程式為準。</p>
+    </section>
+  </main>
+</body>
+</html>
