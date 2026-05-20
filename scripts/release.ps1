@@ -1,4 +1,4 @@
-# DesktopST 一鍵包版腳本
+﻿# DesktopST 一鍵包版腳本
 # 用法：雙擊 release.bat，或在專案根目錄執行 .\scripts\release.ps1
 # 需要 GitHub CLI（gh）才能自動建立 Release：winget install --id GitHub.cli
 
