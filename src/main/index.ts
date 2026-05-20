@@ -20,7 +20,8 @@ import {
   getCharacterWindowSize,
   suppressAuxAutoHide,
   setCharactersAlwaysOnTop,
-  getCharactersAlwaysOnTop
+  getCharactersAlwaysOnTop,
+  destroyAllCharacterWindows
 } from './windowManager'
 
 function isOffscreen(pos: { x: number; y: number }, win: { width: number; height: number }): boolean {
@@ -282,6 +283,18 @@ function setupTray(appRoot: string) {
             ? path.join(process.resourcesPath, '../docs/getting-started.html')
             : path.join(app.getAppPath(), 'docs/getting-started.html')
           void shell.openPath(guideFile)
+        }
+      },
+      { type: 'separator' },
+      {
+        label: '修復角色視窗（重建桌面）',
+        click: () => {
+          const s = getSettings()
+          destroyAllCharacterWindows()
+          for (const d of s.ui.desktopCharacters) {
+            createCharacterWindow(d.characterId, d.position, d.size)
+          }
+          broadcastToAll('desktop:updated', s.ui.desktopCharacters)
         }
       },
       { type: 'separator' },

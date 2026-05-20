@@ -17,7 +17,7 @@ import {
 } from './dstPack'
 import { reloadReminders } from './reminderScheduler'
 import {
-  createCharacterWindow, closeCharacterWindow, getCharacterWindow,
+  createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
   resizeCharacterWindow, getCharacterWindowSize, enterCharacterScaleMode, exitCharacterScaleMode, enterScaleModeWindow,
   toggleInputWindow, toggleLogWindow, openLogWindow, openSettingsWindow,
   broadcastToAll, getAllCharacterWindows, setCharacterWindowClickThrough,
@@ -780,14 +780,22 @@ export function registerIpcHandlers() {
     s.ui.unfocusedBubbleOpacity = normalizeUnfocusedBubbleOpacity(s.ui.unfocusedBubbleOpacity)
     setUnfocusedBubbleOpacity(s.ui.unfocusedBubbleOpacity)
     setCharactersAlwaysOnTop(s.ui.alwaysOnTop ?? true)
-    const prevPointer = settings.ui.lastActiveConversationId
-    const ui = { ...s.ui }
-    if (!Object.prototype.hasOwnProperty.call(ui, 'lastActiveConversationId')) {
-      ui.lastActiveConversationId = prevPointer
+    // These fields are managed exclusively by main-process handlers and must never be
+    // overwritten by the renderer's potentially-stale settings draft.
+    const ui = {
+      ...s.ui,
+      desktopCharacters: settings.ui.desktopCharacters,
+      pinnedNotes: settings.ui.pinnedNotes,
+      inputWindowBounds: settings.ui.inputWindowBounds,
+      inputWindowPosition: settings.ui.inputWindowPosition,
+      logWindowBounds: settings.ui.logWindowBounds,
+      emojiPickerOffset: settings.ui.emojiPickerOffset,
+      lastActiveConversationId: settings.ui.lastActiveConversationId,
     }
     settings = { ...s, ui }
     fileStore.saveSettings(settings)
     broadcastToAll('settings:updated', settings)
+    broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
     return true
   })
 
@@ -1223,6 +1231,17 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('desktop:enter-scale-mode', (_, characterId: string) => {
     enterScaleModeWindow(characterId)
+    return true
+  })
+
+  // Emergency repair: destroy ALL character windows (including orphans from duplicate-add bugs),
+  // then recreate cleanly from settings.ui.desktopCharacters.
+  ipcMain.handle('desktop:reload-windows', () => {
+    destroyAllCharacterWindows()
+    for (const d of settings.ui.desktopCharacters) {
+      createCharacterWindow(d.characterId, d.position, d.size)
+    }
+    broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
     return true
   })
 

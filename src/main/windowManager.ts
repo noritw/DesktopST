@@ -655,6 +655,50 @@ export function closeCharacterWindow(characterId: string): void {
   if (win && !win.isDestroyed()) win.close()
 }
 
+/**
+ * Destroys ALL character and bubble windows (tracked + orphans), then clears all
+ * related state so the caller can recreate windows from scratch.  Used by the
+ * "repair desktop" recovery flow when duplicate orphan windows exist.
+ */
+export function destroyAllCharacterWindows(): void {
+  // Destroy tracked character windows and clear per-character state
+  for (const [id, win] of [...characterWindows]) {
+    characterWindows.delete(id)
+    hitRects.delete(id)
+    lastIgnoreMouseState.delete(id)
+    scaleModeAnchorFeet.delete(id)
+    bubbleHiddenForCharacterDrag.delete(id)
+    activeDragOffsets.delete(id)
+    activeDragCallbacks.delete(id)
+    activeDragLastPositions.delete(id)
+    draggingCharacters.delete(id)
+    if (!win.isDestroyed()) win.destroy()
+  }
+
+  // Destroy tracked bubble windows
+  for (const [id, win] of [...bubbleWindows]) {
+    bubbleWindows.delete(id)
+    bubbleUserOffset.delete(id)
+    lastBubbleBoundsProgrammatic.delete(id)
+    lastBubbleSizes.delete(id)
+    if (!win.isDestroyed()) win.destroy()
+  }
+  lastShownBubbleCharacterId = null
+
+  // Destroy any orphan character/bubble windows not captured by our maps
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (win.isDestroyed()) continue
+    try {
+      const url = win.webContents.getURL()
+      if (url.includes('w=character') || url.includes('w=bubble')) {
+        win.destroy()
+      }
+    } catch { /* ignore destroyed / unloaded windows */ }
+  }
+
+  maybeStopHitTestLoop()
+}
+
 // ── Speech bubble windows (separate from character window) ──
 
 export function getBubbleWindow(characterId: string): BrowserWindow | undefined {

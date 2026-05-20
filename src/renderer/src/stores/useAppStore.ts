@@ -73,7 +73,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   subscribeToEvents: () => {
     const unsubs = [
-      window.api.on('settings:updated', (s) => set({ settings: s as AppSettings })),
+      window.api.on('settings:updated', (s) => {
+        const next = s as AppSettings
+        set({ settings: next, desktopCharacters: next.ui.desktopCharacters })
+      }),
       window.api.on('characters:updated', (c) => set({ characters: c as Character[] })),
       window.api.on('desktop:updated', (d) => set({ desktopCharacters: d as DesktopCharacterState[] })),
       window.api.on('conversation:updated', (c) => set({ conversation: c as Conversation })),
