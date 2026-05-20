@@ -1,0 +1,794 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DesktopST 桌友 — 在電腦桌面養一個會聊天的 AI 角色</title>
+  <meta name="description" content="DesktopST 是一款 Windows 桌面 AI 角色寵物程式。填入 API Key 就能和你喜歡的角色在桌面聊天，支援自訂角色、便利貼、提醒等可愛功能。">
+
+  <meta property="og:title" content="DesktopST 桌友 — 在電腦桌面養一個會聊天的 AI 角色">
+  <meta property="og:description" content="填入 API Key 就能和你喜歡的角色在桌面聊天，支援自訂角色、便利貼、提醒等可愛功能。">
+  <meta property="og:image" content="../assets/git_Repo_Banner.png">
+  <meta property="og:type" content="website">
+
+  <style>
+    :root {
+      --bg: #f7fffc;
+      --surface: #ffffff;
+      --surface-soft: #effcf7;
+      --mint: #cbfbc4;
+      --teal: #aaeedd;
+      --sky: #aaeeff;
+      --yellow: #ffe8aa;
+      --pink: #ffbbbb;
+      --lavender: #f0bbff;
+      --text: #3d5a52;
+      --muted: #6f968a;
+      --border: #d8f5ec;
+      --strong: #267668;
+      --radius-xl: 32px;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --radius-sm: 12px;
+      --shadow-soft: 0 10px 30px rgba(170, 238, 221, 0.24);
+      --shadow-card: 0 6px 22px rgba(170, 238, 221, 0.18);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 12% 8%, rgba(203, 251, 196, 0.55), transparent 30rem),
+        radial-gradient(circle at 88% 0%, rgba(170, 238, 255, 0.45), transparent 32rem),
+        radial-gradient(circle at 50% 100%, rgba(240, 187, 255, 0.28), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+      font-family: "Noto Sans TC", "M PLUS Rounded 1c", "Microsoft JhengHei", system-ui, sans-serif;
+      line-height: 1.75;
+      letter-spacing: 0.01em;
+    }
+
+    .page {
+      width: min(1080px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 64px;
+    }
+
+    a {
+      color: var(--strong);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    /* ===== Banner ===== */
+    .banner {
+      margin-top: 8px;
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft);
+      background: #fff;
+    }
+    .banner img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    /* ===== Hero ===== */
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+      gap: 36px;
+      align-items: center;
+      padding: 56px 36px;
+      border-radius: var(--radius-xl);
+      background:
+        linear-gradient(160deg, rgba(255, 255, 255, 0.86), rgba(239, 252, 247, 0.78)),
+        var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft);
+      margin-top: 16px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: rgba(170, 238, 221, 0.32);
+      color: var(--strong);
+      font-size: 0.92rem;
+      font-weight: 800;
+    }
+
+    h1 {
+      margin: 14px 0 16px;
+      font-size: clamp(2.2rem, 5vw, 3.6rem);
+      line-height: 1.18;
+      color: var(--text);
+    }
+
+    .hero p.lead {
+      margin: 0 0 22px;
+      font-size: 1.12rem;
+      color: #4d7168;
+      max-width: 520px;
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 48px;
+      padding: 10px 22px;
+      border-radius: 999px;
+      font-weight: 800;
+      font-size: 1rem;
+      border: 1px solid transparent;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-card); }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--mint), var(--teal));
+      color: var(--strong);
+    }
+    .btn-ghost {
+      background: rgba(255, 255, 255, 0.85);
+      border-color: var(--border);
+      color: var(--text);
+    }
+
+    /* ===== Hero illustration ===== */
+    .hero-art {
+      position: relative;
+      aspect-ratio: 1 / 1;
+      border-radius: var(--radius-xl);
+      background:
+        radial-gradient(circle at 50% 70%, rgba(255, 232, 170, 0.45), transparent 60%),
+        linear-gradient(160deg, rgba(170, 238, 255, 0.55), rgba(203, 251, 196, 0.55));
+      border: 1px solid var(--border);
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+    }
+
+    .hero-art::before,
+    .hero-art::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+      opacity: 0.85;
+    }
+    .hero-art::before {
+      width: 90px; height: 90px;
+      top: 16px; left: 18px;
+      background: var(--pink);
+    }
+    .hero-art::after {
+      width: 60px; height: 60px;
+      bottom: 22px; right: 26px;
+      background: var(--lavender);
+    }
+
+    .pet {
+      position: relative;
+      z-index: 1;
+      width: 58%;
+      aspect-ratio: 1 / 1.05;
+      border-radius: 46% 46% 42% 42%;
+      background: #fffaf1;
+      border: 8px solid #ffffff;
+      box-shadow: inset 0 -22px 0 rgba(255, 187, 187, 0.16), 0 14px 30px rgba(38, 118, 104, 0.12);
+    }
+    .pet::before, .pet::after {
+      content: "";
+      position: absolute;
+      top: 42%;
+      width: 14%;
+      aspect-ratio: 1 / 1;
+      border-radius: 50%;
+      background: #3d5a52;
+    }
+    .pet::before { left: 24%; }
+    .pet::after { right: 24%; }
+
+    .pet-mouth {
+      position: absolute;
+      left: 50%;
+      top: 60%;
+      width: 22%;
+      height: 14%;
+      transform: translateX(-50%);
+      border-bottom: 6px solid #3d5a52;
+      border-radius: 0 0 999px 999px;
+    }
+    .pet-cheek-l, .pet-cheek-r {
+      position: absolute;
+      top: 56%;
+      width: 14%;
+      height: 9%;
+      border-radius: 50%;
+      background: rgba(255, 187, 187, 0.7);
+    }
+    .pet-cheek-l { left: 12%; }
+    .pet-cheek-r { right: 12%; }
+
+    .bubble {
+      position: absolute;
+      right: 14px;
+      top: 18px;
+      max-width: 56%;
+      padding: 12px 16px;
+      border-radius: 18px 18px 4px 18px;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-card);
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text);
+      z-index: 2;
+    }
+    .bubble small {
+      display: block;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.8rem;
+      margin-top: 2px;
+    }
+
+    /* ===== Sections ===== */
+    section {
+      margin: 32px 0;
+      padding: 36px;
+      border-radius: var(--radius-xl);
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-card);
+    }
+    section h2 {
+      margin: 0 0 8px;
+      font-size: clamp(1.6rem, 3vw, 2.2rem);
+    }
+    section .sub {
+      margin: 0 0 24px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    /* ===== Quick intro ===== */
+    .quick {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .quick .item {
+      padding: 22px;
+      border-radius: var(--radius-lg);
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+    }
+    .quick .item .big {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      background: #fff;
+      border: 1px solid var(--border);
+      font-size: 1.5rem;
+      font-weight: 900;
+      color: var(--strong);
+      margin-bottom: 10px;
+    }
+    .quick .item h3 {
+      margin: 0 0 6px;
+      font-size: 1.1rem;
+    }
+    .quick .item p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.96rem;
+    }
+
+    /* ===== Features ===== */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+    .feature {
+      position: relative;
+      padding: 26px;
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+    .feature .tag {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+    .feature h3 {
+      margin: 0 0 8px;
+      font-size: 1.2rem;
+    }
+    .feature p {
+      margin: 0 0 10px;
+      color: #4d7168;
+    }
+    .feature .demo {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border-radius: var(--radius-md);
+      background: var(--surface-soft);
+      border: 1px dashed var(--border);
+      font-size: 0.95rem;
+      color: var(--muted);
+    }
+
+    .tag-mint    { background: rgba(203, 251, 196, 0.5); color: #207a4e; }
+    .tag-sky     { background: rgba(170, 238, 255, 0.5); color: #1f6e8c; }
+    .tag-pink    { background: rgba(255, 187, 187, 0.5); color: #a04a5a; }
+    .tag-yellow  { background: rgba(255, 232, 170, 0.6); color: #8a6a25; }
+    .tag-lavender{ background: rgba(240, 187, 255, 0.5); color: #7747a0; }
+    .tag-teal    { background: rgba(170, 238, 221, 0.5); color: #20706a; }
+
+    /* Feature illustrations */
+    .pose-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      justify-content: center;
+      margin-top: 6px;
+    }
+    .pose {
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: linear-gradient(160deg, #fff, #fff8ed);
+      border: 1px solid var(--border);
+      position: relative;
+    }
+    .pose::before {
+      content: "";
+      position: absolute;
+      inset: 18% 18% 28% 18%;
+      border-radius: 50%;
+      background: #fffaf1;
+      box-shadow: inset 0 -8px 0 rgba(255, 187, 187, 0.18);
+    }
+    .pose.small { width: 44px; height: 44px; }
+    .pose.large { width: 86px; height: 86px; }
+    .pose.flip::before { transform: scaleX(-1); }
+
+    .sticky-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .sticky {
+      padding: 12px 12px 14px;
+      border-radius: 14px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--text);
+      transform: rotate(-1.2deg);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+    }
+    .sticky.s1 { background: var(--yellow); transform: rotate(-2deg); }
+    .sticky.s2 { background: var(--pink); transform: rotate(1.5deg); }
+    .sticky.s3 { background: var(--sky); transform: rotate(-0.5deg); }
+    .sticky small {
+      display: block;
+      color: rgba(61, 90, 82, 0.7);
+      font-weight: 600;
+      font-size: 0.78rem;
+      margin-top: 4px;
+    }
+
+    .theme-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    .swatch {
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      box-shadow: 0 0 0 1px var(--border);
+    }
+    .sw-mint { background: var(--mint); }
+    .sw-butter { background: var(--yellow); }
+    .sw-peach { background: #ffd0b3; }
+    .sw-aqua { background: var(--teal); }
+    .sw-sky { background: var(--sky); }
+    .sw-blush { background: var(--pink); }
+    .sw-lavender { background: var(--lavender); }
+    .sw-white { background: #fff; }
+    .sw-dark { background: #3d5a52; }
+
+    /* ===== Screenshot placeholders ===== */
+    .shot {
+      margin-top: 14px;
+      border-radius: var(--radius-md);
+      border: 2px dashed rgba(170, 238, 221, 0.9);
+      background:
+        repeating-linear-gradient(135deg,
+          rgba(170, 238, 221, 0.10) 0,
+          rgba(170, 238, 221, 0.10) 12px,
+          rgba(255, 255, 255, 0.6) 12px,
+          rgba(255, 255, 255, 0.6) 24px);
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-weight: 700;
+      text-align: center;
+      padding: 18px;
+    }
+    .shot .size {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      background: #fff;
+      border: 1px solid var(--border);
+      color: var(--strong);
+      font-size: 0.88rem;
+      margin-bottom: 8px;
+    }
+    .shot small {
+      display: block;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+    .shot.ratio-1-1 { aspect-ratio: 1 / 1; }
+    .shot.ratio-4-3 { aspect-ratio: 4 / 3; }
+    .shot.ratio-16-9 { aspect-ratio: 16 / 9; }
+    .shot img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: center;
+      background: var(--surface-soft);
+      cursor: pointer;
+      transition: opacity 0.2s ease;
+    }
+    .shot img:hover {
+      opacity: 0.85;
+    }
+
+    /* ===== Lightbox ===== */
+    .lightbox {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.72);
+      z-index: 9999;
+      place-items: center;
+      padding: 20px;
+      animation: fadeIn 0.2s ease;
+    }
+    .lightbox.active {
+      display: grid;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .lightbox-content {
+      position: relative;
+      max-width: 90vw;
+      max-height: 90vh;
+      background: #fff;
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.3);
+    }
+    .lightbox img {
+      display: block;
+      max-width: 100%;
+      max-height: 85vh;
+      object-fit: contain;
+    }
+    .lightbox-close {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.95);
+      border: none;
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      font-size: 1.6rem;
+      color: var(--text);
+      transition: transform 0.15s ease, background 0.15s ease;
+      z-index: 10000;
+    }
+    .lightbox-close:hover {
+      transform: scale(1.1);
+      background: #fff;
+    }
+
+    /* ===== Steps ===== */
+    .steps {
+      counter-reset: step;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin: 16px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+    .steps li {
+      counter-increment: step;
+      padding: 22px;
+      border-radius: var(--radius-lg);
+      background: var(--surface-soft);
+      border: 1px solid var(--border);
+      position: relative;
+    }
+    .steps li::before {
+      content: counter(step);
+      position: absolute;
+      top: -16px;
+      left: 18px;
+      width: 36px; height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--mint), var(--teal));
+      color: var(--strong);
+      font-weight: 900;
+      display: grid;
+      place-items: center;
+      box-shadow: var(--shadow-card);
+    }
+    .steps li h3 {
+      margin: 8px 0 6px;
+      font-size: 1.05rem;
+    }
+    .steps li p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    /* ===== Footer / CTA ===== */
+    .cta {
+      text-align: center;
+      padding: 48px 32px;
+      border-radius: var(--radius-xl);
+      background:
+        linear-gradient(160deg, rgba(203, 251, 196, 0.55), rgba(170, 238, 255, 0.55)),
+        #fff;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft);
+      margin: 32px 0;
+    }
+    .cta h2 { margin: 0 0 10px; }
+    .cta p { margin: 0 0 22px; color: #4d7168; }
+
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding-top: 8px;
+    }
+    footer a { color: var(--strong); }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 860px) {
+      .hero { grid-template-columns: 1fr; padding: 36px 24px; }
+      .quick { grid-template-columns: 1fr; }
+      .features { grid-template-columns: 1fr; }
+      .steps { grid-template-columns: 1fr; }
+      section { padding: 26px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <!-- ===== Banner ===== -->
+    <div class="banner">
+      <img src="../assets/git_Repo_Banner.png" alt="DesktopST 桌友 — 桌面 AI 角色扮演寵物程式">
+    </div>
+
+    <!-- ===== Hero ===== -->
+    <header class="hero">
+      <div>
+        <span class="eyebrow">Windows 桌面 AI 角色寵物</span>
+        <h1>把喜歡的角色，<br>放在電腦桌面上一起聊天</h1>
+        <p class="lead">
+          DesktopST（桌友）是一款可愛的桌面小程式。
+          填入 API Key 後，就能和自訂的 AI 角色在桌面上對話——
+          像是養了一個會講話、會提醒你事情的小夥伴。
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/noritw/DesktopST/releases/download/v0.1.16/DesktopST.0.1.16.exe">下載程式（.exe）</a>
+          <a class="btn btn-ghost" href="https://nori.tw/DeST/getting-started.html" target="_blank" rel="noopener">新手教學</a>
+        </div>
+      </div>
+
+      <div class="shot ratio-4-3">
+        <img src="ScreenShot/Dialog01.jpg" alt="DesktopST 對話截圖 — 多角色同時對話">
+      </div>
+    </header>
+
+    <!-- ===== Quick intro ===== -->
+    <section>
+      <h2>這是什麼？</h2>
+      <p class="sub">用三句話講完。</p>
+      <div class="quick">
+        <div class="item">
+          <div class="big">1</div>
+          <h3>桌面上的小角色</h3>
+          <p>角色站在你的桌面上，不像聊天網站要開瀏覽器、登入帳號。點一下就能聊。</p>
+        </div>
+        <div class="item">
+          <div class="big">2</div>
+          <h3>用 AI 跟你對話</h3>
+          <p>填入 OpenAI、Gemini、Claude 等其中一家的 API Key 即可開始聊天，角色會用你設定的個性回應。</p>
+        </div>
+        <div class="item">
+          <div class="big">3</div>
+          <h3>什麼都能改</h3>
+          <p>角色的圖片、個性、世界觀、桌面顏色，全部都可以自己換。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Features ===== -->
+    <section>
+      <h2>有什麼功能？</h2>
+      <p class="sub">六個重點，照著看就懂。</p>
+
+      <div class="features">
+        <!-- 1. API Key 對話 -->
+        <div class="feature">
+          <span class="tag tag-mint">01 · 開始對話</span>
+          <h3>填入 API Key，馬上開聊</h3>
+          <p>支援 OpenAI / Gemini / Claude / Grok，把 API Key 貼進設定畫面就完成。</p>
+          <p>不知道什麼是 API Key、要去哪裡申請？看 <a href="https://nori.tw/DeST/api-key-guide.html" target="_blank" rel="noopener">API Key 申請教學</a>。</p>
+          <div class="shot ratio-4-3">
+            <img src="ScreenShot/API_Key.png" alt="API Key 設定畫面">
+          </div>
+        </div>
+
+        <!-- 2. 自訂角色 -->
+        <div class="feature">
+          <span class="tag tag-pink">02 · 自訂角色</span>
+          <h3>角色圖片、個性、世界觀都能改</h3>
+          <p>幫角色換上自己畫的圖、自己寫的人設，甚至寫一份「世界觀設定」讓角色照著演。也支援匯入 SillyTavern 的 PNG 角色卡。</p>
+          <div class="shot ratio-4-3">
+            <img src="ScreenShot/char_default.png" alt="角色編輯畫面">
+          </div>
+        </div>
+
+        <!-- 3. 縮放 / 移動 / 翻轉 -->
+        <div class="feature">
+          <span class="tag tag-sky">03 · 自由擺放</span>
+          <h3>縮放、移動、水平翻轉</h3>
+          <p>角色可以拖去桌面任何位置、放大或縮小到你喜歡的大小，也能左右翻轉讓他看向另一邊。多個角色可以同時出現在桌面上。</p>
+          <div class="shot ratio-4-3">
+            <img src="ScreenShot/ManyPeople.png" alt="多角色擺放在桌面上">
+          </div>
+        </div>
+
+        <!-- 4. 提醒 -->
+        <div class="feature">
+          <span class="tag tag-yellow">04 · 提醒功能</span>
+          <h3>AI 用角色的語氣提醒你</h3>
+          <p>設定每天的固定時間、或是 N 分鐘後，讓角色主動跳出來說話。提醒的口氣會跟著角色個性走——不是死板的鬧鐘，而是「他」在叫你。</p>
+          <div class="shot ratio-4-3">
+            <img src="ScreenShot/Reminder.png" alt="提醒管理畫面">
+          </div>
+        </div>
+
+        <!-- 5. 便利貼 -->
+        <div class="feature">
+          <span class="tag tag-lavender">05 · 便利貼</span>
+          <h3>貼在桌面的便利貼，AI 看得懂</h3>
+          <p>可以在桌面上貼好幾張小便利貼（待辦、心情、靈感都可以）。打開選項後，AI 還會根據便利貼的內容自動找話聊。</p>
+          <div class="shot ratio-4-3">
+            <img src="ScreenShot/PinnedNotes.jpg" alt="桌面便利貼擺放">
+          </div>
+        </div>
+
+        <!-- 6. 色系 -->
+        <div class="feature">
+          <span class="tag tag-teal">06 · 多種色系</span>
+          <h3>介面和便利貼都可以換顏色</h3>
+          <p>內建九種色彩主題，喜歡薄荷綠、奶油黃、薰衣草紫、還是深色模式都可以一鍵切換。便利貼也能各自換色，桌面變成自己的小花園。</p>
+          <div class="shot ratio-4-3">
+            <img src="ScreenShot/Colors.png" alt="色彩主題選擇">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Final CTA ===== -->
+    <section class="cta">
+      <h2>準備好讓桌面熱鬧起來了嗎？</h2>
+      <p>本軟體<b>免費下載</b>使用，自帶兩隻可愛預設角色。詳細安裝、設定與使用步驟請見新手教學。</p>
+      <div class="cta-row" style="justify-content: center;">
+        <a class="btn btn-primary" href="https://github.com/noritw/DesktopST/releases/download/v0.1.16/DesktopST.0.1.16.exe">下載程式（.exe）</a>
+        <a class="btn btn-ghost" href="https://github.com/noritw/DesktopST" target="_blank" rel="noopener">前往 GitHub</a>
+        <a class="btn btn-ghost" href="https://nori.tw/DeST/getting-started.html" target="_blank" rel="noopener">新手教學</a>
+      </div>
+      <p style="margin-top: 18px; font-size: 0.92rem; color: var(--muted);">
+        免費使用，但散布、二創與商業利用請依
+        <a href="https://nori.tw/DeST/license.html" target="_blank" rel="noopener">授權條款</a>
+        辦理。
+      </p>
+    </section>
+
+    <footer>
+      DesktopST（桌友） · Made with 🌱 by <a href="https://nori.tw" target="_blank" rel="noopener">Nori</a>
+    </footer>
+  </div>
+
+  <!-- Lightbox modal -->
+  <div class="lightbox" id="lightbox">
+    <div class="lightbox-content">
+      <button class="lightbox-close" id="lightbox-close">&times;</button>
+      <img id="lightbox-img" src="" alt="">
+    </div>
+  </div>
+
+  <script>
+    const lightbox = document.getElementById('lightbox');
+    const lightboxImg = document.getElementById('lightbox-img');
+    const lightboxClose = document.getElementById('lightbox-close');
+
+    // 為所有 .shot img 添加點擊事件
+    document.querySelectorAll('.shot img').forEach(img => {
+      img.addEventListener('click', () => {
+        lightboxImg.src = img.src;
+        lightboxImg.alt = img.alt;
+        lightbox.classList.add('active');
+        document.body.style.overflow = 'hidden';
+      });
+    });
+
+    // 關閉 lightbox
+    function closeLightbox() {
+      lightbox.classList.remove('active');
+      document.body.style.overflow = '';
+    }
+
+    lightboxClose.addEventListener('click', closeLightbox);
+
+    // 點擊遮罩背景關閉
+    lightbox.addEventListener('click', (e) => {
+      if (e.target === lightbox) {
+        closeLightbox();
+      }
+    });
+
+    // 按 ESC 關閉
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && lightbox.classList.contains('active')) {
+        closeLightbox();
+      }
+    });
+  </script>
+</body>
+</html>
