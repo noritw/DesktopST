@@ -132,6 +132,18 @@ export default function CharacterWindow({ characterId }: Props) {
     }
   }, [flipped, scaleMode, size])
 
+  useEffect(() => {
+    if (!scaleMode) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setScaleMode(false)
+        setMenuPinned(false)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [scaleMode])
+
   const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
     event.preventDefault()
