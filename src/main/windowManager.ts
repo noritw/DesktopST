@@ -734,6 +734,8 @@ export function showSpeechBubble(characterId: string, speakerName: string, text:
   bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
   const cw = characterWindows.get(characterId)
   if (cw && !cw.isDestroyed()) {
+    // 發話時把角色和對白框都提到最上層
+    cw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
     cw.moveTop()
     applyBubbleBounds(bw, lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }, cw.getBounds(), characterId)
   }
@@ -750,7 +752,10 @@ export function showSpeechBubble(characterId: string, speakerName: string, text:
     bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
     bw.setOpacity(1)
     if (!bw.isVisible()) bw.showInactive()
-    if (cw && !cw.isDestroyed()) cw.moveTop()
+    if (cw && !cw.isDestroyed()) {
+      cw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+      cw.moveTop()
+    }
     bw.moveTop()
     bw.webContents.send('bubble:show', payload)
   }
@@ -766,7 +771,10 @@ export function showSpeechBubble(characterId: string, speakerName: string, text:
       if (cw2 && !cw2.isDestroyed()) {
         applyBubbleBounds(bw, lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }, cw2.getBounds(), characterId)
       }
-      if (charactersAlwaysOnTop) bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+      if (charactersAlwaysOnTop) {
+        bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+        if (cw2 && !cw2.isDestroyed()) cw2.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+      }
       bw.moveTop()
     }, 180)
   }
@@ -784,6 +792,15 @@ export function hideSpeechBubble(characterId: string): boolean {
   if (!bw || bw.isDestroyed()) return false
   bw.hide()
   bubbleHiddenForCharacterDrag.delete(characterId)
+  // 氣泡隱藏時恢復角色窗口的 alwaysOnTop 狀態
+  const cw = characterWindows.get(characterId)
+  if (cw && !cw.isDestroyed()) {
+    if (charactersAlwaysOnTop) {
+      cw.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+    } else {
+      cw.setAlwaysOnTop(false)
+    }
+  }
   if (lastShownBubbleCharacterId === characterId) lastShownBubbleCharacterId = null
   return true
 }
@@ -794,6 +811,15 @@ export function hideAllCharacterSpeechBubbles(): number {
     if (bw.isDestroyed() || !bw.isVisible()) continue
     bw.hide()
     bubbleHiddenForCharacterDrag.delete(characterId)
+    // 氣泡隱藏時恢復角色窗口的 alwaysOnTop 狀態
+    const cw = characterWindows.get(characterId)
+    if (cw && !cw.isDestroyed()) {
+      if (charactersAlwaysOnTop) {
+        cw.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+      } else {
+        cw.setAlwaysOnTop(false)
+      }
+    }
     hiddenCount += 1
   }
   lastShownBubbleCharacterId = null
