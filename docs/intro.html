@@ -608,7 +608,7 @@
 
     <!-- ===== Banner ===== -->
     <div class="banner">
-      <img src="../assets/git_Repo_Banner.png" alt="DesktopST 桌友 — 桌面 AI 角色扮演寵物程式">
+      <img src="https://raw.githubusercontent.com/noritw/DesktopST/main/assets/git_Repo_Banner.png" alt="DesktopST 桌友 — 桌面 AI 角色扮演寵物程式">
     </div>
 
     <!-- ===== Hero ===== -->
@@ -622,7 +622,7 @@
           像是養了一個會講話、會提醒你事情的小夥伴。
         </p>
         <div class="cta-row">
-          <a class="btn btn-primary" href="https://github.com/noritw/DesktopST/releases/download/v0.1.16/DesktopST.0.1.16.exe">下載程式（.exe）</a>
+          <a class="btn btn-primary latest-download-btn" href="https://github.com/noritw/DesktopST/releases">下載程式</a>
           <a class="btn btn-ghost" href="https://nori.tw/DeST/getting-started.html" target="_blank" rel="noopener">新手教學</a>
         </div>
       </div>
@@ -729,7 +729,7 @@
       <h2>準備好讓桌面熱鬧起來了嗎？</h2>
       <p>本軟體<b>免費下載</b>使用，自帶兩隻可愛預設角色。詳細安裝、設定與使用步驟請見新手教學。</p>
       <div class="cta-row" style="justify-content: center;">
-        <a class="btn btn-primary" href="https://github.com/noritw/DesktopST/releases/download/v0.1.16/DesktopST.0.1.16.exe">下載程式（.exe）</a>
+        <a class="btn btn-primary latest-download-btn" href="https://github.com/noritw/DesktopST/releases">下載程式</a>
         <a class="btn btn-ghost" href="https://github.com/noritw/DesktopST" target="_blank" rel="noopener">前往 GitHub</a>
         <a class="btn btn-ghost" href="https://nori.tw/DeST/getting-started.html" target="_blank" rel="noopener">新手教學</a>
       </div>
@@ -754,6 +754,31 @@
   </div>
 
   <script>
+    // 取得最新 release 並更新下載按鈕
+    async function updateLatestDownloadLinks() {
+      try {
+        const res = await fetch('https://api.github.com/repos/noritw/DesktopST/releases/latest')
+        if (!res.ok) throw new Error('Failed to fetch')
+        const data = await res.json()
+
+        // 尋找 .exe 或 .zip 的 asset
+        const asset = data.assets.find(a => a.name.endsWith('.exe') || a.name.endsWith('.zip'))
+
+        if (asset) {
+          // 更新所有下載按鈕的連結
+          document.querySelectorAll('.latest-download-btn').forEach(btn => {
+            btn.href = asset.browser_download_url
+          })
+        }
+      } catch (e) {
+        // API 查詢失敗時保持原連結（releases 頁面）
+        console.log('Could not fetch latest release:', e)
+      }
+    }
+
+    // 頁面載入時更新
+    updateLatestDownloadLinks()
+
     const lightbox = document.getElementById('lightbox');
     const lightboxImg = document.getElementById('lightbox-img');
     const lightboxClose = document.getElementById('lightbox-close');
