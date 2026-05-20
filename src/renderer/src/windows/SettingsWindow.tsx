@@ -12,6 +12,9 @@ import MonoIcon from '../components/MonoIcon'
 const OPENAI_MODEL_LIST_HELP =
   'https://help.openai.com/en/articles/10306912-sharing-feedback-evaluation-and-fine-tuning-data-and-api-inputs-and-outputs-with-openai'
 
+/** 完整授權條款（網頁，與程式附帶之 docs/license.html 內容對齊維護） */
+const DESKTOPST_LICENSE_URL = 'https://nori.tw/DeST/license.html'
+
 type OpenaiModelListMode = 'catalog' | 'incentive-1m' | 'incentive-10m' | 'incentive-all'
 
 function openaiDatalistOptions(mode: OpenaiModelListMode): string[] {
@@ -1366,9 +1369,43 @@ export default function SettingsWindow() {
             >
               {checkingUpdate ? '檢查中...' : '立即檢查更新'}
             </button>
-            <div className="text-xs text-secondary space-y-0.5 pt-1">
-              <p>程式碼授權：MIT License</p>
-              <p>美術素材授權：CC BY-NC 4.0</p>
+            <div className="text-xs text-secondary space-y-2 mt-6 pt-6 border-t border-border">
+              <p>
+                本程式採作者<strong className="text-primary font-medium">自訂授權條款</strong>
+                （非標準 MIT／CC）。
+              </p>
+              <button
+                type="button"
+                className="btn-round w-auto px-4 rounded-full h-auto py-2 text-sm"
+                onClick={() => void window.api.invoke('shell:open-external', DESKTOPST_LICENSE_URL)}
+              >
+                查看完整授權條款
+              </button>
+              <div className="space-y-0.5 pt-0.5">
+                <p>作者：Nori</p>
+                <p>
+                  網站：
+                  <a
+                    className="ml-1 underline hover:no-underline text-primary"
+                    href="https://nori.tw"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    https://nori.tw
+                  </a>
+                </p>
+                <p className="break-all">
+                  授權全文：
+                  <a
+                    className="ml-1 underline hover:no-underline text-primary"
+                    href={DESKTOPST_LICENSE_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {DESKTOPST_LICENSE_URL}
+                  </a>
+                </p>
+              </div>
             </div>
           </div>
         )}
