@@ -28,7 +28,7 @@
 - **作業系統**：Windows 10 / 11（64 位元）
 - **API Key**：需自備 OpenAI、Gemini、Claude 或 Grok 其中一家的 API Key
   - 第一次測試建議使用 **Gemini**（有免費額度）
-  - 申請方式請見 [docs/api-key-guide.html](https://nori.tw/DeST/api-key-guide.html)
+  - 申請方式請見 <a href="https://nori.tw/DeST/api-key-guide.html" target="_blank" rel="noopener noreferrer">docs/api-key-guide.html</a>
 
 ---
 
@@ -36,7 +36,7 @@
 
 前往 [Releases](../../releases) 頁面下載最新版安裝檔（`.exe`），安裝後即可執行。
 
-初次使用說明請見 [docs/getting-started.html](https://nori.tw/DeST/getting-started.html)。
+初次使用說明請見 <a href="https://nori.tw/DeST/getting-started.html" target="_blank" rel="noopener noreferrer">docs/getting-started.html</a>。
 
 ---
 
@@ -80,10 +80,10 @@ npm run build
 - **禁止**未經授權以原封不動或極小變動方式作為商品販售
 - 直播、贊助、廣告分潤、付費 plugin（不含官方素材）等均允許
 
-完整條款：**[https://nori.tw/DeST/license.html](https://nori.tw/DeST/license.html)**（離線版：[docs/license.html](docs/license.html)）
+完整條款：**<a href="https://nori.tw/DeST/license.html" target="_blank" rel="noopener noreferrer">https://nori.tw/DeST/license.html</a>**（離線版：[docs/license.html](docs/license.html)）
 
 ---
 
 ## 作者
 
-**Nori** · [nori.tw](https://nori.tw) · starryseaweed@gmail.com
+**Nori** · <a href="https://nori.tw" target="_blank" rel="noopener noreferrer">nori.tw</a> · starryseaweed@gmail.com
