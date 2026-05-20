@@ -1,6 +1,6 @@
 {
   "name": "desktop-st",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "桌面 AI 角色扮演寵物程式",
   "main": "out/main/index.js",
   "scripts": {
@@ -39,30 +39,5 @@
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3"
-  },
-  "build": {
-    "appId": "com.desktopst.app",
-    "productName": "DesktopST",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "out/**/*"
-    ],
-    "extraFiles": [
-      {
-        "from": "assets",
-        "to": "assets"
-      },
-      {
-        "from": "docs",
-        "to": "docs"
-      }
-    ],
-    "asarUnpack": ["docs/**/*"],
-    "win": {
-      "target": ["portable"],
-      "icon": "assets/icon.ico"
-    }
   }
 }

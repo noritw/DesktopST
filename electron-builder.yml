@@ -1,0 +1,17 @@
+appId: com.desktopst.app
+productName: DesktopST
+directories:
+  output: dist
+files:
+  - out/**/*
+extraFiles:
+  - from: assets
+    to: assets
+  - from: docs
+    to: docs
+asarUnpack:
+  - docs/**/*
+win:
+  target:
+    - portable
+  icon: assets/icon.ico

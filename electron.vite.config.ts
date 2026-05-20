@@ -19,6 +19,6 @@ export default defineConfig({
     css: {
       postcss: './postcss.config.cjs'
     },
-    publicDir: 'src/renderer/public'
+    publicDir: resolve('src/renderer/public')
   }
 })

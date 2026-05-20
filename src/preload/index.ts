@@ -25,4 +25,9 @@ contextBridge.exposeInMainWorld('windowParams', {
   get: (key: string): string | null => new URLSearchParams(window.location.search).get(key)
 })
 
+// 暴露建置環境資訊（dev server URL 供音效等靜態資源使用）
+contextBridge.exposeInMainWorld('electronBuild', {
+  rendererUrl: process.env['ELECTRON_RENDERER_URL'] ?? null
+})
+
 

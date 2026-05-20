@@ -42,6 +42,11 @@ export default function App() {
         ? `file://${customSoundPath.replace(/\\/g, '/')}`
         : staticFileUrl('notification-sound.wav')
       audio = new Audio(audioPath)
+      audio.preload = 'auto'
+      // 監聽加載錯誤
+      audio.addEventListener('error', (e) => {
+        console.error('[Audio] Failed to load notification sound:', audioPath, e)
+      })
     }
 
     initAudio()
@@ -68,6 +73,11 @@ export default function App() {
         ? `file://${customSoundPath.replace(/\\/g, '/')}`
         : staticFileUrl('message-notification-sound.wav')
       audio = new Audio(audioPath)
+      audio.preload = 'auto'
+      // 監聽加載錯誤
+      audio.addEventListener('error', (e) => {
+        console.error('[Audio] Failed to load message notification sound:', audioPath, e)
+      })
     }
 
     initAudio()

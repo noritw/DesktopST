@@ -189,5 +189,8 @@ declare global {
     windowParams: {
       get: (key: string) => string | null
     }
+    electronBuild: {
+      rendererUrl: string | null
+    }
   }
 }
