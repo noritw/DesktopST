@@ -26,7 +26,7 @@ import {
   showUserSpeechBubble, hideUserSpeechBubble, updateUserSpeechBubbleSize,
   reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects,
   beginCharacterDrag, moveDraggedCharacter, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
-  setUnfocusedBubbleOpacity, setCharactersAlwaysOnTop, getCharactersAlwaysOnTop,
+  setUnfocusedBubbleOpacity, setCharactersAlwaysOnTop, getCharactersAlwaysOnTop, setCharacterAlwaysOnTop,
   createCharacterLibraryWindow,
   hideAllWindowsForScreenshot, hideAuxWindowsForScreenshotKeepingCharacters, restoreAllWindowsAfterScreenshot,
   showPreviewWindow,
@@ -800,6 +800,11 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('app:get-always-on-top', () => getCharactersAlwaysOnTop())
+
+  ipcMain.handle('character:set-always-on-top', (_, characterId: string, enabled: boolean) => {
+    setCharacterAlwaysOnTop(characterId, enabled)
+    return true
+  })
 
   // Characters
   ipcMain.handle('characters:list', () => characters)

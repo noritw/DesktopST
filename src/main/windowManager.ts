@@ -237,6 +237,19 @@ export function setCharactersAlwaysOnTop(enabled: boolean): void {
   }
 }
 
+export function setCharacterAlwaysOnTop(characterId: string, enabled: boolean): void {
+  const cw = characterWindows.get(characterId)
+  if (cw && !cw.isDestroyed()) {
+    if (enabled) cw.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+    else cw.setAlwaysOnTop(false)
+  }
+  const bw = bubbleWindows.get(characterId)
+  if (bw && !bw.isDestroyed()) {
+    if (enabled) bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    else bw.setAlwaysOnTop(false)
+  }
+}
+
 export function getCharactersAlwaysOnTop(): boolean {
   return charactersAlwaysOnTop
 }
