@@ -6,6 +6,8 @@ import EmotionSpritesTab from './tabs/EmotionSpritesTab'
 import AdvancedTab from './tabs/AdvancedTab'
 import ImportExportTab from './tabs/ImportExportTab'
 
+import MonoIcon from './MonoIcon'
+
 export type EditorTab = 'basic' | 'emotions' | 'advanced' | 'importexport'
 
 const TAB_LABEL: Record<EditorTab, string> = {
@@ -118,11 +120,18 @@ export default function CharacterEditor({ characterId, onClose }: Props) {
   return (
     <div className="absolute inset-0 z-50 flex items-stretch justify-center bg-black/20 p-4">
       <div className="flex flex-col w-full max-w-4xl max-h-full rounded-3xl border border-border bg-bg shadow-soft overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-          <span className="text-base font-semibold text-primary truncate pr-2">編輯：{draft.name}</span>
-          <button type="button" className="btn-round w-8 h-8 text-primary" title="關閉" onClick={onClose}>
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-border shrink-0 min-w-0">
+          <span className="min-w-0 flex-1 text-base font-semibold text-primary truncate pr-2">
+            編輯：{draft.name}
+          </span>
+          <button
+            type="button"
+            className="btn-round no-drag min-w-[44px] min-h-[44px] w-11 h-11 shrink-0 text-primary"
+            title="關閉"
+            onClick={onClose}
+          >
             <span className="sr-only">關閉</span>
-            ×
+            <MonoIcon name="close" className="w-4 h-4" />
           </button>
         </div>
 

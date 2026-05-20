@@ -30,7 +30,7 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
   }
 
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className={className}>
+    <svg viewBox="0 0 24 24" aria-hidden="true" className={`${className} pointer-events-none`.trim()}>
       {name === 'check' && (
         <path {...common} d="M4 13l5 5L20 7" />
       )}
