@@ -141,6 +141,9 @@ export default function HoverMenu({ visible, onSettings, onScale, onButtonsEl }:
           {btn.icon}
         </button>
       ))}
+      <p className="text-center text-[9px] leading-tight text-text-secondary select-none pointer-events-none pt-1 rounded-full bg-white/75 px-1.5 py-0.5">
+        右鍵<br />關閉
+      </p>
     </div>
   )
 }

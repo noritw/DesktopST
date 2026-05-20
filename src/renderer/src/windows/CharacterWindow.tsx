@@ -460,7 +460,7 @@ export default function CharacterWindow({ characterId }: Props) {
           <div
             ref={spriteDivRef}
             className="cursor-grab active:cursor-grabbing"
-            title={scaleMode ? undefined : '點擊角色可開啟發話視窗'}
+            title={scaleMode ? undefined : '左鍵：開啟對話　右鍵：開關選單'}
             onPointerDown={(event) => {
               if (!spriteOpaque && !hovered && !scaleMode) return
               handlePointerDown(event)

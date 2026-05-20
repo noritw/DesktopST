@@ -610,6 +610,7 @@ export function moveDraggedCharacter(characterId: string, cursorScreenX: number,
     x: Math.round(cursorScreenX - offset.x),
     y: Math.round(cursorScreenY - offset.y)
   }
+  if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return
   const last = activeDragLastPositions.get(characterId)
   if (last && last.x === pos.x && last.y === pos.y) return
   activeDragLastPositions.set(characterId, pos)
