@@ -7,9 +7,15 @@ dist/
 .env
 .env.*
 !.env.example
+.claude/settings.json
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/
+.kiro/
+test-extract/
 DesktopST-dev.bat
 scripts/generateNotificationSound.js
 generate-sounds.js
 新使用者啟動流程改進計劃.md
 DesktopST-portable.zip
+DesktopST-v*.zip
