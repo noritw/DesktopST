@@ -294,7 +294,7 @@ export function messageSpeakerLabel(
   return '系統'
 }
 
-/** Returns settings with the utility provider/model substituted in (for cheap tasks). */
+/** Returns settings with the utility provider/model substituted in (reminders, emotion classify). */
 export function applyUtilitySettings(settings: AppSettings): AppSettings {
   if (!settings.llm.utilityEnabled) return settings
   const utilityProvider = settings.llm.utilityProvider ?? settings.llm.provider

@@ -911,10 +911,10 @@ export default function SettingsWindow() {
                   onChange={e => set('llm.utilityEnabled', !e.target.checked)}
                   className="accent-teal"
                 />
-                輔助任務沿用扮演模型
+                情緒分類與提醒沿用扮演模型
               </label>
               <p className="text-[11px] text-secondary leading-snug mt-1">
-                輔助任務包含：群組次要角色回應、定時提醒發話、情緒分類。取消勾選可指定便宜模型負責這些任務，節省主角色回應的費用。
+                群組對話中每位角色的回應一律使用上方扮演主模型。取消勾選後，僅<strong className="text-primary font-medium">定時提醒發話</strong>與<strong className="text-primary font-medium">情緒分類</strong>改由下方輔助模型處理，以節省主模型用量。
               </p>
               {draft.llm.utilityEnabled && (
                 <div className="mt-3 space-y-2 pl-2 border-l-2 border-border">

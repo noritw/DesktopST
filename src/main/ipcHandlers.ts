@@ -1804,9 +1804,8 @@ export function registerIpcHandlers() {
         }
         const secHasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
         const doSplitEmotionSec = !!(settings.llm.utilityEnabled && secHasCustomSprites)
-        const secondaryChatSettings = applyUtilitySettings(settings)
         const { content: reply, emotion: rawEmotionSec, debugPrompt, inputTokens: secInputTk, outputTokens: secOutputTk } = await chatWithLLM({
-          settings: secondaryChatSettings,
+          settings,
           character: char,
           messages: recentMessages,
           speakerNameById: getSpeakerNameById(),
@@ -1846,7 +1845,7 @@ export function registerIpcHandlers() {
           emotionSec = normalizeEmotion(rawEmotionSec) || 'neutral'
         }
 
-        const secondaryLlm = messageLlmMeta(debugPrompt, secondaryChatSettings)
+        const secondaryLlm = messageLlmMeta(debugPrompt, settings)
         const charMsg: Message = {
           id: uuidv4(),
           role: 'character',
@@ -1932,9 +1931,8 @@ export function registerIpcHandlers() {
       const desktopCharNamesForce = settings.ui.desktopCharacters.map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
       const forceHasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
       const doSplitEmotionForce = !!(settings.llm.utilityEnabled && forceHasCustomSprites)
-      const forceChatSettings = applyUtilitySettings(settings)
       const { content, emotion: rawEmotionForce, debugPrompt, inputTokens: forceInputTk, outputTokens: forceOutputTk } = await chatWithLLM({
-        settings: forceChatSettings,
+        settings,
         character: char,
         messages: recentMessages,
         speakerNameById: getSpeakerNameById(),
@@ -1962,7 +1960,7 @@ export function registerIpcHandlers() {
         forceUtilityOutputTk = cr.outputTokens
         forceUtilityDebugPrompt = cr.debugPrompt
       }
-      const forceLlm = messageLlmMeta(debugPrompt, forceChatSettings)
+      const forceLlm = messageLlmMeta(debugPrompt, settings)
       const msg: Message = {
         id: uuidv4(),
         role: 'character',

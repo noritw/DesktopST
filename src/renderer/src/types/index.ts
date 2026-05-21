@@ -133,7 +133,7 @@ export interface AppSettings {
     maxGroupRounds: number
     maxImagesPerMessage: number
     temperature: number
-    /** 輔助任務（群組次要角色、force-speak、摘要、情緒分類）是否使用獨立便宜模型 */
+    /** 提醒發話、情緒分類是否使用獨立輔助模型（群組對話一律用扮演主模型） */
     utilityEnabled?: boolean
     /** 輔助模型的供應商（未設定時跟隨 provider） */
     utilityProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
