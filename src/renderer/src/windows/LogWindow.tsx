@@ -4,6 +4,7 @@ import type { Message } from '../types'
 import MessageText from '../components/MessageText'
 import MonoIcon, { type MonoIconName } from '../components/MonoIcon'
 import { buildSpriteEntries, EMOTION_OPTIONS, stemFromFilename } from '../utils/emotionUtils'
+import { formatLlmHoverTitle, llmBadgeGlyph, messageLlmMeta } from '../utils/llmMeta'
 
 function formatTime(ts: number): string {
   const d = new Date(ts)
@@ -228,16 +229,15 @@ export default function LogWindow() {
     })
   }
 
-  const LlmBadge = ({ provider, model }: { provider?: string; model?: string }) => {
+  const LlmBadge = ({ msg }: { msg: Message }) => {
+    const { provider, model } = messageLlmMeta(msg)
     if (!provider && !model) return null
-    const label = provider === 'openai' ? 'OpenAI' : provider ?? 'LLM'
-    const title = model ? `${label} / ${model}` : label
     return (
       <span
-        title={title}
+        title={formatLlmHoverTitle(provider, model)}
         className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full border border-border bg-surface text-[9px] text-secondary select-none"
       >
-        {provider === 'openai' ? 'O' : 'L'}
+        {llmBadgeGlyph(provider)}
       </span>
     )
   }
@@ -301,14 +301,14 @@ export default function LogWindow() {
               </span>
               <span className="text-xs font-bold text-user">
                 {`【${userName}】`}
-                <LlmBadge provider={msg.llmProvider} model={msg.llmModel} />
+                <LlmBadge msg={msg} />
               </span>
             </>
           ) : (
             <>
               <span className={`text-xs font-semibold ${isCharacter ? 'text-primary' : 'text-secondary'}`}>
                 {isCharacter ? `【${getCharName(msg.characterId)}】` : '【系統】'}
-                <LlmBadge provider={msg.llmProvider} model={msg.llmModel} />
+                <LlmBadge msg={msg} />
               </span>
               {isCharacter && msg.emotion && (
                 <span className="text-xs px-1.5 py-0.5 rounded-full bg-teal-20 text-teal font-medium">

@@ -398,6 +398,7 @@ export default function SettingsWindow() {
   // Helper: set current provider's model to per-provider storage
   const setCurrentModel = (m: string) => {
     if (!draft) return
+    setDirty(true)
     const next = JSON.parse(JSON.stringify(draft)) as AppSettings
     if (!next.llm.models) next.llm.models = {}
     next.llm.models[next.llm.provider] = m
@@ -412,6 +413,7 @@ export default function SettingsWindow() {
   }
   const setUtilityModel = (m: string) => {
     if (!draft) return
+    setDirty(true)
     const next = JSON.parse(JSON.stringify(draft)) as AppSettings
     const p = next.llm.utilityProvider ?? next.llm.provider
     if (!next.llm.utilityModels) next.llm.utilityModels = {}
@@ -709,6 +711,7 @@ export default function SettingsWindow() {
                 value={draft.llm.provider}
                 onChange={e => {
                   const p = e.target.value as AppSettings['llm']['provider']
+                  setDirty(true)
                   setDraft(prev => {
                     if (!prev) return prev
                     const next = JSON.parse(JSON.stringify(prev)) as AppSettings
@@ -921,6 +924,7 @@ export default function SettingsWindow() {
                       value={draft.llm.utilityProvider ?? draft.llm.provider}
                       onChange={e => {
                         const p = e.target.value as AppSettings['llm']['provider']
+                        setDirty(true)
                         setDraft(prev => {
                           if (!prev) return prev
                           const next = JSON.parse(JSON.stringify(prev)) as AppSettings

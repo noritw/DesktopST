@@ -10,6 +10,41 @@ export function resolveModel(settings: AppSettings): string {
   return settings.llm.models?.[settings.llm.provider] || settings.llm.model || ''
 }
 
+/** Parse provider/model recorded in a debugPrompt JSON blob (actual API call). */
+export function parseDebugPromptLlmMeta(debugPrompt?: string): {
+  provider?: AppSettings['llm']['provider']
+  model?: string
+} | null {
+  if (!debugPrompt?.trim()) return null
+  try {
+    const obj = JSON.parse(debugPrompt) as { provider?: string; model?: string }
+    const provider = obj.provider as AppSettings['llm']['provider'] | undefined
+    const model = typeof obj.model === 'string' ? obj.model.trim() : undefined
+    if (!provider && !model) return null
+    return { provider, model }
+  } catch {
+    return null
+  }
+}
+
+/** Prefer debugPrompt metadata; fall back to the settings snapshot passed into chatWithLLM. */
+export function messageLlmMeta(
+  debugPrompt: string | undefined,
+  chatSettings: AppSettings
+): { provider: AppSettings['llm']['provider']; model: string } {
+  const parsed = parseDebugPromptLlmMeta(debugPrompt)
+  if (parsed?.provider || parsed?.model) {
+    return {
+      provider: parsed?.provider ?? chatSettings.llm.provider,
+      model: parsed?.model || resolveModel(chatSettings)
+    }
+  }
+  return {
+    provider: chatSettings.llm.provider,
+    model: resolveModel(chatSettings)
+  }
+}
+
 export const EMOTION_LIST = [
   'admiration', 'amusement', 'anger', 'annoyance', 'approval',
   'caring', 'confusion', 'curiosity', 'desire', 'disappointment',
