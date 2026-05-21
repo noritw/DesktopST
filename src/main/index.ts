@@ -219,7 +219,6 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   flushSaveSettings()
-  app.exit(0)
 })
 
 // ── System tray ───────────────────────────────────────────
@@ -298,7 +297,7 @@ function setupTray(appRoot: string) {
         }
       },
       { type: 'separator' },
-      { label: '結束', click: () => app.exit(0) }
+      { label: '結束', click: () => app.quit() }
     ])
     tray.setContextMenu(menu)
   }
