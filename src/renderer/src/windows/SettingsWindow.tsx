@@ -190,6 +190,7 @@ export default function SettingsWindow() {
   const [dirty, setDirty] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [openaiModelListMode, setOpenaiModelListMode] = useState<OpenaiModelListMode>('catalog')
+  const [utilityOpenaiModelListMode, setUtilityOpenaiModelListMode] = useState<OpenaiModelListMode>('catalog')
   const [worldDraft, setWorldDraft] = useState<WorldPreset | null>(null)
   const [personaDraft, setPersonaDraft] = useState<PersonaPreset | null>(null)
   const [personaNickDraft, setPersonaNickDraft] = useState('')
@@ -206,6 +207,8 @@ export default function SettingsWindow() {
   const [connResult, setConnResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [msgTesting, setMsgTesting] = useState(false)
   const [msgResult, setMsgResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [utilityConnTesting, setUtilityConnTesting] = useState(false)
+  const [utilityConnResult, setUtilityConnResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [dataDir, setDataDir] = useState('')
   const [changingDataDir, setChangingDataDir] = useState(false)
   const [appVersion, setAppVersion] = useState('')
@@ -907,6 +910,8 @@ export default function SettingsWindow() {
                           if (!next.llm.utilityModels[p]) next.llm.utilityModels[p] = PROVIDER_DEFAULT_MODEL[p] ?? ''
                           return next
                         })
+                        // Reset utility OpenAI model list mode when switching provider
+                        setUtilityOpenaiModelListMode('catalog')
                       }}
                     >
                       {Object.entries(PROVIDER_LABELS).map(([k, v]) => (
@@ -925,31 +930,58 @@ export default function SettingsWindow() {
                     <div className="flex gap-2 mt-2 items-center flex-wrap">
                       <button
                         type="button"
-                        disabled={connTesting || !(draft.llm.apiKeys?.[draft.llm.utilityProvider ?? draft.llm.provider] ?? '').trim()}
+                        disabled={utilityConnTesting || !(draft.llm.apiKeys?.[draft.llm.utilityProvider ?? draft.llm.provider] ?? '').trim()}
                         className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal transition-all"
                         onClick={async () => {
-                          setConnTesting(true)
-                          setConnResult(null)
+                          setUtilityConnTesting(true)
+                          setUtilityConnResult(null)
                           try {
                             const r = await window.api.invoke('llm:test-connection', {
                               provider: draft.llm.utilityProvider ?? draft.llm.provider,
                               apiKeys: draft.llm.apiKeys,
                               endpoint: draft.llm.endpoint
                             }) as { ok: boolean; error?: string; models?: string[] }
-                            setConnResult(r.ok
+                            setUtilityConnResult(r.ok
                               ? { ok: true, msg: '已驗證' }
                               : { ok: false, msg: r.error || '連線失敗' })
                           } catch (e: any) {
-                            setConnResult({ ok: false, msg: e?.message || '未知錯誤' })
+                            setUtilityConnResult({ ok: false, msg: e?.message || '未知錯誤' })
                           } finally {
-                            setConnTesting(false)
+                            setUtilityConnTesting(false)
                           }
                         }}
                       >
-                        {connTesting ? '驗證中...' : '連線'}
+                        {utilityConnTesting ? '驗證中...' : '連線'}
                       </button>
+                      {utilityConnResult && (
+                        <span className={`text-xs ${utilityConnResult.ok ? 'text-[#4CAF50]' : 'text-[#E85D3F]'}`}>
+                          {utilityConnResult.ok ? '●' : '●'} {utilityConnResult.msg}
+                        </span>
+                      )}
                     </div>
                   </Field>
+                  {(draft.llm.utilityProvider ?? draft.llm.provider) === 'openai' && (
+                    <Field label="模型建議清單">
+                      <select
+                        className="input-field"
+                        value={utilityOpenaiModelListMode}
+                        onChange={e => setUtilityOpenaiModelListMode(e.target.value as OpenaiModelListMode)}
+                      >
+                        <option value="catalog">一般（最新常用 ID 捷徑）</option>
+                        <option value="incentive-1m">資料分享贈送額度 · 每日 1M 組（官方快照 ID）</option>
+                        <option value="incentive-10m">資料分享贈送額度 · 每日 10M 組（官方快照 ID）</option>
+                        <option value="incentive-all">資料分享贈送額度 · 兩組合併</option>
+                      </select>
+                      <p className="text-[11px] text-secondary leading-snug mt-1.5">
+                        贈送額度僅在已於 Platform 開啟「分享輸入／輸出」且帳戶顯示符合資格時適用；兩組額度分開計（tier 1–2 為 250K / 2.5M）。
+                        詳見{' '}
+                        <a className="underline text-primary" href={OPENAI_MODEL_LIST_HELP} target="_blank" rel="noreferrer">
+                          OpenAI 說明
+                        </a>
+                        。微調、eval、工具呼叫不在贈送範圍。
+                      </p>
+                    </Field>
+                  )}
                   <Field label="輔助模型（可手動輸入自訂 ID）">
                     <input
                       type="text"
@@ -970,13 +1002,19 @@ export default function SettingsWindow() {
                         }}
                       >
                         <option value="">快速挑選</option>
-                        {(PROVIDER_MODELS[draft.llm.utilityProvider ?? draft.llm.provider] ?? MODELS).map(m => (
+                        {((draft.llm.utilityProvider ?? draft.llm.provider) === 'openai'
+                          ? openaiModelOptionsFor(utilityOpenaiModelListMode)
+                          : PROVIDER_MODELS[draft.llm.utilityProvider ?? draft.llm.provider] ?? MODELS
+                        ).map(m => (
                           <option key={m} value={m}>{m}</option>
                         ))}
                       </select>
                     </div>
                     <datalist id="utility-model-list">
-                      {(PROVIDER_MODELS[draft.llm.utilityProvider ?? draft.llm.provider] ?? MODELS).map(m => (
+                      {((draft.llm.utilityProvider ?? draft.llm.provider) === 'openai'
+                        ? openaiModelOptionsFor(utilityOpenaiModelListMode)
+                        : PROVIDER_MODELS[draft.llm.utilityProvider ?? draft.llm.provider] ?? MODELS
+                      ).map(m => (
                         <option key={m} value={m} />
                       ))}
                     </datalist>
