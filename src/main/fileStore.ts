@@ -266,9 +266,17 @@ export function loadReminders(): Reminder[] {
   try {
     const raw = JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf-8'))
     if (!Array.isArray(raw)) return []
-    return raw.filter((r): r is Reminder =>
-      !!r && typeof r.id === 'string' && typeof r.label === 'string' && !!r.schedule
-    )
+    return raw
+      .filter((r): r is Reminder =>
+        !!r && typeof r.id === 'string' && typeof r.label === 'string' && !!r.schedule
+      )
+      .map(r => {
+        const s = r.schedule
+        if (s.type === 'weekly' && (!Array.isArray(s.days) || s.days.length === 0)) {
+          return { ...r, schedule: { ...s, days: [new Date().getDay()] } }
+        }
+        return r
+      })
   } catch {
     return []
   }

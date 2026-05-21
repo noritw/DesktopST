@@ -678,6 +678,13 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     }
   }
 
+  const reminderMessages = reminder.injectConversationContext
+    ? conv.messages.slice(-(settings.memory.keepRecentN))
+    : []
+  if (reminder.injectConversationContext && reminderMessages.length > 0) {
+    ctxParts.push('[近期對話紀錄]\n以下僅供參考語境；請以提醒指令為主，用角色口吻簡短開口，不要長篇接續聊天。')
+  }
+
   // Desktop character list (after other context, before system time)
   const desktopCharNames = settings.ui.desktopCharacters
     .map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
@@ -715,7 +722,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       const { content, emotion: llmEmotion, debugPrompt: llmDebugPrompt, inputTokens: rInputTk, outputTokens: rOutputTk } = await chatWithLLM({
         settings: reminderChatSettings,
         character: char,
-        messages: [],
+        messages: reminderMessages,
         speakerNameById: getSpeakerNameById(),
         persona: activePersona,
         world: activeWorld,
@@ -2206,6 +2213,14 @@ export function registerIpcHandlers() {
     const r = list.find(x => x.id === id)
     if (!r) return
     r.enabled = enabled
+    if (enabled) {
+      const now = new Date()
+      const s = r.schedule
+      if (s.type === 'daily' || s.type === 'weekly') {
+        s.hour = now.getHours()
+        s.minute = now.getMinutes()
+      }
+    }
     fileStore.saveReminders(list)
     reloadReminders()
     broadcastToAll('reminders:updated', null)

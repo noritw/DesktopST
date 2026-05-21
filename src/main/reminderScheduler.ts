@@ -67,6 +67,23 @@ function scheduleOne(r: Reminder): void {
     return
   }
 
+  if (s.type === 'weekly') {
+    const days = Array.isArray(s.days) ? s.days.filter(d => d >= 0 && d <= 6) : []
+    if (days.length === 0) return
+    const scheduleNextWeekly = () => {
+      const delay = nextWeeklyMs(days, s.hour, s.minute)
+      if (!Number.isFinite(delay) || delay <= 0) return
+      const t = setTimeout(() => {
+        timers.delete(r.id)
+        void fire(r)
+        if (r.enabled) scheduleNextWeekly()
+      }, delay)
+      timers.set(r.id, t)
+    }
+    scheduleNextWeekly()
+    return
+  }
+
   if (s.type === 'interval') {
     const intervalMs = Math.max(60_000, s.intervalMs)
     const elapsed = r.lastTriggeredAt ? Date.now() - r.lastTriggeredAt : intervalMs
@@ -107,4 +124,18 @@ function nextDailyMs(hour: number, minute: number): number {
   target.setHours(hour, minute, 0, 0)
   if (target <= now) target.setDate(target.getDate() + 1)
   return target.getTime() - now.getTime()
+}
+
+function nextWeeklyMs(days: number[], hour: number, minute: number): number {
+  const daySet = new Set(days)
+  const now = new Date()
+  for (let add = 0; add < 8; add++) {
+    const target = new Date(now)
+    target.setDate(now.getDate() + add)
+    target.setHours(hour, minute, 0, 0)
+    if (daySet.has(target.getDay()) && target > now) {
+      return target.getTime() - now.getTime()
+    }
+  }
+  return 7 * 24 * 60 * 60 * 1000
 }

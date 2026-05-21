@@ -175,6 +175,8 @@ export type ReminderSchedule =
   | { type: 'startup' }
   | { type: 'once'; at: number }
   | { type: 'daily'; hour: number; minute: number }
+  /** days: 0=週日 … 6=週六（與 JS Date.getDay() 一致），可複選 */
+  | { type: 'weekly'; days: number[]; hour: number; minute: number }
   | { type: 'interval'; intervalMs: number }
 
 export interface Reminder {
@@ -187,6 +189,8 @@ export interface Reminder {
   enabled: boolean
   /** 觸發時將桌面可見便利貼內容附入 prompt */
   injectPinnedNotes?: boolean
+  /** 觸發時附入目前對話的近期紀錄（筆數同「記憶」設定） */
+  injectConversationContext?: boolean
   lastTriggeredAt?: number
   createdAt: number
 }

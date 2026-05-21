@@ -80,6 +80,7 @@ export type ReminderSchedule =
   | { type: 'startup' }
   | { type: 'once'; at: number }
   | { type: 'daily'; hour: number; minute: number }
+  | { type: 'weekly'; days: number[]; hour: number; minute: number }
   | { type: 'interval'; intervalMs: number }
 
 export interface Reminder {
@@ -90,6 +91,7 @@ export interface Reminder {
   schedule: ReminderSchedule
   enabled: boolean
   injectPinnedNotes?: boolean
+  injectConversationContext?: boolean
   lastTriggeredAt?: number
   createdAt: number
 }

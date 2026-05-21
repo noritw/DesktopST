@@ -4,7 +4,24 @@ import type { Reminder, ReminderSchedule, Character } from '../types'
 import { useAppStore } from '../stores/useAppStore'
 import MonoIcon from '../components/MonoIcon'
 
-// ── Helpers ───────────────────────────────────────────────
+const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const
+
+function currentClockHHMM(): string {
+  const d = new Date()
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function currentDatetimeLocalValue(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function clockFromSchedule(schedule: ReminderSchedule): string {
+  if (schedule.type === 'daily' || schedule.type === 'weekly') {
+    return `${String(schedule.hour).padStart(2, '0')}:${String(schedule.minute).padStart(2, '0')}`
+  }
+  return currentClockHHMM()
+}
 
 function scheduleLabel(s: ReminderSchedule): string {
   if (s.type === 'startup') return '每次啟動'
@@ -12,6 +29,13 @@ function scheduleLabel(s: ReminderSchedule): string {
     const hh = String(s.hour).padStart(2, '0')
     const mm = String(s.minute).padStart(2, '0')
     return `每天 ${hh}:${mm}`
+  }
+  if (s.type === 'weekly') {
+    const hh = String(s.hour).padStart(2, '0')
+    const mm = String(s.minute).padStart(2, '0')
+    const days = [...s.days].sort((a, b) => a - b)
+    const names = days.map(d => WEEKDAY_LABELS[d] ?? '?').join('、')
+    return `每週 ${names} ${hh}:${mm}`
   }
   if (s.type === 'interval') {
     const mins = Math.round(s.intervalMs / 60_000)
@@ -29,13 +53,15 @@ function scheduleLabel(s: ReminderSchedule): string {
 }
 
 function makeDefault(): Reminder {
+  const now = new Date()
   return {
     id: uuidv4(),
     label: '',
     prompt: '',
-    schedule: { type: 'startup' },
+    schedule: { type: 'daily', hour: now.getHours(), minute: now.getMinutes() },
     enabled: true,
     injectPinnedNotes: false,
+    injectConversationContext: false,
     createdAt: Date.now()
   }
 }
@@ -61,12 +87,10 @@ function ReminderForm({
   const [label, setLabel] = useState(initial.label)
   const [charId, setCharId] = useState(initial.characterId ?? '')
   const [schedType, setSchedType] = useState<ReminderSchedule['type']>(initial.schedule.type)
-  const [dailyTime, setDailyTime] = useState(() => {
-    if (initial.schedule.type === 'daily') {
-      return `${String(initial.schedule.hour).padStart(2, '0')}:${String(initial.schedule.minute).padStart(2, '0')}`
-    }
-    return '08:00'
-  })
+  const [clockTime, setClockTime] = useState(() => clockFromSchedule(initial.schedule))
+  const [weeklyDays, setWeeklyDays] = useState<number[]>(() =>
+    initial.schedule.type === 'weekly' ? [...initial.schedule.days] : [new Date().getDay()]
+  )
   const [intervalMins, setIntervalMins] = useState(() =>
     initial.schedule.type === 'interval' ? Math.round(initial.schedule.intervalMs / 60_000) : 30
   )
@@ -75,18 +99,47 @@ function ReminderForm({
       const d = new Date(initial.schedule.at)
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
     }
-    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(9, 0, 0, 0)
-    return `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, '0')}-${String(tomorrow.getDate()).padStart(2, '0')}T09:00`
+    return currentDatetimeLocalValue()
   })
   const [prompt, setPrompt] = useState(initial.prompt)
   const [injectNotes, setInjectNotes] = useState(initial.injectPinnedNotes ?? false)
+  const [injectContext, setInjectContext] = useState(initial.injectConversationContext ?? false)
   const [error, setError] = useState('')
+
+  const handleSchedTypeChange = (next: ReminderSchedule['type']) => {
+    setSchedType(next)
+    if (next === 'daily' || next === 'weekly') {
+      setClockTime(currentClockHHMM())
+    }
+    if (next === 'weekly' && weeklyDays.length === 0) {
+      setWeeklyDays([new Date().getDay()])
+    }
+    if (next === 'once') {
+      setOnceAt(currentDatetimeLocalValue())
+    }
+  }
+
+  const toggleWeekday = (day: number) => {
+    setWeeklyDays(prev => {
+      const has = prev.includes(day)
+      if (has) {
+        const next = prev.filter(d => d !== day)
+        return next.length > 0 ? next : [day]
+      }
+      return [...prev, day].sort((a, b) => a - b)
+    })
+  }
 
   function buildSchedule(): ReminderSchedule {
     if (schedType === 'startup') return { type: 'startup' }
-    if (schedType === 'daily') {
-      const [hStr, mStr] = dailyTime.split(':')
-      return { type: 'daily', hour: parseInt(hStr ?? '8'), minute: parseInt(mStr ?? '0') }
+    if (schedType === 'daily' || schedType === 'weekly') {
+      const [hStr, mStr] = clockTime.split(':')
+      const hour = parseInt(hStr ?? '0', 10)
+      const minute = parseInt(mStr ?? '0', 10)
+      if (schedType === 'weekly') {
+        return { type: 'weekly', days: [...weeklyDays].sort((a, b) => a - b), hour, minute }
+      }
+      return { type: 'daily', hour, minute }
     }
     if (schedType === 'interval') {
       return { type: 'interval', intervalMs: Math.max(5, intervalMins) * 60_000 }
@@ -108,6 +161,10 @@ function ReminderForm({
       setError('請設定未來的時間')
       return
     }
+    if (schedType === 'weekly' && weeklyDays.length === 0) {
+      setError('請至少選擇一個星期')
+      return
+    }
     setError('')
     onSave({
       ...initial,
@@ -115,7 +172,8 @@ function ReminderForm({
       characterId: charId || undefined,
       schedule: buildSchedule(),
       prompt,
-      injectPinnedNotes: injectNotes
+      injectPinnedNotes: injectNotes,
+      injectConversationContext: injectContext
     })
   }
 
@@ -155,10 +213,11 @@ function ReminderForm({
         <select
           className={inputCls}
           value={schedType}
-          onChange={e => setSchedType(e.target.value as ReminderSchedule['type'])}
+          onChange={e => handleSchedTypeChange(e.target.value as ReminderSchedule['type'])}
         >
           <option value="startup">每次啟動程式</option>
           <option value="daily">每天固定時間</option>
+          <option value="weekly">每週固定星期與時間</option>
           <option value="interval">間隔時間</option>
           <option value="once">一次性</option>
         </select>
@@ -170,9 +229,40 @@ function ReminderForm({
           <input
             type="time"
             className={inputCls}
-            value={dailyTime}
-            onChange={e => setDailyTime(e.target.value)}
+            value={clockTime}
+            onChange={e => setClockTime(e.target.value)}
           />
+          <p className="text-[11px] text-secondary mt-1">切換到此類型時會帶入目前時間；啟用提醒時也會以當下時間為基準排程。</p>
+        </div>
+      )}
+
+      {schedType === 'weekly' && (
+        <div className="space-y-2">
+          <label className={labelCls}>每週哪幾天</label>
+          <div className="flex flex-wrap gap-1.5">
+            {WEEKDAY_LABELS.map((name, day) => (
+              <button
+                key={day}
+                type="button"
+                className={`min-w-[2.25rem] px-2 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                  weeklyDays.includes(day)
+                    ? 'bg-teal text-white border-teal'
+                    : 'bg-surface border-border text-secondary hover:bg-mint'
+                }`}
+                onClick={() => toggleWeekday(day)}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <label className={labelCls}>幾點</label>
+          <input
+            type="time"
+            className={inputCls}
+            value={clockTime}
+            onChange={e => setClockTime(e.target.value)}
+          />
+          <p className="text-[11px] text-secondary">可複選，例如週三、四、五同一時刻。</p>
         </div>
       )}
 
@@ -230,6 +320,21 @@ function ReminderForm({
         <span className="text-sm text-primary">參考桌面上的便利貼內容</span>
       </label>
 
+      <label className="flex items-center gap-2 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={injectContext}
+          onChange={e => setInjectContext(e.target.checked)}
+          className="w-4 h-4 accent-teal"
+        />
+        <span className="text-sm text-primary">參考對話上下文內容</span>
+      </label>
+      {injectContext && (
+        <p className="text-[11px] text-secondary -mt-1 ml-6">
+          附入目前對話最近 {settings?.memory?.keepRecentN ?? 20} 則紀錄（與「設定 → 記憶」相同），供角色掌握語境。
+        </p>
+      )}
+
       <div className="flex gap-2 pt-1">
         <button
           type="button"
@@ -285,8 +390,11 @@ function ReminderCard({
           <div className="text-sm font-semibold text-primary truncate">{reminder.label}</div>
           <div className="text-xs text-secondary mt-0.5">{scheduleLabel(reminder.schedule)}</div>
           <div className="text-xs text-secondary">角色：{charName}</div>
-          {reminder.injectPinnedNotes && (
-            <div className="text-[11px] text-teal mt-0.5">✦ 參考便利貼</div>
+          {(reminder.injectPinnedNotes || reminder.injectConversationContext) && (
+            <div className="text-[11px] text-teal mt-0.5 space-x-2">
+              {reminder.injectPinnedNotes && <span>✦ 便利貼</span>}
+              {reminder.injectConversationContext && <span>✦ 對話上下文</span>}
+            </div>
           )}
         </div>
         <div className="shrink-0 flex gap-1 items-center">
