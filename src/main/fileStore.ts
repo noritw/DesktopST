@@ -202,7 +202,9 @@ export function loadSettings(): AppSettings {
         ...((() => {
           const rawUi = typed.ui
           const hadOnboardingKey = !!(rawUi && Object.prototype.hasOwnProperty.call(rawUi, 'onboardingCompleted'))
-          return !hadOnboardingKey ? { onboardingCompleted: true as const } : {}
+          // If the key doesn't exist in saved settings (legacy/first-run), default to false
+          // so onboarding screen appears. Never automatically skip onboarding.
+          return !hadOnboardingKey ? { onboardingCompleted: false as const } : {}
         })())
       }
     }

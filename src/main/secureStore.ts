@@ -21,7 +21,10 @@ export function decrypt(stored: string): string {
     return safeStorage.decryptString(Buffer.from(b64, 'base64'))
   } catch (e) {
     // Happens after OS reinstall / account change — key is gone, prompt re-entry
-    console.warn('[secureStore] decrypt failed (reinstall or account change?), clearing key:', e)
-    return ''
+    console.warn('[secureStore] decrypt failed (reinstall or account change?), returning encrypted value:', e)
+    // IMPORTANT: Return the original encrypted value, not empty string!
+    // Returning empty string permanently destroys the key. Better to keep the encrypted
+    // value and let the user re-enter it in UI.
+    return stored
   }
 }
