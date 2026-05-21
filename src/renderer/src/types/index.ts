@@ -99,6 +99,7 @@ export interface PersonaPreset {
   name: string
   displayName: string
   nickname: string
+  nicknames?: string[]
   description: string
   builtIn?: boolean
   createdAt: number

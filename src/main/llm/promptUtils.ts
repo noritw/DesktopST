@@ -61,10 +61,13 @@ export function normalizeEmotion(raw: string | undefined | null): string | null 
 export type PromptCharacter = {
   id?: string
   name: string
+  nicknames?: string[]
+  description?: string
   personality: string
   scenario?: string
   systemPromptOverride?: string
   exampleDialogue?: string
+  creatorNotes?: string
   emotions?: Record<string, string>
   spriteIds?: Record<string, string>
 }
@@ -312,11 +315,16 @@ export function buildSystemPrompt(
   }
 
   const override = applyStStyleTags(char.systemPromptOverride, tagVars)
+  const description = applyStStyleTags(char.description, tagVars)
   const personality = applyStStyleTags(char.personality, tagVars)
   const scenario = applyStStyleTags(char.scenario, tagVars)
   const exampleDialogue = applyStStyleTags(char.exampleDialogue, tagVars)
+  const creatorNotes = applyStStyleTags(char.creatorNotes, tagVars)
   const worldSetting = applyStStyleTags(world?.worldSetting, tagVars)
   const interactionExample = applyStStyleTags(world?.interactionExample, tagVars)
+  const nicknames = (char.nicknames ?? [])
+    .map(n => sanitizePromptText(n))
+    .filter(Boolean)
 
   const others = (desktopCharacterNames ?? []).filter(n => n !== char.name)
   const isGroup = others.length > 0
@@ -329,7 +337,11 @@ export function buildSystemPrompt(
   // ── [1] WHO ──────────────────────────────────────────────────────────────
   {
     const who: string[] = [`You are "${char.name}".`]
+    if (nicknames.length > 0) {
+      who.push(`The user may also address you as: ${nicknames.map(n => `"${n}"`).join(', ')}.`)
+    }
     if (override) who.push(override)
+    if (description) who.push(`[Description]\n${description}`)
     if (personality) who.push(personality)
     if (exampleDialogue) who.push(`[Style Examples]\n${exampleDialogue}`)
     parts.push(who.join('\n\n'))
@@ -342,7 +354,9 @@ export function buildSystemPrompt(
     if (scenario) ctx.push(`[Scene]\n${scenario}`)
     if (persona?.displayName?.trim() || persona?.nickname?.trim() || persona?.description?.trim()) {
       const description = sanitizePromptText(persona?.description)
+      const personaNicknames = (persona?.nicknames ?? []).map(n => sanitizePromptText(n)).filter(Boolean)
       const lines = ['[User]', `name: ${displayName}`, `preferred_name: ${nickname}`]
+      if (personaNicknames.length > 0) lines.push(`other_names: ${personaNicknames.join(', ')}`)
       if (description) lines.push(`notes: ${description}`)
       ctx.push(lines.join('\n'))
     }
@@ -351,6 +365,7 @@ export function buildSystemPrompt(
       `Group Members: ${char.name} (you), ${others.join(', ')}\n` +
       `Conversation uses "Name: content" format — ${nickname}: = user`
     )
+    if (creatorNotes) ctx.push(`[Author Notes]\n${creatorNotes}`)
     if (settings.injectSystemTime) ctx.push(`[System Time]\n${timeStr}`)
     if (extraSystemContext?.trim()) ctx.push(extraSystemContext.trim())
     if (ctx.length > 0) parts.push(ctx.join('\n\n'))

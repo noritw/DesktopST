@@ -192,6 +192,7 @@ export default function SettingsWindow() {
   const [openaiModelListMode, setOpenaiModelListMode] = useState<OpenaiModelListMode>('catalog')
   const [worldDraft, setWorldDraft] = useState<WorldPreset | null>(null)
   const [personaDraft, setPersonaDraft] = useState<PersonaPreset | null>(null)
+  const [personaNickDraft, setPersonaNickDraft] = useState('')
   const [renaming, setRenaming] = useState<'world' | 'persona' | null>(null)
   const [renameValue, setRenameValue] = useState('')
 
@@ -1146,6 +1147,54 @@ export default function SettingsWindow() {
                     placeholder="主人、大人、小名..."
                   />
                 </Field>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-secondary">其他稱呼（選填）</label>
+                  <p className="text-[11px] text-secondary">角色可能用的其他方式稱呼你，例如綽號、全名等。按 Enter 新增。</p>
+                  <div className="flex flex-wrap gap-1.5 pt-0.5">
+                    {(personaDraft.nicknames ?? []).map((n, idx) => (
+                      <span key={`${n}-${idx}`} className="inline-flex items-center gap-1 rounded-full bg-mint-30 border border-border px-2.5 py-0.5 text-xs text-primary">
+                        {n}
+                        <button
+                          type="button"
+                          onClick={() => setPersonaDraft(prev => prev ? { ...prev, nicknames: (prev.nicknames ?? []).filter((_, i) => i !== idx) } : prev)}
+                          className="text-secondary hover:text-primary leading-none"
+                          title="移除"
+                        >×</button>
+                      </span>
+                    ))}
+                  </div>
+                  <input
+                    type="text"
+                    maxLength={40}
+                    className="input-field"
+                    placeholder="輸入後按 Enter"
+                    value={personaNickDraft}
+                    onChange={e => setPersonaNickDraft(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        const v = personaNickDraft.trim()
+                        if (!v) return
+                        setPersonaDraft(prev => {
+                          if (!prev) return prev
+                          if ((prev.nicknames ?? []).includes(v)) return prev
+                          return { ...prev, nicknames: [...(prev.nicknames ?? []), v] }
+                        })
+                        setPersonaNickDraft('')
+                      }
+                    }}
+                    onBlur={() => {
+                      const v = personaNickDraft.trim()
+                      if (!v) return
+                      setPersonaDraft(prev => {
+                        if (!prev) return prev
+                        if ((prev.nicknames ?? []).includes(v)) return prev
+                        return { ...prev, nicknames: [...(prev.nicknames ?? []), v] }
+                      })
+                      setPersonaNickDraft('')
+                    }}
+                  />
+                </div>
                 <Field label="自我介紹（選填）">
                   <textarea className="input-field min-h-[80px] resize-none"
                     value={personaDraft.description}
