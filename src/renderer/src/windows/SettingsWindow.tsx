@@ -217,6 +217,8 @@ export default function SettingsWindow() {
   const messagePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const messagePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const draftRef = useRef<AppSettings | null>(null)
+  const dirtyRef = useRef(false)
 
   // 提醒音效路徑改變時重新建立 Audio 實例（只載入一次）
   const customSoundPath = draft?.ui.reminderNotificationSound?.customSoundPath
@@ -288,6 +290,7 @@ export default function SettingsWindow() {
 
   useEffect(() => {
     if (!settings) return
+    if (dirty) return  // 用戶正在編輯，不用外部事件覆蓋未儲存的修改
     const nextDraft = JSON.parse(JSON.stringify(settings)) as AppSettings
     // Ensure apiKeys exists (fallback for old settings)
     if (!nextDraft.llm.apiKeys) {
@@ -299,7 +302,7 @@ export default function SettingsWindow() {
       }
     }
     setDraft(nextDraft)
-  }, [settings])
+  }, [settings, dirty])
 
   useEffect(() => {
     if (!draft) return
@@ -312,6 +315,21 @@ export default function SettingsWindow() {
     const p = personaPresets.find(p => p.id === draft.activePersonaId)
     setPersonaDraft(p ? { ...p } : null)
   }, [draft?.activePersonaId, personaPresets])
+
+  // 保持 ref 與最新 state 同步，供 unmount cleanup 使用
+  useEffect(() => { draftRef.current = draft }, [draft])
+  useEffect(() => { dirtyRef.current = dirty }, [dirty])
+
+  // 視窗關閉前若有未儲存修改，立即觸發儲存（fire-and-forget）
+  useEffect(() => {
+    return () => {
+      if (!dirtyRef.current || !draftRef.current) return
+      const data = draftRef.current
+      const settingsToSave = JSON.parse(JSON.stringify(data)) as AppSettings
+      settingsToSave.llm.model = settingsToSave.llm.models?.[settingsToSave.llm.provider] ?? settingsToSave.llm.model
+      window.api.invoke('settings:save', settingsToSave).catch(() => {})
+    }
+  }, [])
 
   // 自動儲存防抖（600ms）
   useEffect(() => {
@@ -364,6 +382,7 @@ export default function SettingsWindow() {
         await savePersonaPreset(personaDraft)
       }
       await saveSettings(settingsToSave)
+      dirtyRef.current = false
       setDraft(settingsToSave)
       setDirty(false)
     } finally {

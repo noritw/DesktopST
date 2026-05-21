@@ -225,10 +225,10 @@ if (-not $shouldPush) {
         # 寫 Release notes 到暫存檔
         $notesFile = [System.IO.Path]::GetTempFileName()
         $notesLines = @(
-            "## 下載",
+            "## 下載（擇一即可）",
             "",
-            "- **安裝檔**（建議）：``DesktopST $ver.exe``",
-            "- **免安裝版**：``DesktopST-v$ver-full.zip``（解壓縮後直接執行 ``DesktopST.exe``）"
+            "- **EXE版**：``DesktopST $ver.exe``（檔案較小，執行時才自動解壓縮所需檔案）",
+            "- **免安裝版**（開啟速度較快）：``DesktopST-v$ver-full.zip``（解壓縮後直接執行 ``DesktopST.exe``）"
         )
         $notesLines | Set-Content -Path $notesFile -Encoding utf8
 
