@@ -13,21 +13,16 @@ export interface UpdateCheckResult {
   error?: string
 }
 
-function isNewer(tagOrVersion: string, current: string): boolean {
-  const strip = (v: string) => v.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0)
-  const a = strip(tagOrVersion)
-  const b = strip(current)
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const ai = a[i] ?? 0
-    const bi = b[i] ?? 0
-    if (ai !== bi) return ai > bi
-  }
-  return false
+function isNewer(latestDate: string, currentDate?: string): boolean {
+  const latest = new Date(latestDate)
+  const current = currentDate ? new Date(currentDate) : new Date(0)
+  return latest > current
 }
 
 export async function checkForUpdates(opts: {
   silent: boolean
   dismissedVersion?: string
+  currentPublishedAt?: string
 }): Promise<UpdateCheckResult> {
   const current = app.getVersion()
   try {
@@ -36,10 +31,11 @@ export async function checkForUpdates(opts: {
       signal: AbortSignal.timeout(8000)
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const data = await res.json() as { tag_name: string }
+    const data = await res.json() as { tag_name: string; published_at: string }
     const latest = data.tag_name.replace(/^v/, '')
+    const latestPublishedAt = data.published_at
 
-    if (!isNewer(latest, current)) {
+    if (!isNewer(latestPublishedAt, opts.currentPublishedAt)) {
       if (!opts.silent) {
         await dialog.showMessageBox({
           type: 'info',

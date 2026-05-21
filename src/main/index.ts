@@ -127,7 +127,11 @@ app.on('ready', async () => {
   setTimeout(() => {
     const s = getSettings()
     if (s.updates?.checkOnStartup !== false) {
-      void checkForUpdates({ silent: true, dismissedVersion: s.updates?.dismissedVersion }).then(result => {
+      void checkForUpdates({
+        silent: true,
+        dismissedVersion: s.updates?.dismissedVersion,
+        currentPublishedAt: s.updates?.versionPublishedAt
+      }).then(result => {
         if (result.dismissed && result.latestVersion) {
           s.updates = { ...s.updates, dismissedVersion: result.latestVersion }
           saveSettings(s)
@@ -266,7 +270,11 @@ function setupTray(appRoot: string) {
         label: '檢查更新',
         click: () => {
           const s = getSettings()
-          void checkForUpdates({ silent: false, dismissedVersion: s.updates?.dismissedVersion }).then(result => {
+          void checkForUpdates({
+            silent: false,
+            dismissedVersion: s.updates?.dismissedVersion,
+            currentPublishedAt: s.updates?.versionPublishedAt
+          }).then(result => {
             if (result.dismissed && result.latestVersion) {
               s.updates = { ...s.updates, dismissedVersion: result.latestVersion }
               saveSettings(s)

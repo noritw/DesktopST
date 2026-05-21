@@ -2538,7 +2538,11 @@ export function registerIpcHandlers() {
   ipcMain.handle('app:get-version', () => app.getVersion())
 
   ipcMain.handle('updates:check-now', async () => {
-    const result = await checkForUpdates({ silent: false, dismissedVersion: settings.updates?.dismissedVersion })
+    const result = await checkForUpdates({
+      silent: false,
+      dismissedVersion: settings.updates?.dismissedVersion,
+      currentPublishedAt: settings.updates?.versionPublishedAt
+    })
     if (result.dismissed && result.latestVersion) {
       settings.updates = { ...settings.updates, dismissedVersion: result.latestVersion }
       fileStore.saveSettings(settings)

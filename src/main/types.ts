@@ -130,6 +130,7 @@ export interface AppSettings {
   updates?: {
     checkOnStartup?: boolean
     dismissedVersion?: string
+    versionPublishedAt?: string
   }
   ui: {
     desktopCharacters: DesktopCharacterState[]
