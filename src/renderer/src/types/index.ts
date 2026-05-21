@@ -30,6 +30,11 @@ export interface Message {
   emotion?: string
   images?: string[]
   timestamp: number
+  inputTokens?: number
+  outputTokens?: number
+  utilityInputTokens?: number
+  utilityOutputTokens?: number
+  utilityDebugPrompt?: string
 }
 
 export interface Conversation {
@@ -127,6 +132,12 @@ export interface AppSettings {
     maxGroupRounds: number
     maxImagesPerMessage: number
     temperature: number
+    /** 輔助任務（群組次要角色、force-speak、摘要、情緒分類）是否使用獨立便宜模型 */
+    utilityEnabled?: boolean
+    /** 輔助模型的供應商（未設定時跟隨 provider） */
+    utilityProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
+    /** 各供應商的輔助模型名稱 */
+    utilityModels?: Record<string, string>
   }
   memory: {
     keepRecentN: number

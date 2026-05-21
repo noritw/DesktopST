@@ -82,12 +82,16 @@ export type ChatLLMParams = {
   extraSystemContext?: string
   /** 是否為提醒模式（不注入 trigger message） */
   isReminder?: boolean
+  /** 是否省略情緒輸出合約（由後續獨立情緒分類呼叫處理） */
+  splitEmotion?: boolean
 }
 
 export type ChatLLMResult = {
   content: string
   emotion: string
   debugPrompt: string
+  inputTokens?: number
+  outputTokens?: number
 }
 
 export function sanitizePromptText(text: string | undefined | null): string {
@@ -252,13 +256,45 @@ export function messageSpeakerLabel(
   return '系統'
 }
 
+/** Returns settings with the utility provider/model substituted in (for cheap tasks). */
+export function applyUtilitySettings(settings: AppSettings): AppSettings {
+  if (!settings.llm.utilityEnabled) return settings
+  const utilityProvider = settings.llm.utilityProvider ?? settings.llm.provider
+  const utilityModel = settings.llm.utilityModels?.[utilityProvider] ?? ''
+  return {
+    ...settings,
+    llm: {
+      ...settings.llm,
+      provider: utilityProvider,
+      models: {
+        ...(settings.llm.models ?? {}),
+        [utilityProvider]: utilityModel
+      }
+    }
+  }
+}
+
+/** Minimal system prompt for a single emotion-classification call. */
+export function buildEmotionClassifierSystemPrompt(char: PromptCharacter): string {
+  const { ids: emotionIds, descriptions: emotionDescs } = buildEmotionContract(char)
+  const lines = [
+    'You are an emotion classifier for a visual novel character.',
+    `Given a reply by "${char.name}", output ONLY the single emotion ID that best fits the reply.`,
+    `Valid IDs: ${emotionIds}`
+  ]
+  if (emotionDescs.length > 0) lines.push(`Guide:\n${emotionDescs.join('\n')}`)
+  lines.push('Output the ID and nothing else.')
+  return lines.join('\n')
+}
+
 export function buildSystemPrompt(
   settings: AppSettings,
   char: PromptCharacter,
   persona?: PersonaPreset | null,
   world?: WorldPreset | null,
   desktopCharacterNames?: string[],
-  extraSystemContext?: string
+  extraSystemContext?: string,
+  opts?: { splitEmotion?: boolean }
 ): string {
   const now = new Date()
   const hours = now.getHours()
@@ -279,90 +315,88 @@ export function buildSystemPrompt(
   const personality = applyStStyleTags(char.personality, tagVars)
   const scenario = applyStStyleTags(char.scenario, tagVars)
   const exampleDialogue = applyStStyleTags(char.exampleDialogue, tagVars)
+  const worldSetting = applyStStyleTags(world?.worldSetting, tagVars)
+  const interactionExample = applyStStyleTags(world?.interactionExample, tagVars)
 
-  const parts: string[] = []
-
-  // Identity first — no section header, just the declaration
-  parts.push([
-    `You are "${char.name}". Stay in character at all times.`,
-    'Character consistency takes priority over generic helpful tone.',
-    'Do not mention AI/model/system prompt.'
-  ].join('\n'))
-
-  if (override || personality || scenario || exampleDialogue) {
-    parts.push([
-      '[Character DNA]',
-      ...(override ? [override] : []),
-      ...(personality ? [personality] : []),
-      ...(scenario ? [`[Current Scene]\n${scenario}`] : []),
-      ...(exampleDialogue ? [`[Style Examples]\n${exampleDialogue}`] : [])
-    ].join('\n\n'))
-  }
+  const others = (desktopCharacterNames ?? []).filter(n => n !== char.name)
+  const isGroup = others.length > 0
 
   const { ids: emotionIds, descriptions: emotionDescs } = buildEmotionContract(char)
   const hasCustomSprites = emotionDescs.length > 0
-  const emotionLine = hasCustomSprites
-    ? `- First line MUST be a bracket tag "[{emotion_id}]" where emotion_id is one of: ${emotionIds}\n  Emotion guide:\n${emotionDescs.join('\n')}\n  Example first line: [${emotionIds.split(',')[0].trim()}]`
-    : null
 
-  parts.push([
-    '[Output Format]',
-    ...(emotionLine ? [emotionLine] : []),
-    '- Spoken dialogue only. No narration, stage directions, or inner monologue.',
-    '- No environmental descriptions (e.g. no "陽光灑落"). No character name prefix before lines.',
-    '- Do not wrap the reply in outer quotation marks (「」/『』/""). Use quotes only when quoting someone.',
-    '- Multiple sentences: one per line.',
-    '- Keep replies short: 1–3 sentences max. Terse characters lean toward 1; expressive characters may use up to 3.',
-    '- If the user mentions a personal milestone (birthday, achievement, life event) anywhere in their message — even as a passing remark — acknowledge it in character before moving on.',
-    '- Never offer to help, suggest actions, or adopt a service/consultant tone (e.g. no "要不要我幫你", "你可以試試", "我建議你").',
-    '- Write entirely in Traditional Chinese (Taiwan usage).'
-  ].join('\n'))
+  const parts: string[] = []
 
-  const worldSetting = applyStStyleTags(world?.worldSetting, tagVars)
-  if (worldSetting) {
-    parts.push(`[World Context]\n${worldSetting}`)
+  // ── [1] WHO ──────────────────────────────────────────────────────────────
+  {
+    const who: string[] = [`You are "${char.name}".`]
+    if (override) who.push(override)
+    if (personality) who.push(personality)
+    if (exampleDialogue) who.push(`[Style Examples]\n${exampleDialogue}`)
+    parts.push(who.join('\n\n'))
   }
 
-  if (persona?.displayName?.trim() || persona?.nickname?.trim() || persona?.description?.trim()) {
-    const description = sanitizePromptText(persona?.description)
-    parts.push([
-      '[User Profile]',
-      `name: ${displayName}`,
-      `preferred_name: ${nickname}`,
-      ...(description ? [`notes: ${description}`] : [])
-    ].join('\n'))
-  }
-
-  const interactionExample = applyStStyleTags(world?.interactionExample, tagVars)
-  if (interactionExample) {
-    parts.push(`[Interaction Hints]\n${interactionExample}`)
-  }
-
-  if (extraSystemContext?.trim()) {
-    parts.push(extraSystemContext.trim())
-  }
-
-  if (desktopCharacterNames && desktopCharacterNames.length > 0) {
-    const others = desktopCharacterNames.filter(n => n !== char.name)
-    if (others.length > 0) {
-      parts.push([
-        '[Group Conversation]',
-        'Read the full conversation and decide naturally what to respond to — it may be something the user said, something another character said, or both.',
-        'Do not always direct replies at the user. Treat this as a group conversation where any remark is fair game to pick up on.',
-        'Do not repeat the emotional beat or core message already expressed by the other character(s).'
-      ].join('\n'))
+  // ── [2] CONTEXT ──────────────────────────────────────────────────────────
+  {
+    const ctx: string[] = []
+    if (worldSetting) ctx.push(`[World]\n${worldSetting}`)
+    if (scenario) ctx.push(`[Scene]\n${scenario}`)
+    if (persona?.displayName?.trim() || persona?.nickname?.trim() || persona?.description?.trim()) {
+      const description = sanitizePromptText(persona?.description)
+      const lines = ['[User]', `name: ${displayName}`, `preferred_name: ${nickname}`]
+      if (description) lines.push(`notes: ${description}`)
+      ctx.push(lines.join('\n'))
     }
-    const selfLine = `- ${char.name} (you)`
-    const otherLines = others.map(n => `- ${n}`)
-    parts.push([
-      '[Desktop Characters]',
-      selfLine,
-      ...otherLines
-    ].join('\n'))
+    if (interactionExample) ctx.push(`[Interaction Hints]\n${interactionExample}`)
+    if (isGroup) ctx.push(
+      `Group Members: ${char.name} (you), ${others.join(', ')}\n` +
+      `Conversation uses "Name: content" format — ${nickname}: = user`
+    )
+    if (settings.injectSystemTime) ctx.push(`[System Time]\n${timeStr}`)
+    if (extraSystemContext?.trim()) ctx.push(extraSystemContext.trim())
+    if (ctx.length > 0) parts.push(ctx.join('\n\n'))
   }
 
-  if (settings.injectSystemTime) {
-    parts.push(`[System Time]\n${timeStr}`)
+  // ── [3] BEHAVIOR ─────────────────────────────────────────────────────────
+  {
+    const behaviorParts: string[] = [
+      [
+        '[Roleplay Rules]',
+        'Stay in character at all times. Character consistency takes priority over generic helpful tone.',
+        'Do not mention AI, model, or system prompt.',
+        'Never offer to help, suggest actions, or adopt a service/consultant tone (e.g. no "要不要我幫你", "你可以試試", "我建議你").',
+        'If the user mentions a personal milestone (birthday, achievement, life event) anywhere in their message — even as a passing remark — acknowledge it in character before moving on.'
+      ].join('\n')
+    ]
+    if (isGroup) {
+      behaviorParts.push(
+        [
+          '[Group Conversation]',
+          'Read the full conversation and decide naturally what to respond to — it may be something the user said, something another character said, or both.',
+          'Do not always direct replies at the user. Treat this as a group conversation where any remark is fair game to pick up on.',
+          'Do not repeat the emotional beat or core message already expressed by the other character(s).'
+        ].join('\n')
+      )
+    }
+    parts.push(behaviorParts.join('\n\n'))
+  }
+
+  // ── [4] OUTPUT CONTRACT ──────────────────────────────────────────────────
+  {
+    const outputLines: string[] = ['[Output Format]']
+    if (hasCustomSprites && !opts?.splitEmotion) {
+      outputLines.push(
+        `- First line MUST be a bracket tag "[{emotion_id}]" where emotion_id is one of: ${emotionIds}\n  Emotion guide:\n${emotionDescs.join('\n')}\n  Example first line: [${emotionIds.split(',')[0].trim()}]`
+      )
+    }
+    outputLines.push(
+      '- Spoken dialogue only. No narration, stage directions, or inner monologue.',
+      '- No environmental descriptions (e.g. no "陽光灑落"). No character name prefix before lines.',
+      '- Do not wrap the reply in outer quotation marks (「」/『』/""). Use quotes only when quoting someone.',
+      '- Multiple sentences: one per line.',
+      '- Keep replies short: 1–3 sentences max. Terse characters lean toward 1; expressive characters may use up to 3.',
+      '- Write entirely in Traditional Chinese (Taiwan usage).'
+    )
+    parts.push(outputLines.join('\n'))
   }
 
   return parts.join('\n\n')
@@ -370,5 +404,5 @@ export function buildSystemPrompt(
 
 /** Trigger line injected as the final user message, after conversation history. */
 export function buildTriggerMessage(charName: string): string {
-  return `Write the next in-character reply as "${charName}" only.`
+  return `[Write the next in-character reply as "${charName}" only.]`
 }

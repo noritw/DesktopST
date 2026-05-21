@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, PinnedNote, Reminder } from './types'
 import * as fileStore from './fileStore'
-import { chatWithLLM, testLLMConnection, testLLMMessage } from './llm/index'
+import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM } from './llm/index'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel } from './llm/promptUtils'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
 import { importStJson, exportToStJson } from './stCardMapper'
@@ -701,11 +701,18 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     let cleanReply = ''
     let emotion = 'neutral'
     let debugPrompt = ''
+    let reminderInputTk: number | undefined
+    let reminderOutputTk: number | undefined
+    let reminderUtilityInputTk: number | undefined
+    let reminderUtilityOutputTk: number | undefined
+    let reminderUtilityDebugPrompt: string | undefined
 
     if (hasApiKey) {
-      // 有 API Key：調用 LLM 生成角色化回應
-      const { content, emotion: llmEmotion, debugPrompt: llmDebugPrompt } = await chatWithLLM({
-        settings,
+      // 有 API Key：調用 LLM 生成角色化回應（提醒走輔助模型）
+      const reminderHasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
+      const doSplitEmotionReminder = !!(settings.llm.utilityEnabled && reminderHasCustomSprites)
+      const { content, emotion: llmEmotion, debugPrompt: llmDebugPrompt, inputTokens: rInputTk, outputTokens: rOutputTk } = await chatWithLLM({
+        settings: applyUtilitySettings(settings),
         character: char,
         messages: [],
         speakerNameById: getSpeakerNameById(),
@@ -713,13 +720,24 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
         world: activeWorld,
         desktopCharacterNames: [],
         extraSystemContext,
-        isReminder: true
+        isReminder: true,
+        splitEmotion: doSplitEmotionReminder
       })
       cleanReply = stripOtherCharacterSpeakerLines(
         normalizeCharacterDialogue(content, char),
         char.id
       )
-      emotion = llmEmotion
+      reminderInputTk = rInputTk
+      reminderOutputTk = rOutputTk
+      if (doSplitEmotionReminder && cleanReply) {
+        const cr = await classifyEmotionWithLLM({ settings, character: char, reply: cleanReply })
+        emotion = cr.emotion
+        reminderUtilityInputTk = cr.inputTokens
+        reminderUtilityOutputTk = cr.outputTokens
+        reminderUtilityDebugPrompt = cr.debugPrompt
+      } else {
+        emotion = llmEmotion
+      }
       debugPrompt = llmDebugPrompt
     } else {
       // 無 API Key：離線模式，直接使用提醒文字
@@ -737,6 +755,11 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       llmModel: hasApiKey ? resolveModel(settings) : undefined,
       debugPrompt: hasApiKey ? debugPrompt : undefined,
       emotion,
+      inputTokens: reminderInputTk,
+      outputTokens: reminderOutputTk,
+      utilityInputTokens: reminderUtilityInputTk,
+      utilityOutputTokens: reminderUtilityOutputTk,
+      utilityDebugPrompt: reminderUtilityDebugPrompt,
       timestamp: Date.now()
     }
     conv.messages.push(msg)
@@ -1660,11 +1683,15 @@ export function registerIpcHandlers() {
     const recentMessagesBase = [...conv.messages.slice(0, -1), userMsgForPrompt].slice(-(settings.memory.keepRecentN))
     let lastReplyText = ''
 
+    // Emotion split: use utility model to classify if utilityEnabled + character has custom sprites
+    const primaryHasCustomSprites = Object.values(primaryChar.emotions ?? {}).some(p => p?.trim())
+    const doSplitEmotion = !!(settings.llm.utilityEnabled && primaryHasCustomSprites)
+
     // 1) Primary responder always replies
     try {
       raiseCharactersAbovePinnedNotes()
       broadcastToAll('character:thinking', { characterId: primaryId, thinking: true })
-      const { content, emotion, debugPrompt } = await chatWithLLM({
+      const { content, emotion: rawEmotion, debugPrompt, inputTokens, outputTokens } = await chatWithLLM({
         settings,
         character: primaryChar,
         messages: recentMessagesBase,
@@ -1672,7 +1699,8 @@ export function registerIpcHandlers() {
         speakerNameById: getSpeakerNameById(),
         persona: activePersona,
         world: activeWorld,
-        desktopCharacterNames
+        desktopCharacterNames,
+        splitEmotion: doSplitEmotion
       })
       const primaryReply = stripOtherCharacterSpeakerLines(
         normalizeCharacterDialogue(content, primaryChar),
@@ -1680,6 +1708,18 @@ export function registerIpcHandlers() {
       )
       if (!primaryReply) {
         throw new Error('模型輸出包含其他角色台詞，已拒絕這次回覆。')
+      }
+      // Run separate emotion classification if needed
+      let emotion = rawEmotion
+      let utilityInputTokens: number | undefined
+      let utilityOutputTokens: number | undefined
+      let utilityDebugPrompt: string | undefined
+      if (doSplitEmotion) {
+        const classifyResult = await classifyEmotionWithLLM({ settings, character: primaryChar, reply: primaryReply })
+        emotion = classifyResult.emotion
+        utilityInputTokens = classifyResult.inputTokens
+        utilityOutputTokens = classifyResult.outputTokens
+        utilityDebugPrompt = classifyResult.debugPrompt
       }
       userMsg.debugPrompt = debugPrompt
       lastReplyText = primaryReply
@@ -1692,6 +1732,11 @@ export function registerIpcHandlers() {
         llmModel: resolveModel(settings),
         debugPrompt,
         emotion,
+        inputTokens,
+        outputTokens,
+        utilityInputTokens,
+        utilityOutputTokens,
+        utilityDebugPrompt,
         timestamp: Date.now()
       }
       conv.messages.push(charMsg)
@@ -1754,14 +1799,17 @@ export function registerIpcHandlers() {
             timestamp: Date.now()
           }]
         }
-        const { content: reply, emotion, debugPrompt } = await chatWithLLM({
-          settings,
+        const secHasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
+        const doSplitEmotionSec = !!(settings.llm.utilityEnabled && secHasCustomSprites)
+        const { content: reply, emotion: rawEmotionSec, debugPrompt, inputTokens: secInputTk, outputTokens: secOutputTk } = await chatWithLLM({
+          settings: applyUtilitySettings(settings),
           character: char,
           messages: recentMessages,
           speakerNameById: getSpeakerNameById(),
           persona: activePersona,
           world: activeWorld,
-          desktopCharacterNames
+          desktopCharacterNames,
+          splitEmotion: doSplitEmotionSec
         })
         const cleanReply = stripOtherCharacterSpeakerLines(
           normalizeCharacterDialogue(reply.trim(), char),
@@ -1780,6 +1828,20 @@ export function registerIpcHandlers() {
           continue
         }
 
+        let emotionSec: string
+        let secUtilityInputTk: number | undefined
+        let secUtilityOutputTk: number | undefined
+        let secUtilityDebugPrompt: string | undefined
+        if (doSplitEmotionSec) {
+          const cr = await classifyEmotionWithLLM({ settings, character: char, reply: cleanReply })
+          emotionSec = cr.emotion
+          secUtilityInputTk = cr.inputTokens
+          secUtilityOutputTk = cr.outputTokens
+          secUtilityDebugPrompt = cr.debugPrompt
+        } else {
+          emotionSec = normalizeEmotion(rawEmotionSec) || 'neutral'
+        }
+
         const charMsg: Message = {
           id: uuidv4(),
           role: 'character',
@@ -1788,7 +1850,12 @@ export function registerIpcHandlers() {
           llmProvider: settings.llm.provider,
           llmModel: resolveModel(settings),
           debugPrompt,
-          emotion: normalizeEmotion(emotion) || 'neutral',
+          emotion: emotionSec,
+          inputTokens: secInputTk,
+          outputTokens: secOutputTk,
+          utilityInputTokens: secUtilityInputTk,
+          utilityOutputTokens: secUtilityOutputTk,
+          utilityDebugPrompt: secUtilityDebugPrompt,
           timestamp: Date.now()
         }
         lastReplyText = cleanReply
@@ -1858,15 +1925,18 @@ export function registerIpcHandlers() {
     try {
       let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
       const desktopCharNamesForce = settings.ui.desktopCharacters.map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
-      const { content, emotion, debugPrompt } = await chatWithLLM({
-        settings,
+      const forceHasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
+      const doSplitEmotionForce = !!(settings.llm.utilityEnabled && forceHasCustomSprites)
+      const { content, emotion: rawEmotionForce, debugPrompt, inputTokens: forceInputTk, outputTokens: forceOutputTk } = await chatWithLLM({
+        settings: applyUtilitySettings(settings),
         character: char,
         messages: recentMessages,
         speakerNameById: getSpeakerNameById(),
         persona: activePersona,
         world: activeWorld,
         desktopCharacterNames: desktopCharNamesForce,
-        extraSystemContext
+        extraSystemContext,
+        splitEmotion: doSplitEmotionForce
       })
       const forcedReply = stripOtherCharacterSpeakerLines(
         normalizeCharacterDialogue(content, char),
@@ -1874,6 +1944,17 @@ export function registerIpcHandlers() {
       )
       if (!forcedReply) {
         return { error: '模型輸出包含其他角色台詞，已拒絕這次強制發話。' }
+      }
+      let forceEmotion = rawEmotionForce
+      let forceUtilityInputTk: number | undefined
+      let forceUtilityOutputTk: number | undefined
+      let forceUtilityDebugPrompt: string | undefined
+      if (doSplitEmotionForce) {
+        const cr = await classifyEmotionWithLLM({ settings, character: char, reply: forcedReply })
+        forceEmotion = cr.emotion
+        forceUtilityInputTk = cr.inputTokens
+        forceUtilityOutputTk = cr.outputTokens
+        forceUtilityDebugPrompt = cr.debugPrompt
       }
       const msg: Message = {
         id: uuidv4(),
@@ -1883,7 +1964,12 @@ export function registerIpcHandlers() {
         llmProvider: settings.llm.provider,
         llmModel: resolveModel(settings),
         debugPrompt,
-        emotion,
+        emotion: forceEmotion,
+        inputTokens: forceInputTk,
+        outputTokens: forceOutputTk,
+        utilityInputTokens: forceUtilityInputTk,
+        utilityOutputTokens: forceUtilityOutputTk,
+        utilityDebugPrompt: forceUtilityDebugPrompt,
         timestamp: Date.now()
       }
       conv.messages.push(msg)

@@ -49,6 +49,47 @@ function stripImageData(prompt: string): string {
   }
 }
 
+function renderDebugPrompt(raw: string): string {
+  try {
+    const obj = JSON.parse(raw) as Record<string, unknown>
+    const lines: string[] = []
+
+    for (const key of ['provider', 'model', 'endpoint', 'max_output_tokens', 'temperature']) {
+      if (obj[key] !== undefined) lines.push(`${key}: ${obj[key]}`)
+    }
+
+    const renderContent = (content: unknown): string => {
+      if (typeof content === 'string') return content
+      if (Array.isArray(content)) {
+        return (content as Array<Record<string, unknown>>)
+          .map(p => p.type === 'text' ? String(p.text ?? '') : '[image]')
+          .join('')
+      }
+      return String(content)
+    }
+
+    const msgs = (obj.input ?? obj.messages) as Array<{ role: string; content: unknown }> | undefined
+    if (msgs) {
+      for (const msg of msgs) {
+        lines.push(`\n── [${msg.role}] ${'─'.repeat(Math.max(0, 44 - msg.role.length))}`)
+        lines.push(renderContent(msg.content))
+      }
+    } else {
+      // Claude / Gemini truncated format
+      const systemText = (obj.system ?? obj.systemInstruction) as string | undefined
+      if (systemText) {
+        lines.push(`\n── [system] ───────────────────────────────`)
+        lines.push(systemText)
+      }
+      if (obj.historyLength !== undefined) lines.push(`\nhistory: ${obj.historyLength} turns, current: ${obj.currentParts} parts`)
+    }
+
+    return lines.join('\n').trimEnd()
+  } catch {
+    return raw
+  }
+}
+
 function stripLeadingEmotionTag(content: string): string {
   return String(content ?? '')
     .replace(/^\[\s*[a-z_一-鿿㐀-䶿]+\s*\]\s*/i, '')
@@ -91,6 +132,7 @@ export default function LogWindow() {
   const [editDraft, setEditDraft] = useState('')
   const [editEmotion, setEditEmotion] = useState<string>('neutral')
   const [promptMessage, setPromptMessage] = useState<Message | null>(null)
+  const [promptTab, setPromptTab] = useState<'main' | 'utility'>('main')
   const [previewImage, setPreviewImage] = useState<string | null>(null)
 
   const focusTitleInputTimer = useRef<number>(0)
@@ -172,12 +214,14 @@ export default function LogWindow() {
   const openPrompt = (msg: Message) => {
     setEditingId(null)
     setPromptMessage(msg)
+    setPromptTab('main')
   }
 
   const [copied, setCopied] = useState(false)
   const copyPrompt = () => {
-    if (!promptMessage?.debugPrompt) return
-    const stripped = stripImageData(promptMessage.debugPrompt)
+    const src = promptTab === 'utility' ? promptMessage?.utilityDebugPrompt : promptMessage?.debugPrompt
+    if (!src) return
+    const stripped = stripImageData(src)
     navigator.clipboard.writeText(stripped).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
@@ -269,6 +313,14 @@ export default function LogWindow() {
               {isCharacter && msg.emotion && (
                 <span className="text-xs px-1.5 py-0.5 rounded-full bg-teal-20 text-teal font-medium">
                   {msg.emotion}
+                </span>
+              )}
+              {isCharacter && msg.outputTokens != null && (
+                <span
+                  className="text-[10px] text-secondary/70 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title={`輸出 ${msg.outputTokens} tokens${msg.utilityOutputTokens != null ? `，輔助 ${msg.utilityOutputTokens}` : ''}`}
+                >
+                  {msg.outputTokens}t{msg.utilityOutputTokens != null ? `+${msg.utilityOutputTokens}t` : ''}
                 </span>
               )}
               <span className="text-xs text-secondary opacity-0 group-hover:opacity-100 transition-opacity">
@@ -499,12 +551,32 @@ export default function LogWindow() {
                 <div className="text-xs text-secondary truncate">
                   {promptMessage.role === 'character' ? getCharName(promptMessage.characterId) : userName} · {formatTime(promptMessage.timestamp)}
                 </div>
+                {(promptMessage.inputTokens != null || promptMessage.outputTokens != null) && (
+                  <div className="text-[11px] text-secondary mt-0.5 flex flex-wrap gap-x-2">
+                    {promptMessage.inputTokens != null && (
+                      <span>主模型 in: {promptMessage.inputTokens.toLocaleString()}</span>
+                    )}
+                    {promptMessage.outputTokens != null && (
+                      <span>out: {promptMessage.outputTokens.toLocaleString()}</span>
+                    )}
+                    {(promptMessage.utilityInputTokens != null || promptMessage.utilityOutputTokens != null) && (
+                      <>
+                        {promptMessage.utilityInputTokens != null && (
+                          <span className="text-teal">輔助 in: {promptMessage.utilityInputTokens.toLocaleString()}</span>
+                        )}
+                        {promptMessage.utilityOutputTokens != null && (
+                          <span className="text-teal">out: {promptMessage.utilityOutputTokens.toLocaleString()}</span>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   className="btn-round w-7 h-7 text-sm"
-                  title="複製完整 Prompt"
+                  title="複製此分頁 Prompt"
                   onClick={copyPrompt}
                 >
                   <MonoIcon name={copied ? 'check' : 'copy'} className="w-3.5 h-3.5" />
@@ -514,8 +586,30 @@ export default function LogWindow() {
                 </button>
               </div>
             </div>
+            {promptMessage.utilityDebugPrompt && (
+              <div className="flex gap-0 border-b border-border bg-surface px-4">
+                <button
+                  type="button"
+                  className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${promptTab === 'main' ? 'border-primary text-primary' : 'border-transparent text-secondary hover:text-primary'}`}
+                  onClick={() => setPromptTab('main')}
+                >
+                  扮演模型
+                </button>
+                <button
+                  type="button"
+                  className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${promptTab === 'utility' ? 'border-teal text-teal' : 'border-transparent text-secondary hover:text-primary'}`}
+                  onClick={() => setPromptTab('utility')}
+                >
+                  輔助模型（情緒分類）
+                </button>
+              </div>
+            )}
             <pre className="m-0 p-4 overflow-auto text-xs leading-relaxed text-primary whitespace-pre-wrap bg-surface">
-              {promptMessage.debugPrompt || '這則訊息沒有保存 Prompt。只有新的 LLM 回應會記錄完整 Prompt。'}
+              {promptTab === 'utility' && promptMessage.utilityDebugPrompt
+                ? renderDebugPrompt(promptMessage.utilityDebugPrompt)
+                : promptMessage.debugPrompt
+                  ? renderDebugPrompt(promptMessage.debugPrompt)
+                  : '這則訊息沒有保存 Prompt。只有新的 LLM 回應會記錄完整 Prompt。'}
             </pre>
           </div>
         </div>

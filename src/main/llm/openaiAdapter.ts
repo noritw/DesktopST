@@ -52,7 +52,7 @@ export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResu
     baseURL: settings.llm.endpoint || undefined
   })
 
-  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext)
+  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion })
 
   const input: Array<{
     role: 'system' | 'user' | 'assistant'
@@ -64,7 +64,7 @@ export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResu
       const role: 'user' | 'assistant' = isOwnCharacterMessage ? 'assistant' : 'user'
       const label = messageSpeakerLabel(m, persona, speakerNameById)
       const cleanContent = sanitizePromptText(m.content)
-      const text = isOwnCharacterMessage ? cleanContent : `【${label}】\n${cleanContent}`
+      const text = isOwnCharacterMessage ? cleanContent : `${label}: ${cleanContent}`
       const content = role === 'user'
         ? toOpenAIInputContent(text, m.images && m.images.length > 0 ? m.images : undefined)
         : text
@@ -97,19 +97,24 @@ export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResu
     body.temperature = settings.llm.temperature
   }
 
+  const resp = await client.responses.create(body as any)
+  const raw = extractResponseText(resp)
+  if (!raw || raw.trim().length === 0) {
+    throw new Error(`Empty response from model: ${model}`)
+  }
+  const inputTokens = (resp as any).usage?.input_tokens as number | undefined
+  const outputTokens = (resp as any).usage?.output_tokens as number | undefined
+
   const debugPrompt = JSON.stringify({
     provider: 'openai',
     model,
     endpoint: settings.llm.endpoint || 'default',
     max_output_tokens: body.max_output_tokens,
     temperature: body.temperature,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
     input
   }, null, 2)
 
-  const resp = await client.responses.create(body as any)
-  const raw = extractResponseText(resp)
-  if (!raw || raw.trim().length === 0) {
-    throw new Error(`Empty response from model: ${model}`)
-  }
-  return { ...parseEmotion(raw, buildEmotionIdList(params.character)), debugPrompt }
+  return { ...parseEmotion(raw, buildEmotionIdList(params.character)), debugPrompt, inputTokens, outputTokens }
 }

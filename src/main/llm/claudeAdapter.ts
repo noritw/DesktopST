@@ -40,7 +40,7 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
   const model = resolveModel(settings)
 
   const client = new Anthropic({ apiKey: resolveApiKey(settings) })
-  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext)
+  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion })
 
   type ClaudeMessage = { role: 'user' | 'assistant'; content: string | ClaudeContentBlock[] }
   const claudeMessages: ClaudeMessage[] = []
@@ -50,7 +50,7 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
     const role: 'user' | 'assistant' = isOwnChar ? 'assistant' : 'user'
     const label = messageSpeakerLabel(m, persona, speakerNameById)
     const cleanContent = sanitizePromptText(m.content)
-    const text = isOwnChar ? cleanContent : `【${label}】\n${cleanContent}`
+    const text = isOwnChar ? cleanContent : `${label}: ${cleanContent}`
 
     const hasImages = m.images && m.images.length > 0
     let content: string | ClaudeContentBlock[]
@@ -121,16 +121,6 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
     }
   }
 
-  const debugPrompt = JSON.stringify({
-    provider: 'claude',
-    model,
-    system: systemPrompt.slice(0, 200) + '...',
-    messages: claudeMessages.map(m => ({
-      role: m.role,
-      content: typeof m.content === 'string' ? m.content.slice(0, 100) : `[${(m.content as ClaudeContentBlock[]).length} parts]`
-    }))
-  }, null, 2)
-
   const response = await client.messages.create({
     model,
     max_tokens: settings.llm.maxResponseTokens * 3,
@@ -148,5 +138,20 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
   if (!raw) {
     throw new Error(`Empty response from model: ${model}`)
   }
-  return { ...parseEmotion(raw, buildEmotionIdList(params.character)), debugPrompt }
+  const inputTokens = response.usage?.input_tokens
+  const outputTokens = response.usage?.output_tokens
+
+  const debugPrompt = JSON.stringify({
+    provider: 'claude',
+    model,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    system: systemPrompt.slice(0, 200) + '...',
+    messages: claudeMessages.map(m => ({
+      role: m.role,
+      content: typeof m.content === 'string' ? m.content.slice(0, 100) : `[${(m.content as ClaudeContentBlock[]).length} parts]`
+    }))
+  }, null, 2)
+
+  return { ...parseEmotion(raw, buildEmotionIdList(params.character)), debugPrompt, inputTokens, outputTokens }
 }

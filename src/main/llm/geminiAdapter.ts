@@ -43,7 +43,7 @@ export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResu
   const modelName = resolveModel(settings)
 
   const genAI = new GoogleGenerativeAI(resolveApiKey(settings))
-  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext)
+  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion })
 
   const model = genAI.getGenerativeModel({
     model: modelName,
@@ -59,7 +59,7 @@ export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResu
     const role: 'user' | 'model' = isOwnChar ? 'model' : 'user'
     const label = messageSpeakerLabel(m, persona, speakerNameById)
     const cleanContent = sanitizePromptText(m.content)
-    const text = isOwnChar ? cleanContent : `【${label}】\n${cleanContent}`
+    const text = isOwnChar ? cleanContent : `${label}: ${cleanContent}`
 
     const parts: GeminiPart[] = []
     if (m.images && m.images.length > 0) {
@@ -100,14 +100,6 @@ export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResu
     history.unshift({ role: 'user', parts: [{ text: '（開始對話）' }] })
   }
 
-  const debugPrompt = JSON.stringify({
-    provider: 'gemini',
-    model: modelName,
-    systemInstruction: systemPrompt.slice(0, 200) + '...',
-    historyLength: history.length,
-    currentParts: currentParts.length
-  }, null, 2)
-
   const chat = model.startChat({ history })
   const result = await chat.sendMessage(currentParts as any)
   const raw = result.response.text().trim()
@@ -115,5 +107,18 @@ export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResu
   if (!raw) {
     throw new Error(`Empty response from model: ${modelName}`)
   }
-  return { ...parseEmotion(raw, buildEmotionIdList(params.character)), debugPrompt }
+  const inputTokens = result.response.usageMetadata?.promptTokenCount
+  const outputTokens = result.response.usageMetadata?.candidatesTokenCount
+
+  const debugPrompt = JSON.stringify({
+    provider: 'gemini',
+    model: modelName,
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    systemInstruction: systemPrompt.slice(0, 200) + '...',
+    historyLength: history.length,
+    currentParts: currentParts.length
+  }, null, 2)
+
+  return { ...parseEmotion(raw, buildEmotionIdList(params.character)), debugPrompt, inputTokens, outputTokens }
 }

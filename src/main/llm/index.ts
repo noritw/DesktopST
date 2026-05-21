@@ -1,9 +1,13 @@
 import { chatWithOpenAI } from './openaiAdapter'
 import { chatWithClaude } from './claudeAdapter'
 import { chatWithGemini } from './geminiAdapter'
-import type { ChatLLMParams, ChatLLMResult } from './promptUtils'
+import {
+  buildEmotionClassifierSystemPrompt, buildEmotionIdList, applyUtilitySettings,
+  type ChatLLMParams, type ChatLLMResult, type PromptCharacter
+} from './promptUtils'
+import type { AppSettings } from '../types'
 
-export { type ChatLLMParams, type ChatLLMResult }
+export { type ChatLLMParams, type ChatLLMResult, applyUtilitySettings }
 
 function endpointForProvider(provider: string, endpoint?: string): string | undefined {
   const trimmed = endpoint?.trim()
@@ -42,6 +46,99 @@ export async function chatWithLLM(params: ChatLLMParams): Promise<ChatLLMResult>
     }
     default:
       return chatWithOpenAI(params)
+  }
+}
+
+type EmotionClassifyResult = {
+  emotion: string
+  inputTokens?: number
+  outputTokens?: number
+  debugPrompt?: string
+}
+
+/** Classify emotion for a character reply using the utility (cheap) model. */
+export async function classifyEmotionWithLLM(params: {
+  settings: AppSettings
+  character: PromptCharacter
+  reply: string
+}): Promise<EmotionClassifyResult> {
+  const { settings, character, reply } = params
+  const utilitySettings = applyUtilitySettings(settings)
+  const systemPrompt = buildEmotionClassifierSystemPrompt(character)
+  const knownIds = buildEmotionIdList(character)
+  const fallback = knownIds[0] ?? 'neutral'
+
+  const resolveId = (raw: string) => {
+    const id = raw.replace(/[^a-z_一-鿿㐀-䶿]/gi, '').trim()
+    return knownIds.includes(id) ? id : fallback
+  }
+
+  const makeDebug = (provider: string, model: string, inputTokens: number | undefined, outputTokens: number | undefined, response: string) =>
+    JSON.stringify({
+      purpose: 'emotion_classify',
+      provider,
+      model,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      input: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: reply }
+      ],
+      response
+    }, null, 2)
+
+  const provider = utilitySettings.llm.provider
+  try {
+    if (provider === 'claude') {
+      const { default: Anthropic } = await import('@anthropic-ai/sdk')
+      const client = new Anthropic({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey })
+      const model = utilitySettings.llm.models?.[provider] || utilitySettings.llm.model
+      const resp = await client.messages.create({
+        model,
+        max_tokens: 20,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: reply }]
+      })
+      const raw = resp.content.filter(b => b.type === 'text').map(b => (b as any).text).join('').trim()
+      const inputTokens = resp.usage?.input_tokens
+      const outputTokens = resp.usage?.output_tokens
+      return { emotion: resolveId(raw), inputTokens, outputTokens, debugPrompt: makeDebug(provider, model, inputTokens, outputTokens, raw) }
+    }
+
+    if (provider === 'gemini') {
+      const { GoogleGenerativeAI } = await import('@google/generative-ai')
+      const genAI = new GoogleGenerativeAI(utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey)
+      const gmodel = genAI.getGenerativeModel({
+        model: utilitySettings.llm.models?.[provider] || utilitySettings.llm.model,
+        systemInstruction: systemPrompt
+      })
+      const result = await gmodel.generateContent(reply)
+      const raw = result.response.text().trim()
+      const inputTokens = result.response.usageMetadata?.promptTokenCount
+      const outputTokens = result.response.usageMetadata?.candidatesTokenCount
+      const model = utilitySettings.llm.models?.[provider] || utilitySettings.llm.model
+      return { emotion: resolveId(raw), inputTokens, outputTokens, debugPrompt: makeDebug(provider, model, inputTokens, outputTokens, raw) }
+    }
+
+    // OpenAI / Grok
+    const { default: OpenAI } = await import('openai')
+    const baseURL = endpointForProvider(provider, utilitySettings.llm.endpoint)
+    const client = new OpenAI({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey, baseURL })
+    const model = utilitySettings.llm.models?.[provider] || utilitySettings.llm.model
+    const resp = await client.responses.create({
+      model,
+      input: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: reply }
+      ],
+      max_output_tokens: 20
+    } as any)
+    const raw = (typeof (resp as any)?.output_text === 'string' ? (resp as any).output_text : '').trim()
+    const inputTokens = (resp as any).usage?.input_tokens as number | undefined
+    const outputTokens = (resp as any).usage?.output_tokens as number | undefined
+    return { emotion: resolveId(raw), inputTokens, outputTokens, debugPrompt: makeDebug(provider, model, inputTokens, outputTokens, raw) }
+  } catch {
+    return { emotion: fallback }
   }
 }
 

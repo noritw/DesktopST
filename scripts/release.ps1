@@ -172,68 +172,80 @@ if (-not (Test-Path $unpackedDir)) {
 Write-Host ""
 Write-Host "[5/5] Git 推送與 GitHub Release..." -ForegroundColor Cyan
 
-if (-not $doVersionBump) {
-    Write-Host "      （未升版，略過 git push 與 Release）" -ForegroundColor Gray
+# 決定是否推送
+$shouldPush = $false
+if ($doVersionBump) {
+    # 版本號有改 → 自動推送（不詢問）
+    $shouldPush = $true
+    Write-Host "      版本已升級，將自動推送至 git 與建立 Release。" -ForegroundColor Green
 } else {
-    $pushChoice = Read-Host "要推送並自動建立 GitHub Release 嗎？(y/N)"
-    if ($pushChoice -notmatch '^[Yy]$') {
-        Write-Host "      略過。" -ForegroundColor Gray
-    } else {
-        # git commit + tag + push
+    # 版本號未改 → 詢問用戶
+    Write-Host "      版本號未改變，是否推送至 git 與建立 Release？" -ForegroundColor Yellow
+    $pushChoice = Read-Host "推送？(y/N)"
+    if ($pushChoice -match '^[Yy]$') {
+        $shouldPush = $true
+    }
+}
+
+if (-not $shouldPush) {
+    Write-Host "      略過推送。" -ForegroundColor Gray
+} else {
+    # git commit + tag + push（僅在版本號改變時）
+    if ($doVersionBump) {
         git add package.json package-lock.json
         git commit -m "release: v$ver"
         git tag "v$ver"
         git push origin main
         git push origin "v$ver"
         Write-Host "      Git push 完成，tag v$ver 已建立。" -ForegroundColor Green
+    }
 
-        # 建立上傳檔案清單
-        $uploadFiles = @($exePath)
-        if ($zipPath -and (Test-Path $zipPath)) { $uploadFiles += $zipPath }
+    # 建立上傳檔案清單
+    $uploadFiles = @($exePath)
+    if ($zipPath -and (Test-Path $zipPath)) { $uploadFiles += $zipPath }
 
-        # 檢查 gh 是否安裝
-        $ghCmd = Get-Command gh -ErrorAction SilentlyContinue
-        if (-not $ghCmd) {
+    # 檢查 gh 是否安裝
+    $ghCmd = Get-Command gh -ErrorAction SilentlyContinue
+    if (-not $ghCmd) {
+        Write-Host ""
+        Write-Host "      未找到 gh 指令，無法自動建立 Release。" -ForegroundColor Yellow
+        Write-Host "      請先安裝 GitHub CLI：" -ForegroundColor White
+        Write-Host "        winget install --id GitHub.cli" -ForegroundColor Gray
+        Write-Host "      安裝後執行 gh auth login 完成授權，下次即可全自動。" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "      手動建立 Release：" -ForegroundColor Cyan
+        Write-Host "        https://github.com/noritw/DesktopST/releases/new?tag=v$ver" -ForegroundColor White
+        foreach ($f in $uploadFiles) {
+            Write-Host "        上傳：$f" -ForegroundColor White
+        }
+    } else {
+        Write-Host ""
+        Write-Host "      建立 GitHub Release v$ver..." -ForegroundColor Cyan
+
+        # 寫 Release notes 到暫存檔
+        $notesFile = [System.IO.Path]::GetTempFileName()
+        $notesLines = @(
+            "## 下載",
+            "",
+            "- **安裝檔**（建議）：``DesktopST $ver.exe``",
+            "- **免安裝版**：``DesktopST-v$ver-full.zip``（解壓縮後直接執行 ``DesktopST.exe``）"
+        )
+        $notesLines | Set-Content -Path $notesFile -Encoding utf8
+
+        # 呼叫 gh release create
+        $ghArgs = @("release", "create", "v$ver", "--title", "v$ver", "--notes-file", $notesFile) + $uploadFiles
+        & gh @ghArgs
+        $ghExit = $LASTEXITCODE
+
+        Remove-Item $notesFile -Force -ErrorAction SilentlyContinue
+
+        if ($ghExit -eq 0) {
             Write-Host ""
-            Write-Host "      未找到 gh 指令，無法自動建立 Release。" -ForegroundColor Yellow
-            Write-Host "      請先安裝 GitHub CLI：" -ForegroundColor White
-            Write-Host "        winget install --id GitHub.cli" -ForegroundColor Gray
-            Write-Host "      安裝後執行 gh auth login 完成授權，下次即可全自動。" -ForegroundColor Gray
-            Write-Host ""
-            Write-Host "      手動建立 Release：" -ForegroundColor Cyan
-            Write-Host "        https://github.com/noritw/DesktopST/releases/new?tag=v$ver" -ForegroundColor White
-            foreach ($f in $uploadFiles) {
-                Write-Host "        上傳：$f" -ForegroundColor White
-            }
+            Write-Host "      GitHub Release 建立完成！" -ForegroundColor Green
+            Write-Host "      https://github.com/noritw/DesktopST/releases/tag/v$ver" -ForegroundColor Cyan
         } else {
-            Write-Host ""
-            Write-Host "      建立 GitHub Release v$ver..." -ForegroundColor Cyan
-
-            # 寫 Release notes 到暫存檔
-            $notesFile = [System.IO.Path]::GetTempFileName()
-            $notesLines = @(
-                "## 下載",
-                "",
-                "- **安裝檔**（建議）：``DesktopST $ver.exe``",
-                "- **免安裝版**：``DesktopST-v$ver-full.zip``（解壓縮後直接執行 ``DesktopST.exe``）"
-            )
-            $notesLines | Set-Content -Path $notesFile -Encoding utf8
-
-            # 呼叫 gh release create
-            $ghArgs = @("release", "create", "v$ver", "--title", "v$ver", "--notes-file", $notesFile) + $uploadFiles
-            & gh @ghArgs
-            $ghExit = $LASTEXITCODE
-
-            Remove-Item $notesFile -Force -ErrorAction SilentlyContinue
-
-            if ($ghExit -eq 0) {
-                Write-Host ""
-                Write-Host "      GitHub Release 建立完成！" -ForegroundColor Green
-                Write-Host "      https://github.com/noritw/DesktopST/releases/tag/v$ver" -ForegroundColor Cyan
-            } else {
-                Write-Host "      Release 建立失敗（exit $ghExit），請手動處理。" -ForegroundColor Red
-                Write-Host "      https://github.com/noritw/DesktopST/releases/new?tag=v$ver" -ForegroundColor White
-            }
+            Write-Host "      Release 建立失敗（exit $ghExit），請手動處理。" -ForegroundColor Red
+            Write-Host "      https://github.com/noritw/DesktopST/releases/new?tag=v$ver" -ForegroundColor White
         }
     }
 }

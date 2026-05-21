@@ -382,6 +382,19 @@ export default function SettingsWindow() {
     setDraft(next)
   }
 
+  // Helper: get/set utility model for the currently-selected utility provider
+  const getUtilityModel = (): string => {
+    const p = draft?.llm.utilityProvider ?? draft?.llm.provider ?? 'openai'
+    return draft?.llm.utilityModels?.[p] ?? ''
+  }
+  const setUtilityModel = (m: string) => {
+    if (!draft) return
+    const next = JSON.parse(JSON.stringify(draft)) as AppSettings
+    const p = next.llm.utilityProvider ?? next.llm.provider
+    if (!next.llm.utilityModels) next.llm.utilityModels = {}
+    next.llm.utilityModels[p] = m
+    setDraft(next)
+  }
 
   const onboardingIncomplete = !!draft && draft.ui.onboardingCompleted === false
   const canFinishOnboarding =
@@ -864,6 +877,112 @@ export default function SettingsWindow() {
                 )}
               </Field>
             )}
+            <Field label="輔助模型">
+              <label className="flex items-center gap-2 text-sm text-primary cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={!(draft.llm.utilityEnabled ?? false)}
+                  onChange={e => set('llm.utilityEnabled', !e.target.checked)}
+                  className="accent-teal"
+                />
+                輔助任務沿用扮演模型
+              </label>
+              <p className="text-[11px] text-secondary leading-snug mt-1">
+                輔助任務包含：群組次要角色回應、定時提醒發話、情緒分類。取消勾選可指定便宜模型負責這些任務，節省主角色回應的費用。
+              </p>
+              {draft.llm.utilityEnabled && (
+                <div className="mt-3 space-y-2 pl-2 border-l-2 border-border">
+                  <Field label="輔助服務商">
+                    <select
+                      className="input-field"
+                      value={draft.llm.utilityProvider ?? draft.llm.provider}
+                      onChange={e => {
+                        const p = e.target.value as AppSettings['llm']['provider']
+                        setDraft(prev => {
+                          if (!prev) return prev
+                          const next = JSON.parse(JSON.stringify(prev)) as AppSettings
+                          next.llm.utilityProvider = p
+                          if (!next.llm.utilityModels) next.llm.utilityModels = {}
+                          if (!next.llm.utilityModels[p]) next.llm.utilityModels[p] = PROVIDER_DEFAULT_MODEL[p] ?? ''
+                          return next
+                        })
+                      }}
+                    >
+                      {Object.entries(PROVIDER_LABELS).map(([k, v]) => (
+                        <option key={k} value={k}>{v}</option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label={`輔助 API Key（${PROVIDER_LABELS[draft.llm.utilityProvider ?? draft.llm.provider]}）`}>
+                    <input
+                      type="password"
+                      className="input-field"
+                      value={draft.llm.apiKeys?.[draft.llm.utilityProvider ?? draft.llm.provider] ?? ''}
+                      onChange={e => set(`llm.apiKeys.${draft.llm.utilityProvider ?? draft.llm.provider}`, e.target.value)}
+                      placeholder={PROVIDER_KEY_PLACEHOLDER[draft.llm.utilityProvider ?? draft.llm.provider] ?? 'API Key'}
+                    />
+                    <div className="flex gap-2 mt-2 items-center flex-wrap">
+                      <button
+                        type="button"
+                        disabled={connTesting || !(draft.llm.apiKeys?.[draft.llm.utilityProvider ?? draft.llm.provider] ?? '').trim()}
+                        className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal transition-all"
+                        onClick={async () => {
+                          setConnTesting(true)
+                          setConnResult(null)
+                          try {
+                            const r = await window.api.invoke('llm:test-connection', {
+                              provider: draft.llm.utilityProvider ?? draft.llm.provider,
+                              apiKeys: draft.llm.apiKeys,
+                              endpoint: draft.llm.endpoint
+                            }) as { ok: boolean; error?: string; models?: string[] }
+                            setConnResult(r.ok
+                              ? { ok: true, msg: '已驗證' }
+                              : { ok: false, msg: r.error || '連線失敗' })
+                          } catch (e: any) {
+                            setConnResult({ ok: false, msg: e?.message || '未知錯誤' })
+                          } finally {
+                            setConnTesting(false)
+                          }
+                        }}
+                      >
+                        {connTesting ? '驗證中...' : '連線'}
+                      </button>
+                    </div>
+                  </Field>
+                  <Field label="輔助模型（可手動輸入自訂 ID）">
+                    <input
+                      type="text"
+                      className="input-field"
+                      list="utility-model-list"
+                      value={getUtilityModel()}
+                      onChange={e => setUtilityModel(e.target.value)}
+                      placeholder="輸入或選擇輔助模型 ID"
+                    />
+                    <div className="mt-2">
+                      <select
+                        className="input-field"
+                        value=""
+                        onChange={e => {
+                          const v = e.target.value
+                          if (v) setUtilityModel(v)
+                          e.currentTarget.value = ''
+                        }}
+                      >
+                        <option value="">快速挑選</option>
+                        {(PROVIDER_MODELS[draft.llm.utilityProvider ?? draft.llm.provider] ?? MODELS).map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <datalist id="utility-model-list">
+                      {(PROVIDER_MODELS[draft.llm.utilityProvider ?? draft.llm.provider] ?? MODELS).map(m => (
+                        <option key={m} value={m} />
+                      ))}
+                    </datalist>
+                  </Field>
+                </div>
+              )}
+            </Field>
             <Field label={`最大回應字數（${draft.llm.maxResponseTokens}）`}>
               <input type="range" min={100} max={1000} step={10}
                 value={draft.llm.maxResponseTokens}
