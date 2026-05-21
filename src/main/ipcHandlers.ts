@@ -2543,8 +2543,16 @@ export function registerIpcHandlers() {
       dismissedVersion: settings.updates?.dismissedVersion,
       currentPublishedAt: settings.updates?.versionPublishedAt
     })
+    let changed = false
     if (result.dismissed && result.latestVersion) {
       settings.updates = { ...settings.updates, dismissedVersion: result.latestVersion }
+      changed = true
+    }
+    if (result.latestPublishedAt && !result.hasUpdate) {
+      settings.updates = { ...settings.updates, versionPublishedAt: result.latestPublishedAt }
+      changed = true
+    }
+    if (changed) {
       fileStore.saveSettings(settings)
       broadcastToAll('settings:updated', settings)
     }

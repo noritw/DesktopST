@@ -132,8 +132,16 @@ app.on('ready', async () => {
         dismissedVersion: s.updates?.dismissedVersion,
         currentPublishedAt: s.updates?.versionPublishedAt
       }).then(result => {
+        let changed = false
         if (result.dismissed && result.latestVersion) {
           s.updates = { ...s.updates, dismissedVersion: result.latestVersion }
+          changed = true
+        }
+        if (result.latestPublishedAt && !result.hasUpdate) {
+          s.updates = { ...s.updates, versionPublishedAt: result.latestPublishedAt }
+          changed = true
+        }
+        if (changed) {
           saveSettings(s)
           broadcastToAll('settings:updated', s)
         }
@@ -275,8 +283,16 @@ function setupTray(appRoot: string) {
             dismissedVersion: s.updates?.dismissedVersion,
             currentPublishedAt: s.updates?.versionPublishedAt
           }).then(result => {
+            let changed = false
             if (result.dismissed && result.latestVersion) {
               s.updates = { ...s.updates, dismissedVersion: result.latestVersion }
+              changed = true
+            }
+            if (result.latestPublishedAt && !result.hasUpdate) {
+              s.updates = { ...s.updates, versionPublishedAt: result.latestPublishedAt }
+              changed = true
+            }
+            if (changed) {
               saveSettings(s)
               broadcastToAll('settings:updated', s)
             }

@@ -9,6 +9,7 @@ export interface UpdateCheckResult {
   hasUpdate: boolean
   currentVersion: string
   latestVersion: string
+  latestPublishedAt?: string
   dismissed: boolean
   error?: string
 }
@@ -44,7 +45,7 @@ export async function checkForUpdates(opts: {
           detail: `目前版本：v${current}`
         })
       }
-      return { hasUpdate: false, currentVersion: current, latestVersion: latest, dismissed: false }
+      return { hasUpdate: false, currentVersion: current, latestVersion: latest, latestPublishedAt, dismissed: false }
     }
 
     // Silent startup check: skip if user already dismissed this version
@@ -68,6 +69,7 @@ export async function checkForUpdates(opts: {
       hasUpdate: true,
       currentVersion: current,
       latestVersion: latest,
+      latestPublishedAt,
       dismissed: response === 1
     }
   } catch (e) {
