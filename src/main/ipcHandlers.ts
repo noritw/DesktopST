@@ -1,4 +1,4 @@
-import { ipcMain, shell, BrowserWindow, dialog, app, desktopCapturer, clipboard, nativeImage, screen } from 'electron'
+import { ipcMain, shell, BrowserWindow, dialog, app, desktopCapturer, clipboard, nativeImage, screen, type WebContents } from 'electron'
 import { checkForUpdates } from './updateChecker'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
@@ -22,7 +22,7 @@ import {
   toggleInputWindow, toggleLogWindow, openLogWindow, openSettingsWindow,
   broadcastToAll, getAllCharacterWindows, setCharacterWindowClickThrough,
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
-  showSpeechBubble, hideSpeechBubble, persistSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition,
+  hideSpeechBubble, persistSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition,
   showUserSpeechBubble, hideUserSpeechBubble, updateUserSpeechBubbleSize,
   reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects,
   beginCharacterDrag, moveDraggedCharacter, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
@@ -33,10 +33,15 @@ import {
   createPinnedNoteWindow, updatePinnedNoteContent, updatePinnedNoteColor, closePinnedNote, getPinnedNoteWindow, getPinnedNoteWindowState,
   openPinnedNotesManager, closePinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
   openRemindersManager, closeRemindersManager,
-  hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu, raiseCharactersAbovePinnedNotes,
+  hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu,
   createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow, getInputWindow,
   getLogWindow, getVisibleAuxWindowSnapshot, restoreAuxWindowsFromSnapshot, getVisiblePinnedNoteWindowIds,
   broadcastConversationUpdate,
+  setCharacterThinking,
+  raiseCharacterAbovePinnedNotes,
+  sendCharacterContextUpdate,
+  showSpeechBubble,
+  type BubbleAnchorFallback,
   type VisibleAuxWindowSnapshotEntry
 } from './windowManager'
 
@@ -407,6 +412,71 @@ function getSpeakerNameById(): Record<string, string> {
   return Object.fromEntries(characters.map(c => [c.id, c.name]))
 }
 
+function findLastCharacterMessage(conv: Conversation | null, characterId: string): Message | null {
+  if (!conv?.messages?.length) return null
+  for (let i = conv.messages.length - 1; i >= 0; i--) {
+    const m = conv.messages[i]
+    if (m.role === 'character' && m.characterId === characterId) return m
+  }
+  return null
+}
+
+function characterContextFromMessage(msg: Message | null): { id: string; emotion?: string } | undefined {
+  if (!msg) return undefined
+  return { id: msg.id, emotion: msg.emotion }
+}
+
+function syncCharacterContextsFromConversation(conv: Conversation | null): void {
+  for (const d of settings.ui.desktopCharacters) {
+    const last = findLastCharacterMessage(conv, d.characterId)
+    sendCharacterContextUpdate(d.characterId, {
+      lastMessage: characterContextFromMessage(last)
+    })
+  }
+}
+
+function deferRaiseCharacterAbovePinnedNotes(characterId: string): void {
+  setImmediate(() => raiseCharacterAbovePinnedNotes(characterId))
+}
+
+function bubbleAnchorForCharacter(characterId: string): BubbleAnchorFallback | null {
+  const ds = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
+  if (ds) return { position: ds.position, size: ds.size }
+  const char = getCharacter(characterId)
+  if (char?.lastDesktopPosition) {
+    return {
+      position: char.lastDesktopPosition,
+      size: char.lastDesktopSize && char.lastDesktopSize > 0 ? char.lastDesktopSize : 1
+    }
+  }
+  return null
+}
+
+function windowTypeFromSender(sender: WebContents): string | null {
+  try {
+    const url = sender.getURL()
+    const q = url.indexOf('?')
+    if (q < 0) return null
+    return new URLSearchParams(url.slice(q + 1)).get('w')
+  } catch {
+    return null
+  }
+}
+
+function characterIdFromSender(sender: WebContents): string | null {
+  try {
+    const url = sender.getURL()
+    const q = url.indexOf('?')
+    if (q < 0) return null
+    const params = new URLSearchParams(url.slice(q + 1))
+    if (params.get('w') !== 'character') return null
+    const id = params.get('id')?.trim()
+    return id || null
+  } catch {
+    return null
+  }
+}
+
 function getOrLoadConversation(id: string): Conversation | null {
   const cached = conversations.get(id)
   if (cached) return cached
@@ -769,8 +839,8 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   // 檢查是否有 API Key
   const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
 
-  raiseCharactersAbovePinnedNotes()
-  broadcastToAll('character:thinking', { characterId: charId, thinking: true })
+  setCharacterThinking(charId, true)
+  deferRaiseCharacterAbovePinnedNotes(charId)
   try {
     let cleanReply = ''
     let emotion = 'neutral'
@@ -853,24 +923,54 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       }
     }
 
-    showSpeechBubble(charId, char.name, cleanReply)
+    showSpeechBubble(charId, char.name, cleanReply, msg.emotion, bubbleAnchorForCharacter(charId))
+    sendCharacterContextUpdate(charId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
   } catch (e) {
     console.error('[reminder] triggerReminderSpeak failed:', e)
   } finally {
-    broadcastToAll('character:thinking', { characterId: charId, thinking: false })
+    setCharacterThinking(charId, false)
   }
 }
 
 export function registerIpcHandlers() {
 
   // Store: get initial snapshot for any renderer
-  ipcMain.handle('store:get-all', () => ({
-    settings,
-    characters,
-    desktopCharacters: settings.ui.desktopCharacters,
-    activeConversationId,
-    conversation: getActiveConversation()
-  }))
+  ipcMain.handle('store:get-all', (event) => {
+    const winType = windowTypeFromSender(event.sender)
+    if (winType === 'bubble' || winType === 'user-bubble') {
+      return {
+        settings,
+        characters: [],
+        desktopCharacters: [],
+        activeConversationId,
+        conversation: null,
+        characterContext: null
+      }
+    }
+    const charId = characterIdFromSender(event.sender)
+    const conv = getActiveConversation()
+    if (charId) {
+      const last = findLastCharacterMessage(conv, charId)
+      return {
+        settings,
+        characters,
+        desktopCharacters: settings.ui.desktopCharacters,
+        activeConversationId,
+        conversation: null,
+        characterContext: {
+          characterId: charId,
+          lastMessage: characterContextFromMessage(last)
+        }
+      }
+    }
+    return {
+      settings,
+      characters,
+      desktopCharacters: settings.ui.desktopCharacters,
+      activeConversationId,
+      conversation: conv
+    }
+  })
 
   // Settings
   ipcMain.handle('settings:get', () => settings)
@@ -1429,7 +1529,13 @@ export function registerIpcHandlers() {
   ipcMain.handle('bubble:debug-show', (_, payload: { characterId: string; speakerName: string; text: string; emotion?: string }) => {
     const { characterId, speakerName, text, emotion } = payload ?? { characterId: '', speakerName: '', text: '' }
     if (!characterId) return false
-    showSpeechBubble(characterId, speakerName || (getCharacter(characterId)?.name ?? '角色'), String(text ?? ''), emotion)
+    showSpeechBubble(
+      characterId,
+      speakerName || (getCharacter(characterId)?.name ?? '角色'),
+      String(text ?? ''),
+      emotion,
+      bubbleAnchorForCharacter(characterId)
+    )
     return true
   })
 
@@ -1580,6 +1686,7 @@ export function registerIpcHandlers() {
   ipcMain.handle('conversation:new', () => {
     const conv = createNewConversation()
     broadcastConversationUpdate(conv)
+    syncCharacterContextsFromConversation(conv)
     return conv
   })
 
@@ -1589,6 +1696,7 @@ export function registerIpcHandlers() {
     activeConversationId = id
     syncLastActiveConversationToSettings()
     broadcastConversationUpdate(conv)
+    syncCharacterContextsFromConversation(conv)
     return conv
   })
 
@@ -1611,6 +1719,7 @@ export function registerIpcHandlers() {
     fileStore.saveConversation(conv)
     hideAllCharacterSpeechBubbles()
     broadcastConversationUpdate(conv)
+    syncCharacterContextsFromConversation(conv)
     return true
   })
 
@@ -1631,12 +1740,14 @@ export function registerIpcHandlers() {
       if (next) {
         syncLastActiveConversationToSettings()
         broadcastConversationUpdate(next)
+        syncCharacterContextsFromConversation(next)
         return true
       }
     }
 
     const fresh = createNewConversation()
     broadcastConversationUpdate(fresh)
+    syncCharacterContextsFromConversation(fresh)
     return true
   })
 
@@ -1647,6 +1758,7 @@ export function registerIpcHandlers() {
     conv.updatedAt = Date.now()
     fileStore.saveConversation(conv)
     broadcastConversationUpdate(conv)
+    syncCharacterContextsFromConversation(conv)
     return true
   })
 
@@ -1662,6 +1774,14 @@ export function registerIpcHandlers() {
     conv.updatedAt = Date.now()
     fileStore.saveConversation(conv)
     broadcastConversationUpdate(conv)
+    if (msg.role === 'character' && msg.characterId) {
+      const last = findLastCharacterMessage(conv, msg.characterId)
+      if (last?.id === msg.id) {
+        sendCharacterContextUpdate(msg.characterId, {
+          lastMessage: characterContextFromMessage(last)
+        })
+      }
+    }
     return true
   })
 
@@ -1751,7 +1871,8 @@ export function registerIpcHandlers() {
       conv.updatedAt = Date.now()
       broadcastConversationUpdate(conv)
       broadcastToAll('character:new-message', { characterId: primaryId, message: noApiKeyMsg })
-      showSpeechBubble(primaryId, primaryChar.name, noKeyText)
+      showSpeechBubble(primaryId, primaryChar.name, noKeyText, noApiKeyMsg.emotion, bubbleAnchorForCharacter(primaryId))
+      sendCharacterContextUpdate(primaryId, { lastMessage: { id: noApiKeyMsg.id, emotion: noApiKeyMsg.emotion } })
       fileStore.saveConversation(conv)
       return { ok: true }
     }
@@ -1765,8 +1886,8 @@ export function registerIpcHandlers() {
 
     // 1) Primary responder always replies
     try {
-      raiseCharactersAbovePinnedNotes()
-      broadcastToAll('character:thinking', { characterId: primaryId, thinking: true })
+      setCharacterThinking(primaryId, true)
+      deferRaiseCharacterAbovePinnedNotes(primaryId)
       const { content, emotion: rawEmotion, debugPrompt, inputTokens, outputTokens } = await chatWithLLM({
         settings,
         character: primaryChar,
@@ -1830,8 +1951,9 @@ export function registerIpcHandlers() {
         }
       }
 
-      showSpeechBubble(primaryId, primaryChar.name, primaryReply)
-      broadcastToAll('character:thinking', { characterId: primaryId, thinking: false })
+      showSpeechBubble(primaryId, primaryChar.name, primaryReply, charMsg.emotion, bubbleAnchorForCharacter(primaryId))
+      sendCharacterContextUpdate(primaryId, { lastMessage: { id: charMsg.id, emotion: charMsg.emotion } })
+      setCharacterThinking(primaryId, false)
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e)
       const errMsg2: Message = {
@@ -1844,7 +1966,7 @@ export function registerIpcHandlers() {
       }
       conv.messages.push(errMsg2)
       broadcastConversationUpdate(conv)
-      broadcastToAll('character:thinking', { characterId: primaryId, thinking: false })
+      setCharacterThinking(primaryId, false)
       fileStore.saveConversation(conv)
       return { ok: true }
     }
@@ -1865,8 +1987,8 @@ export function registerIpcHandlers() {
       if (!char) continue
 
       try {
-        raiseCharactersAbovePinnedNotes()
-        broadcastToAll('character:thinking', { characterId: charId, thinking: true })
+        setCharacterThinking(charId, true)
+        deferRaiseCharacterAbovePinnedNotes(charId)
         let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
         // 沒有對話時，插入虛擬開場防止模型把 system prompt 當成上文
         if (recentMessages.length === 0) {
@@ -1895,14 +2017,14 @@ export function registerIpcHandlers() {
         )
 
         if (!cleanReply) {
-          broadcastToAll('character:thinking', { characterId: charId, thinking: false })
+          setCharacterThinking(charId, false)
           continue
         }
         // Skip near-duplicates
         const replyNorm = normalizeForCompare(cleanReply)
         const lastNorm = normalizeForCompare(lastReplyText)
         if (replyNorm && lastNorm && (replyNorm === lastNorm || replyNorm.includes(lastNorm) || lastNorm.includes(replyNorm))) {
-          broadcastToAll('character:thinking', { characterId: charId, thinking: false })
+          setCharacterThinking(charId, false)
           continue
         }
 
@@ -1952,11 +2074,12 @@ export function registerIpcHandlers() {
           }
         }
 
-        showSpeechBubble(charId, char.name, cleanReply)
-        broadcastToAll('character:thinking', { characterId: charId, thinking: false })
+        showSpeechBubble(charId, char.name, cleanReply, charMsg.emotion, bubbleAnchorForCharacter(charId))
+        sendCharacterContextUpdate(charId, { lastMessage: { id: charMsg.id, emotion: charMsg.emotion } })
+        setCharacterThinking(charId, false)
       } catch (e: unknown) {
         // If a secondary decision fails, don't break the whole send flow.
-        broadcastToAll('character:thinking', { characterId: charId, thinking: false })
+        setCharacterThinking(charId, false)
       }
     }
 
@@ -1985,7 +2108,7 @@ export function registerIpcHandlers() {
       conv.updatedAt = Date.now()
       broadcastConversationUpdate(conv)
       broadcastToAll('character:new-message', { characterId, message: msg })
-      showSpeechBubble(characterId, char.name, noKeyText)
+      showSpeechBubble(characterId, char.name, noKeyText, undefined, bubbleAnchorForCharacter(characterId))
       fileStore.saveConversation(conv)
       return { ok: true }
     }
@@ -1999,8 +2122,8 @@ export function registerIpcHandlers() {
     }
     const extraSystemContext = ctxParts.join('\n\n') || undefined
 
-    raiseCharactersAbovePinnedNotes()
-    broadcastToAll('character:thinking', { characterId, thinking: true })
+    setCharacterThinking(characterId, true)
+    deferRaiseCharacterAbovePinnedNotes(characterId)
     try {
       let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
       const desktopCharNamesForce = settings.ui.desktopCharacters.map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
@@ -2057,12 +2180,13 @@ export function registerIpcHandlers() {
       fileStore.saveConversation(conv)
       broadcastConversationUpdate(conv)
       broadcastToAll('character:new-message', { characterId, message: msg })
-      showSpeechBubble(characterId, char.name, forcedReply)
+      showSpeechBubble(characterId, char.name, forcedReply, msg.emotion, bubbleAnchorForCharacter(characterId))
+      sendCharacterContextUpdate(characterId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
       return { ok: true }
     } catch (e: unknown) {
       return { error: e instanceof Error ? e.message : String(e) }
     } finally {
-      broadcastToAll('character:thinking', { characterId, thinking: false })
+      setCharacterThinking(characterId, false)
     }
   })
 

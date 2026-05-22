@@ -137,10 +137,19 @@ export default function BubbleWindow({ characterId }: Props) {
       clearTimer()
     })
 
+    const unsubHide = window.api.on('bubble:hide', (payload) => {
+      const p = payload as { characterId: string }
+      if (p.characterId !== characterId) return
+      clearTimer()
+      setConfirmPin(false)
+      setVisible(false)
+    })
+
     return () => {
       clearTimer()
       unsubShow()
       unsubPersist()
+      unsubHide()
     }
   }, [characterId, settings?.ui.chatBubbleAutoClose])
 

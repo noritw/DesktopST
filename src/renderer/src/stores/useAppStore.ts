@@ -1,21 +1,28 @@
 import { create } from 'zustand'
 import type { AppSettings, Character, Conversation, DesktopCharacterState, Message, PersonaPreset, WorldPreset } from '../types'
 
+export type CharacterContextSnapshot = {
+  characterId: string
+  lastMessage?: { id: string; emotion?: string; content?: string }
+}
+
 interface AppStore {
   // Data
   settings: AppSettings | null
   characters: Character[]
   desktopCharacters: DesktopCharacterState[]
   conversation: Conversation | null
+  characterContext: CharacterContextSnapshot | null
   isSending: boolean
-  thinkingByCharacterId: Record<string, boolean>
   uiAppFocused: boolean
   personaPresets: PersonaPreset[]
   worldPresets: WorldPreset[]
 
   // Actions
   loadAll: () => Promise<void>
+  loadBubbleInit: () => Promise<void>
   subscribeToEvents: () => () => void
+  subscribeBubbleEvents: () => () => void
 
   sendMessage: (content: string, images?: string[]) => Promise<void>
   forceSpeak: (characterId: string) => Promise<void>
@@ -46,8 +53,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   characters: [],
   desktopCharacters: [],
   conversation: null,
+  characterContext: null,
   isSending: false,
-  thinkingByCharacterId: {},
   uiAppFocused: true,
   personaPresets: [],
   worldPresets: [],
@@ -58,6 +65,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       characters: Character[]
       desktopCharacters: DesktopCharacterState[]
       conversation: Conversation | null
+      characterContext?: CharacterContextSnapshot | null
     }
     const personas = await window.api.invoke('presets:persona:list') as PersonaPreset[]
     const worlds = await window.api.invoke('presets:world:list') as WorldPreset[]
@@ -66,9 +74,22 @@ export const useAppStore = create<AppStore>((set, get) => ({
       characters: data.characters,
       desktopCharacters: data.desktopCharacters,
       conversation: data.conversation,
+      characterContext: data.characterContext ?? null,
       personaPresets: personas,
       worldPresets: worlds
     })
+  },
+
+  loadBubbleInit: async () => {
+    const data = await window.api.invoke('store:get-all') as { settings: AppSettings }
+    set({ settings: data.settings })
+  },
+
+  subscribeBubbleEvents: () => {
+    const unsub = window.api.on('settings:updated', (s) => {
+      set({ settings: s as AppSettings })
+    })
+    return unsub
   },
 
   subscribeToEvents: () => {
@@ -80,12 +101,6 @@ export const useAppStore = create<AppStore>((set, get) => ({
       window.api.on('characters:updated', (c) => set({ characters: c as Character[] })),
       window.api.on('desktop:updated', (d) => set({ desktopCharacters: d as DesktopCharacterState[] })),
       window.api.on('conversation:updated', (c) => set({ conversation: c as Conversation })),
-      window.api.on('character:thinking', (payload) => {
-        const p = payload as { characterId: string; thinking: boolean }
-        set(state => ({
-          thinkingByCharacterId: { ...state.thinkingByCharacterId, [p.characterId]: p.thinking }
-        }))
-      }),
       window.api.on('ui:app-focus', (payload) => {
         const p = payload as { focused: boolean }
         set({ uiAppFocused: !!p.focused })
@@ -222,10 +237,3 @@ const EMPTY_MESSAGES: Message[] = []
 export const selectMessages = (state: AppStore): Message[] =>
   state.conversation?.messages ?? EMPTY_MESSAGES
 
-export const selectCharacterLastMessage = (characterId: string) => (state: AppStore): Message | null => {
-  const msgs = state.conversation?.messages ?? []
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    if (msgs[i].characterId === characterId) return msgs[i]
-  }
-  return null
-}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { useAppStore, selectCharacter, selectDesktopChar, selectCharacterLastMessage } from '../stores/useAppStore'
+import { useAppStore, selectCharacter, selectDesktopChar } from '../stores/useAppStore'
 import CharacterSprite, { type CharacterSpriteHandle } from '../components/CharacterSprite'
 import HoverMenu, { HoverMenuIcon } from '../components/HoverMenu'
 import MonoIcon from '../components/MonoIcon'
@@ -45,8 +45,10 @@ export default function CharacterWindow({ characterId }: Props) {
   const toggleMute = useAppStore(s => s.toggleMute)
   const addToDesktop = useAppStore(s => s.addToDesktop)
   const characters = useAppStore(s => s.characters)
-  const isThinking = useAppStore(s => !!s.thinkingByCharacterId[characterId])
+  const characterContext = useAppStore(s => s.characterContext)
   const uiAppFocused = useAppStore(s => s.uiAppFocused)
+  const [isThinking, setIsThinking] = useState(false)
+  const [contextEmotion, setContextEmotion] = useState<string | undefined>(undefined)
   const hoverMenuOnHover = useAppStore(s => s.settings?.ui.hoverMenuOnHover ?? true)
 
   const urlSize = window.windowParams?.get('size') ?? new URLSearchParams(window.location.search).get('size')
@@ -90,33 +92,52 @@ export default function CharacterWindow({ characterId }: Props) {
   const scaleControlsRef = useRef<HTMLDivElement | null>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const didDragRef = useRef(false)
-  const lastMsgIdRef = useRef<string | undefined>(undefined)
+  const lastMsgIdRef = useRef<string | undefined>(
+    characterContext?.characterId === characterId ? characterContext.lastMessage?.id : undefined
+  )
   // 追蹤游標是否在 sprite 的不透明區域上
   const [spriteOpaque, setSpriteOpaque] = useState(false)
+
+  useEffect(() => {
+    if (characterContext?.characterId !== characterId) return
+    if (characterContext.lastMessage?.id) {
+      lastMsgIdRef.current = characterContext.lastMessage.id
+      setContextEmotion(characterContext.lastMessage.emotion)
+    }
+  }, [characterId, characterContext])
 
   useEffect(() => {
     if (!uiAppFocused) setHovered(false)
   }, [uiAppFocused])
 
-  // 監聽表情切換事件（來自對話記錄點擊）— 保持顯示直到新訊息到來或新的選擇
   useEffect(() => {
-    const unsubscribe = window.api.on('character:display-emotion', (payload) => {
-      const { emotion } = payload as { emotion: string }
-      setOverrideEmotion(emotion)
-    })
-    return () => unsubscribe()
-  }, [])
-
-  // 追蹤最後訊息 ID 變化，當新訊息到來時清除 override
-  useEffect(() => {
-    const lastMsg = useAppStore.getState().conversation?.messages
-      .filter(m => m.characterId === characterId)
-      .pop()
-    if (lastMsg?.id && lastMsg.id !== lastMsgIdRef.current) {
-      lastMsgIdRef.current = lastMsg.id
-      setOverrideEmotion(null)
-    }
-  })
+    const unsubs = [
+      window.api.on('character:thinking', (payload) => {
+        const p = payload as { characterId: string; thinking: boolean }
+        if (p.characterId !== characterId) return
+        setIsThinking(!!p.thinking)
+      }),
+      window.api.on('character:context-update', (payload) => {
+        const p = payload as { characterId: string; lastMessage?: { id: string; emotion?: string } }
+        if (p.characterId !== characterId) return
+        if (p.lastMessage?.id) {
+          if (p.lastMessage.id !== lastMsgIdRef.current) {
+            lastMsgIdRef.current = p.lastMessage.id
+            setOverrideEmotion(null)
+          }
+          setContextEmotion(p.lastMessage.emotion)
+        } else {
+          lastMsgIdRef.current = undefined
+          setContextEmotion(undefined)
+        }
+      }),
+      window.api.on('character:display-emotion', (payload) => {
+        const { emotion } = payload as { emotion: string }
+        setOverrideEmotion(emotion)
+      })
+    ]
+    return () => unsubs.forEach(u => u())
+  }, [characterId])
 
   // spriteOpaque=true 時觸發 hover；關閉 hover 由 mousemove 的容器邊界判斷
   useEffect(() => {
@@ -356,8 +377,7 @@ export default function CharacterWindow({ characterId }: Props) {
     setMenuPinned(true)
   }, [characterId, flipDraft, maxVisibleScale, scaleDraft, scaleText])
 
-  const lastMsg = useAppStore(selectCharacterLastMessage(characterId))
-  const emotionTag = overrideEmotion ?? lastMsg?.emotion
+  const emotionTag = overrideEmotion ?? contextEmotion
 
   if (!character) return null
 

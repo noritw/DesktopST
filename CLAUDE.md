@@ -182,6 +182,14 @@ npm run typecheck # 型別檢查
   - `safeStorage` 不可用時 fallback 純文字並印警告
   - DST Pack 匯出排除 API Key，UI 提示換機需重新輸入
   - 設定視窗 API Key 欄位下方顯示本機加密說明
+- [x] 多人桌面聊天與對話泡泡效能優化
+  - 角色視窗不再接收完整 `conversation`；`store:get-all` 回傳 `characterContext` 精簡快照
+  - `character:thinking` / `character:context-update` 改為單角色 IPC，不再 `broadcastToAll`
+  - `broadcastConversationUpdate` 僅推送 log（完整）與 input（strip `debugPrompt` / 圖片 base64）
+  - 思考中僅對當前回覆角色 `setCharacterThinking` + `setImmediate` 提升 Z-order
+  - 對話泡泡視窗輕量初始化（`loadBubbleInit`，不載入 conversation / presets）
+  - 泡泡同時顯示上限 = 桌上角色數；超過時 LRU 淘汰最舊泡泡 renderer，避免連點崩潰
+  - 泡泡定位錨點 fallback、還原輔助視窗時重播 `bubble:show`、`bubble:hide` 狀態同步
 
 **尚未實作（第一版排除）：**
 - Lorebook

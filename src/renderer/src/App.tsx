@@ -20,19 +20,24 @@ const w = typeof window !== 'undefined' && window.windowParams
   ? window.windowParams.get('w')
   : new URLSearchParams(window.location.search).get('w')
 
+const isLightweightAuxWindow = w === 'bubble' || w === 'user-bubble'
+
 const FONT_SIZE_MAP: Record<string, string> = {
   xs: '12px', sm: '13px', md: '14px', lg: '16px', xl: '18px'
 }
 
 export default function App() {
   const loadAll = useAppStore(s => s.loadAll)
+  const loadBubbleInit = useAppStore(s => s.loadBubbleInit)
   const subscribeToEvents = useAppStore(s => s.subscribeToEvents)
+  const subscribeBubbleEvents = useAppStore(s => s.subscribeBubbleEvents)
   const settings = useAppStore(s => s.settings)
   const chatFontSize = settings?.ui.chatFontSize ?? null
   const colorTheme = settings?.ui.colorTheme ?? null
 
-  // 初始化提醒音效播放
+  // 初始化提醒音效播放（泡泡視窗不需要）
   useEffect(() => {
+    if (isLightweightAuxWindow) return
     let audio: HTMLAudioElement | null = null
     const customSoundPath = settings?.ui.reminderNotificationSound?.customSoundPath
 
@@ -62,8 +67,9 @@ export default function App() {
     return unsub
   }, [settings?.ui.reminderNotificationSound?.customSoundPath])
 
-  // 初始化訊息音效播放
+  // 初始化訊息音效播放（泡泡視窗不需要）
   useEffect(() => {
+    if (isLightweightAuxWindow) return
     let audio: HTMLAudioElement | null = null
     const customSoundPath = settings?.ui.messageNotificationSound?.customSoundPath
 
@@ -94,6 +100,11 @@ export default function App() {
   }, [settings?.ui.messageNotificationSound?.customSoundPath])
 
   useEffect(() => {
+    if (isLightweightAuxWindow) {
+      loadBubbleInit().catch(e => console.error('[DesktopST] loadBubbleInit failed:', e))
+      const unsub = subscribeBubbleEvents()
+      return unsub
+    }
     loadAll().catch(e => console.error('[DesktopST] loadAll failed:', e))
     const unsub = subscribeToEvents()
     return unsub

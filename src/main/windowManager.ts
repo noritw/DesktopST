@@ -1,7 +1,7 @@
 import { BrowserWindow, screen, nativeImage, app } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs'
-import type { Conversation } from './types'
+import type { Conversation, Message } from './types'
 
 const VITE_DEV_SERVER_URL = process.env['ELECTRON_RENDERER_URL']
 const DEVTOOLS_ENABLED = process.env['DESKTOPST_DEVTOOLS'] === '1'
@@ -190,12 +190,18 @@ function clampCharacterScaleForDisplay(scale: number, point: { x: number; y: num
 
 const characterWindows = new Map<string, BrowserWindow>()
 const bubbleWindows = new Map<string, BrowserWindow>()
+/** 追蹤每個泡泡視窗最近一次被顯示的時間，用於淘汰最久未使用視窗（LRU）。 */
+const bubbleLastActiveAt = new Map<string, number>()
 /** 使用者拖曳對白視窗後，相對於「預設錨點位置」的像素偏移（跟著角色移動時保留） */
 const bubbleUserOffset = new Map<string, { x: number; y: number }>()
 /** 最近一次由程式 setBounds 寫入的對白視窗矩形；與 moved 比對以區分「程式同步」與「使用者拖對白」 */
 const lastBubbleBoundsProgrammatic = new Map<string, WindowBoundsState>()
 /** 避免異常 IPC 傳入無限大；一般長文仍完整顯示 */
 const BUBBLE_MAX_HEIGHT_PX = 32000
+/** 依桌面角色數量決定可同時存在的泡泡上限（至少 1）。 */
+function getBubbleConcurrentWindowLimit(): number {
+  return Math.max(1, characterWindows.size)
+}
 /** 立體角色立繪頂端（約在視窗高度 120/380 處）與對白框下緣的間距（px） */
 const BUBBLE_GAP_PX = 6
 const BUBBLE_SPRITE_TOP_RATIO = 120 / 380
@@ -678,9 +684,12 @@ export function destroyAllCharacterWindows(): void {
   // Destroy tracked bubble windows
   for (const [id, win] of [...bubbleWindows]) {
     bubbleWindows.delete(id)
+    bubbleLastActiveAt.delete(id)
     bubbleUserOffset.delete(id)
     lastBubbleBoundsProgrammatic.delete(id)
     lastBubbleSizes.delete(id)
+    lastBubbleShowPayload.delete(id)
+    bubbleRepositionDone.delete(id)
     if (!win.isDestroyed()) win.destroy()
   }
   lastShownBubbleCharacterId = null
@@ -742,11 +751,16 @@ export function createBubbleWindow(characterId: string): BrowserWindow {
   }
 
   bubbleWindows.set(characterId, win)
+  bubbleLastActiveAt.set(characterId, Date.now())
   win.on('closed', () => {
     bubbleWindows.delete(characterId)
+    bubbleLastActiveAt.delete(characterId)
     bubbleUserOffset.delete(characterId)
     lastBubbleBoundsProgrammatic.delete(characterId)
     bubbleHiddenForCharacterDrag.delete(characterId)
+    lastBubbleShowPayload.delete(characterId)
+    bubbleRepositionDone.delete(characterId)
+    if (lastShownBubbleCharacterId === characterId) lastShownBubbleCharacterId = null
   })
   win.on('moved', () => {
     if (draggingCharacters.has(characterId)) return
@@ -779,7 +793,81 @@ function shouldKeepBubbleUntilClosed(text: string): boolean {
   return charCount >= 220 || lineCount >= 6
 }
 
-export function showSpeechBubble(characterId: string, speakerName: string, text: string, emotion?: string): void {
+export type BubbleAnchorFallback = {
+  position: { x: number; y: number }
+  size?: number
+}
+
+type CachedBubbleShowPayload = {
+  speakerName: string
+  text: string
+  emotion: string
+  anchorFallback?: BubbleAnchorFallback | null
+}
+
+const lastBubbleShowPayload = new Map<string, CachedBubbleShowPayload>()
+/** 已完成首次定位的角色泡泡，避免每次 show 都跑 180ms 重排 */
+const bubbleRepositionDone = new Set<string>()
+
+function resolveBubbleAnchorBounds(
+  characterId: string,
+  anchorFallback?: BubbleAnchorFallback | null
+): { x: number; y: number; width: number; height: number } {
+  const cw = characterWindows.get(characterId)
+  if (cw && !cw.isDestroyed()) return cw.getBounds()
+
+  const pos = anchorFallback?.position
+  const scale = Number.isFinite(anchorFallback?.size) && (anchorFallback!.size! > 0)
+    ? anchorFallback!.size!
+    : 1
+  if (pos) {
+    const winSize = getCharacterWindowSize(scale)
+    const normalized = normalizeWindowPosition(pos, winSize)
+    return { x: normalized.x, y: normalized.y, width: winSize.width, height: winSize.height }
+  }
+
+  const wa = screen.getPrimaryDisplay().workArea
+  const winSize = getCharacterWindowSize(1)
+  return {
+    x: Math.round(wa.x + (wa.width - winSize.width) / 2),
+    y: Math.round(wa.y + (wa.height - winSize.height) / 2),
+    width: winSize.width,
+    height: winSize.height
+  }
+}
+
+function pruneSpeechBubbleWindows(activeCharacterId: string): void {
+  const candidates: Array<{ id: string; at: number; bw: BrowserWindow }> = []
+  for (const [id, bw] of bubbleWindows.entries()) {
+    if (id === activeCharacterId) continue
+    if (!bw || bw.isDestroyed()) continue
+    candidates.push({ id, at: bubbleLastActiveAt.get(id) ?? 0, bw })
+  }
+  const overflow = bubbleWindows.size - getBubbleConcurrentWindowLimit()
+  if (overflow <= 0) return
+
+  candidates.sort((a, b) => a.at - b.at)
+  for (let i = 0; i < overflow && i < candidates.length; i += 1) {
+    const victim = candidates[i]
+    restoreCharacterAlwaysOnTopAfterBubbleHide(victim.id)
+    victim.bw.destroy()
+  }
+}
+
+function restoreCharacterAlwaysOnTopAfterBubbleHide(characterId: string): void {
+  const cw = characterWindows.get(characterId)
+  if (!cw || cw.isDestroyed()) return
+  if (charactersAlwaysOnTop) cw.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+  else cw.setAlwaysOnTop(false)
+}
+
+export function showSpeechBubble(
+  characterId: string,
+  speakerName: string,
+  text: string,
+  emotion?: string,
+  anchorFallback?: BubbleAnchorFallback | null
+): void {
   if (lastShownBubbleCharacterId && lastShownBubbleCharacterId !== characterId) {
     const previous = bubbleWindows.get(lastShownBubbleCharacterId)
     if (previous && !previous.isDestroyed() && previous.isVisible()) {
@@ -789,14 +877,18 @@ export function showSpeechBubble(characterId: string, speakerName: string, text:
 
   const bw = createBubbleWindow(characterId)
   if (bw.isDestroyed()) return
+  bubbleLastActiveAt.set(characterId, Date.now())
+  pruneSpeechBubbleWindows(characterId)
   bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+
+  const anchor = resolveBubbleAnchorBounds(characterId, anchorFallback)
   const cw = characterWindows.get(characterId)
   if (cw && !cw.isDestroyed()) {
-    // 發話時把角色和對白框都提到最上層
     cw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
     cw.moveTop()
-    applyBubbleBounds(bw, lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }, cw.getBounds(), characterId)
   }
+  applyBubbleBounds(bw, lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }, anchor, characterId)
+
   const payload = {
     characterId,
     speakerName,
@@ -805,11 +897,18 @@ export function showSpeechBubble(characterId: string, speakerName: string, text:
     autoCloseMs: getBubbleAutoCloseMs(text),
     persistUntilClosed: shouldKeepBubbleUntilClosed(text)
   }
+  lastBubbleShowPayload.set(characterId, {
+    speakerName,
+    text,
+    emotion: emotion ?? 'neutral',
+    anchorFallback
+  })
+
   const dispatchShow = () => {
     if (bw.isDestroyed()) return
     bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
     bw.setOpacity(1)
-    if (!bw.isVisible()) bw.showInactive()
+    bw.showInactive()
     if (cw && !cw.isDestroyed()) {
       cw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
       cw.moveTop()
@@ -821,20 +920,20 @@ export function showSpeechBubble(characterId: string, speakerName: string, text:
     bw.webContents.once('did-finish-load', dispatchShow)
   } else {
     dispatchShow()
-    // Windows 高 DPI workaround：show 後 DPI context 穩定前位置可能跑偏，延遲重新校正座標。
-    // 只修正視窗位置，不重送內容（避免觸發 React re-render → ResizeObserver → setBounds 鏈）。
-    setTimeout(() => {
-      if (bw.isDestroyed()) return
-      const cw2 = characterWindows.get(characterId)
-      if (cw2 && !cw2.isDestroyed()) {
-        applyBubbleBounds(bw, lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }, cw2.getBounds(), characterId)
-      }
-      if (charactersAlwaysOnTop) {
-        bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
-        if (cw2 && !cw2.isDestroyed()) cw2.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
-      }
-      bw.moveTop()
-    }, 180)
+    if (!bubbleRepositionDone.has(characterId)) {
+      bubbleRepositionDone.add(characterId)
+      setTimeout(() => {
+        if (bw.isDestroyed()) return
+        const anchor2 = resolveBubbleAnchorBounds(characterId, anchorFallback)
+        applyBubbleBounds(bw, lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }, anchor2, characterId)
+        if (charactersAlwaysOnTop) {
+          bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+          const cw2 = characterWindows.get(characterId)
+          if (cw2 && !cw2.isDestroyed()) cw2.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+        }
+        bw.moveTop()
+      }, 180)
+    }
   }
   lastShownBubbleCharacterId = characterId
 }
@@ -848,17 +947,11 @@ export function persistSpeechBubble(characterId: string): void {
 export function hideSpeechBubble(characterId: string): boolean {
   const bw = bubbleWindows.get(characterId)
   if (!bw || bw.isDestroyed()) return false
+  bubbleLastActiveAt.set(characterId, Date.now())
+  bw.webContents.send('bubble:hide', { characterId })
   bw.hide()
   bubbleHiddenForCharacterDrag.delete(characterId)
-  // 氣泡隱藏時恢復角色窗口的 alwaysOnTop 狀態
-  const cw = characterWindows.get(characterId)
-  if (cw && !cw.isDestroyed()) {
-    if (charactersAlwaysOnTop) {
-      cw.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
-    } else {
-      cw.setAlwaysOnTop(false)
-    }
-  }
+  restoreCharacterAlwaysOnTopAfterBubbleHide(characterId)
   if (lastShownBubbleCharacterId === characterId) lastShownBubbleCharacterId = null
   return true
 }
@@ -867,17 +960,10 @@ export function hideAllCharacterSpeechBubbles(): number {
   let hiddenCount = 0
   for (const [characterId, bw] of bubbleWindows.entries()) {
     if (bw.isDestroyed() || !bw.isVisible()) continue
+    bw.webContents.send('bubble:hide', { characterId })
     bw.hide()
     bubbleHiddenForCharacterDrag.delete(characterId)
-    // 氣泡隱藏時恢復角色窗口的 alwaysOnTop 狀態
-    const cw = characterWindows.get(characterId)
-    if (cw && !cw.isDestroyed()) {
-      if (charactersAlwaysOnTop) {
-        cw.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
-      } else {
-        cw.setAlwaysOnTop(false)
-      }
-    }
+    restoreCharacterAlwaysOnTopAfterBubbleHide(characterId)
     hiddenCount += 1
   }
   lastShownBubbleCharacterId = null
@@ -2103,8 +2189,19 @@ export function restoreAuxWindowsFromSnapshot(entries: VisibleAuxWindowSnapshotE
       }
       case 'speechBubble': {
         if (!entry.characterId) break
-        const win = bubbleWindows.get(entry.characterId)
-        showExistingWindowFromSnapshot(win, entry)
+        const cached = lastBubbleShowPayload.get(entry.characterId)
+        if (cached) {
+          showSpeechBubble(
+            entry.characterId,
+            cached.speakerName,
+            cached.text,
+            cached.emotion,
+            cached.anchorFallback
+          )
+        } else {
+          const win = bubbleWindows.get(entry.characterId)
+          showExistingWindowFromSnapshot(win, entry)
+        }
         break
       }
     }
@@ -2145,6 +2242,37 @@ export function raiseCharactersAbovePinnedNotes(): void {
   }
 }
 
+/** Raise only one character (and its speech bubble) above pinned notes. */
+export function raiseCharacterAbovePinnedNotes(characterId: string): void {
+  const cw = characterWindows.get(characterId)
+  if (cw && !cw.isDestroyed()) cw.moveTop()
+  const bw = bubbleWindows.get(characterId)
+  if (bw && !bw.isDestroyed()) bw.moveTop()
+}
+
+export type CharacterContextPayload = {
+  characterId: string
+  lastMessage?: { id: string; emotion?: string; content?: string }
+}
+
+export function sendToCharacterWindow(characterId: string, channel: string, data: unknown): boolean {
+  const win = characterWindows.get(characterId)
+  if (!win || win.isDestroyed()) return false
+  win.webContents.send(channel, data)
+  return true
+}
+
+export function setCharacterThinking(characterId: string, thinking: boolean): boolean {
+  return sendToCharacterWindow(characterId, 'character:thinking', { characterId, thinking })
+}
+
+export function sendCharacterContextUpdate(
+  characterId: string,
+  payload: Omit<CharacterContextPayload, 'characterId'>
+): boolean {
+  return sendToCharacterWindow(characterId, 'character:context-update', { characterId, ...payload })
+}
+
 // ── Broadcast to all windows ──────────────────────────────
 
 export function broadcastToAll(channel: string, data: unknown): void {
@@ -2163,21 +2291,40 @@ export function broadcastToAll(channel: string, data: unknown): void {
   for (const w of wins) w.webContents.send(channel, data)
 }
 
+function omitHeavyMessageFields(m: Message): Message {
+  const {
+    debugPrompt: _d,
+    utilityDebugPrompt: _u,
+    ...rest
+  } = m
+  return rest
+}
+
+function stripConversationForInput(conv: Conversation): Conversation {
+  const hasImages = conv.messages.some(m => m.images && m.images.length > 0)
+  if (!hasImages) {
+    return { ...conv, messages: conv.messages.map(omitHeavyMessageFields) }
+  }
+  return {
+    ...conv,
+    messages: conv.messages.map(m =>
+      m.images?.length
+        ? { ...omitHeavyMessageFields(m), images: [] as string[] }
+        : omitHeavyMessageFields(m)
+    )
+  }
+}
+
 /** Targeted broadcast for conversation updates.
  *  - Log window gets the full conversation (renders images).
- *  - Input and character windows get a stripped copy (base64 images removed) to reduce IPC payload.
- *  - Bubble windows, pinned notes, settings, library, etc. are skipped — they don't consume conversation data.
+ *  - Input window gets a stripped copy (no images, no debug prompts).
+ *  - Character windows use character:context-update instead (see sendCharacterContextUpdate).
  */
 export function broadcastConversationUpdate(conv: Conversation): void {
-  const hasImages = conv.messages.some(m => m.images && m.images.length > 0)
-  const stripped: Conversation = hasImages
-    ? { ...conv, messages: conv.messages.map(m => (m.images?.length ? { ...m, images: [] } : m)) }
-    : conv
+  const stripped = stripConversationForInput(conv)
 
   if (logWindow && !logWindow.isDestroyed())
     logWindow.webContents.send('conversation:updated', conv)
   if (inputWindow && !inputWindow.isDestroyed())
     inputWindow.webContents.send('conversation:updated', stripped)
-  for (const w of characterWindows.values())
-    if (!w.isDestroyed()) w.webContents.send('conversation:updated', stripped)
 }
