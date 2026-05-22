@@ -16,6 +16,7 @@ import {
   readCharacterFromZip
 } from './dstPack'
 import { reloadReminders } from './reminderScheduler'
+import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
   resizeCharacterWindow, getCharacterWindowSize, enterCharacterScaleMode, exitCharacterScaleMode, enterScaleModeWindow,
@@ -2464,6 +2465,13 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('shell:open-external', (_, url: string) => {
     return shell.openExternal(url)
+  })
+
+  ipcMain.handle('devtools:is-available', () => isDevToolsAllowed())
+
+  ipcMain.handle('devtools:toggle', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win) toggleDevToolsForWindow(win)
   })
 
   function desktopStStartupShortcutPath(): string {

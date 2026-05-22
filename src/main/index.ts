@@ -1,4 +1,5 @@
-import { app, Tray, Menu, nativeImage, protocol, screen, shell, BrowserWindow, globalShortcut } from 'electron'
+import { app, Tray, Menu, nativeImage, protocol, screen, shell, BrowserWindow } from 'electron'
+import { attachDevToolsShortcuts, isDevToolsAllowed } from './devTools'
 import * as path from 'path'
 import * as fs from 'fs'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets } from './fileStore'
@@ -169,31 +170,14 @@ app.on('ready', async () => {
     })
   }
 
-  // 註冊開發者工具快捷鍵
-  if (!app.isPackaged) {
-    globalShortcut.register('F12', () => {
-      BrowserWindow.getAllWindows().forEach(win => {
-        if (!win.isDestroyed() && win.webContents) {
-          if (win.webContents.isDevToolsOpened()) {
-            win.webContents.closeDevTools()
-          } else {
-            win.webContents.openDevTools({ mode: 'detach' })
-          }
-        }
-      })
+  // DevTools：僅在目前聚焦的 DesktopST 視窗切換，且同時只保留一個（見 devTools.ts）
+  if (isDevToolsAllowed()) {
+    app.on('browser-window-created', (_, win) => {
+      attachDevToolsShortcuts(win)
     })
-
-    globalShortcut.register('CmdOrCtrl+Shift+I', () => {
-      BrowserWindow.getAllWindows().forEach(win => {
-        if (!win.isDestroyed() && win.webContents) {
-          if (win.webContents.isDevToolsOpened()) {
-            win.webContents.closeDevTools()
-          } else {
-            win.webContents.openDevTools({ mode: 'detach' })
-          }
-        }
-      })
-    })
+    for (const win of BrowserWindow.getAllWindows()) {
+      attachDevToolsShortcuts(win)
+    }
   }
 
   // System tray

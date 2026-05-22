@@ -216,6 +216,10 @@ export default function SettingsWindow() {
   const [windowsStartupSupported, setWindowsStartupSupported] = useState(false)
   const [windowsStartupExists, setWindowsStartupExists] = useState(false)
   const [addingWindowsStartup, setAddingWindowsStartup] = useState(false)
+  const [devToolsAvailable, setDevToolsAvailable] = useState(false)
+  const [devToolsReveal, setDevToolsReveal] = useState(false)
+  const devToolsClickRef = useRef(0)
+  const devToolsClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
   const messagePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -240,6 +244,10 @@ export default function SettingsWindow() {
       : staticFileUrl('message-notification-sound.wav')
     messagePreviewAudioRef.current = new Audio(audioPath)
   }, [messageCustomSoundPath])
+
+  useEffect(() => {
+    void window.api.invoke('devtools:is-available').then(v => setDevToolsAvailable(v === true))
+  }, [])
 
   // debounce：停止拖動 400ms 後才播放，避免連續觸發
   const playPreviewSound = (volume: number) => {
@@ -1610,7 +1618,39 @@ export default function SettingsWindow() {
           <div className="space-y-4">
             <div className="rounded-xl bg-surface border border-border px-4 py-3 space-y-0.5">
               <p className="text-xs text-secondary">目前版本</p>
-              <p className="text-base font-semibold text-primary">DesktopST{appVersion ? ` v${appVersion}` : ''}</p>
+              <p
+                className="text-base font-semibold text-primary select-none"
+                role={devToolsAvailable ? 'button' : undefined}
+                tabIndex={devToolsAvailable ? 0 : undefined}
+                onClick={() => {
+                  if (!devToolsAvailable) return
+                  if (devToolsClickTimerRef.current) clearTimeout(devToolsClickTimerRef.current)
+                  devToolsClickRef.current += 1
+                  if (devToolsClickRef.current >= 5) {
+                    devToolsClickRef.current = 0
+                    setDevToolsReveal(true)
+                    return
+                  }
+                  devToolsClickTimerRef.current = setTimeout(() => {
+                    devToolsClickRef.current = 0
+                  }, 2000)
+                }}
+                onKeyDown={e => {
+                  if (!devToolsAvailable || e.key !== 'Enter') return
+                  e.currentTarget.click()
+                }}
+              >
+                DesktopST{appVersion ? ` v${appVersion}` : ''}
+              </p>
+              {devToolsAvailable && devToolsReveal && (
+                <button
+                  type="button"
+                  className="mt-2 text-xs text-secondary hover:text-primary underline"
+                  onClick={() => void window.api.invoke('devtools:toggle')}
+                >
+                  切換此視窗開發者工具
+                </button>
+              )}
             </div>
             <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-primary">
               <input
