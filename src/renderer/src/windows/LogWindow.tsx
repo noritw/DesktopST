@@ -149,7 +149,10 @@ export default function LogWindow() {
   }
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const t = window.setTimeout(() => {
+      bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+    }, 0)
+    return () => window.clearTimeout(t)
   }, [messages.length])
 
   useEffect(() => {
@@ -169,8 +172,11 @@ export default function LogWindow() {
 
   useEffect(() => {
     setTitleDraft(conversation?.title ?? '新對話')
-    focusTitleInput()
   }, [conversation?.id, conversation?.title])
+
+  useEffect(() => {
+    focusTitleInput()
+  }, [conversation?.id])
 
   useEffect(() => {
     listConversations().then(setConvList).catch(() => setConvList([]))
@@ -212,10 +218,28 @@ export default function LogWindow() {
     setEditEmotion('neutral')
   }
 
-  const openPrompt = (msg: Message) => {
+  const messageMayHaveDebug = (msg: Message) =>
+    msg.role === 'character' || msg.llmProvider != null || msg.inputTokens != null
+
+  const openPrompt = async (msg: Message) => {
     setEditingId(null)
     setPromptMessage(msg)
     setPromptTab('main')
+    try {
+      const debug = await window.api.invoke('conversation:get-message-debug', msg.id) as {
+        debugPrompt?: string | null
+        utilityDebugPrompt?: string | null
+      } | null
+      if (debug) {
+        setPromptMessage({
+          ...msg,
+          debugPrompt: debug.debugPrompt ?? undefined,
+          utilityDebugPrompt: debug.utilityDebugPrompt ?? undefined
+        })
+      }
+    } catch (e) {
+      console.error('[LogWindow] load message debug failed:', e)
+    }
   }
 
   const [copied, setCopied] = useState(false)
@@ -291,7 +315,7 @@ export default function LogWindow() {
             <>
               {!isEditing && (
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {msg.debugPrompt && <ActionButton title="查看完整 Prompt" icon="prompt" onClick={() => openPrompt(msg)} />}
+                  {messageMayHaveDebug(msg) && <ActionButton title="查看完整 Prompt" icon="prompt" onClick={() => { void openPrompt(msg) }} />}
                   <ActionButton title="編輯訊息" icon="edit" onClick={() => startEdit(msg)} />
                   <ActionButton title="刪除訊息" icon="trash" danger onClick={() => confirmDeleteMessage(msg.id)} />
                 </div>
@@ -328,7 +352,7 @@ export default function LogWindow() {
               </span>
               {!isEditing && (
                 <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {msg.debugPrompt && <ActionButton title="查看完整 Prompt" icon="prompt" onClick={() => openPrompt(msg)} />}
+                  {messageMayHaveDebug(msg) && <ActionButton title="查看完整 Prompt" icon="prompt" onClick={() => { void openPrompt(msg) }} />}
                   <ActionButton title="編輯訊息" icon="edit" onClick={() => startEdit(msg)} />
                   <ActionButton title="刪除訊息" icon="trash" danger onClick={() => confirmDeleteMessage(msg.id)} />
                 </div>

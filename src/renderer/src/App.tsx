@@ -21,6 +21,7 @@ const w = typeof window !== 'undefined' && window.windowParams
   : new URLSearchParams(window.location.search).get('w')
 
 const isLightweightAuxWindow = w === 'bubble' || w === 'user-bubble'
+const isCharacterWindow = w === 'character'
 
 const FONT_SIZE_MAP: Record<string, string> = {
   xs: '12px', sm: '13px', md: '14px', lg: '16px', xl: '18px'
@@ -29,8 +30,10 @@ const FONT_SIZE_MAP: Record<string, string> = {
 export default function App() {
   const loadAll = useAppStore(s => s.loadAll)
   const loadBubbleInit = useAppStore(s => s.loadBubbleInit)
+  const loadCharacterInit = useAppStore(s => s.loadCharacterInit)
   const subscribeToEvents = useAppStore(s => s.subscribeToEvents)
   const subscribeBubbleEvents = useAppStore(s => s.subscribeBubbleEvents)
+  const subscribeCharacterEvents = useAppStore(s => s.subscribeCharacterEvents)
   const settings = useAppStore(s => s.settings)
   const chatFontSize = settings?.ui.chatFontSize ?? null
   const colorTheme = settings?.ui.colorTheme ?? null
@@ -103,6 +106,11 @@ export default function App() {
     if (isLightweightAuxWindow) {
       loadBubbleInit().catch(e => console.error('[DesktopST] loadBubbleInit failed:', e))
       const unsub = subscribeBubbleEvents()
+      return unsub
+    }
+    if (isCharacterWindow) {
+      loadCharacterInit().catch(e => console.error('[DesktopST] loadCharacterInit failed:', e))
+      const unsub = subscribeCharacterEvents()
       return unsub
     }
     loadAll().catch(e => console.error('[DesktopST] loadAll failed:', e))

@@ -6,6 +6,7 @@ import MonoIcon from '../components/MonoIcon'
 
 /** CharacterSprite 框高為 260×scale；object-fit:contain 時腳常在框內偏上，左右欄需上移才能與視覺腳底對齊 */
 const SIDE_TOOLBAR_FOOT_LIFT_RATIO = 0.072
+const DRAG_SEND_INTERVAL_MS = 33
 
 function mergeScreenRectsFromElements(elements: (HTMLElement | null)[]): { x: number; y: number; w: number; h: number } | null {
   let minL = Infinity
@@ -91,6 +92,10 @@ export default function CharacterWindow({ characterId }: Props) {
   const closeMenuRef = useRef<HTMLDivElement | null>(null)
   const scaleControlsRef = useRef<HTMLDivElement | null>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
+  const dragPendingRef = useRef<{ x: number; y: number } | null>(null)
+  const dragRafRef = useRef<number | null>(null)
+  const dragTimerRef = useRef<number | null>(null)
+  const dragLastSentAtRef = useRef(0)
   const didDragRef = useRef(false)
   const lastMsgIdRef = useRef<string | undefined>(
     characterContext?.characterId === characterId ? characterContext.lastMessage?.id : undefined
@@ -173,26 +178,57 @@ export default function CharacterWindow({ characterId }: Props) {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
-    window.api.invoke('ui:character-activated', characterId)
-    window.api.invoke('desktop:drag-start', characterId, x, y)
+    window.api.send('desktop:drag-start', characterId, x, y)
+    dragLastSentAtRef.current = 0
     didDragRef.current = false
     dragStartRef.current = { x, y }
 
     const target = event.currentTarget
+    const flushDragMove = () => {
+      dragRafRef.current = null
+      const pending = dragPendingRef.current
+      if (!pending || !dragStartRef.current) return
+      window.api.send('desktop:drag-move', characterId, pending.x, pending.y)
+      dragLastSentAtRef.current = performance.now()
+    }
+
+    const scheduleDragMoveFlush = () => {
+      if (dragRafRef.current != null || dragTimerRef.current != null) return
+      const elapsed = performance.now() - dragLastSentAtRef.current
+      if (elapsed >= DRAG_SEND_INTERVAL_MS) {
+        dragRafRef.current = window.requestAnimationFrame(flushDragMove)
+        return
+      }
+      dragTimerRef.current = window.setTimeout(() => {
+        dragTimerRef.current = null
+        dragRafRef.current = window.requestAnimationFrame(flushDragMove)
+      }, Math.max(0, DRAG_SEND_INTERVAL_MS - elapsed))
+    }
+
     const onMove = (moveEvent: PointerEvent) => {
       if (!dragStartRef.current) return
-      // Validate coordinates are finite numbers before sending
       const x = Number(moveEvent.screenX)
       const y = Number(moveEvent.screenY)
       if (!Number.isFinite(x) || !Number.isFinite(y)) return
       const dx = x - dragStartRef.current.x
       const dy = y - dragStartRef.current.y
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDragRef.current = true
-      window.api.send('desktop:drag-move', characterId, x, y)
+      dragPendingRef.current = { x, y }
+      scheduleDragMoveFlush()
     }
 
     const onUp = () => {
+      if (dragTimerRef.current != null) {
+        window.clearTimeout(dragTimerRef.current)
+        dragTimerRef.current = null
+      }
+      if (dragRafRef.current != null) {
+        window.cancelAnimationFrame(dragRafRef.current)
+        dragRafRef.current = null
+      }
+      flushDragMove()
       dragStartRef.current = null
+      dragPendingRef.current = null
       window.api.invoke('desktop:drag-end', characterId)
       target.removeEventListener('pointermove', onMove)
       target.removeEventListener('pointerup', onUp)

@@ -196,6 +196,10 @@ const bubbleLastActiveAt = new Map<string, number>()
 const bubbleUserOffset = new Map<string, { x: number; y: number }>()
 /** 最近一次由程式 setBounds 寫入的對白視窗矩形；與 moved 比對以區分「程式同步」與「使用者拖對白」 */
 const lastBubbleBoundsProgrammatic = new Map<string, WindowBoundsState>()
+/** 拖曳角色收尾期間，暫時禁止 bubble moved 回寫使用者偏移，避免累積漂移。 */
+const bubbleOffsetWriteSuppressedUntil = new Map<string, number>()
+/** 角色拖曳前保存泡泡偏移，拖曳後恢復，避免微小誤差累積成漂移。 */
+const bubbleUserOffsetSnapshotBeforeDrag = new Map<string, { x: number; y: number } | null>()
 /** 避免異常 IPC 傳入無限大；一般長文仍完整顯示 */
 const BUBBLE_MAX_HEIGHT_PX = 32000
 /** 依桌面角色數量決定可同時存在的泡泡上限（至少 1）。 */
@@ -212,6 +216,9 @@ const BUBBLE_USER_OFFSET_DEFAULT: Readonly<{ x: number; y: number }> = { x: 0, y
 type ScreenRect = { x: number; y: number; w: number; h: number }
 const hitRects = new Map<string, { sprite: ScreenRect | null; buttons: ScreenRect | null }>()
 const draggingCharacters = new Set<string>()
+let activeDraggingCharacterId: string | null = null
+/** 拖曳桌面角色時暫時 hide 的其他角色對白（僅 hide 視窗，不改 renderer 狀態） */
+const bubblesSuppressedForDesktopDrag = new Map<string, boolean>()
 let hitTestTimer: NodeJS.Timeout | null = null
 /** setIgnoreMouseEvents 的上次狀態快取；只有變更時才呼叫 Win32 API */
 const lastIgnoreMouseState = new Map<string, boolean>()
@@ -377,14 +384,21 @@ export function isCursorOverInteractiveCharacter(): boolean {
 function ensureHitTestLoop(): void {
   if (hitTestTimer) return
   hitTestTimer = setInterval(() => {
+    const draggingId = activeDraggingCharacterId
     const cursor = screen.getCursorScreenPoint()
     for (const [characterId, win] of characterWindows.entries()) {
       if (!win || win.isDestroyed()) continue
-      // Never click-through while dragging: mouseup must always reach the renderer.
-      const dragging = draggingCharacters.has(characterId)
-      const rects = hitRects.get(characterId)
-      const inside = dragging || (!!rects && (pointInRect(cursor, rects.sprite) || pointInRect(cursor, rects.buttons)))
-      const shouldIgnore = !inside
+      let shouldIgnore = true
+      if (draggingId) {
+        // Dragging mode: only active dragging character keeps interaction enabled.
+        shouldIgnore = characterId !== draggingId
+      } else {
+        // Never click-through while dragging: mouseup must always reach the renderer.
+        const dragging = draggingCharacters.has(characterId)
+        const rects = hitRects.get(characterId)
+        const inside = dragging || (!!rects && (pointInRect(cursor, rects.sprite) || pointInRect(cursor, rects.buttons)))
+        shouldIgnore = !inside
+      }
       if (lastIgnoreMouseState.get(characterId) !== shouldIgnore) {
         lastIgnoreMouseState.set(characterId, shouldIgnore)
         win.setIgnoreMouseEvents(shouldIgnore, { forward: true })
@@ -560,8 +574,37 @@ export function setCharacterHitRects(
 }
 
 export function setCharacterDragging(characterId: string, dragging: boolean): void {
-  if (dragging) draggingCharacters.add(characterId)
-  else draggingCharacters.delete(characterId)
+  if (dragging) {
+    draggingCharacters.add(characterId)
+    activeDraggingCharacterId = characterId
+    return
+  }
+  draggingCharacters.delete(characterId)
+  if (activeDraggingCharacterId === characterId) activeDraggingCharacterId = null
+}
+
+function setBubbleOutlineMode(characterId: string, enabled: boolean): void {
+  const bw = bubbleWindows.get(characterId)
+  if (!bw || bw.isDestroyed() || !bw.isVisible()) return
+  bw.webContents.send('bubble:outline-mode', { characterId, enabled })
+  // 外框參考模式不攔滑鼠，避免拖曳角色時被對白窗吃掉事件
+  bw.setIgnoreMouseEvents(enabled, { forward: true })
+}
+
+function suppressOtherBubblesDuringDrag(activeCharacterId: string): void {
+  for (const [id, bw] of bubbleWindows.entries()) {
+    if (id === activeCharacterId) continue
+    if (bw.isDestroyed() || !bw.isVisible()) continue
+    bubblesSuppressedForDesktopDrag.set(id, true)
+    setBubbleOutlineMode(id, true)
+  }
+}
+
+function restoreBubblesSuppressedForDesktopDrag(): void {
+  for (const [id] of bubblesSuppressedForDesktopDrag) {
+    setBubbleOutlineMode(id, false)
+  }
+  bubblesSuppressedForDesktopDrag.clear()
 }
 
 export function beginCharacterDrag(
@@ -576,10 +619,9 @@ export function beginCharacterDrag(
   if (bubbleHiddenForCharacterDrag.get(characterId)) {
     const b = bubbleWindows.get(characterId)
     if (b && !b.isDestroyed()) {
-      b.setOpacity(1)
-      if (charactersAlwaysOnTop) b.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
-      b.showInactive()
-      b.moveTop()
+      b.setIgnoreMouseEvents(false)
+      if (!b.isVisible()) b.showInactive()
+      b.webContents.send('bubble:outline-mode', { characterId, enabled: false })
     }
     bubbleHiddenForCharacterDrag.delete(characterId)
   }
@@ -587,10 +629,19 @@ export function beginCharacterDrag(
   endCharacterDrag(characterId)
   setCharacterDragging(characterId, true)
   bringCharacterToFront(characterId)
+  suppressOtherBubblesDuringDrag(characterId)
 
   const startBounds = win.getBounds()
+  bubbleUserOffsetSnapshotBeforeDrag.set(
+    characterId,
+    bubbleUserOffset.has(characterId)
+      ? { ...(bubbleUserOffset.get(characterId) as { x: number; y: number }) }
+      : null
+  )
   const bwSnap = bubbleWindows.get(characterId)
   if (bwSnap && !bwSnap.isDestroyed() && bwSnap.isVisible()) {
+    // The actively dragged character does not need a guide frame; hide its bubble
+    // to reduce compositor work and avoid anchor drift accumulation.
     bwSnap.hide()
     bubbleHiddenForCharacterDrag.set(characterId, true)
   } else {
@@ -618,7 +669,11 @@ export function moveDraggedCharacter(characterId: string, cursorScreenX: number,
   }
   if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return
   const last = activeDragLastPositions.get(characterId)
-  if (last && last.x === pos.x && last.y === pos.y) return
+  if (last) {
+    const dx = Math.abs(last.x - pos.x)
+    const dy = Math.abs(last.y - pos.y)
+    if (dx < 3 && dy < 3) return
+  }
   activeDragLastPositions.set(characterId, pos)
   win.setPosition(pos.x, pos.y)
   if (!bubbleHiddenForCharacterDrag.has(characterId)) {
@@ -639,6 +694,7 @@ export function endCharacterDrag(characterId: string): { x: number; y: number } 
 
   activeDragLastPositions.delete(characterId)
   setCharacterDragging(characterId, false)
+  if (draggingCharacters.size === 0) restoreBubblesSuppressedForDesktopDrag()
   return pos
 }
 
@@ -655,6 +711,7 @@ export function getAllCharacterWindows(): BrowserWindow[] {
 }
 
 export function closeCharacterWindow(characterId: string): void {
+  bubbleUserOffsetSnapshotBeforeDrag.delete(characterId)
   bubbleHiddenForCharacterDrag.delete(characterId)
   hideSpeechBubble(characterId)
   const win = characterWindows.get(characterId)
@@ -687,12 +744,14 @@ export function destroyAllCharacterWindows(): void {
     bubbleLastActiveAt.delete(id)
     bubbleUserOffset.delete(id)
     lastBubbleBoundsProgrammatic.delete(id)
+    bubbleUserOffsetSnapshotBeforeDrag.delete(id)
     lastBubbleSizes.delete(id)
     lastBubbleShowPayload.delete(id)
     bubbleRepositionDone.delete(id)
     if (!win.isDestroyed()) win.destroy()
   }
   lastShownBubbleCharacterId = null
+  bubblesSuppressedForDesktopDrag.clear()
 
   // Destroy any orphan character/bubble windows not captured by our maps
   for (const win of BrowserWindow.getAllWindows()) {
@@ -757,6 +816,8 @@ export function createBubbleWindow(characterId: string): BrowserWindow {
     bubbleLastActiveAt.delete(characterId)
     bubbleUserOffset.delete(characterId)
     lastBubbleBoundsProgrammatic.delete(characterId)
+    bubbleOffsetWriteSuppressedUntil.delete(characterId)
+    bubbleUserOffsetSnapshotBeforeDrag.delete(characterId)
     bubbleHiddenForCharacterDrag.delete(characterId)
     lastBubbleShowPayload.delete(characterId)
     bubbleRepositionDone.delete(characterId)
@@ -764,6 +825,9 @@ export function createBubbleWindow(characterId: string): BrowserWindow {
   })
   win.on('moved', () => {
     if (draggingCharacters.has(characterId)) return
+    if (bubbleHiddenForCharacterDrag.get(characterId)) return
+    const suppressUntil = bubbleOffsetWriteSuppressedUntil.get(characterId) ?? 0
+    if (Date.now() < suppressUntil) return
     const bwMove = bubbleWindows.get(characterId)
     if (!bwMove || bwMove.isDestroyed()) return
     const br = bwMove.getBounds()
@@ -777,6 +841,10 @@ export function createBubbleWindow(characterId: string): BrowserWindow {
     win.webContents.openDevTools({ mode: 'detach' })
   }
   return win
+}
+
+function suppressBubbleOffsetWrite(characterId: string, ms = 240): void {
+  bubbleOffsetWriteSuppressedUntil.set(characterId, Date.now() + ms)
 }
 
 function getBubbleAutoCloseMs(text: string): number {
@@ -1065,21 +1133,30 @@ export function syncSpeechBubblePosition(characterId: string, charPos?: { x: num
 }
 
 /** 角色拖曳結束：同步對白錨點（沿用既有 bubbleUserOffset，不重置）；拖曳中曾隱藏對白則再顯示。 */
-export function reconcileSpeechBubbleAfterCharacterDrag(characterId: string, charPos: { x: number; y: number }): void {
-  const reveal = bubbleHiddenForCharacterDrag.get(characterId) === true
-  bubbleHiddenForCharacterDrag.delete(characterId)
+export function reconcileSpeechBubbleAfterCharacterDrag(characterId: string): void {
+  const hadHiddenBubble = bubbleHiddenForCharacterDrag.get(characterId) === true
+  const offsetSnapshot = bubbleUserOffsetSnapshotBeforeDrag.get(characterId)
+  bubbleUserOffsetSnapshotBeforeDrag.delete(characterId)
+  suppressBubbleOffsetWrite(characterId, 280)
+  if (offsetSnapshot) bubbleUserOffset.set(characterId, { ...offsetSnapshot })
+  else bubbleUserOffset.delete(characterId)
 
-  syncSpeechBubblePosition(characterId, charPos)
+  // Realign from current character window bounds instead of drag snapshot to avoid
+  // gradual anchor drift after repeated drags under load.
+  syncSpeechBubblePosition(characterId)
 
-  if (reveal) {
+  if (hadHiddenBubble) {
     const bw = bubbleWindows.get(characterId)
     if (bw && !bw.isDestroyed()) {
+      bw.setIgnoreMouseEvents(false)
+      bw.webContents.send('bubble:outline-mode', { characterId, enabled: false })
       bw.setOpacity(1)
       bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
       bw.showInactive()
       bw.moveTop()
     }
   }
+  bubbleHiddenForCharacterDrag.delete(characterId)
 }
 
 // ── Input window ──────────────────────────────────────────
@@ -1468,6 +1545,11 @@ function ensureLogWindow(): BrowserWindow {
       })
     }
     logWindow.on('closed', () => { logWindow = null })
+    logWindow.webContents.on('render-process-gone', (_event, details) => {
+      console.error('[DesktopST] log window renderer gone:', details.reason)
+      if (!logWindow || logWindow.isDestroyed()) return
+      logWindow.webContents.reload()
+    })
   }
   return logWindow
 }
@@ -2275,6 +2357,13 @@ export function sendCharacterContextUpdate(
 
 // ── Broadcast to all windows ──────────────────────────────
 
+/** 僅通知角色視窗桌面狀態變更，避免拖曳結束時驚動全部泡泡 / 輔助視窗。 */
+export function broadcastDesktopCharactersToCharacterWindows(desktopCharacters: unknown): void {
+  for (const win of characterWindows.values()) {
+    if (!win.isDestroyed()) win.webContents.send('desktop:updated', desktopCharacters)
+  }
+}
+
 export function broadcastToAll(channel: string, data: unknown): void {
   const wins = [
     ...characterWindows.values(),
@@ -2315,16 +2404,54 @@ function stripConversationForInput(conv: Conversation): Conversation {
   }
 }
 
+/** Log 視窗用：保留圖片縮圖，但省略 debug prompt 避免 IPC 過大導致 renderer 崩潰。 */
+export function stripConversationForLog(conv: Conversation): Conversation {
+  return {
+    ...conv,
+    messages: conv.messages.map(omitHeavyMessageFields)
+  }
+}
+
 /** Targeted broadcast for conversation updates.
- *  - Log window gets the full conversation (renders images).
+ *  - Log window gets a stripped copy (no debug prompts; keeps image thumbnails).
  *  - Input window gets a stripped copy (no images, no debug prompts).
  *  - Character windows use character:context-update instead (see sendCharacterContextUpdate).
  */
 export function broadcastConversationUpdate(conv: Conversation): void {
-  const stripped = stripConversationForInput(conv)
+  const strippedInput = stripConversationForInput(conv)
+  const strippedLog = stripConversationForLog(conv)
 
   if (logWindow && !logWindow.isDestroyed())
-    logWindow.webContents.send('conversation:updated', conv)
+    logWindow.webContents.send('conversation:updated', strippedLog)
   if (inputWindow && !inputWindow.isDestroyed())
-    inputWindow.webContents.send('conversation:updated', stripped)
+    inputWindow.webContents.send('conversation:updated', strippedInput)
+}
+
+/** 延後一個 event loop 再推送，避免與 thinking / 泡泡顯示搶同一個主程序 tick。 */
+export function deferBroadcastConversationUpdate(conv: Conversation): void {
+  setImmediate(() => broadcastConversationUpdate(conv))
+}
+
+let pendingConvBroadcast: Conversation | null = null
+let convBroadcastTimer: ReturnType<typeof setTimeout> | null = null
+
+/** Coalesce rapid conversation updates (e.g. group replies) into fewer IPC pushes. */
+export function scheduleConversationBroadcast(conv: Conversation): void {
+  pendingConvBroadcast = conv
+  if (convBroadcastTimer) return
+  convBroadcastTimer = setTimeout(() => {
+    convBroadcastTimer = null
+    flushConversationBroadcast()
+  }, 50)
+}
+
+export function flushConversationBroadcast(): void {
+  if (convBroadcastTimer) {
+    clearTimeout(convBroadcastTimer)
+    convBroadcastTimer = null
+  }
+  if (!pendingConvBroadcast) return
+  const conv = pendingConvBroadcast
+  pendingConvBroadcast = null
+  broadcastConversationUpdate(conv)
 }

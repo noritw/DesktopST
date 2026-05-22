@@ -23,6 +23,7 @@ export default function BubbleWindow({ characterId }: Props) {
   const [speakerName, setSpeakerName] = useState('')
   const [text, setText] = useState('')
   const [confirmPin, setConfirmPin] = useState(false)
+  const [outlineMode, setOutlineMode] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingPinArgsRef = useRef<{ title: string; pos: { x: number; y: number }; content: string } | null>(null)
 
@@ -142,7 +143,14 @@ export default function BubbleWindow({ characterId }: Props) {
       if (p.characterId !== characterId) return
       clearTimer()
       setConfirmPin(false)
+      setOutlineMode(false)
       setVisible(false)
+    })
+
+    const unsubOutline = window.api.on('bubble:outline-mode', (payload) => {
+      const p = payload as { characterId: string; enabled?: boolean }
+      if (p.characterId !== characterId) return
+      setOutlineMode(!!p.enabled)
     })
 
     return () => {
@@ -150,11 +158,12 @@ export default function BubbleWindow({ characterId }: Props) {
       unsubShow()
       unsubPersist()
       unsubHide()
+      unsubOutline()
     }
   }, [characterId, settings?.ui.chatBubbleAutoClose])
 
   useEffect(() => {
-    if (!visible) return
+    if (!visible || outlineMode) return
     const el = contentRef.current
     if (!el) return
 
@@ -180,9 +189,30 @@ export default function BubbleWindow({ characterId }: Props) {
       window.cancelAnimationFrame(raf1)
       ro.disconnect()
     }
-  }, [characterId, visible, displayText, confirmPin])
+  }, [characterId, visible, displayText, confirmPin, outlineMode])
 
   if (!visible) return null
+
+  if (outlineMode) {
+    const { width, height } = lastSizeRef.current
+    return (
+      <div
+        className="flex h-full min-h-0 w-full select-none pointer-events-none"
+        style={{ background: 'transparent' }}
+      >
+        <div
+          aria-hidden
+          className="rounded-2xl rounded-bl-sm border-2 border-dashed border-teal/70 bg-transparent box-border shadow-none"
+          style={{
+            width: Math.max(200, width),
+            height: Math.max(78, height),
+            minWidth: 200,
+            minHeight: 78
+          }}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col select-none" style={{ background: 'transparent' }}>

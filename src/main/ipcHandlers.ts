@@ -20,7 +20,7 @@ import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
   resizeCharacterWindow, getCharacterWindowSize, enterCharacterScaleMode, exitCharacterScaleMode, enterScaleModeWindow,
   toggleInputWindow, toggleLogWindow, openLogWindow, openSettingsWindow,
-  broadcastToAll, getAllCharacterWindows, setCharacterWindowClickThrough,
+  broadcastToAll, broadcastDesktopCharactersToCharacterWindows, getAllCharacterWindows, setCharacterWindowClickThrough,
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
   hideSpeechBubble, persistSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition,
   showUserSpeechBubble, hideUserSpeechBubble, updateUserSpeechBubbleSize,
@@ -37,6 +37,10 @@ import {
   createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow, getInputWindow,
   getLogWindow, getVisibleAuxWindowSnapshot, restoreAuxWindowsFromSnapshot, getVisiblePinnedNoteWindowIds,
   broadcastConversationUpdate,
+  deferBroadcastConversationUpdate,
+  scheduleConversationBroadcast,
+  flushConversationBroadcast,
+  stripConversationForLog,
   setCharacterThinking,
   raiseCharacterAbovePinnedNotes,
   sendCharacterContextUpdate,
@@ -911,8 +915,8 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     conv.messages.push(msg)
     conv.updatedAt = Date.now()
     fileStore.saveConversation(conv)
-    broadcastConversationUpdate(conv)
-    broadcastToAll('character:new-message', { characterId: charId, message: msg })
+    scheduleConversationBroadcast(conv)
+    flushConversationBroadcast()
 
     // 播放提醒音效（發給說話的角色的窗口，一個角色只響一次）
     if (settings.ui.reminderNotificationSound?.enabled !== false) {
@@ -923,8 +927,10 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       }
     }
 
-    showSpeechBubble(charId, char.name, cleanReply, msg.emotion, bubbleAnchorForCharacter(charId))
-    sendCharacterContextUpdate(charId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
+    setImmediate(() => {
+      showSpeechBubble(charId, char.name, cleanReply, msg.emotion, bubbleAnchorForCharacter(charId))
+      sendCharacterContextUpdate(charId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
+    })
   } catch (e) {
     console.error('[reminder] triggerReminderSpeak failed:', e)
   } finally {
@@ -963,12 +969,26 @@ export function registerIpcHandlers() {
         }
       }
     }
+    const conversationForRenderer = conv
+      ? (winType === 'log' ? stripConversationForLog(conv) : conv)
+      : null
     return {
       settings,
       characters,
       desktopCharacters: settings.ui.desktopCharacters,
       activeConversationId,
-      conversation: conv
+      conversation: conversationForRenderer
+    }
+  })
+
+  ipcMain.handle('conversation:get-message-debug', (_, messageId: string) => {
+    const conv = getActiveConversation()
+    if (!conv || !messageId) return null
+    const msg = conv.messages.find(m => m.id === messageId)
+    if (!msg) return null
+    return {
+      debugPrompt: msg.debugPrompt ?? null,
+      utilityDebugPrompt: msg.utilityDebugPrompt ?? null
     }
   })
 
@@ -1460,7 +1480,7 @@ export function registerIpcHandlers() {
     return true
   })
 
-  ipcMain.handle('desktop:drag-start', (_, characterId: string, startX: number, startY: number) => {
+  const startDesktopDrag = (characterId: string, startX: number, startY: number): boolean => {
     if (typeof characterId === 'string' && Number.isFinite(startX) && Number.isFinite(startY)) {
       const ok = beginCharacterDrag(characterId, startX, startY, pos => {
         const d = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
@@ -1469,6 +1489,13 @@ export function registerIpcHandlers() {
       return ok
     }
     return false
+  }
+
+  ipcMain.handle('desktop:drag-start', (_, characterId: string, startX: number, startY: number) =>
+    startDesktopDrag(characterId, startX, startY)
+  )
+  ipcMain.on('desktop:drag-start', (_, characterId: string, startX: number, startY: number) => {
+    startDesktopDrag(characterId, startX, startY)
   })
 
   ipcMain.on('desktop:drag-move', (_, characterId: string, cursorX: number, cursorY: number) => {
@@ -1481,13 +1508,13 @@ export function registerIpcHandlers() {
   ipcMain.handle('desktop:drag-end', (_, characterId: string) => {
     const pos = endCharacterDrag(characterId)
     if (pos) {
-      reconcileSpeechBubbleAfterCharacterDrag(characterId, pos)
+      reconcileSpeechBubbleAfterCharacterDrag(characterId)
     }
     const d = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
     if (d && pos) {
       d.position = pos
       fileStore.saveSettings(settings)
-      broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
+      broadcastDesktopCharactersToCharacterWindows(settings.ui.desktopCharacters)
     }
     // 拖曳結束後確保角色保持在便利貼之上（同 z 層）
     bringCharacterToFront(characterId)
@@ -1687,7 +1714,7 @@ export function registerIpcHandlers() {
     const conv = createNewConversation()
     broadcastConversationUpdate(conv)
     syncCharacterContextsFromConversation(conv)
-    return conv
+    return stripConversationForLog(conv)
   })
 
   ipcMain.handle('conversation:load', (_, id: string) => {
@@ -1697,7 +1724,7 @@ export function registerIpcHandlers() {
     syncLastActiveConversationToSettings()
     broadcastConversationUpdate(conv)
     syncCharacterContextsFromConversation(conv)
-    return conv
+    return stripConversationForLog(conv)
   })
 
   ipcMain.handle('conversation:rename', (_, title: string) => {
@@ -1804,10 +1831,10 @@ export function registerIpcHandlers() {
       timestamp: Date.now()
     }
     conv.messages.push(userMsg)
-    broadcastConversationUpdate(conv)
+    deferBroadcastConversationUpdate(conv)
     const shownUserText = String(payload.content ?? '').trim()
     if (shownUserText) {
-      showUserSpeechBubble(getPersonaDisplayName(), shownUserText)
+      setImmediate(() => showUserSpeechBubble(getPersonaDisplayName(), shownUserText))
     }
     const userMsgForPrompt: Message = { ...userMsg, content: userContentForPrompt }
 
@@ -1869,13 +1896,16 @@ export function registerIpcHandlers() {
       }
       conv.messages.push(noApiKeyMsg)
       conv.updatedAt = Date.now()
-      broadcastConversationUpdate(conv)
-      broadcastToAll('character:new-message', { characterId: primaryId, message: noApiKeyMsg })
+      scheduleConversationBroadcast(conv)
+      flushConversationBroadcast()
       showSpeechBubble(primaryId, primaryChar.name, noKeyText, noApiKeyMsg.emotion, bubbleAnchorForCharacter(primaryId))
       sendCharacterContextUpdate(primaryId, { lastMessage: { id: noApiKeyMsg.id, emotion: noApiKeyMsg.emotion } })
       fileStore.saveConversation(conv)
       return { ok: true }
     }
+
+    setCharacterThinking(primaryId, true)
+    deferRaiseCharacterAbovePinnedNotes(primaryId)
 
     const recentMessagesBase = [...conv.messages.slice(0, -1), userMsgForPrompt].slice(-(settings.memory.keepRecentN))
     let lastReplyText = ''
@@ -1886,8 +1916,6 @@ export function registerIpcHandlers() {
 
     // 1) Primary responder always replies
     try {
-      setCharacterThinking(primaryId, true)
-      deferRaiseCharacterAbovePinnedNotes(primaryId)
       const { content, emotion: rawEmotion, debugPrompt, inputTokens, outputTokens } = await chatWithLLM({
         settings,
         character: primaryChar,
@@ -1939,8 +1967,8 @@ export function registerIpcHandlers() {
       }
       conv.messages.push(charMsg)
       conv.updatedAt = Date.now()
-      broadcastConversationUpdate(conv)
-      broadcastToAll('character:new-message', { characterId: primaryId, message: charMsg })
+      setCharacterThinking(primaryId, false)
+      scheduleConversationBroadcast(conv)
 
       // 播放訊息通知音
       if (settings.ui.messageNotificationSound?.enabled !== false) {
@@ -1951,9 +1979,10 @@ export function registerIpcHandlers() {
         }
       }
 
-      showSpeechBubble(primaryId, primaryChar.name, primaryReply, charMsg.emotion, bubbleAnchorForCharacter(primaryId))
-      sendCharacterContextUpdate(primaryId, { lastMessage: { id: charMsg.id, emotion: charMsg.emotion } })
-      setCharacterThinking(primaryId, false)
+      setImmediate(() => {
+        showSpeechBubble(primaryId, primaryChar.name, primaryReply, charMsg.emotion, bubbleAnchorForCharacter(primaryId))
+        sendCharacterContextUpdate(primaryId, { lastMessage: { id: charMsg.id, emotion: charMsg.emotion } })
+      })
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e)
       const errMsg2: Message = {
@@ -1965,7 +1994,8 @@ export function registerIpcHandlers() {
         timestamp: Date.now()
       }
       conv.messages.push(errMsg2)
-      broadcastConversationUpdate(conv)
+      scheduleConversationBroadcast(conv)
+      flushConversationBroadcast()
       setCharacterThinking(primaryId, false)
       fileStore.saveConversation(conv)
       return { ok: true }
@@ -2062,8 +2092,8 @@ export function registerIpcHandlers() {
         lastReplyText = cleanReply
         conv.messages.push(charMsg)
         conv.updatedAt = Date.now()
-        broadcastConversationUpdate(conv)
-        broadcastToAll('character:new-message', { characterId: charId, message: charMsg })
+        setCharacterThinking(charId, false)
+        scheduleConversationBroadcast(conv)
 
         // 播放訊息通知音
         if (settings.ui.messageNotificationSound?.enabled !== false) {
@@ -2074,15 +2104,17 @@ export function registerIpcHandlers() {
           }
         }
 
-        showSpeechBubble(charId, char.name, cleanReply, charMsg.emotion, bubbleAnchorForCharacter(charId))
-        sendCharacterContextUpdate(charId, { lastMessage: { id: charMsg.id, emotion: charMsg.emotion } })
-        setCharacterThinking(charId, false)
+        setImmediate(() => {
+          showSpeechBubble(charId, char.name, cleanReply, charMsg.emotion, bubbleAnchorForCharacter(charId))
+          sendCharacterContextUpdate(charId, { lastMessage: { id: charMsg.id, emotion: charMsg.emotion } })
+        })
       } catch (e: unknown) {
         // If a secondary decision fails, don't break the whole send flow.
         setCharacterThinking(charId, false)
       }
     }
 
+    flushConversationBroadcast()
     fileStore.saveConversation(conv)
     return { ok: true }
   })
@@ -2107,7 +2139,6 @@ export function registerIpcHandlers() {
       conv.messages.push(msg)
       conv.updatedAt = Date.now()
       broadcastConversationUpdate(conv)
-      broadcastToAll('character:new-message', { characterId, message: msg })
       showSpeechBubble(characterId, char.name, noKeyText, undefined, bubbleAnchorForCharacter(characterId))
       fileStore.saveConversation(conv)
       return { ok: true }
@@ -2178,10 +2209,12 @@ export function registerIpcHandlers() {
       conv.messages.push(msg)
       conv.updatedAt = Date.now()
       fileStore.saveConversation(conv)
-      broadcastConversationUpdate(conv)
-      broadcastToAll('character:new-message', { characterId, message: msg })
-      showSpeechBubble(characterId, char.name, forcedReply, msg.emotion, bubbleAnchorForCharacter(characterId))
-      sendCharacterContextUpdate(characterId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
+      scheduleConversationBroadcast(conv)
+      flushConversationBroadcast()
+      setImmediate(() => {
+        showSpeechBubble(characterId, char.name, forcedReply, msg.emotion, bubbleAnchorForCharacter(characterId))
+        sendCharacterContextUpdate(characterId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
+      })
       return { ok: true }
     } catch (e: unknown) {
       return { error: e instanceof Error ? e.message : String(e) }

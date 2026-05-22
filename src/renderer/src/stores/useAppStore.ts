@@ -21,8 +21,10 @@ interface AppStore {
   // Actions
   loadAll: () => Promise<void>
   loadBubbleInit: () => Promise<void>
+  loadCharacterInit: () => Promise<void>
   subscribeToEvents: () => () => void
   subscribeBubbleEvents: () => () => void
+  subscribeCharacterEvents: () => () => void
 
   sendMessage: (content: string, images?: string[]) => Promise<void>
   forceSpeak: (characterId: string) => Promise<void>
@@ -85,11 +87,42 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ settings: data.settings })
   },
 
+  loadCharacterInit: async () => {
+    const data = await window.api.invoke('store:get-all') as {
+      settings: AppSettings
+      characters: Character[]
+      desktopCharacters: DesktopCharacterState[]
+      characterContext?: CharacterContextSnapshot | null
+    }
+    set({
+      settings: data.settings,
+      characters: data.characters,
+      desktopCharacters: data.desktopCharacters,
+      characterContext: data.characterContext ?? null
+    })
+  },
+
   subscribeBubbleEvents: () => {
     const unsub = window.api.on('settings:updated', (s) => {
       set({ settings: s as AppSettings })
     })
     return unsub
+  },
+
+  subscribeCharacterEvents: () => {
+    const unsubs = [
+      window.api.on('settings:updated', (s) => {
+        const next = s as AppSettings
+        set({ settings: next, desktopCharacters: next.ui.desktopCharacters })
+      }),
+      window.api.on('characters:updated', (c) => set({ characters: c as Character[] })),
+      window.api.on('desktop:updated', (d) => set({ desktopCharacters: d as DesktopCharacterState[] })),
+      window.api.on('ui:app-focus', (payload) => {
+        const p = payload as { focused: boolean }
+        set({ uiAppFocused: !!p.focused })
+      })
+    ]
+    return () => unsubs.forEach(u => u())
   },
 
   subscribeToEvents: () => {
