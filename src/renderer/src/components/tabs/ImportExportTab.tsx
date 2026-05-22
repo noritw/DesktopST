@@ -11,6 +11,7 @@ interface Props {
 export default function ImportExportTab({ draft, onError, onNotify }: Props) {
   const dstpackFileRef = useRef<HTMLInputElement>(null)
   const stFileRef = useRef<HTMLInputElement>(null)
+  const overwriteJsonFileRef = useRef<HTMLInputElement>(null)
   const openEditor = useCharacterLibraryStore(s => s.openEditor)
   const closeEditor = useCharacterLibraryStore(s => s.closeEditor)
 
@@ -111,7 +112,11 @@ export default function ImportExportTab({ draft, onError, onNotify }: Props) {
     const buf = await file.arrayBuffer()
     if (lower.endsWith('.json')) {
       const text = new TextDecoder().decode(buf)
-      const res = await window.api.invoke('character:import-json', text) as Character | { error?: string }
+      const sourcePath = (file as File & { path?: string }).path
+      const res = await window.api.invoke('character:import-json', {
+        json: text,
+        sourcePath
+      }) as Character | { error?: string }
       if (res && typeof res === 'object' && 'error' in res) {
         onError(res.error ?? '匯入失敗')
         return
@@ -135,6 +140,43 @@ export default function ImportExportTab({ draft, onError, onNotify }: Props) {
       return
     }
     onError('請選擇 JSON 或 PNG 格式的 SillyTavern 角色卡')
+  }
+
+  const onOverwriteJsonFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      onError('請選擇 JSON 檔案')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `確定要用「${file.name}」覆蓋目前角色「${draft.name}」嗎？\n\n` +
+      '此操作會覆蓋角色文字資料。\n若匯入 JSON 沒有主圖/情緒圖片，會保留目前圖片設定。'
+    )
+    if (!confirmed) return
+
+    try {
+      const text = await file.text()
+      const sourcePath = (file as File & { path?: string }).path
+      const res = await window.api.invoke('character:import-json', {
+        json: text,
+        sourcePath,
+        replaceCharacterId: draft.id
+      }) as Character | { error?: string }
+
+      if (res && typeof res === 'object' && 'error' in res) {
+        onError(res.error ?? '覆蓋失敗')
+        return
+      }
+
+      closeEditor()
+      openEditor(draft.id)
+      onNotify('已以 JSON 覆蓋目前角色')
+    } catch (err) {
+      onError(err instanceof Error ? err.message : '覆蓋失敗')
+    }
   }
 
   return (
@@ -165,6 +207,7 @@ export default function ImportExportTab({ draft, onError, onNotify }: Props) {
           匯入或匯出 SillyTavern 相容格式（JSON / PNG），適合與 ST 使用者交換角色。
         </p>
         <input ref={stFileRef} type="file" accept=".json,.png" className="hidden" onChange={onStFile} />
+        <input ref={overwriteJsonFileRef} type="file" accept=".json" className="hidden" onChange={onOverwriteJsonFile} />
         <div className="flex flex-wrap gap-2">
           <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full bg-mint text-primary font-semibold" onClick={exportJson}>
             匯出 ST JSON
@@ -175,9 +218,16 @@ export default function ImportExportTab({ draft, onError, onNotify }: Props) {
           <button type="button" className="tab-btn text-sm px-4 py-2 rounded-full border border-border text-primary" onClick={() => stFileRef.current?.click()}>
             匯入 ST 角色卡
           </button>
+          <button
+            type="button"
+            className="tab-btn text-sm px-4 py-2 rounded-full border border-border text-primary"
+            onClick={() => overwriteJsonFileRef.current?.click()}
+          >
+            匯入 JSON（覆蓋此角色）
+          </button>
         </div>
         <p className="text-xs text-secondary leading-relaxed mt-2">
-          匯入成功後會改為編輯新匯入的角色。若匯入失敗請確認檔案格式。
+          「匯入 ST 角色卡」會建立新角色；「匯入 JSON（覆蓋此角色）」會直接覆蓋目前角色（有確認視窗）。
         </p>
       </section>
     </div>

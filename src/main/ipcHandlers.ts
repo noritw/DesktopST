@@ -502,6 +502,73 @@ function fixCharacterPathsAfterImport(char: Character, dir: string): Character {
   return { ...char, avatar, emotions, spriteIds: Object.keys(spriteIds).length > 0 ? spriteIds : char.spriteIds }
 }
 
+function resolveAssetsFromSourcePath(char: Character, sourcePath?: string): Character {
+  const src = (sourcePath ?? '').trim()
+  if (!src) return char
+  const baseDir = path.dirname(src)
+  if (!baseDir || !fs.existsSync(baseDir)) return char
+
+  const resolveOne = (rawPath: string, subDir?: string): string => {
+    const input = rawPath.trim()
+    if (!input) return ''
+    if (path.isAbsolute(input) && fs.existsSync(input)) return input
+
+    const fileName = path.basename(input)
+    if (!fileName) return input
+    const candidates = [path.join(baseDir, fileName)]
+    if (subDir) candidates.push(path.join(baseDir, subDir, fileName))
+    const hit = candidates.find(p => fs.existsSync(p))
+    return hit ?? input
+  }
+
+  const emotions: Record<string, string> = {}
+  for (const [k, v] of Object.entries(char.emotions ?? {})) {
+    emotions[k] = resolveOne(v, 'emotions')
+  }
+
+  const spriteIds: Record<string, string> = {}
+  for (const [k, v] of Object.entries(char.spriteIds ?? {})) {
+    const nextKey = resolveOne(k, 'emotions')
+    if (!nextKey) continue
+    spriteIds[nextKey] = v
+  }
+
+  return {
+    ...char,
+    avatar: resolveOne(char.avatar ?? ''),
+    emotions,
+    spriteIds: Object.keys(spriteIds).length > 0 ? spriteIds : char.spriteIds
+  }
+}
+
+function mergeImportedCharacterForOverwrite(existing: Character, imported: Character): Character {
+  const importedAvatar = (imported.avatar ?? '').trim()
+  const importedEmotionCount = Object.keys(imported.emotions ?? {}).length
+  const importedSpriteCount = Object.keys(imported.spriteIds ?? {}).length
+
+  return {
+    ...existing,
+    ...imported,
+    id: existing.id,
+    createdAt: existing.createdAt,
+    avatar: importedAvatar ? imported.avatar : existing.avatar,
+    emotions: importedEmotionCount > 0 ? imported.emotions : existing.emotions,
+    spriteIds: importedSpriteCount > 0 ? imported.spriteIds : existing.spriteIds,
+    updatedAt: Date.now()
+  }
+}
+
+type ImportJsonPayload = string | { json: string; sourcePath?: string; replaceCharacterId?: string }
+
+function normalizeImportJsonPayload(payload: ImportJsonPayload): { json: string; sourcePath?: string; replaceCharacterId?: string } {
+  if (typeof payload === 'string') return { json: payload }
+  return {
+    json: String(payload?.json ?? ''),
+    sourcePath: typeof payload?.sourcePath === 'string' ? payload.sourcePath : undefined,
+    replaceCharacterId: typeof payload?.replaceCharacterId === 'string' ? payload.replaceCharacterId : undefined
+  }
+}
+
 type DismissedAuxWindowSnapshot = {
   auxWindows: VisibleAuxWindowSnapshotEntry[]
   pinnedNotes: Array<{ id: string; bounds?: { x: number; y: number; width: number; height: number } }>
@@ -2128,13 +2195,24 @@ export function registerIpcHandlers() {
     return testLLMMessage({ provider, apiKey, apiKeys, model: payload?.model?.trim() || resolveModel(settings).trim(), endpoint: payload?.endpoint?.trim() || settings.llm.endpoint?.trim() || undefined })
   })
 
-  // Import ST character card (JSON)
-  ipcMain.handle('character:import-json', (_, jsonStr: string) => {
+  // Import ST/DesktopST character card (JSON); supports overwrite mode.
+  ipcMain.handle('character:import-json', (_, payload: ImportJsonPayload) => {
     try {
-      const raw = JSON.parse(jsonStr)
-      const id = uuidv4()
-      const char = importStJson(raw, id)
-      characters.push(char)
+      const { json, sourcePath, replaceCharacterId } = normalizeImportJsonPayload(payload)
+      const raw = JSON.parse(json)
+      const existing = replaceCharacterId
+        ? characters.find(c => c.id === replaceCharacterId)
+        : undefined
+      const id = existing?.id ?? uuidv4()
+      let char = importStJson(raw, id)
+      char = resolveAssetsFromSourcePath(char, sourcePath)
+      if (existing) {
+        char = mergeImportedCharacterForOverwrite(existing, char)
+      }
+
+      const idx = characters.findIndex(c => c.id === char.id)
+      if (idx >= 0) characters[idx] = char
+      else characters.push(char)
       fileStore.saveCharacter(char)
       broadcastToAll('characters:updated', characters)
       return char

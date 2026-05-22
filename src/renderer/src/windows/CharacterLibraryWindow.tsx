@@ -129,7 +129,11 @@ export default function CharacterLibraryWindow() {
       }
       if (lower.endsWith('.json')) {
         const text = new TextDecoder().decode(buf)
-        const res = await window.api.invoke('character:import-json', text) as Character | { error?: string }
+        const sourcePath = (file as File & { path?: string }).path
+        const res = await window.api.invoke('character:import-json', {
+          json: text,
+          sourcePath
+        }) as Character | { error?: string }
         if (res && typeof res === 'object' && 'error' in res) {
           setToast(res.error ?? '匯入失敗')
           return
