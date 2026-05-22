@@ -196,6 +196,13 @@ export default function LogWindow() {
     return characters.find(c => c.id === id)?.name ?? '角色'
   }
 
+  const lastCharacterMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'character') return messages[i].id
+    }
+    return null
+  }, [messages])
+
   const startEdit = (msg: Message) => {
     setPromptMessage(null)
     setEditingId(msg.id)
@@ -307,6 +314,7 @@ export default function LogWindow() {
       ? stripInjectedTime(msg.content)
       : (isCharacter ? stripLeadingEmotionTag(msg.content) : msg.content)
     const isEditing = editingId === msg.id
+    const isLatestCharacter = isCharacter && msg.id === lastCharacterMessageId
 
     return (
       <div key={msg.id} className="group flex flex-col gap-1">
@@ -366,7 +374,9 @@ export default function LogWindow() {
             isUser
               ? 'bg-teal-20 text-primary self-end ml-auto cursor-pointer'
               : isCharacter
-              ? 'bg-surface border border-border text-primary cursor-pointer'
+              ? `bg-surface border text-primary cursor-pointer ${
+                  isLatestCharacter ? 'dst-log-latest-character' : 'border-border'
+                }`
               : 'bg-butter/40 text-primary text-xs italic'
           }`}
           title={

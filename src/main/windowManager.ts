@@ -940,6 +940,10 @@ export function showSpeechBubble(
     const previous = bubbleWindows.get(lastShownBubbleCharacterId)
     if (previous && !previous.isDestroyed() && previous.isVisible()) {
       previous.webContents.send('bubble:persist', { characterId: lastShownBubbleCharacterId })
+      previous.webContents.send('bubble:latest-speaker', {
+        characterId: lastShownBubbleCharacterId,
+        isLatest: false
+      })
     }
   }
 
@@ -963,7 +967,8 @@ export function showSpeechBubble(
     text,
     emotion: emotion ?? 'neutral',
     autoCloseMs: getBubbleAutoCloseMs(text),
-    persistUntilClosed: shouldKeepBubbleUntilClosed(text)
+    persistUntilClosed: shouldKeepBubbleUntilClosed(text),
+    isLatestSpeaker: true
   }
   lastBubbleShowPayload.set(characterId, {
     speakerName,
@@ -1016,6 +1021,7 @@ export function hideSpeechBubble(characterId: string): boolean {
   const bw = bubbleWindows.get(characterId)
   if (!bw || bw.isDestroyed()) return false
   bubbleLastActiveAt.set(characterId, Date.now())
+  bw.webContents.send('bubble:latest-speaker', { characterId, isLatest: false })
   bw.webContents.send('bubble:hide', { characterId })
   bw.hide()
   bubbleHiddenForCharacterDrag.delete(characterId)
@@ -1028,6 +1034,7 @@ export function hideAllCharacterSpeechBubbles(): number {
   let hiddenCount = 0
   for (const [characterId, bw] of bubbleWindows.entries()) {
     if (bw.isDestroyed() || !bw.isVisible()) continue
+    bw.webContents.send('bubble:latest-speaker', { characterId, isLatest: false })
     bw.webContents.send('bubble:hide', { characterId })
     bw.hide()
     bubbleHiddenForCharacterDrag.delete(characterId)

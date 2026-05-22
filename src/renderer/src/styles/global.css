@@ -92,3 +92,23 @@
   0%, 100% { opacity: 0.25; }
   50% { opacity: 1; }
 }
+
+/* Thinking dots — overlaid on character head */
+.dst-character-thinking-on-head {
+  position: absolute;
+  top: 4%;
+  left: 50%;
+  z-index: 3;
+  transform: translateX(-50%);
+  pointer-events: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  border: 1px solid var(--color-teal);
+  box-shadow: var(--shadow-soft);
+}
+
+.dst-log-latest-character {
+  border-color: var(--color-teal) !important;
+  box-shadow: 0 0 0 2px var(--color-teal-30);
+}

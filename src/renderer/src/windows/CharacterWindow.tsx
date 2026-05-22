@@ -487,23 +487,7 @@ export default function CharacterWindow({ characterId }: Props) {
         )}
 
         <div className="relative flex-shrink-0">
-          {isThinking && (
-            <div
-              className="absolute -top-8 left-2 pointer-events-none"
-              style={{
-                padding: '6px 10px',
-                borderRadius: 999,
-                background: 'rgba(255,255,255,0.92)',
-                border: '1px solid var(--color-teal)',
-                color: 'var(--color-text-primary)'
-              }}
-            >
-              <span className="dst-thinking-dots" aria-label="thinking">
-                <span>.</span><span>.</span><span>.</span>
-              </span>
-            </div>
-          )}
-
+          <div className="relative">
           {!scaleMode && menuVisible && (
             <div
               ref={headActionsRef}
@@ -535,7 +519,7 @@ export default function CharacterWindow({ characterId }: Props) {
 
           <div
             ref={spriteDivRef}
-            className="cursor-grab active:cursor-grabbing"
+            className="relative cursor-grab active:cursor-grabbing"
             title={scaleMode ? undefined : '左鍵：開啟對話　右鍵：開關選單'}
             onPointerDown={(event) => {
               if (!spriteOpaque && !hovered && !scaleMode) return
@@ -556,6 +540,13 @@ export default function CharacterWindow({ characterId }: Props) {
               pointerEvents: (spriteOpaque || hovered || scaleMode) ? 'auto' : 'none'
             }}
           >
+            {isThinking && (
+              <div className="dst-character-thinking-on-head" aria-label="思考中">
+                <span className="dst-thinking-dots">
+                  <span>.</span><span>.</span><span>.</span>
+                </span>
+              </div>
+            )}
             <CharacterSprite
               ref={spriteRef}
               avatarPath={character.avatar}
@@ -566,6 +557,7 @@ export default function CharacterWindow({ characterId }: Props) {
               size={renderedSize}
               flipped={renderedFlipped}
             />
+          </div>
           </div>
 
           <div

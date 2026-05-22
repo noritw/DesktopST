@@ -18,16 +18,33 @@ function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n))
 }
 
+/** 最後發話實心陰影偏移；須與外層 padding、視窗量測一致 */
+const LATEST_SHADOW_OFFSET_PX = 5
+/** 白框尖角錨點（bottom 負值，相對框底） */
+const BUBBLE_TAIL_ANCHOR_BELOW_PX = 11
+/** 旋轉尖角在錨點下方還會多伸出的像素 */
+const BUBBLE_TAIL_TIP_EXTRA_PX = 4
+
+function bubbleBottomPaddingPx(isLatestSpeaker: boolean): number {
+  let px = BUBBLE_TAIL_ANCHOR_BELOW_PX + BUBBLE_TAIL_TIP_EXTRA_PX
+  if (isLatestSpeaker) px += LATEST_SHADOW_OFFSET_PX + 2
+  return px
+}
+
 export default function BubbleWindow({ characterId }: Props) {
   const [visible, setVisible] = useState(false)
   const [speakerName, setSpeakerName] = useState('')
   const [text, setText] = useState('')
   const [confirmPin, setConfirmPin] = useState(false)
   const [outlineMode, setOutlineMode] = useState(false)
+  const [isLatestSpeaker, setIsLatestSpeaker] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingPinArgsRef = useRef<{ title: string; pos: { x: number; y: number }; content: string } | null>(null)
 
+  const outerRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const tailMeasureRef = useRef<HTMLDivElement>(null)
+  const shadowTailMeasureRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   const lastSizeRef = useRef<{ width: number; height: number }>({ width: 280, height: 120 })
 
@@ -42,6 +59,7 @@ export default function BubbleWindow({ characterId }: Props) {
 
   const closeBubble = () => {
     clearTimer()
+    setIsLatestSpeaker(false)
     setVisible(false)
     window.api.invoke('bubble:close', characterId)
     // 如果系統設定角色不在最上層，關閉對白時順便降層
@@ -110,6 +128,7 @@ export default function BubbleWindow({ characterId }: Props) {
         text: string
         autoCloseMs?: number
         persistUntilClosed?: boolean
+        isLatestSpeaker?: boolean
       }
       if (p.characterId !== characterId) return
 
@@ -117,6 +136,7 @@ export default function BubbleWindow({ characterId }: Props) {
       setConfirmPin(false)
       setSpeakerName(p.speakerName ?? '')
       setText(p.text ?? '')
+      setIsLatestSpeaker(p.isLatestSpeaker !== false)
       setVisible(true)
 
       if (!p.persistUntilClosed) {
@@ -138,12 +158,19 @@ export default function BubbleWindow({ characterId }: Props) {
       clearTimer()
     })
 
+    const unsubLatest = window.api.on('bubble:latest-speaker', (payload) => {
+      const p = payload as { characterId: string; isLatest?: boolean }
+      if (p.characterId !== characterId) return
+      setIsLatestSpeaker(!!p.isLatest)
+    })
+
     const unsubHide = window.api.on('bubble:hide', (payload) => {
       const p = payload as { characterId: string }
       if (p.characterId !== characterId) return
       clearTimer()
       setConfirmPin(false)
       setOutlineMode(false)
+      setIsLatestSpeaker(false)
       setVisible(false)
     })
 
@@ -157,6 +184,7 @@ export default function BubbleWindow({ characterId }: Props) {
       clearTimer()
       unsubShow()
       unsubPersist()
+      unsubLatest()
       unsubHide()
       unsubOutline()
     }
@@ -173,10 +201,25 @@ export default function BubbleWindow({ characterId }: Props) {
 
       if (containerRef.current) containerRef.current.style.width = `${width}px`
 
-      const contentH = el.scrollHeight
-      const height = Math.min(32000, Math.max(78, Math.ceil(contentH + 50)))
-      lastSizeRef.current = { width, height }
-      window.api.invoke('bubble:set-size', characterId, { width, height })
+      const outer = outerRef.current
+      if (!outer) return
+      const w = Math.ceil(outer.offsetWidth)
+      const outerTop = outer.getBoundingClientRect().top
+      const tailBottoms = [
+        tailMeasureRef.current?.getBoundingClientRect().bottom,
+        shadowTailMeasureRef.current?.getBoundingClientRect().bottom
+      ].filter((v): v is number => v != null)
+      const measuredFromTail = tailBottoms.length > 0
+        ? Math.ceil(Math.max(...tailBottoms) - outerTop + 2)
+        : 0
+      const h = Math.max(
+        Math.ceil(outer.offsetHeight),
+        Math.ceil(outer.scrollHeight),
+        measuredFromTail
+      )
+      if (w < 1 || h < 1) return
+      lastSizeRef.current = { width: w, height: h }
+      window.api.invoke('bubble:set-size', characterId, { width: w, height: h })
     }
 
     const raf1 = window.requestAnimationFrame(() => {
@@ -185,11 +228,12 @@ export default function BubbleWindow({ characterId }: Props) {
     })
     const ro = new ResizeObserver(() => measure())
     ro.observe(el)
+    if (outerRef.current) ro.observe(outerRef.current)
     return () => {
       window.cancelAnimationFrame(raf1)
       ro.disconnect()
     }
-  }, [characterId, visible, displayText, confirmPin, outlineMode])
+  }, [characterId, visible, displayText, confirmPin, outlineMode, isLatestSpeaker])
 
   if (!visible) return null
 
@@ -217,11 +261,31 @@ export default function BubbleWindow({ characterId }: Props) {
   return (
     <div className="flex h-full min-h-0 w-full flex-col select-none" style={{ background: 'transparent' }}>
       <div
-        ref={containerRef}
-        className="relative flex min-h-0 max-w-[420px] flex-col rounded-2xl rounded-bl-sm border border-border bg-surface-95 px-3 py-2 text-sm leading-snug text-primary shadow-panel"
+        ref={outerRef}
+        className="relative w-fit max-w-[420px]"
+        style={{
+          paddingRight: isLatestSpeaker ? LATEST_SHADOW_OFFSET_PX : 0,
+          paddingBottom: bubbleBottomPaddingPx(isLatestSpeaker)
+        }}
       >
-        <div className="drag-region mb-1 flex shrink-0 items-center justify-between gap-2">
-          <div className="text-[10px] font-medium text-secondary">
+        <div className="inline-grid w-fit">
+          {isLatestSpeaker && (
+            <div
+              className="pointer-events-none col-start-1 row-start-1 z-0 min-h-0 w-full rounded-2xl rounded-bl-sm bg-teal"
+              style={{ transform: `translate(${LATEST_SHADOW_OFFSET_PX}px, ${LATEST_SHADOW_OFFSET_PX}px)` }}
+              aria-hidden
+            />
+          )}
+          <div
+            ref={containerRef}
+            className="relative z-[1] col-start-1 row-start-1 flex min-h-0 w-full flex-col rounded-2xl rounded-bl-sm border border-border bg-surface-95 text-sm leading-snug text-primary shadow-panel"
+          >
+        <div className="drag-region flex shrink-0 items-center justify-between gap-2 px-3 py-1.5">
+          <div
+            className={`text-[10px] font-medium ${
+              isLatestSpeaker ? 'text-primary font-semibold' : 'text-secondary'
+            }`}
+          >
             {speakerName || '角色'}
           </div>
           <div className="flex gap-1">
@@ -244,7 +308,7 @@ export default function BubbleWindow({ characterId }: Props) {
           </div>
         </div>
         {confirmPin ? (
-          <div className="no-drag mt-1 rounded-xl border border-mint bg-mint-20 px-3 py-2 text-xs text-primary">
+          <div className="no-drag mx-3 mb-2 mt-1 rounded-xl border border-mint bg-mint-20 px-3 py-2 text-xs text-primary">
             <p className="mb-2 leading-snug">此角色的便利貼已達上限（10 張）。<br />確定釘選後，將清理最舊的幾張。</p>
             <div className="flex gap-2 justify-end">
               <button
@@ -260,15 +324,31 @@ export default function BubbleWindow({ characterId }: Props) {
             </div>
           </div>
         ) : (
-          <div ref={contentRef} className="no-drag min-h-0 flex-1 overflow-y-auto break-words">
+          <div ref={contentRef} className="no-drag min-h-0 flex-1 overflow-y-auto break-words px-3 pb-2 pt-1">
             <MessageText text={displayText} />
           </div>
         )}
+        {isLatestSpeaker && (
+          <div
+            ref={shadowTailMeasureRef}
+            className="pointer-events-none absolute left-4 z-0 h-3 w-3 overflow-visible"
+            style={{ bottom: `-${BUBBLE_TAIL_ANCHOR_BELOW_PX + LATEST_SHADOW_OFFSET_PX}px` }}
+            aria-hidden
+          >
+            <div className="h-3 w-3 -translate-y-1.5 rotate-45 bg-teal" />
+          </div>
+        )}
         <div
-          className="absolute -bottom-2 left-4 w-3 h-3 overflow-hidden"
-          style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.05))' }}
+          ref={tailMeasureRef}
+          className="absolute left-4 z-[2] h-3 w-3 overflow-visible"
+          style={{
+            bottom: `-${BUBBLE_TAIL_ANCHOR_BELOW_PX}px`,
+            filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.05))'
+          }}
         >
-          <div className="w-3 h-3 bg-surface border-b border-r border-border rotate-45 -translate-y-1.5" />
+          <div className="relative z-[1] h-3 w-3 -translate-y-1.5 rotate-45 border-b border-r border-border bg-surface-95" />
+        </div>
+          </div>
         </div>
       </div>
     </div>
