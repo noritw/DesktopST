@@ -290,7 +290,7 @@ export default function InputWindow() {
               <button
                 type="button"
                 className="btn-round w-7 h-7 text-xs"
-                title={isCapturing ? '截圖中...' : images.length >= maxImages ? `已達圖片上限 (${maxImages})` : '截取螢幕畫面'}
+                title={isCapturing ? '截圖中...' : images.length >= maxImages ? `已達圖片上限 (${maxImages})` : '隱藏 DesktopST 後截圖（純桌面）'}
                 disabled={images.length >= maxImages || isCapturing}
                 onClick={() => handleScreenshot('desktop:capture-screenshot')}
               >
@@ -299,7 +299,7 @@ export default function InputWindow() {
               <button
                 type="button"
                 className="btn-round w-7 h-7 text-xs"
-                title={isCapturing ? '截圖中...' : images.length >= maxImages ? `已達圖片上限 (${maxImages})` : '保留角色與對白框截圖'}
+                title={isCapturing ? '截圖中...' : images.length >= maxImages ? `已達圖片上限 (${maxImages})` : '保留 DesktopST 截圖（含角色、便利貼等）'}
                 disabled={images.length >= maxImages || isCapturing}
                 onClick={() => handleScreenshot('desktop:capture-screenshot-with-characters')}
               >

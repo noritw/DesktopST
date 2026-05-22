@@ -28,7 +28,7 @@ import {
   beginCharacterDrag, moveDraggedCharacter, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
   setUnfocusedBubbleOpacity, setCharactersAlwaysOnTop, getCharactersAlwaysOnTop, setCharacterAlwaysOnTop,
   createCharacterLibraryWindow,
-  hideAllWindowsForScreenshot, hideAuxWindowsForScreenshotKeepingCharacters, restoreAllWindowsAfterScreenshot,
+  hideAllWindowsForScreenshot, prepareScreenshotKeepingDesktopST, restoreAllWindowsAfterScreenshot,
   showPreviewWindow,
   createPinnedNoteWindow, updatePinnedNoteContent, updatePinnedNoteColor, closePinnedNote, getPinnedNoteWindow, getPinnedNoteWindowState,
   openPinnedNotesManager, closePinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
@@ -2127,7 +2127,7 @@ export function registerIpcHandlers() {
     return true
   })
 
-  // Screenshot: hide windows, capture screen, restore, return data URL
+  // Screenshot: hide all DesktopST windows, capture screen, restore, return data URL
   ipcMain.handle('desktop:capture-screenshot', async () => {
     const info = hideAllWindowsForScreenshot()
     await new Promise(resolve => setTimeout(resolve, 300))
@@ -2153,9 +2153,9 @@ export function registerIpcHandlers() {
     }
   })
 
-  // Screenshot: keep character/bubble windows, hide UI windows, return data URL
+  // Screenshot: keep all DesktopST windows visible, return data URL
   ipcMain.handle('desktop:capture-screenshot-with-characters', async () => {
-    const info = hideAuxWindowsForScreenshotKeepingCharacters()
+    const info = prepareScreenshotKeepingDesktopST()
     await new Promise(resolve => setTimeout(resolve, 300))
     try {
       const all = await desktopCapturer.getSources({

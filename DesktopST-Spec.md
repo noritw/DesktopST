@@ -1055,8 +1055,8 @@ src/styles/global.css     ← 全域字型載入
 #### O. 截圖增補（已實作）
 
 輸入視窗有**兩個截圖按鈕**：
-1. 隱藏全部視窗後截圖（原規格描述）
-2. **保留角色與對白框截圖**（`desktop:capture-screenshot-with-characters`）—— 角色/泡泡可見的截圖
+1. **隱藏 DesktopST 後截圖**（`desktop:capture-screenshot`）—— 暫時藏起本程式所有視窗，純桌面
+2. **保留 DesktopST 截圖**（`desktop:capture-screenshot-with-characters`）—— 不藏視窗，畫面上可見的本程式 UI 都會入鏡
 
 #### P. 圖片貼上（已實作）
 

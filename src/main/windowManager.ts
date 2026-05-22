@@ -1222,44 +1222,55 @@ export function restoreAuxWindowsFromRememberedState(): void {
   if (focused && getAuxWindows().includes(focused)) focused.setOpacity(1)
 }
 
-export function hideAllWindowsForScreenshot(): { displayId: number; displayWidth: number; displayHeight: number } {
+function collectAllDesktopSTWindows(): BrowserWindow[] {
+  const wins: BrowserWindow[] = []
   for (const w of characterWindows.values()) {
-    if (!w.isDestroyed()) w.setOpacity(0)
+    if (!w.isDestroyed()) wins.push(w)
   }
   for (const w of bubbleWindows.values()) {
-    if (!w.isDestroyed()) w.setOpacity(0)
+    if (!w.isDestroyed()) wins.push(w)
   }
-  if (userBubbleWindow && !userBubbleWindow.isDestroyed()) {
-    userBubbleWindow.setOpacity(0)
+  for (const w of pinnedNoteWindows.values()) {
+    if (!w.isDestroyed()) wins.push(w)
   }
-  for (const w of getAuxWindows()) {
-    w.setOpacity(0)
+  for (const w of [
+    inputWindow,
+    userBubbleWindow,
+    logWindow,
+    settingsWindow,
+    characterLibraryWindow,
+    previewWindow,
+    emojiPickerWindow,
+    pinnedNotesManagerWindow,
+    remindersManagerWindow,
+    pinnedNoteColorMenuWindow
+  ]) {
+    if (w && !w.isDestroyed()) wins.push(w)
   }
+  return wins
+}
+
+function getScreenshotDisplayInfo(): { displayId: number; displayWidth: number; displayHeight: number } {
   const cursor = screen.getCursorScreenPoint()
   const display = screen.getDisplayNearestPoint(cursor)
   return { displayId: display.id, displayWidth: display.size.width, displayHeight: display.size.height }
 }
 
-export function hideAuxWindowsForScreenshotKeepingCharacters(): { displayId: number; displayWidth: number; displayHeight: number } {
-  for (const w of [inputWindow, logWindow, settingsWindow, characterLibraryWindow, previewWindow]) {
-    if (w && !w.isDestroyed()) w.setOpacity(0)
+/** Hide every DesktopST window before capturing the screen (pure desktop). */
+export function hideAllWindowsForScreenshot(): { displayId: number; displayWidth: number; displayHeight: number } {
+  for (const w of collectAllDesktopSTWindows()) {
+    w.setOpacity(0)
   }
-  const cursor = screen.getCursorScreenPoint()
-  const display = screen.getDisplayNearestPoint(cursor)
-  return { displayId: display.id, displayWidth: display.size.width, displayHeight: display.size.height }
+  return getScreenshotDisplayInfo()
+}
+
+/** Keep all DesktopST windows visible; only resolves which display to capture. */
+export function prepareScreenshotKeepingDesktopST(): { displayId: number; displayWidth: number; displayHeight: number } {
+  return getScreenshotDisplayInfo()
 }
 
 export function restoreAllWindowsAfterScreenshot(): void {
-  for (const w of characterWindows.values()) {
-    if (!w.isDestroyed() && w.isVisible()) w.setOpacity(1)
-  }
-  for (const w of bubbleWindows.values()) {
-    if (!w.isDestroyed() && w.isVisible()) w.setOpacity(1)
-  }
-  if (userBubbleWindow && !userBubbleWindow.isDestroyed() && userBubbleWindow.isVisible()) {
-    userBubbleWindow.setOpacity(1)
-  }
-  for (const w of getAuxWindows()) {
+  for (const w of collectAllDesktopSTWindows()) {
     if (w.isVisible()) w.setOpacity(1)
   }
 }

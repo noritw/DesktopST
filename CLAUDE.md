@@ -144,7 +144,7 @@ npm run typecheck # 型別檢查
 - [x] 圖片附件 / 截圖
   - 輸入視窗支援多張圖片附件（檔案選取 + 拖曳投放）
   - 上限由 `AppSettings.llm.maxImagesPerMessage` 控制
-  - 截圖功能：`desktop:capture-screenshot`（隱藏輔助視窗）/ `desktop:capture-screenshot-with-characters`（含角色）
+  - 截圖功能：`desktop:capture-screenshot`（隱藏全部 DesktopST 視窗）/ `desktop:capture-screenshot-with-characters`（保留全部 DesktopST 視窗）
 - [x] 角色翻轉（Mirror）
   - HoverMenu 加入翻轉按鈕，`desktop:update-flipped` 持久化
 - [x] DST Pack 多角色包 & SillyTavern PNG 格式
