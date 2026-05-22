@@ -98,6 +98,15 @@ if ($modified) {
 }
 Write-Host "      OK" -ForegroundColor Green
 
+# ── 收集 commit log（上次 release tag → 現在）──────────────
+$prevTag = git describe --tags --abbrev=0 HEAD 2>&1
+if ($LASTEXITCODE -ne 0 -or -not "$prevTag".Trim()) {
+    $rawLog = git log --pretty=format:"- %s" --no-merges 2>&1
+} else {
+    $rawLog = git log "$prevTag..HEAD" --pretty=format:"- %s" --no-merges 2>&1
+}
+$changelogLines = @($rawLog | Where-Object { $_ -notmatch '^- release: v' -and $_.Trim() -ne '' })
+
 # ══════════════════════════════════════════════════════════════
 #  [2/5] 升版號
 # ══════════════════════════════════════════════════════════════
@@ -224,7 +233,14 @@ if (-not $shouldPush) {
 
         # 寫 Release notes 到暫存檔
         $notesFile = [System.IO.Path]::GetTempFileName()
-        $notesLines = @(
+        $notesLines = @()
+        if ($changelogLines.Count -gt 0) {
+            $notesLines += "## 更新內容"
+            $notesLines += ""
+            $notesLines += $changelogLines
+            $notesLines += ""
+        }
+        $notesLines += @(
             "## 下載（擇一即可）",
             "",
             "- **EXE版**：``DesktopST $ver.exe``（檔案較小，執行時才自動解壓縮所需檔案）",
