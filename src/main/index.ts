@@ -129,16 +129,11 @@ app.on('ready', async () => {
     if (s.updates?.checkOnStartup !== false) {
       void checkForUpdates({
         silent: true,
-        dismissedVersion: s.updates?.dismissedVersion,
-        currentPublishedAt: s.updates?.versionPublishedAt
+        dismissedVersion: s.updates?.dismissedVersion
       }).then(result => {
         let changed = false
         if (result.dismissed && result.latestVersion) {
           s.updates = { ...s.updates, dismissedVersion: result.latestVersion }
-          changed = true
-        }
-        if (result.latestPublishedAt && !result.hasUpdate) {
-          s.updates = { ...s.updates, versionPublishedAt: result.latestPublishedAt }
           changed = true
         }
         if (changed) {
@@ -280,16 +275,11 @@ function setupTray(appRoot: string) {
           const s = getSettings()
           void checkForUpdates({
             silent: false,
-            dismissedVersion: s.updates?.dismissedVersion,
-            currentPublishedAt: s.updates?.versionPublishedAt
+            dismissedVersion: s.updates?.dismissedVersion
           }).then(result => {
             let changed = false
             if (result.dismissed && result.latestVersion) {
               s.updates = { ...s.updates, dismissedVersion: result.latestVersion }
-              changed = true
-            }
-            if (result.latestPublishedAt && !result.hasUpdate) {
-              s.updates = { ...s.updates, versionPublishedAt: result.latestPublishedAt }
               changed = true
             }
             if (changed) {

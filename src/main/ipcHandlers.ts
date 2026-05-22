@@ -2696,16 +2696,11 @@ export function registerIpcHandlers() {
   ipcMain.handle('updates:check-now', async () => {
     const result = await checkForUpdates({
       silent: false,
-      dismissedVersion: settings.updates?.dismissedVersion,
-      currentPublishedAt: settings.updates?.versionPublishedAt
+      dismissedVersion: settings.updates?.dismissedVersion
     })
     let changed = false
     if (result.dismissed && result.latestVersion) {
       settings.updates = { ...settings.updates, dismissedVersion: result.latestVersion }
-      changed = true
-    }
-    if (result.latestPublishedAt && !result.hasUpdate) {
-      settings.updates = { ...settings.updates, versionPublishedAt: result.latestPublishedAt }
       changed = true
     }
     if (changed) {

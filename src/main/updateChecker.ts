@@ -34,32 +34,14 @@ function compareVersion(latest: string, current: string): number {
   return 0
 }
 
-function isPublishNewer(latestDate: string, currentDate: string): boolean {
-  return new Date(latestDate) > new Date(currentDate)
-}
-
-/**
- * 是否應提示更新：
- * 1. 遠端版本號較高 → 有新版本
- * 2. 版本號相同且本機已記錄過發佈時間、GitHub 發佈時間較新 → 同版重建包
- */
-function shouldNotifyUpdate(
-  current: string,
-  latest: string,
-  latestPublishedAt: string,
-  currentPublishedAt?: string
-): boolean {
-  const cmp = compareVersion(latest, current)
-  if (cmp > 0) return true
-  if (cmp < 0) return false
-  if (!currentPublishedAt) return false
-  return isPublishNewer(latestPublishedAt, currentPublishedAt)
+/** 是否應提示更新：僅在遠端版本號較高時（版號相同不通知） */
+function shouldNotifyUpdate(current: string, latest: string): boolean {
+  return compareVersion(latest, current) > 0
 }
 
 export async function checkForUpdates(opts: {
   silent: boolean
   dismissedVersion?: string
-  currentPublishedAt?: string
 }): Promise<UpdateCheckResult> {
   const current = app.getVersion()
   try {
@@ -72,7 +54,7 @@ export async function checkForUpdates(opts: {
     const latest = data.tag_name.replace(/^v/, '')
     const latestPublishedAt = data.published_at
 
-    if (!shouldNotifyUpdate(current, latest, latestPublishedAt, opts.currentPublishedAt)) {
+    if (!shouldNotifyUpdate(current, latest)) {
       if (!opts.silent) {
         await dialog.showMessageBox({
           type: 'info',
