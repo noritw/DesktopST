@@ -213,6 +213,9 @@ export default function SettingsWindow() {
   const [changingDataDir, setChangingDataDir] = useState(false)
   const [appVersion, setAppVersion] = useState('')
   const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [windowsStartupSupported, setWindowsStartupSupported] = useState(false)
+  const [windowsStartupExists, setWindowsStartupExists] = useState(false)
+  const [addingWindowsStartup, setAddingWindowsStartup] = useState(false)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
   const messagePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -287,6 +290,39 @@ export default function SettingsWindow() {
       if (typeof v === 'string') setAppVersion(v)
     })
   }, [])
+
+  const refreshWindowsStartupStatus = async () => {
+    const status = await window.api.invoke('shell:windows-startup-shortcut-status') as {
+      supported?: boolean
+      exists?: boolean
+    }
+    setWindowsStartupSupported(!!status?.supported)
+    setWindowsStartupExists(!!status?.exists)
+  }
+
+  useEffect(() => {
+    void refreshWindowsStartupStatus()
+  }, [])
+
+  const addWindowsStartupShortcut = async () => {
+    if (windowsStartupExists) return
+    setAddingWindowsStartup(true)
+    try {
+      const result = await window.api.invoke('shell:add-windows-startup-shortcut') as {
+        ok?: boolean
+        error?: string
+        path?: string
+      }
+      if (result?.ok) {
+        await refreshWindowsStartupStatus()
+        window.alert('已將 DesktopST 捷徑加入 Windows 啟動程式。下次開機會自動啟動。')
+      } else {
+        window.alert(result?.error || '加入啟動程式失敗。')
+      }
+    } finally {
+      setAddingWindowsStartup(false)
+    }
+  }
 
   useEffect(() => {
     if (!settings) return
@@ -1066,7 +1102,7 @@ export default function SettingsWindow() {
                 className="w-full accent-teal"
               />
               <p className="text-[11px] text-secondary leading-snug mt-1.5">
-                控制每次送出訊息後，群組模式最多追加幾位角色的後續回應；數值越大，對話越熱鬧但 token 消耗也越高。
+                控制每次送出訊息後，群組模式最多幾位角色會回應（含第一位）；數值越大，對話越熱鬧但 token 消耗也越高。
               </p>
             </Field>
             <Field label={`單則訊息圖片上限（${draft.llm.maxImagesPerMessage} 張）`}>
@@ -1587,6 +1623,25 @@ export default function SettingsWindow() {
               />
               啟動時自動檢查更新
             </label>
+            {windowsStartupSupported && (
+              <div className="space-y-1.5">
+                <button
+                  type="button"
+                  className="btn-round w-auto px-4 rounded-full h-auto py-2 text-sm"
+                  disabled={windowsStartupExists || addingWindowsStartup}
+                  onClick={() => void addWindowsStartupShortcut()}
+                >
+                  {addingWindowsStartup
+                    ? '處理中...'
+                    : windowsStartupExists
+                      ? '已加入 Windows 啟動程式'
+                      : '加到 Windows 啟動程式'}
+                </button>
+                <p className="text-[11px] text-secondary leading-snug">
+                  在啟動資料夾建立 DesktopST 捷徑（等同 Win+R → shell:startup 後手動放入）。不會自動啟用，需你按此按鈕一次。
+                </p>
+              </div>
+            )}
             <button
               className="btn-round w-auto px-4 rounded-full h-auto py-2 text-sm"
               disabled={checkingUpdate}

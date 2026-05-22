@@ -1787,8 +1787,9 @@ export function registerIpcHandlers() {
     // Delay ensures the renderer has already processed bubble:show and started the close timer.
     setTimeout(() => persistSpeechBubble(primaryId), 350)
 
-    // maxGroupRounds controls how many additional (non-primary) character replies can be appended.
-    const maxAdditionalReplies = Math.max(0, Math.floor(Number(settings.llm.maxGroupRounds) || 0))
+    // maxGroupRounds = total character replies per user message (primary + others).
+    const maxCharacterReplies = Math.max(1, Math.floor(Number(settings.llm.maxGroupRounds) || 1))
+    const maxAdditionalReplies = Math.max(0, maxCharacterReplies - 1)
     const others = respondingIds
       .filter(id => id !== primaryId)
       .slice(0, maxAdditionalReplies)
@@ -2228,6 +2229,63 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('shell:open-external', (_, url: string) => {
     return shell.openExternal(url)
+  })
+
+  function desktopStStartupShortcutPath(): string {
+    const appData = process.env.APPDATA
+    if (!appData) return ''
+    return path.join(
+      appData,
+      'Microsoft',
+      'Windows',
+      'Start Menu',
+      'Programs',
+      'Startup',
+      'DesktopST.lnk'
+    )
+  }
+
+  ipcMain.handle('shell:windows-startup-shortcut-status', () => {
+    if (process.platform !== 'win32') {
+      return { supported: false as const, exists: false }
+    }
+    const shortcutPath = desktopStStartupShortcutPath()
+    return {
+      supported: true as const,
+      exists: shortcutPath ? fs.existsSync(shortcutPath) : false,
+      path: shortcutPath
+    }
+  })
+
+  ipcMain.handle('shell:add-windows-startup-shortcut', () => {
+    if (process.platform !== 'win32') {
+      return { ok: false as const, error: '此功能僅適用於 Windows。' }
+    }
+    const shortcutPath = desktopStStartupShortcutPath()
+    if (!shortcutPath) {
+      return { ok: false as const, error: '無法取得啟動資料夾路徑。' }
+    }
+    const target = process.execPath
+    const options: Electron.ShortcutDetails = {
+      target,
+      cwd: path.dirname(target),
+      description: 'DesktopST',
+      icon: target,
+      iconIndex: 0
+    }
+    if (!app.isPackaged) {
+      options.args = `"${app.getAppPath()}"`
+    }
+    try {
+      const op = fs.existsSync(shortcutPath) ? 'update' : 'create'
+      const ok = shell.writeShortcutLink(shortcutPath, op, options)
+      if (!ok) {
+        return { ok: false as const, error: '建立捷徑失敗。' }
+      }
+      return { ok: true as const, path: shortcutPath }
+    } catch (e: unknown) {
+      return { ok: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('app:open-api-guide', () => {
