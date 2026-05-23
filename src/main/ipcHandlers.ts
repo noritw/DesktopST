@@ -74,6 +74,108 @@ let characters: Character[]
 let activeConversationId: string | null = null
 let conversations: Map<string, Conversation> = new Map()
 
+function centerWindowInPrimary(winSize: { width: number; height: number }): { x: number; y: number } {
+  const wa = screen.getPrimaryDisplay().workArea
+  return {
+    x: Math.round(wa.x + (wa.width - winSize.width) / 2),
+    y: Math.round(wa.y + (wa.height - winSize.height) / 2)
+  }
+}
+
+function sameRecoveredPosition(a: { x: number; y: number }, b: { x: number; y: number }): boolean {
+  return Math.abs(a.x - b.x) <= 16 && Math.abs(a.y - b.y) <= 16
+}
+
+function spreadDesktopCharacters(indices: number[]): boolean {
+  if (indices.length === 0) return false
+
+  const wa = screen.getPrimaryDisplay().workArea
+  const gap = 24
+  const margin = 32
+  const sizes = indices.map(i => {
+    const state = settings.ui.desktopCharacters[i]
+    const scale = Number.isFinite(state.size) && state.size > 0 ? state.size : 1
+    return getCharacterWindowSize(scale)
+  })
+  const cellW = Math.max(...sizes.map(s => s.width)) + gap
+  const cellH = Math.max(...sizes.map(s => s.height)) + gap
+  const columns = Math.max(1, Math.floor((wa.width - margin * 2 + gap) / cellW))
+  const totalRows = Math.ceil(indices.length / columns)
+  const maxH = Math.max(...sizes.map(s => s.height))
+  const rowStep = totalRows > 1
+    ? Math.min(cellH, Math.max(48, (wa.height - margin * 2 - maxH) / (totalRows - 1)))
+    : 0
+
+  let changed = false
+  indices.forEach((stateIndex, n) => {
+    const size = sizes[n]
+    const row = Math.floor(n / columns)
+    const col = n % columns
+    const rowCount = row === totalRows - 1
+      ? indices.length - row * columns
+      : columns
+    const rowWidth = rowCount * cellW - gap
+    const startX = wa.x + Math.round((wa.width - rowWidth) / 2)
+    const x = startX + col * cellW + Math.round((cellW - gap - size.width) / 2)
+    const maxY = wa.y + wa.height - margin - size.height
+    const minY = wa.y + margin
+    const y = Math.max(minY, Math.min(maxY - row * rowStep, maxY))
+    const next = { x: Math.round(x), y: Math.round(y) }
+    const current = settings.ui.desktopCharacters[stateIndex].position
+    if (current.x !== next.x || current.y !== next.y) {
+      settings.ui.desktopCharacters[stateIndex].position = next
+      changed = true
+    }
+  })
+
+  return changed
+}
+
+function repairDesktopCharacterLayout(): boolean {
+  let changed = false
+  const moved = new Set<number>()
+  const offscreen = new Set<number>()
+
+  settings.ui.desktopCharacters.forEach((state, i) => {
+    const scale = Number.isFinite(state.size) && state.size > 0 ? state.size : 1
+    const winSize = getCharacterWindowSize(scale)
+    if (isPositionOffscreen(state.position, winSize)) offscreen.add(i)
+  })
+
+  if (offscreen.size === 1) {
+    const i = [...offscreen][0]
+    const scale = Number.isFinite(settings.ui.desktopCharacters[i].size) && settings.ui.desktopCharacters[i].size > 0
+      ? settings.ui.desktopCharacters[i].size
+      : 1
+    settings.ui.desktopCharacters[i].position = centerWindowInPrimary(getCharacterWindowSize(scale))
+    moved.add(i)
+    changed = true
+  } else if (offscreen.size > 1) {
+    const indices = [...offscreen]
+    changed = spreadDesktopCharacters(indices) || changed
+    indices.forEach(i => moved.add(i))
+  }
+
+  const grouped = new Set<number>()
+  for (let i = 0; i < settings.ui.desktopCharacters.length; i++) {
+    if (grouped.has(i)) continue
+    const group = [i]
+    for (let j = i + 1; j < settings.ui.desktopCharacters.length; j++) {
+      if (grouped.has(j)) continue
+      if (sameRecoveredPosition(settings.ui.desktopCharacters[i].position, settings.ui.desktopCharacters[j].position)) {
+        group.push(j)
+      }
+    }
+    if (group.length < 2) continue
+    group.forEach(idx => grouped.add(idx))
+    if (group.every(idx => moved.has(idx))) continue
+    changed = spreadDesktopCharacters(group) || changed
+    group.forEach(idx => moved.add(idx))
+  }
+
+  return changed
+}
+
 function syncLastActiveConversationToSettings(): void {
   if (activeConversationId) settings.ui.lastActiveConversationId = activeConversationId
   else delete settings.ui.lastActiveConversationId
@@ -1458,6 +1560,7 @@ export function registerIpcHandlers() {
   // then recreate cleanly from settings.ui.desktopCharacters.
   ipcMain.handle('desktop:reload-windows', () => {
     destroyAllCharacterWindows()
+    if (repairDesktopCharacterLayout()) fileStore.saveSettings(settings)
     for (const d of settings.ui.desktopCharacters) {
       createCharacterWindow(d.characterId, d.position, d.size)
     }

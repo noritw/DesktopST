@@ -24,6 +24,7 @@ import {
   getCharactersAlwaysOnTop,
   destroyAllCharacterWindows
 } from './windowManager'
+import type { DesktopCharacterState } from './types'
 
 function isOffscreen(pos: { x: number; y: number }, win: { width: number; height: number }): boolean {
   const px = Number.isFinite(pos.x) ? pos.x : 0
@@ -47,6 +48,105 @@ function centerInPrimary(win: { width: number; height: number }): { x: number; y
     x: Math.round(wa.x + (wa.width - win.width) / 2),
     y: Math.round(wa.y + (wa.height - win.height) / 2)
   }
+}
+
+function sameRecoveredPosition(a: { x: number; y: number }, b: { x: number; y: number }): boolean {
+  return Math.abs(a.x - b.x) <= 16 && Math.abs(a.y - b.y) <= 16
+}
+
+function spreadCharactersOnPrimary(
+  desktopCharacters: DesktopCharacterState[],
+  indices: number[]
+): boolean {
+  if (indices.length === 0) return false
+
+  const wa = screen.getPrimaryDisplay().workArea
+  const gap = 24
+  const margin = 32
+  const sizes = indices.map(i => {
+    const scale = Number.isFinite(desktopCharacters[i].size) && desktopCharacters[i].size > 0
+      ? desktopCharacters[i].size
+      : 1
+    return getCharacterWindowSize(scale)
+  })
+  const cellW = Math.max(...sizes.map(s => s.width)) + gap
+  const cellH = Math.max(...sizes.map(s => s.height)) + gap
+  const columns = Math.max(1, Math.floor((wa.width - margin * 2 + gap) / cellW))
+  const totalRows = Math.ceil(indices.length / columns)
+  const maxH = Math.max(...sizes.map(s => s.height))
+  const rowStep = totalRows > 1
+    ? Math.min(cellH, Math.max(48, (wa.height - margin * 2 - maxH) / (totalRows - 1)))
+    : 0
+
+  let changed = false
+  indices.forEach((characterIndex, n) => {
+    const size = sizes[n]
+    const row = Math.floor(n / columns)
+    const col = n % columns
+    const rowCount = row === totalRows - 1
+      ? indices.length - row * columns
+      : columns
+    const rowWidth = rowCount * cellW - gap
+    const startX = wa.x + Math.round((wa.width - rowWidth) / 2)
+    const x = startX + col * cellW + Math.round((cellW - gap - size.width) / 2)
+    const maxY = wa.y + wa.height - margin - size.height
+    const minY = wa.y + margin
+    const y = Math.max(minY, Math.min(maxY - row * rowStep, maxY))
+    const next = { x: Math.round(x), y: Math.round(y) }
+    const current = desktopCharacters[characterIndex].position
+    if (current.x !== next.x || current.y !== next.y) {
+      desktopCharacters[characterIndex].position = next
+      changed = true
+    }
+  })
+
+  return changed
+}
+
+function repairDesktopCharacterLayout(desktopCharacters: DesktopCharacterState[]): boolean {
+  let changed = false
+  const moved = new Set<number>()
+  const offscreen = new Set<number>()
+
+  desktopCharacters.forEach((ds, i) => {
+    const scale = Number.isFinite(ds.size) && ds.size > 0 ? ds.size : 1
+    const win = getCharacterWindowSize(scale)
+    if (isOffscreen(ds.position, win)) offscreen.add(i)
+  })
+
+  if (offscreen.size === 1) {
+    const i = [...offscreen][0]
+    const scale = Number.isFinite(desktopCharacters[i].size) && desktopCharacters[i].size > 0
+      ? desktopCharacters[i].size
+      : 1
+    const next = centerInPrimary(getCharacterWindowSize(scale))
+    desktopCharacters[i].position = next
+    moved.add(i)
+    changed = true
+  } else if (offscreen.size > 1) {
+    const indices = [...offscreen]
+    changed = spreadCharactersOnPrimary(desktopCharacters, indices) || changed
+    indices.forEach(i => moved.add(i))
+  }
+
+  const grouped = new Set<number>()
+  for (let i = 0; i < desktopCharacters.length; i++) {
+    if (grouped.has(i)) continue
+    const group = [i]
+    for (let j = i + 1; j < desktopCharacters.length; j++) {
+      if (grouped.has(j)) continue
+      if (sameRecoveredPosition(desktopCharacters[i].position, desktopCharacters[j].position)) {
+        group.push(j)
+      }
+    }
+    if (group.length < 2) continue
+    group.forEach(idx => grouped.add(idx))
+    if (group.every(idx => moved.has(idx))) continue
+    changed = spreadCharactersOnPrimary(desktopCharacters, group) || changed
+    group.forEach(idx => moved.add(idx))
+  }
+
+  return changed
 }
 
 // ── App lifecycle ─────────────────────────────────────────
@@ -146,17 +246,11 @@ app.on('ready', async () => {
   }, 5000)
 
   // Create character windows for all desktop characters
-  let didFixOffscreen = false
+  const didRepairDesktopLayout = repairDesktopCharacterLayout(settings.ui.desktopCharacters)
   for (const ds of settings.ui.desktopCharacters) {
-    const scale = Number.isFinite(ds.size) && ds.size > 0 ? ds.size : 1
-    const win = getCharacterWindowSize(scale)
-    if (isOffscreen(ds.position, win)) {
-      ds.position = centerInPrimary(win)
-      didFixOffscreen = true
-    }
     createCharacterWindow(ds.characterId, ds.position, ds.size)
   }
-  if (didFixOffscreen) saveSettings(settings)
+  if (didRepairDesktopLayout) saveSettings(settings)
 
   const noCharacters = chars.length === 0
   const onboardingPending = settings.ui.onboardingCompleted === false

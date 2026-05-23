@@ -230,6 +230,11 @@ const activeDragOffsets = new Map<string, { x: number; y: number }>()
 const activeDragCallbacks = new Map<string, ((pos: { x: number; y: number }) => void) | null>()
 const activeDragLastPositions = new Map<string, { x: number; y: number }>()
 let charactersAlwaysOnTop = true
+const MAX_ELECTRON_WINDOW_COORD = 1_000_000
+
+function isSafeWindowCoordinate(n: number): boolean {
+  return Number.isSafeInteger(n) && Math.abs(n) <= MAX_ELECTRON_WINDOW_COORD
+}
 
 export function setCharactersAlwaysOnTop(enabled: boolean): void {
   charactersAlwaysOnTop = enabled
@@ -667,15 +672,21 @@ export function moveDraggedCharacter(characterId: string, cursorScreenX: number,
     x: Math.round(cursorScreenX - offset.x),
     y: Math.round(cursorScreenY - offset.y)
   }
-  if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) return
+  if (!isSafeWindowCoordinate(pos.x) || !isSafeWindowCoordinate(pos.y)) return
   const last = activeDragLastPositions.get(characterId)
   if (last) {
     const dx = Math.abs(last.x - pos.x)
     const dy = Math.abs(last.y - pos.y)
     if (dx < 3 && dy < 3) return
   }
+  try {
+    win.setPosition(pos.x, pos.y)
+  } catch (e) {
+    console.error('[DesktopST] Failed to move dragged character window:', e)
+    endCharacterDrag(characterId)
+    return
+  }
   activeDragLastPositions.set(characterId, pos)
-  win.setPosition(pos.x, pos.y)
   if (!bubbleHiddenForCharacterDrag.has(characterId)) {
     syncSpeechBubblePosition(characterId, pos)
   }
