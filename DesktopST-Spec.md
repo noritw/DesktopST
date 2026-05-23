@@ -33,13 +33,13 @@
 | 資料儲存 | 本地 JSON 檔 | 存 AppData，不用資料庫 |
 | Key 加密 | **electron-store + safeStorage** | 用作業系統 keychain |
 | 截圖 | Electron `desktopCapturer` + 自製框選層 | 也可呼叫 Windows Snipping Tool |
-| 打包 | **electron-builder** | 產出 .exe 安裝檔 |
+| 打包 | **electron-builder** | 產出 .exe 可執行檔（portable）|
 
 ### 開發指令
 ```bash
 npm install          # 安裝相依套件
 npm run dev          # 開發模式（熱重載）
-npm run build        # 打包成安裝檔
+npm run build        # 打包成可執行檔
 npm run typecheck    # 型別檢查
 npm run lint         # 程式碼檢查
 ```
@@ -819,7 +819,7 @@ admiration, amusement, anger, ..., neutral
 - [x] 對話 session 管理（列出 / 載入 / 改名 / 刪除）
 - [x] API Key 加密（safeStorage，Windows DPAPI 自動加解密）
 - [x] 開啟資料夾按鈕
-- [x] 應用程式打包成 .exe 安裝檔（electron-builder 配置完成）
+- [x] 應用程式打包成 .exe 可執行檔（electron-builder 配置完成）
 
 **驗收**：可分發給其他使用者安裝使用。
 
@@ -1101,7 +1101,7 @@ src/styles/global.css     ← 全域字型載入
 
 ### 本機執行（無需 Server）
 本程式為 **Electron 桌面應用**，完全在本機執行，不需要架設任何伺服器。
-打包後的 `.exe` 安裝檔點兩下即可使用，對外網路連線只有呼叫 LLM API 的部分。
+打包後的 `.exe` 可執行檔下載即可直接執行，對外網路連線只有呼叫 LLM API 的部分。
 
 SillyTavern 需要 Server 的原因是它是網頁應用；本程式將 Node.js 環境打包進執行檔，因此行為與一般 Windows 桌面程式相同。
 

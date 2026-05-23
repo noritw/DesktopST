@@ -34,7 +34,7 @@
 
 ## 下載與使用
 
-前往 [Releases](../../releases) 頁面下載最新版安裝檔（`.exe`），安裝後即可執行。
+前往 [Releases](../../releases) 頁面下載最新版執行檔（`.exe`），下載後即可直接執行。
 
 初次使用說明請見 <a href="https://nori.tw/DeST/getting-started.html" target="_blank" rel="noopener noreferrer">docs/getting-started.html</a>。
 
@@ -52,7 +52,7 @@ npm run dev
 # 型別檢查
 npm run typecheck
 
-# 打包成安裝檔
+# 打包成可執行檔
 npm run build
 ```
 
