@@ -244,7 +244,7 @@ if (-not $shouldPush) {
             "## 下載（擇一即可）",
             "",
             "- **EXE版**：``DesktopST $ver.exe``（檔案較小，執行時才自動解壓縮所需檔案）",
-            "- **免安裝版**（開啟速度較快）：``DesktopST-v$ver-full.zip``（解壓縮後直接執行 ``DesktopST.exe``）"
+            "- **ZIP版**（開啟速度較快）：``DesktopST-v$ver-full.zip``（解壓縮後直接執行 ``DesktopST.exe``）"
         )
         $notesLines | Set-Content -Path $notesFile -Encoding utf8
 
