@@ -371,10 +371,11 @@ export function buildSystemPrompt(
 
   // ── [1] WHO ──────────────────────────────────────────────────────────────
   {
-    const who: string[] = [`You are "${char.name}".`]
+    let whoStatement = `You are "${char.name}"`
     if (nicknames.length > 0) {
-      who.push(`The user may also address you as: ${nicknames.map(n => `"${n}"`).join(', ')}.`)
+      whoStatement += ` (also known as ${nicknames.map(n => `"${n}"`).join(', ')})`
     }
+    const who: string[] = [whoStatement + '.']
     if (override) who.push(override)
     if (description) who.push(`[Description]\n${description}`)
     if (personality) who.push(personality)
