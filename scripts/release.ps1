@@ -246,7 +246,7 @@ if (-not $shouldPush) {
             "- **EXE版**：``DesktopST $ver.exe``（檔案較小，執行時才自動解壓縮所需檔案）",
             "- **ZIP版**（開啟速度較快）：``DesktopST-v$ver-full.zip``（解壓縮後直接執行 ``DesktopST.exe``）"
         )
-        $notesLines | Set-Content -Path $notesFile -Encoding utf8
+        $notesLines | Set-Content -Path $notesFile -Encoding UTF8BOM
 
         # 呼叫 gh release create
         $ghArgs = @("release", "create", "v$ver", "--title", "v$ver", "--notes-file", $notesFile) + $uploadFiles
