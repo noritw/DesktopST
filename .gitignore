@@ -13,8 +13,6 @@ dist/
 .claude/worktrees/
 .kiro/
 test-extract/
-DesktopST-dev.bat
-release.bat
 scripts/generateNotificationSound.js
 generate-sounds.js
 新使用者啟動流程改進計劃.md
