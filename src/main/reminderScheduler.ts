@@ -1,3 +1,4 @@
+import { powerMonitor } from 'electron'
 import * as fileStore from './fileStore'
 import type { Reminder } from './types'
 
@@ -7,6 +8,11 @@ let triggerFn: TriggerFn | null = null
 let reminders: Reminder[] = []
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 let initialized = false
+let idleSkipMinutes = 0
+
+export function setIdleSkipMinutes(minutes: number): void {
+  idleSkipMinutes = Math.max(0, minutes)
+}
 
 export function initReminderScheduler(trigger: TriggerFn): void {
   triggerFn = trigger
@@ -107,6 +113,13 @@ function clearTimerFor(id: string): void {
 
 async function fire(r: Reminder): Promise<void> {
   if (!triggerFn) return
+  if (idleSkipMinutes > 0) {
+    const idleSecs = powerMonitor.getSystemIdleTime()
+    if (idleSecs >= idleSkipMinutes * 60) {
+      console.log(`[reminderScheduler] Skipped "${r.label}" — idle ${Math.round(idleSecs / 60)}min`)
+      return
+    }
+  }
   r.lastTriggeredAt = Date.now()
   const idx = reminders.findIndex(x => x.id === r.id)
   if (idx >= 0) reminders[idx] = r

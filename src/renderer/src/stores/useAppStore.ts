@@ -27,6 +27,7 @@ interface AppStore {
   subscribeCharacterEvents: () => () => void
 
   sendMessage: (content: string, images?: string[]) => Promise<void>
+  continueGroup: () => Promise<void>
   forceSpeak: (characterId: string) => Promise<void>
   toggleMute: (characterId: string) => Promise<void>
   removeFromDesktop: (characterId: string) => Promise<void>
@@ -149,6 +150,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
     set({ isSending: true })
     try {
       await window.api.invoke('message:send', { content, images })
+    } finally {
+      set({ isSending: false })
+    }
+  },
+
+  continueGroup: async () => {
+    set({ isSending: true })
+    try {
+      await window.api.invoke('character:continue-group')
     } finally {
       set({ isSending: false })
     }

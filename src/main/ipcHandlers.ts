@@ -15,7 +15,7 @@ import {
   loadDstPackZip,
   readCharacterFromZip
 } from './dstPack'
-import { reloadReminders } from './reminderScheduler'
+import { reloadReminders, setIdleSkipMinutes } from './reminderScheduler'
 import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
@@ -1102,6 +1102,7 @@ export function registerIpcHandlers() {
     s.ui.unfocusedBubbleOpacity = normalizeUnfocusedBubbleOpacity(s.ui.unfocusedBubbleOpacity)
     setUnfocusedBubbleOpacity(s.ui.unfocusedBubbleOpacity)
     setCharactersAlwaysOnTop(s.ui.alwaysOnTop ?? true)
+    setIdleSkipMinutes(s.ui.reminderIdleSkipMinutes ?? 0)
     // These fields are managed exclusively by main-process handlers and must never be
     // overwritten by the renderer's potentially-stale settings draft.
     const ui = {
@@ -1366,33 +1367,48 @@ export function registerIpcHandlers() {
         if (r.response === 0) {
           const now = Date.now()
           if (g.persona) {
-            const pid = uuidv4()
-            const personaPreset: PersonaPreset = {
-              id: pid,
-              name: '匯入的使用者',
-              displayName: g.persona.displayName ?? '使用者',
-              nickname: g.persona.nickname ?? '主人',
-              description: g.persona.description ?? '',
-              builtIn: false,
-              createdAt: now,
-              updatedAt: now
-            }
+            const existingPersona = fileStore.loadPersonaPresets().find(p => p.name === '匯入的使用者')
+            const personaPreset: PersonaPreset = existingPersona
+              ? {
+                  ...existingPersona,
+                  displayName: g.persona.displayName ?? '使用者',
+                  nickname: g.persona.nickname ?? '主人',
+                  description: g.persona.description ?? '',
+                  updatedAt: now
+                }
+              : {
+                  id: uuidv4(),
+                  name: '匯入的使用者',
+                  displayName: g.persona.displayName ?? '使用者',
+                  nickname: g.persona.nickname ?? '主人',
+                  description: g.persona.description ?? '',
+                  builtIn: false,
+                  createdAt: now,
+                  updatedAt: now
+                }
             fileStore.savePersonaPreset(personaPreset)
-            settings.activePersonaId = pid
+            settings.activePersonaId = personaPreset.id
           }
           if (g.worldSetting || g.interactionExample) {
-            const wid = uuidv4()
-            const worldPreset: WorldPreset = {
-              id: wid,
-              name: '匯入的世界觀',
-              worldSetting: g.worldSetting ?? '',
-              interactionExample: g.interactionExample ?? '',
-              builtIn: false,
-              createdAt: now,
-              updatedAt: now
-            }
+            const existingWorld = fileStore.loadWorldPresets().find(w => w.name === '匯入的世界觀')
+            const worldPreset: WorldPreset = existingWorld
+              ? {
+                  ...existingWorld,
+                  worldSetting: g.worldSetting ?? '',
+                  interactionExample: g.interactionExample ?? '',
+                  updatedAt: now
+                }
+              : {
+                  id: uuidv4(),
+                  name: '匯入的世界觀',
+                  worldSetting: g.worldSetting ?? '',
+                  interactionExample: g.interactionExample ?? '',
+                  builtIn: false,
+                  createdAt: now,
+                  updatedAt: now
+                }
             fileStore.saveWorldPreset(worldPreset)
-            settings.activeWorldId = wid
+            settings.activeWorldId = worldPreset.id
           }
           settings.injectSystemTime = !!g.injectSystemTime
           fileStore.saveSettings(settings)
@@ -2327,6 +2343,130 @@ export function registerIpcHandlers() {
     }
   })
 
+  // Continue group conversation: cycle through non-muted desktop characters for maxGroupRounds total replies
+  ipcMain.handle('character:continue-group', async () => {
+    const conv = getActiveConversation()
+    if (!conv) return { error: 'No active conversation' }
+
+    const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+    if (!hasApiKey) return { error: 'No API key' }
+
+    const nonMuted = settings.ui.desktopCharacters
+      .filter(d => !d.muted)
+      .map(d => getCharacter(d.characterId))
+      .filter((c): c is Character => c != null)
+    if (nonMuted.length === 0) return { ok: true }
+
+    const desktopAll = settings.ui.desktopCharacters.map(d => d.characterId)
+    const desktopCharacterNames = desktopAll.map(id => getCharacter(id)?.name ?? '').filter(Boolean)
+    const activePersona = getActivePersona()
+    const activeWorld = getActiveWorld()
+    const maxRounds = nonMuted.length === 1
+      ? 1
+      : Math.max(1, Math.floor(Number(settings.llm.maxGroupRounds) || 1))
+
+    let lastReplyText = ''
+    for (let i = 0; i < maxRounds; i++) {
+      const char = nonMuted[i % nonMuted.length]
+      setCharacterThinking(char.id, true)
+      deferRaiseCharacterAbovePinnedNotes(char.id)
+      try {
+        let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
+        if (recentMessages.length === 0) {
+          recentMessages = [{ id: uuidv4(), role: 'user' as const, content: '……', timestamp: Date.now() }]
+        }
+        const hasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
+        const doSplitEmotion = !!(settings.llm.utilityEnabled && hasCustomSprites)
+        const { content, emotion: rawEmotion, debugPrompt, inputTokens, outputTokens } = await chatWithLLM({
+          settings,
+          character: char,
+          messages: recentMessages,
+          speakerNameById: getSpeakerNameById(),
+          persona: activePersona,
+          world: activeWorld,
+          desktopCharacterNames,
+          splitEmotion: doSplitEmotion
+        })
+        const cleanReply = stripOtherCharacterSpeakerLines(
+          normalizeCharacterDialogue(content, char),
+          char.id
+        )
+        if (!cleanReply) { setCharacterThinking(char.id, false); continue }
+        if (nonMuted.length > 1) {
+          const replyNorm = normalizeForCompare(cleanReply)
+          const lastNorm = normalizeForCompare(lastReplyText)
+          if (replyNorm && lastNorm && (replyNorm === lastNorm || replyNorm.includes(lastNorm) || lastNorm.includes(replyNorm))) {
+            setCharacterThinking(char.id, false); continue
+          }
+        }
+        let emotion = rawEmotion
+        let utilityInputTokens: number | undefined
+        let utilityOutputTokens: number | undefined
+        let utilityDebugPrompt: string | undefined
+        if (doSplitEmotion) {
+          const cr = await classifyEmotionWithLLM({ settings, character: char, reply: cleanReply })
+          emotion = cr.emotion
+          utilityInputTokens = cr.inputTokens
+          utilityOutputTokens = cr.outputTokens
+          utilityDebugPrompt = cr.debugPrompt
+        }
+        lastReplyText = cleanReply
+        const llmMeta = messageLlmMeta(debugPrompt, settings)
+        const msg: Message = {
+          id: uuidv4(),
+          role: 'character',
+          characterId: char.id,
+          content: cleanReply,
+          llmProvider: llmMeta.provider,
+          llmModel: llmMeta.model,
+          debugPrompt,
+          emotion,
+          inputTokens,
+          outputTokens,
+          utilityInputTokens,
+          utilityOutputTokens,
+          utilityDebugPrompt,
+          timestamp: Date.now()
+        }
+        conv.messages.push(msg)
+        conv.updatedAt = Date.now()
+        setCharacterThinking(char.id, false)
+        scheduleConversationBroadcast(conv)
+        if (settings.ui.messageNotificationSound?.enabled !== false) {
+          const volume = settings.ui.messageNotificationSound?.volume ?? 0.7
+          const charWin = getCharacterWindow(char.id)
+          if (charWin && !charWin.isDestroyed()) {
+            charWin.webContents.send('audio:play-message-notification', { volume })
+          }
+        }
+        await new Promise<void>(resolve => setImmediate(() => {
+          showSpeechBubble(char.id, char.name, cleanReply, msg.emotion, bubbleAnchorForCharacter(char.id))
+          sendCharacterContextUpdate(char.id, { lastMessage: { id: msg.id, emotion: msg.emotion } })
+          resolve()
+        }))
+      } catch (e: unknown) {
+        setCharacterThinking(char.id, false)
+        const errText = e instanceof Error ? e.message : String(e)
+        const errMsg: Message = {
+          id: uuidv4(),
+          role: 'system',
+          content: `[錯誤] ${errText}`,
+          llmProvider: settings.llm.provider,
+          llmModel: resolveModel(settings),
+          timestamp: Date.now()
+        }
+        conv.messages.push(errMsg)
+        scheduleConversationBroadcast(conv)
+        flushConversationBroadcast()
+        fileStore.saveConversation(conv)
+        return { ok: true }
+      }
+    }
+    flushConversationBroadcast()
+    fileStore.saveConversation(conv)
+    return { ok: true }
+  })
+
   // Mute toggle
   ipcMain.handle('desktop:toggle-mute', (_, characterId: string) => {
     const d = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
@@ -2493,6 +2633,10 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('presets:persona:delete', (_, id: string) => {
+    const all = fileStore.loadPersonaPresets()
+    if (all.length <= 1) {
+      return { error: '至少需要保留一組使用者預設。' }
+    }
     fileStore.deletePersonaPreset(id)
     if (settings.activePersonaId === id) {
       const remaining = fileStore.loadPersonaPresets()
@@ -2515,6 +2659,10 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('presets:world:delete', (_, id: string) => {
+    const all = fileStore.loadWorldPresets()
+    if (all.length <= 1) {
+      return { error: '至少需要保留一組世界觀。' }
+    }
     fileStore.deleteWorldPreset(id)
     if (settings.activeWorldId === id) {
       const remaining = fileStore.loadWorldPresets()

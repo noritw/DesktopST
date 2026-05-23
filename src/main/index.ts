@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets } from './fileStore'
 import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, triggerReminderSpeak } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
-import { initReminderScheduler } from './reminderScheduler'
+import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import {
   createCharacterWindow,
   createCharacterLibraryWindow,
@@ -223,6 +223,7 @@ app.on('ready', async () => {
 
   // Init reminder scheduler (after state is ready)
   initReminderScheduler(triggerReminderSpeak)
+  setIdleSkipMinutes(settings.ui.reminderIdleSkipMinutes ?? 0)
 
   // Version check on startup (5s delay so UI is ready first)
   setTimeout(() => {

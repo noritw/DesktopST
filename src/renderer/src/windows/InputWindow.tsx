@@ -4,7 +4,9 @@ import MonoIcon from '../components/MonoIcon'
 
 export default function InputWindow() {
   const sendMessage = useAppStore(s => s.sendMessage)
+  const continueGroup = useAppStore(s => s.continueGroup)
   const isSending = useAppStore(s => s.isSending)
+  const desktopCharacters = useAppStore(s => s.desktopCharacters)
   const messages = useAppStore(selectMessages)
   const settings = useAppStore(s => s.settings)
   const conversation = useAppStore(s => s.conversation)
@@ -237,7 +239,7 @@ export default function InputWindow() {
                 </div>
               </div>
               <div className="flex-1 min-h-0">
-                <div className="h-full min-h-[34px] flex items-stretch gap-2">
+                <div className="h-full min-h-[66px] flex items-stretch gap-2">
                   <textarea
                     ref={textareaRef}
                     value={text}
@@ -246,22 +248,42 @@ export default function InputWindow() {
                     onPaste={handlePaste}
                     placeholder="在這裡輸入訊息... (Enter 送出，Shift+Enter 換行)"
                     disabled={isSending}
-                    className="input-field flex-1 h-full min-h-[34px] resize-none py-1.5"
+                    className="input-field flex-1 h-full min-h-[66px] resize-none py-1.5"
                     rows={1}
                   />
-                  <button
-                    type="button"
-                    onClick={handleSend}
-                    disabled={isSending || (!text.trim() && images.length === 0)}
-                    className="shrink-0 w-14 h-full min-h-[34px] rounded-2xl text-primary border border-border
-                           bg-teal shadow-soft transition-colors
-                           hover:bg-mint active:bg-teal-80
-                           disabled:opacity-40 disabled:pointer-events-none
-                           no-drag flex items-center justify-center"
-                    title={isSending ? '送出中...' : '送出訊息'}
-                  >
-                    <MonoIcon name="send" className="w-5 h-5" />
-                  </button>
+                  <div className="flex flex-col gap-1 shrink-0 w-14">
+                    <button
+                      type="button"
+                      onClick={handleSend}
+                      disabled={isSending || (!text.trim() && images.length === 0)}
+                      className="flex-1 min-h-[34px] rounded-2xl text-primary border border-border
+                             bg-teal shadow-soft transition-colors
+                             hover:bg-mint active:bg-teal-80
+                             disabled:opacity-40 disabled:pointer-events-none
+                             no-drag flex items-center justify-center"
+                      title={isSending ? '送出中...' : '送出訊息'}
+                    >
+                      <MonoIcon name="send" className="w-5 h-5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void continueGroup()}
+                      disabled={isSending}
+                      className="h-7 rounded-xl text-secondary border border-border
+                             bg-surface transition-colors
+                             hover:bg-mint hover:text-primary active:bg-teal-80
+                             disabled:opacity-40 disabled:pointer-events-none
+                             no-drag flex items-center justify-center"
+                      title={(() => {
+                        const nonMuted = desktopCharacters.filter(d => !d.muted).length
+                        if (nonMuted <= 1) return '說點什麼（角色自由發言）'
+                        const rounds = settings?.llm?.maxGroupRounds ?? 3
+                        return `繼續群組對話（+${rounds} 則）`
+                      })()}
+                    >
+                      <MonoIcon name="more-chat" className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

@@ -498,9 +498,16 @@ export default function SettingsWindow() {
   }
 
   const deleteCurrentWorld = async () => {
-    if (!worldDraft || worldDraft.builtIn) return
-    await deleteWorldPreset(worldDraft.id)
-    const remaining = worldPresets.filter(w => w.id !== worldDraft.id)
+    if (!worldDraft) return
+    if (worldPresets.length <= 1) {
+      window.alert('至少需要保留一組世界觀。')
+      return
+    }
+    const label = `${worldDraft.name}${worldDraft.builtIn ? '（內建）' : ''}`
+    if (!window.confirm(`確定要刪除「${label}」？\n\n此操作無法復原。`)) return
+    const deletedId = worldDraft.id
+    await deleteWorldPreset(deletedId)
+    const remaining = useAppStore.getState().worldPresets.filter(w => w.id !== deletedId)
     set('activeWorldId', remaining[0]?.id ?? '')
   }
 
@@ -529,9 +536,16 @@ export default function SettingsWindow() {
   }
 
   const deleteCurrentPersona = async () => {
-    if (!personaDraft || personaDraft.builtIn) return
-    await deletePersonaPreset(personaDraft.id)
-    const remaining = personaPresets.filter(p => p.id !== personaDraft.id)
+    if (!personaDraft) return
+    if (personaPresets.length <= 1) {
+      window.alert('至少需要保留一組使用者預設。')
+      return
+    }
+    const label = `${personaDraft.name}${personaDraft.builtIn ? '（內建）' : ''}`
+    if (!window.confirm(`確定要刪除「${label}」？\n\n此操作無法復原。`)) return
+    const deletedId = personaDraft.id
+    await deletePersonaPreset(deletedId)
+    const remaining = useAppStore.getState().personaPresets.filter(p => p.id !== deletedId)
     set('activePersonaId', remaining[0]?.id ?? '')
   }
 
@@ -1155,7 +1169,7 @@ export default function SettingsWindow() {
                   ) : (
                     <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-border text-primary hover:bg-mint-40 transition-all" onClick={() => startRename('world')}>重新命名</button>
                   )}
-                  {!worldDraft.builtIn && (
+                  {worldPresets.length > 1 && (
                     <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-[#FFBBBB] text-[#E85D3F] hover:bg-[#FFBBBB]/30 transition-all" onClick={deleteCurrentWorld}>刪除</button>
                   )}
                 </>
@@ -1230,7 +1244,7 @@ export default function SettingsWindow() {
                   ) : (
                     <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-border text-primary hover:bg-mint-40 transition-all" onClick={() => startRename('persona')}>重新命名</button>
                   )}
-                  {!personaDraft.builtIn && (
+                  {personaPresets.length > 1 && (
                     <button type="button" className="text-xs px-2.5 py-1.5 rounded-full border border-[#FFBBBB] text-[#E85D3F] hover:bg-[#FFBBBB]/30 transition-all" onClick={deleteCurrentPersona}>刪除</button>
                   )}
                 </>
@@ -1532,6 +1546,23 @@ export default function SettingsWindow() {
                 )}
               </div>
             )}
+
+            <div className="border-t border-border pt-3 mt-1" />
+            <p className="text-xs font-medium text-secondary">閒置偵測</p>
+            <label className="flex items-center gap-2">
+              <span className="text-sm text-primary">電腦閒置超過</span>
+              <input
+                type="number"
+                min={0}
+                max={480}
+                step={5}
+                value={draft.ui.reminderIdleSkipMinutes ?? 0}
+                onChange={e => set('ui.reminderIdleSkipMinutes', Math.max(0, Number(e.target.value)))}
+                className="input-field w-16 text-center text-sm px-2 py-1"
+              />
+              <span className="text-sm text-primary">分鐘時，略過提醒</span>
+            </label>
+            <p className="text-xs text-secondary">設為 0 表示不偵測，提醒一律觸發。</p>
 
             <div className="border-t border-border pt-3 mt-3" />
             <p className="text-xs font-medium text-secondary">訊息通知</p>
