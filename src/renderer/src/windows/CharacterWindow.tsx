@@ -72,6 +72,9 @@ export default function CharacterWindow({ characterId }: Props) {
     )
   )
 
+  const [spriteActualH, setSpriteActualH] = useState(Math.round(260 * size))
+  const handleSpriteActualHChange = useCallback((h: number) => { setSpriteActualH(h) }, [])
+
   const [hovered, setHovered] = useState(false)
   const [menuPinned, setMenuPinned] = useState(false)
   const [hoverSuppressed, setHoverSuppressed] = useState(false)
@@ -419,7 +422,7 @@ export default function CharacterWindow({ characterId }: Props) {
 
   const renderedSize = scaleMode ? scaleDraft : Math.min(maxVisibleScale, Math.max(0.25, size))
   const renderedFlipped = scaleMode ? flipDraft : flipped
-  const sideToolbarLiftPx = Math.round(260 * renderedSize * SIDE_TOOLBAR_FOOT_LIFT_RATIO)
+  const sideToolbarLiftPx = Math.round(spriteActualH * SIDE_TOOLBAR_FOOT_LIFT_RATIO)
 
   return (
     <div
@@ -556,6 +559,7 @@ export default function CharacterWindow({ characterId }: Props) {
               name={character.name}
               size={renderedSize}
               flipped={renderedFlipped}
+              onActualHChange={handleSpriteActualHChange}
             />
           </div>
           </div>

@@ -1,6 +1,9 @@
-import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react'
+import { useEffect, useRef, useImperativeHandle, forwardRef, useState } from 'react'
 import MonoIcon from './MonoIcon'
 import { buildSpriteIdMap, stemFromFilename } from '../utils/emotionUtils'
+
+const MAX_W = 180
+const MAX_H = 260
 
 interface Props {
   /** 主圖本機路徑（未編碼） */
@@ -11,6 +14,7 @@ interface Props {
   name: string
   size?: number
   flipped?: boolean
+  onActualHChange?: (h: number) => void
 }
 
 export interface CharacterSpriteHandle {
@@ -41,9 +45,15 @@ function resolveDisplayPath(
 }
 
 const CharacterSprite = forwardRef<CharacterSpriteHandle, Props>(
-  function CharacterSprite({ avatarPath, emotion, emotions, spriteIds, name, size = 1, flipped = false }, ref) {
-    const w = Math.round(180 * size)
-    const h = Math.round(260 * size)
+  function CharacterSprite({ avatarPath, emotion, emotions, spriteIds, name, size = 1, flipped = false, onActualHChange }, ref) {
+    const [naturalDims, setNaturalDims] = useState<{ w: number; h: number } | null>(null)
+
+    // Compute actual rendered size preserving natural aspect ratio within MAX_W × MAX_H
+    const scale = naturalDims
+      ? Math.min(MAX_W / naturalDims.w, MAX_H / naturalDims.h) * size
+      : size
+    const w = naturalDims ? Math.round(naturalDims.w * scale) : Math.round(MAX_W * size)
+    const h = naturalDims ? Math.round(naturalDims.h * scale) : Math.round(MAX_H * size)
 
     const displayPath = resolveDisplayPath(avatarPath, emotion, emotions, spriteIds)
     const src = displayPath ? `local://${encodeURIComponent(displayPath)}` : ''
@@ -54,10 +64,13 @@ const CharacterSprite = forwardRef<CharacterSpriteHandle, Props>(
     useEffect(() => {
       if (!src || src === prevSrcRef.current) return
       prevSrcRef.current = src
+      pixelDataRef.current = null
+      setNaturalDims(null)
 
       const img = new Image()
       img.crossOrigin = 'anonymous'
       img.onload = () => {
+        setNaturalDims({ w: img.naturalWidth, h: img.naturalHeight })
         try {
           const canvas = document.createElement('canvas')
           canvas.width = img.naturalWidth
@@ -78,6 +91,10 @@ const CharacterSprite = forwardRef<CharacterSpriteHandle, Props>(
       img.src = src
     }, [src])
 
+    useEffect(() => {
+      onActualHChange?.(h)
+    }, [h, onActualHChange])
+
     useImperativeHandle(ref, () => ({
       getAlphaAt(clientX: number, clientY: number): number {
         const pd = pixelDataRef.current
@@ -92,7 +109,7 @@ const CharacterSprite = forwardRef<CharacterSpriteHandle, Props>(
         const idx = (imgY * pd.width + imgX) * 4 + 3
         return pd.data[idx] ?? 0
       }
-    }), [w, h])
+    }), [w, h, flipped])
 
     if (!src) {
       return (
@@ -111,7 +128,7 @@ const CharacterSprite = forwardRef<CharacterSpriteHandle, Props>(
         src={src}
         alt={name}
         draggable={false}
-        style={{ width: w, height: h, objectFit: 'contain', transform: flipped ? 'scaleX(-1)' : 'none' }}
+        style={{ width: w, height: h, transform: flipped ? 'scaleX(-1)' : 'none' }}
         className="select-none pointer-events-none"
       />
     )
