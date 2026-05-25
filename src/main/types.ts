@@ -170,6 +170,8 @@ export interface AppSettings {
     }
     /** 閒置超過幾分鐘時略過提醒（0 = 不略過）*/
     reminderIdleSkipMinutes?: number
+    /** 截圖時是否保留對話輸入框 */
+    screenshotIncludeInputWindow?: boolean
   }
 }
 
@@ -247,6 +249,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     messageNotificationSound: {
       enabled: true,
       volume: 0.7
-    }
+    },
+    screenshotIncludeInputWindow: false
   }
 }

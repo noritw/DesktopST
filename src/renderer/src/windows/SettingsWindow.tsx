@@ -1495,6 +1495,19 @@ export default function SettingsWindow() {
             <p className="text-xs text-secondary ml-6">不勾選的話，對話泡泡會一直留在畫面上，直到手動關閉或下一句對話出現。</p>
 
             <div className="border-t border-border pt-3" />
+            <p className="text-xs font-medium text-secondary">截圖</p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draft.ui.screenshotIncludeInputWindow ?? false}
+                onChange={e => set('ui.screenshotIncludeInputWindow', e.target.checked)}
+                className="accent-teal w-4 h-4"
+              />
+              <span className="text-sm text-primary">保留DesktopST截圖時連對話框一起截進去</span>
+            </label>
+            <p className="text-xs text-secondary ml-6">勾選後，使用「保留DesktopST角色」截圖模式時會連同輸入框顯示；不勾選則只截圖角色。</p>
+
+            <div className="border-t border-border pt-3" />
             <p className="text-xs font-medium text-secondary">提醒通知</p>
             <label className="flex items-center gap-2 cursor-pointer">
               <input

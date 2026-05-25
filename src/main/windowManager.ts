@@ -1445,8 +1445,14 @@ export function hideAllWindowsForScreenshot(): { displayId: number; displayWidth
   return getScreenshotDisplayInfo()
 }
 
-/** Keep all DesktopST windows visible; only resolves which display to capture. */
-export function prepareScreenshotKeepingDesktopST(): { displayId: number; displayWidth: number; displayHeight: number } {
+/** Keep all DesktopST windows visible; optionally hide input window. */
+export function prepareScreenshotKeepingDesktopST(hideInputWindow: boolean = false): { displayId: number; displayWidth: number; displayHeight: number } {
+  if (hideInputWindow) {
+    const input = getInputWindow()
+    if (input && !input.isDestroyed()) {
+      input.setOpacity(0)
+    }
+  }
   return getScreenshotDisplayInfo()
 }
 

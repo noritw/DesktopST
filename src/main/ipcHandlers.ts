@@ -2556,7 +2556,8 @@ export function registerIpcHandlers() {
 
   // Screenshot: keep all DesktopST windows visible, return data URL
   ipcMain.handle('desktop:capture-screenshot-with-characters', async () => {
-    const info = prepareScreenshotKeepingDesktopST()
+    const hideInputWindow = !(settings.ui.screenshotIncludeInputWindow ?? false)
+    const info = prepareScreenshotKeepingDesktopST(hideInputWindow)
     await new Promise(resolve => setTimeout(resolve, 300))
     try {
       const all = await desktopCapturer.getSources({
