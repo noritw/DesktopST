@@ -65,7 +65,7 @@ const CharacterSprite = forwardRef<CharacterSpriteHandle, Props>(
       if (!src || src === prevSrcRef.current) return
       prevSrcRef.current = src
       pixelDataRef.current = null
-      setNaturalDims(null)
+      // 保留舊的 naturalDims 直到新圖載入完成，避免重置成 260px 造成瞬間拉長
 
       const img = new Image()
       img.crossOrigin = 'anonymous'

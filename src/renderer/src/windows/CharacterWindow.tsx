@@ -73,7 +73,10 @@ export default function CharacterWindow({ characterId }: Props) {
   )
 
   const [spriteActualH, setSpriteActualH] = useState(Math.round(260 * size))
-  const handleSpriteActualHChange = useCallback((h: number) => { setSpriteActualH(h) }, [])
+  const handleSpriteActualHChange = useCallback((h: number) => {
+    setSpriteActualH(h)
+    window.api.send('desktop:update-sprite-height', characterId, h)
+  }, [characterId])
 
   const [hovered, setHovered] = useState(false)
   const [menuPinned, setMenuPinned] = useState(false)

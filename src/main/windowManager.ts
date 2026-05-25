@@ -206,9 +206,12 @@ const BUBBLE_MAX_HEIGHT_PX = 32000
 function getBubbleConcurrentWindowLimit(): number {
   return Math.max(1, characterWindows.size)
 }
-/** 立體角色立繪頂端（約在視窗高度 120/380 處）與對白框下緣的間距（px） */
+/** 立體角色立繪頂端與對白框下緣的間距（px） */
 const BUBBLE_GAP_PX = 6
-const BUBBLE_SPRITE_TOP_RATIO = 120 / 380
+/** CSS 底部偏移：CharacterWindow 的 flex container 以 bottom-[52px] 定位 */
+const CHAR_WIN_BOTTOM_OFFSET_PX = 52
+/** renderer 回報的角色實際 sprite 高度（CSS px，含縮放倍率）；key=characterId */
+const spriteActualHeights = new Map<string, number>()
 const BUBBLE_MIN_VISIBLE_DRAG_PX = 32
 /** 對白相對於頭頂錨點：尚無使用者拖過對白時的初始偏移；拖對白放手後由 refreshBubbleUserOffsetFromWindow 寫入並保留，角色拖曳結束不覆寫。 */
 const BUBBLE_USER_OFFSET_DEFAULT: Readonly<{ x: number; y: number }> = { x: 0, y: 0 }
@@ -556,6 +559,13 @@ export function resizeCharacterWindow(characterId: string, size: number): { posi
   }, false)
   syncSpeechBubblePosition(characterId, nextPosition)
   return { position: nextPosition, size: scale }
+}
+
+/** renderer 回報 sprite 的實際渲染高度（CSS 邏輯 px）；用於精確計算對白框頂端位置 */
+export function updateSpriteActualHeight(characterId: string, h: number): void {
+  if (Number.isFinite(h) && h > 0) {
+    spriteActualHeights.set(characterId, Math.round(h))
+  }
 }
 
 export function setCharacterWindowClickThrough(characterId: string, clickThrough: boolean): boolean {
@@ -1062,6 +1072,14 @@ export function setUnfocusedBubbleOpacity(opacity: number): void {
 
 /** 使用者拖曳對白視窗（moved 與程式預期不符）時，把目前螢幕位置換算成相對錨點的偏移並寫入 bubbleUserOffset；此值之後跟隨角色移動，直到使用者再次拖對白。
  *  錨點高度必須與 applyBubbleBounds 使用的邏輯高度一致（lastBubbleSizes），不可用 bb.height 混算。 */
+function getSpriteTop(cb: { y: number; height: number }, characterId: string): number {
+  // sprite top = 視窗頂端 + 視窗高 - 底部偏移 - sprite高
+  // spriteActualH 由 renderer 回報，已含縮放倍率（CSS 邏輯 px）
+  // fallback: 以視窗高比例估算（與 getCharacterWindowSize 的 432/260 比例一致）
+  const spriteH = spriteActualHeights.get(characterId) ?? Math.round((260 / 432) * cb.height)
+  return Math.round(cb.y + cb.height - CHAR_WIN_BOTTOM_OFFSET_PX - spriteH)
+}
+
 function refreshBubbleUserOffsetFromWindow(characterId: string): void {
   if (draggingCharacters.has(characterId)) return
   const bw = bubbleWindows.get(characterId)
@@ -1069,7 +1087,7 @@ function refreshBubbleUserOffsetFromWindow(characterId: string): void {
   if (!bw || bw.isDestroyed() || !cw || cw.isDestroyed()) return
   const bb = bw.getBounds()
   const cb = cw.getBounds()
-  const spriteTop = Math.round(cb.y + cb.height * BUBBLE_SPRITE_TOP_RATIO)
+  const spriteTop = getSpriteTop(cb, characterId)
   const defaultX = Math.round(cb.x + 12)
   const stored = lastBubbleSizes.get(characterId)
   const anchorH = stored?.height ?? bb.height
@@ -1091,7 +1109,7 @@ function applyBubbleBounds(
   const width = Math.max(180, Math.min(420, Number.isFinite(rw) ? rw : 280))
   const height = Math.max(78, Math.min(BUBBLE_MAX_HEIGHT_PX, Number.isFinite(rh) ? rh : 120))
 
-  const spriteTop = Math.round(cb.y + cb.height * BUBBLE_SPRITE_TOP_RATIO)
+  const spriteTop = getSpriteTop(cb, characterId)
 
   const offset = bubbleUserOffset.get(characterId) ?? {
     x: BUBBLE_USER_OFFSET_DEFAULT.x,

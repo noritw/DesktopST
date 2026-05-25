@@ -25,7 +25,7 @@ import {
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
   hideSpeechBubble, persistSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition,
   showUserSpeechBubble, hideUserSpeechBubble, updateUserSpeechBubbleSize,
-  reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects,
+  reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects, updateSpriteActualHeight,
   beginCharacterDrag, moveDraggedCharacter, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
   setUnfocusedBubbleOpacity, setCharactersAlwaysOnTop, getCharactersAlwaysOnTop, setCharacterAlwaysOnTop,
   createCharacterLibraryWindow,
@@ -1115,7 +1115,22 @@ export function registerIpcHandlers() {
       emojiPickerOffset: settings.ui.emojiPickerOffset,
       lastActiveConversationId: settings.ui.lastActiveConversationId,
     }
-    settings = { ...s, ui }
+    // Protect encrypted-but-unreadable API keys: if renderer sends '' because decryption
+    // failed at startup (we showed '' instead of the enc:v1: blob), preserve the encrypted
+    // blob in the file so the user can attempt recovery or re-enter on their own.
+    // Only applies while encryptedApiKeyFallbacks still holds the value; once the user
+    // explicitly types a new key, it's cleared from the fallback map.
+    const protectedApiKeys = { ...s.llm?.apiKeys }
+    for (const [k, encValue] of fileStore.encryptedApiKeyFallbacks.entries()) {
+      if (!protectedApiKeys[k]) {
+        // Renderer sees '' (we converted enc:v1: to '' on load); keep encrypted blob in file
+        protectedApiKeys[k] = encValue
+      } else {
+        // User typed a real key — clear the fallback so it's not applied again
+        fileStore.encryptedApiKeyFallbacks.delete(k)
+      }
+    }
+    settings = { ...s, llm: { ...s.llm, apiKeys: protectedApiKeys }, ui }
     fileStore.saveSettings(settings)
     broadcastToAll('settings:updated', settings)
     broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
@@ -1651,6 +1666,10 @@ export function registerIpcHandlers() {
     buttons: { x: number; y: number; w: number; h: number } | null
   } | null) => {
     setCharacterHitRects(characterId, rects)
+  })
+
+  ipcMain.on('desktop:update-sprite-height', (_, characterId: string, h: number) => {
+    updateSpriteActualHeight(characterId, h)
   })
 
   ipcMain.handle('ui:character-activated', (_, characterId: string) => {

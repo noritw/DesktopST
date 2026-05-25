@@ -11,6 +11,12 @@ const DEFAULT_DATA_DIR = path.join(app.getPath('userData'), 'DesktopST')
 const STORAGE_META_FILE = path.join(app.getPath('userData'), 'DesktopST-storage.json')
 
 let DATA_DIR = DEFAULT_DATA_DIR
+
+/**
+ * API Key 解密失敗時的暫存：key = provider name（openai/claude/…），value = 'enc:v1:...'
+ * 防止 renderer 送回空字串時把加密值覆寫掉。
+ */
+export const encryptedApiKeyFallbacks = new Map<string, string>()
 let SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
 let PINNED_NOTES_FILE = path.join(DATA_DIR, 'pinned-notes.json')
 let REMINDERS_FILE = path.join(DATA_DIR, 'reminders.json')
@@ -220,8 +226,22 @@ export function loadSettings(): AppSettings {
     )
 
     // Decrypt API keys for in-memory use
+    // If decryption fails, secureStore.decrypt returns the original 'enc:v1:...' string.
+    // We convert those to '' so the UI shows an empty field (prompting re-entry)
+    // instead of showing the garbage encrypted blob which users tend to clear and save,
+    // accidentally destroying the stored value.
+    // The encrypted blob is preserved in encryptedApiKeyFallbacks so settings:save
+    // can write it back when the renderer sends '' without the user explicitly clearing it.
     for (const k of Object.keys(settings.llm.apiKeys)) {
-      settings.llm.apiKeys[k] = secureStore.decrypt(settings.llm.apiKeys[k] ?? '')
+      const stored = settings.llm.apiKeys[k] ?? ''
+      const decrypted = secureStore.decrypt(stored)
+      if (decrypted.startsWith('enc:v1:')) {
+        encryptedApiKeyFallbacks.set(k, decrypted)
+        settings.llm.apiKeys[k] = ''
+      } else {
+        encryptedApiKeyFallbacks.delete(k)
+        settings.llm.apiKeys[k] = decrypted
+      }
     }
 
     if (needsMigration || hasLegacyPinnedNotesField || needsKeyMigration) {
