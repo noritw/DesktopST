@@ -5,8 +5,20 @@
 Set-StrictMode -Off
 $ErrorActionPreference = 'Stop'
 
+# 強制 PS 5.1 以 UTF-8 解碼外部命令（git log 等）的輸出
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding          = [System.Text.Encoding]::UTF8
+
 $ProjectRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $ProjectRoot
+
+trap {
+    Write-Host ""
+    Write-Host "發生錯誤：$($_.Exception.Message)" -ForegroundColor Red
+    Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
+    Read-Host "按 Enter 結束"
+    exit 1
+}
 
 # ══════════════════════════════════════════════════════════════
 #  讀取目前版本
@@ -203,9 +215,21 @@ if (-not $shouldPush) {
     if ($doVersionBump) {
         git add package.json package-lock.json
         git commit -m "release: v$ver"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "      git commit 失敗，請手動處理。" -ForegroundColor Red
+            Read-Host "按 Enter 結束"; exit 1
+        }
         git tag "v$ver"
         git push origin main
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "      git push main 失敗，請手動處理。" -ForegroundColor Red
+            Read-Host "按 Enter 結束"; exit 1
+        }
         git push origin "v$ver"
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "      git push tag 失敗，請手動處理。" -ForegroundColor Red
+            Read-Host "按 Enter 結束"; exit 1
+        }
         Write-Host "      Git push 完成，tag v$ver 已建立。" -ForegroundColor Green
     }
 
@@ -246,7 +270,9 @@ if (-not $shouldPush) {
             "- **EXE版**：``DesktopST $ver.exe``（檔案較小，執行時才自動解壓縮所需檔案）",
             "- **ZIP版**（開啟速度較快）：``DesktopST-v$ver-full.zip``（解壓縮後直接執行 ``DesktopST.exe``）"
         )
-        $notesLines | Set-Content -Path $notesFile -Encoding UTF8BOM
+        # Set-Content -Encoding UTF8 在 PS 5.1 會加 BOM，gh 傳給 GitHub 後中文亂碼
+        # 改用 .NET 直接寫 UTF-8 無 BOM
+        [System.IO.File]::WriteAllText($notesFile, ($notesLines -join "`n"), (New-Object System.Text.UTF8Encoding $false))
 
         # 呼叫 gh release create
         $ghArgs = @("release", "create", "v$ver", "--title", "v$ver", "--notes-file", $notesFile) + $uploadFiles
