@@ -4,6 +4,7 @@ import MonoIcon from '../components/MonoIcon'
 export default function PreviewWindow() {
   const [images, setImages] = useState<string[]>([])
   const [index, setIndex] = useState(0)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     return window.api.on('preview:set-image', (payload) => {
@@ -28,6 +29,48 @@ export default function PreviewWindow() {
   const canPrev = index > 0
   const canNext = index < images.length - 1
 
+  const getImageExtension = (dataUrl: string): string => {
+    const match = /^data:image\/([a-zA-Z0-9.+-]+);/.exec(dataUrl)
+    const raw = match?.[1]?.toLowerCase()
+    if (raw === 'jpeg') return 'jpg'
+    return raw || 'png'
+  }
+
+  const saveCurrentImage = async () => {
+    if (!src || saving) return
+    setSaving(true)
+    try {
+      const ext = getImageExtension(src)
+      const stamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, '-')
+        .replace('T', '_')
+        .slice(0, 19)
+      const dialogResult = await window.api.invoke('file:save-dialog', {
+        defaultPath: `DesktopST_screenshot_${stamp}.${ext}`,
+        filters: [
+          { name: '圖片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] },
+          { name: '所有檔案', extensions: ['*'] }
+        ]
+      }) as { filePath?: string; error?: string }
+      if (dialogResult.error || !dialogResult.filePath) return
+
+      const filePath = /\.[a-z0-9]+$/i.test(dialogResult.filePath)
+        ? dialogResult.filePath
+        : `${dialogResult.filePath}.${ext}`
+      const buffer = await (await fetch(src)).arrayBuffer()
+      const writeResult = await window.api.invoke('file:write-file', {
+        path: filePath,
+        data: buffer
+      }) as { ok?: boolean; error?: string }
+      if (writeResult.error) console.error('[Preview] Save image failed:', writeResult.error)
+    } catch (err) {
+      console.error('[Preview] Save image failed:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <div
       style={{
@@ -40,7 +83,6 @@ export default function PreviewWindow() {
         userSelect: 'none'
       }}
     >
-      {/* Title bar */}
       <div
         className="drag-region"
         style={{
@@ -53,23 +95,58 @@ export default function PreviewWindow() {
         }}
       >
         <span style={{ fontSize: 12, color: '#AAEEDD', fontWeight: 600 }}>截圖預覽</span>
-        <button
-          type="button"
-          className="no-drag"
-          onClick={() => window.api.invoke('window:close-self')}
+        <div
           style={{
-            width: 20, height: 20, borderRadius: '50%',
-            border: '1px solid #FFB59F', background: '#FFE2D8', color: '#E85D3F',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer'
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8
           }}
-          title="關閉"
         >
-          <MonoIcon name="close" className="w-3 h-3" />
-        </button>
+          <button
+            type="button"
+            className="no-drag"
+            onClick={saveCurrentImage}
+            disabled={!src || saving}
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: '50%',
+              border: '1px solid #6B8F80',
+              background: '#2B3A35',
+              color: '#AAEEDD',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              opacity: !src || saving ? 0.45 : 1,
+              cursor: !src || saving ? 'default' : 'pointer'
+            }}
+            title={saving ? '儲存中...' : '另存新檔'}
+          >
+            <MonoIcon name="download" className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            className="no-drag"
+            onClick={() => window.api.invoke('window:close-self')}
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: '50%',
+              border: '1px solid #FFB59F',
+              background: '#FFE2D8',
+              color: '#E85D3F',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer'
+            }}
+            title="關閉"
+          >
+            <MonoIcon name="close" className="w-3 h-3" />
+          </button>
+        </div>
       </div>
 
-      {/* Image area */}
       <div
         style={{
           flex: 1,
@@ -119,7 +196,7 @@ export default function PreviewWindow() {
             }}
           />
         ) : (
-          <span style={{ color: '#6B8F80', fontSize: 13 }}>載入中...</span>
+          <span style={{ color: '#6B8F80', fontSize: 13 }}>沒有圖片</span>
         )}
         {images.length > 1 && (
           <button

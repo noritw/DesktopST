@@ -190,6 +190,8 @@ export interface AppSettings {
     }
     /** 閒置超過幾分鐘時略過提醒（0 = 不略過）*/
     reminderIdleSkipMinutes?: number
+    /** Include the input window when capturing screenshots with DesktopST windows visible. */
+    screenshotIncludeInputWindow?: boolean
   }
 }
 
