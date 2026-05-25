@@ -215,7 +215,10 @@ export default function SettingsWindow() {
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [windowsStartupSupported, setWindowsStartupSupported] = useState(false)
   const [windowsStartupExists, setWindowsStartupExists] = useState(false)
+  const [windowsStartupNeedsUpdate, setWindowsStartupNeedsUpdate] = useState(false)
   const [addingWindowsStartup, setAddingWindowsStartup] = useState(false)
+  const [removingWindowsStartup, setRemovingWindowsStartup] = useState(false)
+  const [openingWindowsStartupFolder, setOpeningWindowsStartupFolder] = useState(false)
   const [devToolsAvailable, setDevToolsAvailable] = useState(false)
   const [devToolsReveal, setDevToolsReveal] = useState(false)
   const devToolsClickRef = useRef(0)
@@ -303,9 +306,11 @@ export default function SettingsWindow() {
     const status = await window.api.invoke('shell:windows-startup-shortcut-status') as {
       supported?: boolean
       exists?: boolean
+      needsUpdate?: boolean
     }
     setWindowsStartupSupported(!!status?.supported)
     setWindowsStartupExists(!!status?.exists)
+    setWindowsStartupNeedsUpdate(!!status?.needsUpdate)
   }
 
   useEffect(() => {
@@ -313,22 +318,59 @@ export default function SettingsWindow() {
   }, [])
 
   const addWindowsStartupShortcut = async () => {
-    if (windowsStartupExists) return
+    if (windowsStartupExists && !windowsStartupNeedsUpdate) return
+    const wasUpdating = windowsStartupExists && windowsStartupNeedsUpdate
     setAddingWindowsStartup(true)
     try {
       const result = await window.api.invoke('shell:add-windows-startup-shortcut') as {
         ok?: boolean
         error?: string
         path?: string
+        updated?: boolean
       }
       if (result?.ok) {
         await refreshWindowsStartupStatus()
-        window.alert('已將 DesktopST 捷徑加入 Windows 啟動程式。下次開機會自動啟動。')
+        window.alert(wasUpdating
+          ? '已更新 Windows 啟動程式中的 DesktopST 捷徑。'
+          : '已將 DesktopST 捷徑加入 Windows 啟動程式。下次開機會自動啟動。')
       } else {
         window.alert(result?.error || '加入啟動程式失敗。')
       }
     } finally {
       setAddingWindowsStartup(false)
+    }
+  }
+
+  const removeWindowsStartupShortcut = async () => {
+    if (!windowsStartupExists) return
+    setRemovingWindowsStartup(true)
+    try {
+      const result = await window.api.invoke('shell:remove-windows-startup-shortcut') as {
+        ok?: boolean
+        error?: string
+      }
+      if (result?.ok) {
+        await refreshWindowsStartupStatus()
+      } else {
+        window.alert(result?.error || '從啟動程式移除失敗。')
+      }
+    } finally {
+      setRemovingWindowsStartup(false)
+    }
+  }
+
+  const openWindowsStartupFolder = async () => {
+    setOpeningWindowsStartupFolder(true)
+    try {
+      const result = await window.api.invoke('shell:open-windows-startup-folder') as {
+        ok?: boolean
+        error?: string
+      }
+      if (!result?.ok) {
+        window.alert(result?.error || '開啟啟動程式資料夾失敗。')
+      }
+    } finally {
+      setOpeningWindowsStartupFolder(false)
     }
   }
 
@@ -1709,20 +1751,40 @@ export default function SettingsWindow() {
             </label>
             {windowsStartupSupported && (
               <div className="space-y-1.5">
-                <button
-                  type="button"
-                  className="btn-round w-auto px-4 rounded-full h-auto py-2 text-sm"
-                  disabled={windowsStartupExists || addingWindowsStartup}
-                  onClick={() => void addWindowsStartupShortcut()}
-                >
-                  {addingWindowsStartup
-                    ? '處理中...'
-                    : windowsStartupExists
-                      ? '已加入 Windows 啟動程式'
-                      : '加到 Windows 啟動程式'}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="btn-round w-auto px-4 rounded-full h-auto py-2 text-sm"
+                    disabled={addingWindowsStartup || removingWindowsStartup}
+                    onClick={() => {
+                      if (windowsStartupExists && !windowsStartupNeedsUpdate) {
+                        void removeWindowsStartupShortcut()
+                      } else {
+                        void addWindowsStartupShortcut()
+                      }
+                    }}
+                  >
+                    {addingWindowsStartup || removingWindowsStartup
+                      ? '處理中...'
+                      : windowsStartupExists && windowsStartupNeedsUpdate
+                        ? '更新 Windows 啟動捷徑'
+                        : windowsStartupExists
+                          ? '從 Windows 啟動程式移除'
+                          : '加到 Windows 啟動程式'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-round w-auto px-4 rounded-full h-auto py-2 text-sm"
+                    disabled={openingWindowsStartupFolder}
+                    onClick={() => void openWindowsStartupFolder()}
+                  >
+                    {openingWindowsStartupFolder ? '開啟中...' : '開啟啟動程式資料夾'}
+                  </button>
+                </div>
                 <p className="text-[11px] text-secondary leading-snug">
-                  在啟動資料夾建立 DesktopST 捷徑（等同 Win+R → shell:startup 後手動放入）。不會自動啟用，需你按此按鈕一次。
+                  {windowsStartupNeedsUpdate
+                    ? '目前的啟動捷徑是舊格式；更新後會修正目標、工作目錄與圖示。'
+                    : '在啟動資料夾建立 DesktopST 捷徑（等同 Win+R → shell:startup 後手動放入）。不會自動啟用，需你按此按鈕一次。'}
                 </p>
               </div>
             )}

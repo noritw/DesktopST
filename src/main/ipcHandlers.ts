@@ -2740,14 +2740,55 @@ export function registerIpcHandlers() {
     )
   }
 
+  function desiredDesktopStStartupShortcut(): Electron.ShortcutDetails {
+    const target = process.execPath
+    const options: Electron.ShortcutDetails = {
+      target,
+      cwd: path.dirname(target),
+      description: 'DesktopST',
+      icon: target,
+      iconIndex: 0
+    }
+    if (!app.isPackaged) {
+      options.args = `"${app.getAppPath()}"`
+    }
+    return options
+  }
+
+  function normalizeShortcutPath(p?: string): string {
+    if (!p) return ''
+    return path.normalize(p).replace(/[\\/]+$/, '').toLowerCase()
+  }
+
+  function normalizeShortcutArgs(args?: string): string {
+    return (args ?? '').trim()
+  }
+
+  function shortcutNeedsUpdate(shortcutPath: string): boolean {
+    if (!shortcutPath || !fs.existsSync(shortcutPath)) return false
+    try {
+      const actual = shell.readShortcutLink(shortcutPath)
+      const desired = desiredDesktopStStartupShortcut()
+      return normalizeShortcutPath(actual.target) !== normalizeShortcutPath(desired.target) ||
+        normalizeShortcutPath(actual.cwd) !== normalizeShortcutPath(desired.cwd) ||
+        normalizeShortcutArgs(actual.args) !== normalizeShortcutArgs(desired.args) ||
+        normalizeShortcutPath(actual.icon) !== normalizeShortcutPath(desired.icon) ||
+        (actual.iconIndex ?? 0) !== (desired.iconIndex ?? 0)
+    } catch {
+      return true
+    }
+  }
+
   ipcMain.handle('shell:windows-startup-shortcut-status', () => {
     if (process.platform !== 'win32') {
-      return { supported: false as const, exists: false }
+      return { supported: false as const, exists: false, needsUpdate: false }
     }
     const shortcutPath = desktopStStartupShortcutPath()
+    const exists = shortcutPath ? fs.existsSync(shortcutPath) : false
     return {
       supported: true as const,
-      exists: shortcutPath ? fs.existsSync(shortcutPath) : false,
+      exists,
+      needsUpdate: exists ? shortcutNeedsUpdate(shortcutPath) : false,
       path: shortcutPath
     }
   })
@@ -2760,24 +2801,48 @@ export function registerIpcHandlers() {
     if (!shortcutPath) {
       return { ok: false as const, error: '無法取得啟動資料夾路徑。' }
     }
-    const target = process.execPath
-    const options: Electron.ShortcutDetails = {
-      target,
-      cwd: path.dirname(target),
-      description: 'DesktopST',
-      icon: target,
-      iconIndex: 0
-    }
-    if (!app.isPackaged) {
-      options.args = `"${app.getAppPath()}"`
-    }
+    const options = desiredDesktopStStartupShortcut()
     try {
       const op = fs.existsSync(shortcutPath) ? 'update' : 'create'
       const ok = shell.writeShortcutLink(shortcutPath, op, options)
       if (!ok) {
         return { ok: false as const, error: '建立捷徑失敗。' }
       }
+      return { ok: true as const, path: shortcutPath, updated: op === 'update' }
+    } catch (e: unknown) {
+      return { ok: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('shell:remove-windows-startup-shortcut', () => {
+    if (process.platform !== 'win32') {
+      return { ok: false as const, error: '目前只支援 Windows。' }
+    }
+    const shortcutPath = desktopStStartupShortcutPath()
+    if (!shortcutPath) {
+      return { ok: false as const, error: '無法取得啟動資料夾路徑。' }
+    }
+    try {
+      if (fs.existsSync(shortcutPath)) fs.unlinkSync(shortcutPath)
       return { ok: true as const, path: shortcutPath }
+    } catch (e: unknown) {
+      return { ok: false as const, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  ipcMain.handle('shell:open-windows-startup-folder', () => {
+    if (process.platform !== 'win32') {
+      return { ok: false as const, error: '目前只支援 Windows。' }
+    }
+    const shortcutPath = desktopStStartupShortcutPath()
+    const startupDir = shortcutPath ? path.dirname(shortcutPath) : ''
+    if (!startupDir) {
+      return { ok: false as const, error: '無法取得啟動資料夾路徑。' }
+    }
+    try {
+      fs.mkdirSync(startupDir, { recursive: true })
+      void shell.openPath(startupDir)
+      return { ok: true as const, path: startupDir }
     } catch (e: unknown) {
       return { ok: false as const, error: e instanceof Error ? e.message : String(e) }
     }
