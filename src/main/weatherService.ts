@@ -67,32 +67,76 @@ export async function detectLocationByIP(): Promise<{ city: string; lat: number;
   }
 }
 
-export async function fetchWeather(lat: number, lon: number): Promise<WeatherData | null> {
+export async function fetchWeatherOpenMeteo(lat: number, lon: number): Promise<WeatherData | null> {
   try {
     const url =
       `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
       `&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m`
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const json = await res.json() as {
-      current?: {
-        temperature_2m: number
-        relative_humidity_2m: number
-        weather_code: number
-        wind_speed_10m: number
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+    try {
+      const res = await fetch(url, { signal: controller.signal })
+      if (!res.ok) return null
+      const json = await res.json() as {
+        current?: {
+          temperature_2m: number
+          relative_humidity_2m: number
+          weather_code: number
+          wind_speed_10m: number
+        }
       }
-    }
-    const c = json.current
-    if (!c) return null
-    return {
-      description: wmoToDesc(c.weather_code),
-      temperatureC: Math.round(c.temperature_2m),
-      humidity: Math.round(c.relative_humidity_2m),
-      windSpeed: Math.round(c.wind_speed_10m * 10) / 10
+      const c = json.current
+      if (!c) return null
+      return {
+        description: wmoToDesc(c.weather_code),
+        temperatureC: Math.round(c.temperature_2m),
+        humidity: Math.round(c.relative_humidity_2m),
+        windSpeed: Math.round(c.wind_speed_10m * 10) / 10
+      }
+    } finally {
+      clearTimeout(timeoutId)
     }
   } catch {
     return null
   }
+}
+
+export async function fetchWeatherWttrIn(locationName: string): Promise<WeatherData | null> {
+  try {
+    const url = `https://wttr.in/${encodeURIComponent(locationName)}?format=j1`
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
+    try {
+      const res = await fetch(url, { signal: controller.signal })
+      if (!res.ok) return null
+      const json = await res.json() as {
+        current_condition?: Array<{
+          temp_C: number
+          humidity: number
+          weatherDesc: Array<{ value: string }>
+          windspeedKmph: number
+        }>
+      }
+      const c = json.current_condition?.[0]
+      if (!c) return null
+      return {
+        description: c.weatherDesc?.[0]?.value || '未知',
+        temperatureC: Math.round(c.temp_C),
+        humidity: Math.round(c.humidity),
+        windSpeed: Math.round(c.windspeedKmph / 3.6 * 10) / 10
+      }
+    } finally {
+      clearTimeout(timeoutId)
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function fetchWeather(lat: number, lon: number, locationName: string): Promise<WeatherData | null> {
+  const data = await fetchWeatherOpenMeteo(lat, lon)
+  if (data) return data
+  return fetchWeatherWttrIn(locationName)
 }
 
 export function buildWeatherTemplate(locationName: string, data: WeatherData): string {
@@ -143,8 +187,8 @@ export async function getWeatherContextString(settings: AppSettings): Promise<st
     return cache.template
   }
 
-  // 天氣資料過期 → 重新抓氣象
-  const data = await fetchWeather(w.latitude, w.longitude)
+  // 天氣資料過期 → 重新抓氣象（優先 Open-Meteo，備用 wttr.in）
+  const data = await fetchWeather(w.latitude, w.longitude, w.locationName)
   if (!data) return null
 
   const template = buildWeatherTemplate(w.locationName, data)

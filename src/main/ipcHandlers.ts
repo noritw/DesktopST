@@ -1216,7 +1216,7 @@ export function registerIpcHandlers() {
     const w = settings.weather
     if (!w?.locationName || !w.latitude || !w.longitude) return null
     invalidateWeatherCache()
-    return fetchWeather(w.latitude, w.longitude)
+    return fetchWeather(w.latitude, w.longitude, w.locationName)
   })
 
   ipcMain.handle('weather:get-cache', () => getCachedWeatherData())
