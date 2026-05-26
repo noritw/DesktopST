@@ -19,3 +19,4 @@ generate-sounds.js
 DesktopST-portable.zip
 DesktopST-v*.zip
 scripts/sync-and-push-intro.bat
+assets/*.dstpack
