@@ -1154,6 +1154,16 @@ export function applySceneById(id: string): { ok: true } | { error: string } {
     }
   }
 
+  // Switch active conversation
+  if (scene.lastActiveConversationId) {
+    const conv = getOrLoadConversation(scene.lastActiveConversationId)
+    if (conv) {
+      activeConversationId = conv.id
+      broadcastConversationUpdate(conv)
+      syncCharacterContextsFromConversation(conv)
+    }
+  }
+
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   broadcastToAll('desktop:updated', settings.ui.desktopCharacters)

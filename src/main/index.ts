@@ -325,7 +325,7 @@ function setupTray(appRoot: string) {
       ? { label: '重新開啟所有輔助視窗', click: () => { restoreDismissedAuxWindows(); refreshTrayMenu() } }
       : { label: '收起所有輔助視窗', click: async () => { await dismissAllAuxWindows(); refreshTrayMenu() } }
     const isAlwaysOnTop = getCharactersAlwaysOnTop()
-    const scenes = loadScenePresets().sort((a, b) => a.name.localeCompare(b.name))
+    const scenes = loadScenePresets().sort((a, b) => a.createdAt - b.createdAt)
     const activeSceneId = getSettings().activeSceneId
     const sceneSubmenu = scenes.length === 0
       ? [{ label: '（尚無情境，請在設定→情境中新增）', enabled: false }]

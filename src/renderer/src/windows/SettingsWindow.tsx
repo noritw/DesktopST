@@ -1303,7 +1303,7 @@ export default function SettingsWindow() {
                 <p className="text-sm text-secondary text-center py-6">尚無情境。點上方「儲存情境」建立第一個。</p>
               ) : (
                 <div className="space-y-2">
-                  {scenePresets.slice().sort((a, b) => b.updatedAt - a.updatedAt).map(scene => {
+                  {scenePresets.slice().sort((a, b) => a.createdAt - b.createdAt).map(scene => {
                     const isActive = draft.activeSceneId === scene.id
                     const isLoading = sceneLoading === scene.id
                     const isRenaming = sceneRenamingId === scene.id
