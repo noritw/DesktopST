@@ -83,6 +83,15 @@ export type ReminderSchedule =
   | { type: 'weekly'; days: number[]; hour: number; minute: number }
   | { type: 'interval'; intervalMs: number }
 
+export interface WeatherSettings {
+  enabled: boolean
+  polish: boolean
+  locationName: string
+  latitude: number
+  longitude: number
+  locationSource: 'ip' | 'manual' | ''
+}
+
 export interface Reminder {
   id: string
   characterId?: string
@@ -92,6 +101,7 @@ export interface Reminder {
   enabled: boolean
   injectPinnedNotes?: boolean
   injectConversationContext?: boolean
+  injectWeather?: boolean
   lastTriggeredAt?: number
   createdAt: number
 }
@@ -122,6 +132,7 @@ export interface AppSettings {
   activePersonaId: string
   activeWorldId: string
   injectSystemTime: boolean
+  weather?: WeatherSettings
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok'
     /** @deprecated use apiKeys[provider] instead */

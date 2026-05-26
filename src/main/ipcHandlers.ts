@@ -16,6 +16,10 @@ import {
   readCharacterFromZip
 } from './dstPack'
 import { reloadReminders, setIdleSkipMinutes } from './reminderScheduler'
+import {
+  geocodeCity, detectLocationByIP, fetchWeather, getCachedWeatherData,
+  getWeatherContextString, invalidateWeatherCache
+} from './weatherService'
 import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
@@ -922,6 +926,11 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     }
   }
 
+  if (reminder.injectWeather) {
+    const weatherStr = await getWeatherContextString(settings)
+    if (weatherStr) ctxParts.push(weatherStr)
+  }
+
   const reminderMessages = reminder.injectConversationContext
     ? conv.messages.slice(-(settings.memory.keepRecentN))
     : []
@@ -1130,7 +1139,9 @@ export function registerIpcHandlers() {
         fileStore.encryptedApiKeyFallbacks.delete(k)
       }
     }
+    const prevLocationName = settings.weather?.locationName
     settings = { ...s, llm: { ...s.llm, apiKeys: protectedApiKeys }, ui }
+    if (settings.weather?.locationName !== prevLocationName) invalidateWeatherCache()
     fileStore.saveSettings(settings)
     broadcastToAll('settings:updated', settings)
     broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
@@ -1151,6 +1162,24 @@ export function registerIpcHandlers() {
     setCharacterAlwaysOnTop(characterId, enabled)
     return true
   })
+
+  // Weather
+  ipcMain.handle('weather:detect-ip', async () => {
+    return detectLocationByIP()
+  })
+
+  ipcMain.handle('weather:geocode', async (_, name: string) => {
+    return geocodeCity(name)
+  })
+
+  ipcMain.handle('weather:fetch-now', async () => {
+    const w = settings.weather
+    if (!w?.locationName || !w.latitude || !w.longitude) return null
+    invalidateWeatherCache()
+    return fetchWeather(w.latitude, w.longitude)
+  })
+
+  ipcMain.handle('weather:get-cache', () => getCachedWeatherData())
 
   // Characters
   ipcMain.handle('characters:list', () => characters)
@@ -2049,6 +2078,9 @@ export function registerIpcHandlers() {
     const recentMessagesBase = [...conv.messages.slice(0, -1), userMsgForPrompt].slice(-(settings.memory.keepRecentN))
     let lastReplyText = ''
 
+    // Pre-fetch weather context once for this message (shared across all responders)
+    const weatherContext = settings.weather?.enabled ? await getWeatherContextString(settings) : null
+
     // Emotion split: use utility model to classify if utilityEnabled + character has custom sprites
     const primaryHasCustomSprites = Object.values(primaryChar.emotions ?? {}).some(p => p?.trim())
     const doSplitEmotion = !!(settings.llm.utilityEnabled && primaryHasCustomSprites)
@@ -2064,6 +2096,7 @@ export function registerIpcHandlers() {
         persona: activePersona,
         world: activeWorld,
         desktopCharacterNames,
+        extraSystemContext: weatherContext ?? undefined,
         splitEmotion: doSplitEmotion
       })
       const primaryReply = stripOtherCharacterSpeakerLines(
@@ -2178,6 +2211,7 @@ export function registerIpcHandlers() {
           persona: activePersona,
           world: activeWorld,
           desktopCharacterNames,
+          extraSystemContext: weatherContext ?? undefined,
           splitEmotion: doSplitEmotionSec
         })
         const cleanReply = stripOtherCharacterSpeakerLines(
@@ -2289,6 +2323,10 @@ export function registerIpcHandlers() {
     const ctxParts: string[] = []
     if (conv.messages.length === 0 && char.firstMessage?.trim()) {
       ctxParts.push(`[角色開場白]\n${char.firstMessage.trim()}\n\n請基於這個開場白的人格和語氣，自由發揮回應。`)
+    }
+    if (settings.weather?.enabled) {
+      const weatherStr = await getWeatherContextString(settings)
+      if (weatherStr) ctxParts.push(weatherStr)
     }
     const extraSystemContext = ctxParts.join('\n\n') || undefined
 

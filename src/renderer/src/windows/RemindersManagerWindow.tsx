@@ -62,6 +62,7 @@ function makeDefault(): Reminder {
     enabled: true,
     injectPinnedNotes: false,
     injectConversationContext: false,
+    injectWeather: false,
     createdAt: Date.now()
   }
 }
@@ -104,6 +105,7 @@ function ReminderForm({
   const [prompt, setPrompt] = useState(initial.prompt)
   const [injectNotes, setInjectNotes] = useState(initial.injectPinnedNotes ?? false)
   const [injectContext, setInjectContext] = useState(initial.injectConversationContext ?? false)
+  const [injectWeather, setInjectWeather] = useState(initial.injectWeather ?? false)
   const [error, setError] = useState('')
 
   const handleSchedTypeChange = (next: ReminderSchedule['type']) => {
@@ -173,7 +175,8 @@ function ReminderForm({
       schedule: buildSchedule(),
       prompt,
       injectPinnedNotes: injectNotes,
-      injectConversationContext: injectContext
+      injectConversationContext: injectContext,
+      injectWeather
     })
   }
 
@@ -335,6 +338,30 @@ function ReminderForm({
         </p>
       )}
 
+      {(() => {
+        const hasLocation = !!(settings?.weather?.locationName)
+        return (
+          <>
+            <label className={`flex items-center gap-2 select-none ${hasLocation ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
+              <input
+                type="checkbox"
+                checked={injectWeather}
+                onChange={e => setInjectWeather(e.target.checked)}
+                disabled={!hasLocation}
+                className="w-4 h-4 accent-teal"
+              />
+              <span className="text-sm text-primary">加入天氣資訊</span>
+              {!hasLocation && <span className="text-[11px] text-secondary">（需先在設定→世界觀設定地點）</span>}
+            </label>
+            {injectWeather && hasLocation && (
+              <p className="text-[11px] text-secondary -mt-1 ml-6">
+                觸發時附入 {settings?.weather?.locationName} 的當前天氣，讓角色可以聊天氣話題。
+              </p>
+            )}
+          </>
+        )
+      })()}
+
       <div className="flex gap-2 pt-1">
         <button
           type="button"
@@ -390,10 +417,11 @@ function ReminderCard({
           <div className="text-sm font-semibold text-primary truncate">{reminder.label}</div>
           <div className="text-xs text-secondary mt-0.5">{scheduleLabel(reminder.schedule)}</div>
           <div className="text-xs text-secondary">角色：{charName}</div>
-          {(reminder.injectPinnedNotes || reminder.injectConversationContext) && (
+          {(reminder.injectPinnedNotes || reminder.injectConversationContext || reminder.injectWeather) && (
             <div className="text-[11px] text-teal mt-0.5 space-x-2">
               {reminder.injectPinnedNotes && <span>✦ 便利貼</span>}
               {reminder.injectConversationContext && <span>✦ 對話上下文</span>}
+              {reminder.injectWeather && <span>✦ 天氣</span>}
             </div>
           )}
         </div>

@@ -99,10 +99,20 @@ export interface WorldPreset {
   updatedAt: number
 }
 
+export interface WeatherSettings {
+  enabled: boolean
+  polish: boolean
+  locationName: string
+  latitude: number
+  longitude: number
+  locationSource: 'ip' | 'manual' | ''
+}
+
 export interface AppSettings {
   activePersonaId: string
   activeWorldId: string
   injectSystemTime: boolean
+  weather?: WeatherSettings
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok'
     /** @deprecated use apiKeys[provider] instead; kept for migration */
@@ -195,6 +205,8 @@ export interface Reminder {
   injectPinnedNotes?: boolean
   /** 觸發時附入目前對話的近期紀錄（筆數同「記憶」設定） */
   injectConversationContext?: boolean
+  /** 觸發時附入天氣資訊（需先在設定設定地點） */
+  injectWeather?: boolean
   lastTriggeredAt?: number
   createdAt: number
 }

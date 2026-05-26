@@ -224,6 +224,11 @@ export default function SettingsWindow() {
   const devToolsClickRef = useRef(0)
   const devToolsClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
+  const [weatherDetecting, setWeatherDetecting] = useState(false)
+  const [weatherGeocoding, setWeatherGeocoding] = useState(false)
+  const [weatherCityInput, setWeatherCityInput] = useState('')
+  const [weatherMsg, setWeatherMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const [weatherFetching, setWeatherFetching] = useState(false)
   const messagePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const messagePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1254,6 +1259,150 @@ export default function SettingsWindow() {
               />
               <span className="text-sm text-primary">對話中自動帶入當下系統時間</span>
             </label>
+
+            {/* 天氣設定 */}
+            <div className="border-t border-border pt-3 space-y-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={draft.weather?.enabled ?? false}
+                  onChange={e => set('weather.enabled', e.target.checked)}
+                  disabled={!(draft.weather?.locationName)}
+                  className="accent-teal w-4 h-4 disabled:opacity-40"
+                />
+                <span className={`text-sm ${draft.weather?.locationName ? 'text-primary' : 'text-secondary'}`}>
+                  對話中自動帶入天氣資訊
+                </span>
+                {!draft.weather?.locationName && (
+                  <span className="text-[11px] text-secondary">（請先設定位置）</span>
+                )}
+              </label>
+
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-primary">位置設定</p>
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    disabled={weatherDetecting}
+                    className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary hover:bg-teal transition-all disabled:opacity-50"
+                    onClick={async () => {
+                      setWeatherDetecting(true)
+                      setWeatherMsg(null)
+                      try {
+                        const result = await window.api.invoke('weather:detect-ip') as { city: string; lat: number; lon: number } | null
+                        if (!result) { setWeatherMsg({ type: 'err', text: '偵測失敗，請手動輸入城市名稱' }); return }
+                        set('weather.locationName', result.city)
+                        set('weather.latitude', result.lat)
+                        set('weather.longitude', result.lon)
+                        set('weather.locationSource', 'ip')
+                        setWeatherMsg({ type: 'ok', text: `已偵測到：${result.city}` })
+                      } finally {
+                        setWeatherDetecting(false)
+                      }
+                    }}
+                  >
+                    {weatherDetecting ? '偵測中…' : '自動偵測位置（IP）'}
+                  </button>
+                </div>
+
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="text"
+                    placeholder="手動輸入城市名稱，例：Tokyo"
+                    className="input-field flex-1 text-sm"
+                    value={weatherCityInput}
+                    onChange={e => setWeatherCityInput(e.target.value)}
+                    onKeyDown={async e => {
+                      if (e.key !== 'Enter' || !weatherCityInput.trim() || weatherGeocoding) return
+                      setWeatherGeocoding(true)
+                      setWeatherMsg(null)
+                      try {
+                        const result = await window.api.invoke('weather:geocode', weatherCityInput.trim()) as { name: string; lat: number; lon: number } | null
+                        if (!result) { setWeatherMsg({ type: 'err', text: '找不到該城市，請換個名稱試試' }); return }
+                        set('weather.locationName', result.name)
+                        set('weather.latitude', result.lat)
+                        set('weather.longitude', result.lon)
+                        set('weather.locationSource', 'manual')
+                        setWeatherMsg({ type: 'ok', text: `已設定：${result.name}` })
+                        setWeatherCityInput('')
+                      } finally {
+                        setWeatherGeocoding(false)
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={weatherGeocoding || !weatherCityInput.trim()}
+                    className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary hover:bg-teal transition-all disabled:opacity-50 shrink-0"
+                    onClick={async () => {
+                      if (!weatherCityInput.trim() || weatherGeocoding) return
+                      setWeatherGeocoding(true)
+                      setWeatherMsg(null)
+                      try {
+                        const result = await window.api.invoke('weather:geocode', weatherCityInput.trim()) as { name: string; lat: number; lon: number } | null
+                        if (!result) { setWeatherMsg({ type: 'err', text: '找不到該城市，請換個名稱試試' }); return }
+                        set('weather.locationName', result.name)
+                        set('weather.latitude', result.lat)
+                        set('weather.longitude', result.lon)
+                        set('weather.locationSource', 'manual')
+                        setWeatherMsg({ type: 'ok', text: `已設定：${result.name}` })
+                        setWeatherCityInput('')
+                      } finally {
+                        setWeatherGeocoding(false)
+                      }
+                    }}
+                  >
+                    {weatherGeocoding ? '查詢中…' : '查詢'}
+                  </button>
+                </div>
+
+                {draft.weather?.locationName && (
+                  <p className="text-xs text-secondary">
+                    目前位置：<span className="text-primary font-medium">{draft.weather.locationName}</span>
+                    {draft.weather.locationSource === 'ip' ? '（自動偵測）' : draft.weather.locationSource === 'manual' ? '（手動設定）' : ''}
+                    {' '}
+                    <button
+                      type="button"
+                      className="text-xs text-teal underline ml-1"
+                      disabled={weatherFetching}
+                      onClick={async () => {
+                        setWeatherFetching(true)
+                        setWeatherMsg(null)
+                        try {
+                          const data = await window.api.invoke('weather:fetch-now') as { description: string; temperatureC: number; humidity: number; windSpeed: number } | null
+                          if (!data) { setWeatherMsg({ type: 'err', text: '天氣抓取失敗' }); return }
+                          setWeatherMsg({ type: 'ok', text: `${data.description} ${data.temperatureC}°C 濕度 ${data.humidity}%` })
+                        } finally {
+                          setWeatherFetching(false)
+                        }
+                      }}
+                    >
+                      {weatherFetching ? '更新中…' : '立即更新天氣'}
+                    </button>
+                  </p>
+                )}
+
+                {weatherMsg && (
+                  <p className={`text-xs ${weatherMsg.type === 'ok' ? 'text-teal' : 'text-[#E85D3F]'}`}>
+                    {weatherMsg.text}
+                  </p>
+                )}
+              </div>
+
+              <label className={`flex items-center gap-2 cursor-pointer ${!draft.llm.utilityEnabled ? 'opacity-40' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={draft.weather?.polish ?? false}
+                  onChange={e => set('weather.polish', e.target.checked)}
+                  disabled={!draft.llm.utilityEnabled}
+                  className="accent-teal w-4 h-4"
+                />
+                <span className="text-sm text-primary">用輔助模型潤飾天氣描述</span>
+                {!draft.llm.utilityEnabled && (
+                  <span className="text-[11px] text-secondary">（需先啟用輔助模型）</span>
+                )}
+              </label>
+            </div>
           </>
         )}
 
