@@ -1425,7 +1425,8 @@ export function registerIpcHandlers() {
         if (r.response === 0) {
           const now = Date.now()
           if (g.persona) {
-            const existingPersona = fileStore.loadPersonaPresets().find(p => p.name === '匯入的使用者')
+            const personaName = (g.personaName && g.personaName.trim()) || '匯入的使用者'
+            const existingPersona = fileStore.loadPersonaPresets().find(p => p.name === personaName)
             const personaPreset: PersonaPreset = existingPersona
               ? {
                   ...existingPersona,
@@ -1436,7 +1437,7 @@ export function registerIpcHandlers() {
                 }
               : {
                   id: uuidv4(),
-                  name: '匯入的使用者',
+                  name: personaName,
                   displayName: g.persona.displayName ?? '使用者',
                   nickname: g.persona.nickname ?? '主人',
                   description: g.persona.description ?? '',
@@ -1448,7 +1449,8 @@ export function registerIpcHandlers() {
             settings.activePersonaId = personaPreset.id
           }
           if (g.worldSetting || g.interactionExample) {
-            const existingWorld = fileStore.loadWorldPresets().find(w => w.name === '匯入的世界觀')
+            const worldName = (g.worldName && g.worldName.trim()) || '匯入的世界觀'
+            const existingWorld = fileStore.loadWorldPresets().find(w => w.name === worldName)
             const worldPreset: WorldPreset = existingWorld
               ? {
                   ...existingWorld,
@@ -1458,7 +1460,7 @@ export function registerIpcHandlers() {
                 }
               : {
                   id: uuidv4(),
-                  name: '匯入的世界觀',
+                  name: worldName,
                   worldSetting: g.worldSetting ?? '',
                   interactionExample: g.interactionExample ?? '',
                   builtIn: false,
@@ -2213,7 +2215,11 @@ export function registerIpcHandlers() {
       try {
         setCharacterThinking(charId, true)
         deferRaiseCharacterAbovePinnedNotes(charId)
-        let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
+        let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN)).map(m =>
+          // 若使用者訊息附有隨機工具結果，補回 prompt 用的注入內容（primary 已透過 userMsgForPrompt 注入，
+          // secondary/tertiary 讀 conv.messages 時 content 是原始文字，需在此補上）
+          m.id === userMsg.id ? userMsgForPrompt : m
+        )
         // 沒有對話時，插入虛擬開場防止模型把 system prompt 當成上文
         if (recentMessages.length === 0) {
           recentMessages = [{

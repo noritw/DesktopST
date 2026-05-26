@@ -23,6 +23,10 @@ export interface DstPackGlobalPartial {
     nickname: string
     description: string
   }
+  /** Preset 名字（v1.1 起新增，可選）。匯入時若有值，preset 用此名字建立／覆蓋；無值時 fallback 為「匯入的使用者」。*/
+  personaName?: string
+  /** 同上，無值時 fallback 為「匯入的世界觀」。*/
+  worldName?: string
 }
 
 function addDiskDirToZip(zip: JSZip, diskRoot: string, zipPrefix: string, skipFile?: string): void {
@@ -65,7 +69,9 @@ export async function buildDstPackBuffer(opts: {
         displayName: persona?.displayName ?? '使用者',
         nickname: persona?.nickname ?? '主人',
         description: persona?.description ?? ''
-      }
+      },
+      personaName: persona?.name,
+      worldName: world?.name
     }
     zip.file('global/settings.partial.json', JSON.stringify(partial, null, 2))
   }
