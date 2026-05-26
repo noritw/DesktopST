@@ -137,6 +137,30 @@ if ($doVersionBump) {
 }
 
 # ══════════════════════════════════════════════════════════════
+#  偵測 TRPG 擴充包是否有更新
+# ══════════════════════════════════════════════════════════════
+$dstpackPath    = "assets\DesktopST_TRPGPack.dstpack"
+$dstpackHashFile = "assets\DesktopST_TRPGPack.dstpack.sha256"
+$dstpackUpdated  = $false
+$dstpackHash     = ''
+
+Write-Host ""
+if (Test-Path $dstpackPath) {
+    $dstpackHash = (Get-FileHash $dstpackPath -Algorithm SHA256).Hash.ToLower()
+    $storedHash  = if (Test-Path $dstpackHashFile) { (Get-Content $dstpackHashFile -Raw).Trim().ToLower() } else { '' }
+
+    if ($dstpackHash -ne $storedHash) {
+        $sizeMB = [math]::Round((Get-Item $dstpackPath).Length / 1MB, 1)
+        Write-Host "  TRPG 擴充包已更新（$sizeMB MB），將一併上傳至 Release。" -ForegroundColor Green
+        $dstpackUpdated = $true
+    } else {
+        Write-Host "  TRPG 擴充包未變更，略過上傳。" -ForegroundColor Gray
+    }
+} else {
+    Write-Host "  未找到 TRPG 擴充包，略過上傳。" -ForegroundColor Gray
+}
+
+# ══════════════════════════════════════════════════════════════
 #  [3/5] 打包
 # ══════════════════════════════════════════════════════════════
 Write-Host ""
@@ -213,7 +237,18 @@ if (-not $shouldPush) {
 } else {
     # git commit + tag + push（僅在版本號改變時）
     if ($doVersionBump) {
-        git add package.json package-lock.json
+        # 若擴充包有更新，先把新 hash 寫入追蹤檔，一起納入 release commit
+        if ($dstpackUpdated) {
+            [System.IO.File]::WriteAllText(
+                (Resolve-Path $dstpackHashFile),
+                "$dstpackHash`n",
+                (New-Object System.Text.UTF8Encoding $false)
+            )
+        }
+
+        $filesToAdd = @("package.json", "package-lock.json")
+        if ($dstpackUpdated) { $filesToAdd += $dstpackHashFile }
+        git add @filesToAdd
         git commit -m "release: v$ver"
         if ($LASTEXITCODE -ne 0) {
             Write-Host "      git commit 失敗，請手動處理。" -ForegroundColor Red
@@ -236,6 +271,7 @@ if (-not $shouldPush) {
     # 建立上傳檔案清單
     $uploadFiles = @($exePath)
     if ($zipPath -and (Test-Path $zipPath)) { $uploadFiles += $zipPath }
+    if ($dstpackUpdated) { $uploadFiles += $dstpackPath }
 
     # 檢查 gh 是否安裝
     $ghCmd = Get-Command gh -ErrorAction SilentlyContinue
