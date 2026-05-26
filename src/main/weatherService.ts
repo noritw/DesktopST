@@ -26,8 +26,16 @@ export interface WeatherData {
 }
 
 // In-memory cache – resets on app restart
-let cache: { locationName: string; data: WeatherData; template: string; polished?: string; fetchedAt: number } | null = null
-const CACHE_TTL = 30 * 60 * 1000 // 30 分鐘
+let cache: {
+  locationName: string
+  data: WeatherData
+  template: string
+  polished?: string
+  fetchedAt: number
+  polishedAt?: number  // 獨立追蹤 polish 時間，跨天氣刷新週期延用
+} | null = null
+const CACHE_TTL = 30 * 60 * 1000  // 天氣資料：30 分鐘
+const POLISH_TTL = 5 * 60 * 1000  // 潤飾結果：5 分鐘
 
 export function invalidateWeatherCache(): void {
   cache = null
@@ -128,21 +136,34 @@ export async function getWeatherContextString(settings: AppSettings): Promise<st
   if (!w?.enabled || !w.locationName || !w.latitude || !w.longitude) return null
 
   const now = Date.now()
+
+  // 天氣資料快取仍有效 → 直接回傳（polish 也一起快取）
   if (cache && cache.locationName === w.locationName && now - cache.fetchedAt < CACHE_TTL) {
     if (w.polish && settings.llm.utilityEnabled && cache.polished) return cache.polished
     return cache.template
   }
 
+  // 天氣資料過期 → 重新抓氣象
   const data = await fetchWeather(w.latitude, w.longitude)
   if (!data) return null
 
   const template = buildWeatherTemplate(w.locationName, data)
-  let polished: string | undefined
+
+  // 嘗試延用舊 polish 結果（同地點 + 5 分鐘內）
+  const sameLocation = cache?.locationName === w.locationName
+  let polished: string | undefined = sameLocation ? cache?.polished : undefined
+  let polishedAt: number | undefined = sameLocation ? cache?.polishedAt : undefined
+
+  // 只在 polish 啟用且上次潤飾超過 5 分鐘（或從未潤飾）才重送輔助模型
   if (w.polish && settings.llm.utilityEnabled) {
-    polished = await polishWeatherDescription(w.locationName, data, settings)
+    const stale = !polishedAt || now - polishedAt >= POLISH_TTL
+    if (stale) {
+      polished = await polishWeatherDescription(w.locationName, data, settings)
+      polishedAt = now
+    }
   }
 
-  cache = { locationName: w.locationName, data, template, polished, fetchedAt: now }
+  cache = { locationName: w.locationName, data, template, polished, polishedAt, fetchedAt: now }
   return (w.polish && settings.llm.utilityEnabled && polished) ? polished : template
 }
 
