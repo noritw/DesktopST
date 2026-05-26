@@ -15,6 +15,9 @@
 - **情緒表情系統**：支援最多 28 種情緒圖，AI 回應時自動切換對應表情
 - **SillyTavern 相容**：可匯入 SillyTavern PNG 格式角色卡
 - **多 LLM 供應商**：支援 OpenAI、Gemini（Google）、Claude（Anthropic）、Grok（xAI），可自訂 endpoint
+- **天氣感知對話**：設定所在地點後，角色會參考即時天氣資訊進行互動
+- **擲骰系統**：支援 D&D 風格骰子（1dN、修正值、keep highest / lowest），適合桌遊或 TRPG
+- **圖片附件 / 截圖**：可附上圖片讓角色看圖回應，也能截取目前螢幕傳送
 - **便利貼系統**：桌面上可貼多張浮動便利貼，支援拖曳、調整大小、顏色
 - **定時提醒**：排程角色主動發話（每天固定時間、開機後、間隔計時等）
 - **對話管理**：對話記錄可命名、瀏覽、刪除，支援自動摘要
@@ -37,6 +40,23 @@
 前往 [Releases](../../releases) 頁面下載最新版執行檔（`.exe`），下載後即可直接執行。
 
 初次使用說明請見 <a href="https://nori.tw/DeST/getting-started.html" target="_blank" rel="noopener noreferrer">docs/getting-started.html</a>。
+
+---
+
+## 擴充包（選用）
+
+### TRPG 擴充包
+
+專為單人桌遊 / TRPG 玩家設計的角色包，可搭配內建擲骰系統使用。
+
+內含：
+- **GM 織**：負責說書、規則引導、劇情推進的主持人角色
+- **星離宸（冒險者版）**、**琉緋璃（冒險者版）**：改編自主線角色的冒險版同伴
+- 預設好的 TRPG 用 Persona 與世界觀設定，匯入即可開始遊玩
+
+在程式設定內匯入 `.dstpack` 檔案即可，不影響原有角色。
+
+[⬇ 下載 TRPG 擴充包](https://github.com/noritw/DesktopST/releases/latest/download/DesktopST_TRPGPack.dstpack)
 
 ---
 
