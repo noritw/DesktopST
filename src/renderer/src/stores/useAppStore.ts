@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AppSettings, Character, Conversation, DesktopCharacterState, Message, PersonaPreset, WorldPreset } from '../types'
+import type { AppSettings, Character, Conversation, DesktopCharacterState, Message, PersonaPreset, RandomResult, WorldPreset } from '../types'
 
 export type CharacterContextSnapshot = {
   characterId: string
@@ -26,7 +26,7 @@ interface AppStore {
   subscribeBubbleEvents: () => () => void
   subscribeCharacterEvents: () => () => void
 
-  sendMessage: (content: string, images?: string[]) => Promise<void>
+  sendMessage: (content: string, images?: string[], randomResult?: RandomResult) => Promise<void>
   continueGroup: () => Promise<void>
   forceSpeak: (characterId: string) => Promise<void>
   toggleMute: (characterId: string) => Promise<void>
@@ -146,10 +146,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     return () => unsubs.forEach(u => u())
   },
 
-  sendMessage: async (content, images) => {
+  sendMessage: async (content, images, randomResult) => {
     set({ isSending: true })
     try {
-      await window.api.invoke('message:send', { content, images })
+      await window.api.invoke('message:send', { content, images, randomResult })
     } finally {
       set({ isSending: false })
     }

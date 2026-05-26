@@ -3,7 +3,7 @@ import { checkForUpdates } from './updateChecker'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, PinnedNote, Reminder } from './types'
+import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, PinnedNote, Reminder, RandomResult } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM } from './llm/index'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
@@ -39,7 +39,9 @@ import {
   openPinnedNotesManager, closePinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
   openRemindersManager, closeRemindersManager,
   hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu,
-  createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow, getInputWindow,
+  createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow,
+  createRandomToolsWindow, closeRandomToolsWindow,
+  getInputWindow,
   getLogWindow, getVisibleAuxWindowSnapshot, restoreAuxWindowsFromSnapshot, getVisiblePinnedNoteWindowIds,
   broadcastConversationUpdate,
   deferBroadcastConversationUpdate,
@@ -277,6 +279,18 @@ function getPersonaDisplayName(): string {
 function characterAliases(char: Character): string[] {
   const nn = Array.isArray(char.nicknames) ? char.nicknames : []
   return [char.name, ...nn].map(s => String(s ?? '').trim()).filter(Boolean)
+}
+
+function formatRandomResultForPrompt(result: RandomResult): string {
+  switch (result.tool) {
+    case 'omikuji': return `抽籤結果：${result.result}`
+    case 'jiao': return `擲茭結果：${result.result}`
+    case 'coin': return `硬幣結果：${result.result}`
+    case 'dice': {
+      const rolls = result.count > 1 ? `（${result.rolls.join('+')}）` : ''
+      return `骰子結果：${result.total}${rolls}`
+    }
+  }
 }
 
 function isAddressed(content: string, char: Character): boolean {
@@ -1981,14 +1995,18 @@ export function registerIpcHandlers() {
   })
 
   // Messaging
-  ipcMain.handle('message:send', async (_, payload: { content: string; images?: string[] }) => {
+  ipcMain.handle('message:send', async (_, payload: { content: string; images?: string[]; randomResult?: RandomResult }) => {
     const conv = getActiveConversation()
     if (!conv) return { error: 'No active conversation' }
 
     const activePersona = getActivePersona()
     const activeWorld = getActiveWorld()
 
-    const userContentForPrompt = payload.content
+    let userContentForPrompt = payload.content
+    if (payload.randomResult) {
+      const label = formatRandomResultForPrompt(payload.randomResult)
+      userContentForPrompt = `${payload.content}${payload.content ? '\n' : ''}（${label}）`
+    }
 
     // Add user message
     const userMsg: Message = {
@@ -1996,13 +2014,17 @@ export function registerIpcHandlers() {
       role: 'user',
       content: payload.content,
       images: payload.images,
+      randomResult: payload.randomResult,
       timestamp: Date.now()
     }
     conv.messages.push(userMsg)
     deferBroadcastConversationUpdate(conv)
     const shownUserText = String(payload.content ?? '').trim()
-    if (shownUserText) {
-      setImmediate(() => showUserSpeechBubble(getPersonaDisplayName(), shownUserText))
+    const shownUserBubbleText = payload.randomResult
+      ? `${shownUserText}${shownUserText ? '\n' : ''}（${formatRandomResultForPrompt(payload.randomResult)}）`
+      : shownUserText
+    if (shownUserBubbleText) {
+      setImmediate(() => showUserSpeechBubble(getPersonaDisplayName(), shownUserBubbleText))
     }
     const userMsgForPrompt: Message = { ...userMsg, content: userContentForPrompt }
 
@@ -2567,6 +2589,23 @@ export function registerIpcHandlers() {
   ipcMain.handle('emoji-picker:select', (_, unicode: string) => {
     closeEmojiPickerWindow()
     broadcastToAll('emoji-picker:selected', unicode)
+    return true
+  })
+
+  // Random Tools window
+  ipcMain.handle('random-tools:open', (_, anchorX: number, anchorY: number) => {
+    createRandomToolsWindow(anchorX, anchorY)
+    return true
+  })
+
+  ipcMain.handle('random-tools:close', () => {
+    closeRandomToolsWindow()
+    return true
+  })
+
+  ipcMain.handle('random-tools:select', (_, selection: { tool: string; faces?: number; count?: number; modifier?: number; keepHighest?: number; keepLowest?: number }) => {
+    closeRandomToolsWindow()
+    broadcastToAll('random-tools:selected', selection)
     return true
   })
 

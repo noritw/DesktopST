@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore, selectMessages } from '../stores/useAppStore'
 import MonoIcon from '../components/MonoIcon'
+import type { PendingRandomTool, RandomResult } from '../types'
+import { computeRandomResult, formatPendingLabel, getToolEmoji, diceNotation } from '../utils/randomTools'
 
 export default function InputWindow() {
   const sendMessage = useAppStore(s => s.sendMessage)
@@ -15,9 +17,12 @@ export default function InputWindow() {
   const [images, setImages] = useState<string[]>([])
   const [isCapturing, setIsCapturing] = useState(false)
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
+  const [randomToolsOpen, setRandomToolsOpen] = useState(false)
+  const [pendingTool, setPendingTool] = useState<PendingRandomTool | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const emojiButtonRef = useRef<HTMLButtonElement>(null)
+  const randomBtnRef = useRef<HTMLButtonElement>(null)
 
   const personaPresets = useAppStore(s => s.personaPresets)
 
@@ -61,6 +66,16 @@ export default function InputWindow() {
     return unsub
   })
 
+  // Receive random tool selection from the panel window
+  useEffect(() => {
+    const unsub = window.api.on('random-tools:selected', (sel: unknown) => {
+      const s = sel as { tool: string; faces?: number; count?: number; modifier?: number; keepHighest?: number; keepLowest?: number }
+      setPendingTool({ tool: s.tool as PendingRandomTool['tool'], faces: s.faces, count: s.count, modifier: s.modifier, keepHighest: s.keepHighest, keepLowest: s.keepLowest })
+      setRandomToolsOpen(false)
+    })
+    return unsub
+  })
+
   useEffect(() => {
     const onDown = () => window.api.invoke('ui:aux-activated')
     window.addEventListener('mousedown', onDown, true)
@@ -74,9 +89,16 @@ export default function InputWindow() {
   const handleSend = async () => {
     const trimmed = text.trim()
     if ((!trimmed && images.length === 0) || isSending) return
+
+    let randomResult: RandomResult | undefined
+    if (pendingTool) {
+      randomResult = computeRandomResult(pendingTool)
+      setPendingTool(null)
+    }
+
     setText('')
     setImages([])
-    await sendMessage(trimmed || 'Image attached.', images.length > 0 ? images : undefined)
+    await sendMessage(trimmed || 'Image attached.', images.length > 0 ? images : undefined, randomResult)
   }
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -210,15 +232,32 @@ export default function InputWindow() {
           <div className="flex-1 min-h-0 px-3 pb-1 overflow-hidden">
             <div className="h-full min-w-0 min-h-0 flex flex-col no-drag">
               <div className="flex items-center justify-between px-1 py-0.5 pr-[4.5rem]">
-                <button
-                  type="button"
-                  className="inline-flex items-center text-xs text-secondary font-medium hover:text-primary transition-colors min-w-0"
-                  onClick={() => window.api.invoke('window:open-settings', 'persona')}
-                  title="前往使用者資訊設定"
-                >
-                  <span className="truncate">{personaName}：</span>
-                </button>
-                <div className="flex items-center gap-1.5 min-w-0">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+                  <button
+                    type="button"
+                    className="inline-flex items-center text-xs text-secondary font-medium hover:text-primary transition-colors shrink-0"
+                    onClick={() => window.api.invoke('window:open-settings', 'persona')}
+                    title="前往使用者資訊設定"
+                  >
+                    <span>{personaName}：</span>
+                  </button>
+                  {pendingTool && (
+                    <div className="shrink-0 flex items-center gap-0.5 rounded-full border border-teal bg-teal-20 px-1.5 py-0.5">
+                      <span className="text-[10px] font-medium text-primary leading-none">
+                        {getToolEmoji(pendingTool.tool)} {formatPendingLabel(pendingTool)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPendingTool(null)}
+                        className="ml-0.5 w-3 h-3 rounded-full flex items-center justify-center text-secondary hover:text-primary transition-colors"
+                        title="取消隨機工具"
+                      >
+                        <MonoIcon name="close" className="w-2 h-2" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
                   <span className="text-xs text-border select-none">──</span>
                   <button
                     type="button"
@@ -351,6 +390,32 @@ export default function InputWindow() {
               ))}
             </div>
 
+            {/* Random Tools picker */}
+            <div className="relative shrink-0">
+              <button
+                ref={randomBtnRef}
+                type="button"
+                className={`btn-round w-7 h-7 text-sm ${randomToolsOpen ? 'bg-mint' : ''} ${pendingTool ? 'ring-2 ring-teal ring-offset-1' : ''}`}
+                title="隨機工具"
+                onClick={() => {
+                  if (randomToolsOpen) {
+                    window.api.invoke('random-tools:close')
+                    setRandomToolsOpen(false)
+                    return
+                  }
+                  const btn = randomBtnRef.current
+                  if (!btn) return
+                  const r = btn.getBoundingClientRect()
+                  const screenX = Math.round(window.screenX + r.left)
+                  const screenY = Math.round(window.screenY + r.top)
+                  window.api.invoke('random-tools:open', screenX, screenY)
+                  setRandomToolsOpen(true)
+                }}
+              >
+                🎲
+              </button>
+            </div>
+
             {/* Emoji picker */}
             <div className="relative shrink-0">
               <button
@@ -367,7 +432,6 @@ export default function InputWindow() {
                   const btn = emojiButtonRef.current
                   if (!btn) return
                   const r = btn.getBoundingClientRect()
-                  // Convert to screen coords (window.screenX/Y are the window's screen offset)
                   const screenX = Math.round(window.screenX + r.right)
                   const screenY = Math.round(window.screenY + r.top)
                   window.api.invoke('emoji-picker:open', screenX, screenY)

@@ -30,6 +30,7 @@ export interface Message {
   debugPrompt?: string
   emotion?: string
   images?: string[]
+  randomResult?: RandomResult
   timestamp: number
   inputTokens?: number
   outputTokens?: number
@@ -106,6 +107,23 @@ export interface WeatherSettings {
   latitude: number
   longitude: number
   locationSource: 'ip' | 'manual' | ''
+}
+
+export type OmikujiTier = '大吉' | '中吉' | '小吉' | '吉' | '末吉' | '凶' | '大凶'
+
+export type RandomResult =
+  | { tool: 'omikuji'; result: OmikujiTier }
+  | { tool: 'jiao'; result: '聖筊' | '笑筊' | '陰筊' }
+  | { tool: 'coin'; result: '正面' | '反面' }
+  | { tool: 'dice'; faces: number; count: number; rolls: number[]; kept: number[]; keepHighest?: number; keepLowest?: number; modifier: number; total: number }
+
+export interface PendingRandomTool {
+  tool: 'omikuji' | 'jiao' | 'coin' | 'dice'
+  faces?: number
+  count?: number
+  modifier?: number
+  keepHighest?: number
+  keepLowest?: number
 }
 
 export interface AppSettings {

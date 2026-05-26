@@ -14,6 +14,7 @@ import PinnedNoteColorMenuWindow from './windows/PinnedNoteColorMenuWindow'
 import PinnedNotesManagerWindow from './windows/PinnedNotesManagerWindow'
 import RemindersManagerWindow from './windows/RemindersManagerWindow'
 import EmojiPickerWindow from './windows/EmojiPickerWindow'
+import RandomToolsWindow from './windows/RandomToolsWindow'
 import ErrorBoundary from './components/ErrorBoundary'
 
 const w = typeof window !== 'undefined' && window.windowParams
@@ -154,6 +155,7 @@ export default function App() {
   if (w === 'log') return <ErrorBoundary><LogWindow /></ErrorBoundary>
   if (w === 'preview') return <ErrorBoundary><PreviewWindow /></ErrorBoundary>
   if (w === 'emoji-picker') return <ErrorBoundary><EmojiPickerWindow /></ErrorBoundary>
+  if (w === 'random-tools') return <ErrorBoundary><RandomToolsWindow /></ErrorBoundary>
 
   // Fallback: show nothing (should not happen)
   return (

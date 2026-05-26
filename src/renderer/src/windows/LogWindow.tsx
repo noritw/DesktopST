@@ -5,6 +5,7 @@ import MessageText from '../components/MessageText'
 import MonoIcon, { type MonoIconName } from '../components/MonoIcon'
 import { buildSpriteEntries, EMOTION_OPTIONS, stemFromFilename } from '../utils/emotionUtils'
 import { formatLlmHoverTitle, llmBadgeGlyph, messageLlmMeta } from '../utils/llmMeta'
+import { formatResultBadgeText, getToolEmoji } from '../utils/randomTools'
 
 function formatTime(ts: number): string {
   const d = new Date(ts)
@@ -334,6 +335,14 @@ export default function LogWindow() {
               <span className="text-xs font-bold text-user">
                 {`【${userName}】`}
                 <LlmBadge msg={msg} />
+                {msg.randomResult && (
+                  <span
+                    className="ml-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold bg-teal-20 text-teal border border-teal leading-none"
+                    title="隨機工具結果"
+                  >
+                    {getToolEmoji(msg.randomResult.tool)} {formatResultBadgeText(msg.randomResult)}
+                  </span>
+                )}
               </span>
             </>
           ) : (

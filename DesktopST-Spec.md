@@ -90,6 +90,7 @@ npm run lint         # 程式碼檢查
 interface Character {
   id: string;                    // UUID
   name: string;                  // 角色名稱
+  nicknames?: string[];          // 其他暱稱（供群組對話點名判斷）
   avatar: string;                // 預設頭像路徑（fallback）
   description: string;           // 簡短簡介（顯示用）
   personality: string;           // 詳細人格設定（送 LLM）
@@ -99,6 +100,7 @@ interface Character {
   // 情緒對應圖片（key 為情緒名稱，value 為圖片路徑）
   // 沒設定的情緒 fallback 到 avatar
   emotions: Record<string, string>;
+  spriteIds?: Record<string, string>; // 情緒圖片檔案 ID（DSTPack 打包用）
 
   // SillyTavern 相容欄位
   scenario?: string;             // ST scenario
@@ -107,6 +109,11 @@ interface Character {
 
   // 擴充用（第一版不實作）
   lorebook?: null;
+
+  // 角色上次在桌面的狀態（重新召喚時還原）
+  lastDesktopSize?: number;
+  lastDesktopFlipped?: boolean;
+  lastDesktopPosition?: { x: number; y: number };
 
   createdAt: number;
   updatedAt: number;
@@ -130,8 +137,17 @@ interface Message {
   role: 'user' | 'character' | 'system';
   characterId?: string;          // role=character 時必填
   content: string;               // 訊息內容
+  llmProvider?: 'openai' | 'claude' | 'gemini' | 'grok'; // 回覆來源 provider
+  llmModel?: string;             // 回覆使用的模型名稱
+  debugPrompt?: string;          // 送給 LLM 的完整 system prompt（debug 展開用）
+  inputTokens?: number;          // 主模型 input token 數
+  outputTokens?: number;         // 主模型 output token 數
+  utilityInputTokens?: number;   // 輔助模型 input token 數
+  utilityOutputTokens?: number;  // 輔助模型 output token 數
+  utilityDebugPrompt?: string;   // 輔助模型 debug prompt
   emotion?: string;              // 角色當下情緒（影響圖片切換）
   images?: string[];             // 附加圖片路徑（使用者上傳/截圖）
+  randomResult?: RandomResult;   // 隨機工具結果（抽籤/擲茭/硬幣/骰子，詳見 §5.7）
   timestamp: number;
 }
 ```
@@ -146,7 +162,8 @@ interface PersonaPreset {
   id: string;
   name: string;             // 預設組名稱（使用者自訂）
   displayName: string;      // 使用者顯示名稱
-  nickname: string;         // 角色稱呼使用者的方式
+  nickname: string;         // 角色稱呼使用者的方式（主要暱稱）
+  nicknames?: string[];     // 額外暱稱列表
   description: string;      // 使用者自我介紹
   builtIn?: boolean;        // 內建預設，不可刪除
   createdAt: number;
@@ -164,25 +181,40 @@ interface WorldPreset {
   updatedAt: number;
 }
 
+// 天氣設定（詳見 §14.4 V）
+interface WeatherSettings {
+  enabled: boolean;            // 是否在對話/提醒中注入天氣資訊
+  polish: boolean;             // 是否用輔助 LLM 潤飾天氣描述
+  locationName: string;        // 使用者設定的地點名稱
+  latitude: number;
+  longitude: number;
+  locationSource: 'ip' | 'manual' | '';  // 地點來源
+}
+
 interface AppSettings {
   // 啟用中的 Preset（指向 PersonaPreset / WorldPreset 的 id）
   activePersonaId: string;
   activeWorldId: string;
 
   injectSystemTime: boolean;   // 對話中自動帶入當下系統時間
+  weather?: WeatherSettings;   // 天氣注入設定（詳見 §14.4 V）
 
   // LLM 設定
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok';
     apiKey: string;              // 舊欄位，已由 apiKeys 取代（保留供向下相容）
-    apiKeys: Record<string, string>; // 每個 provider 各自的 API Key（已實作）
+    apiKeys: Record<string, string>; // 每個 provider 各自的 API Key
     model: string;               // 最近一次儲存的模型（與 models[provider] 同步）
-    models?: Record<string, string>; // 每個 provider 各自記憶的模型選擇（已實作）
+    models?: Record<string, string>; // 每個 provider 各自記憶的模型選擇
     endpoint?: string;           // 自訂端點（OpenAI 相容 / Grok 用）
     maxResponseTokens: number;   // 預設 360
     maxGroupRounds: number;      // 群組對話最大輪次，預設 3
     maxImagesPerMessage: number; // 預設 5
     temperature: number;         // 預設 0.8（gpt-5*/o* 系列自動省略）
+    // 輔助模型（詳見 §14.4 X）
+    utilityEnabled?: boolean;    // 是否使用獨立輔助模型處理提醒、情緒分類
+    utilityProvider?: 'openai' | 'claude' | 'gemini' | 'grok';
+    utilityModels?: Record<string, string>; // 各供應商的輔助模型
   };
 
   // 對話記憶
@@ -191,11 +223,11 @@ interface AppSettings {
     autoSummarizeAfter: number;  // 超過 N 則時觸發自動摘要，預設 50
   };
 
-  // 自動發話 / 提醒排程（詳見 §5.5）
-  autoSpeak?: {
-    enabled: boolean;
-    quietHours?: { start: string; end: string }; // 適用 frequency 模式的安靜時段
-    reminders: AutoSpeakReminder[];
+  // 更新檢查
+  updates?: {
+    checkOnStartup?: boolean;
+    dismissedVersion?: string;
+    versionPublishedAt?: string;
   };
 
   // UI
@@ -204,14 +236,21 @@ interface AppSettings {
     inputWindowPosition: { x: number; y: number };
     inputWindowBounds?: WindowBoundsState;   // 輸入視窗記憶大小
     logWindowBounds?: WindowBoundsState;     // 記錄視窗記憶大小
+    emojiPickerOffset?: { x: number; y: number };   // Emoji 選擇器位置（詳見 §5.8）
     unfocusedBubbleOpacity: number;          // 未聚焦泡泡透明度，預設 0.1
     hoverMenuOnHover: boolean;               // 滑鼠移到角色才顯示選單，預設 true
     theme: 'light' | 'dark' | 'auto';
-    colorTheme?: 'mint' | 'butter' | 'peach' | 'aqua' | 'sky' | 'blush' | 'lavender' | 'white' | 'dark'; // 介面配色（已實作，詳見 §14.5 L）
-    chatFontSize?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'; // 全 App 文字大小（已實作）
+    colorTheme?: 'mint' | 'butter' | 'peach' | 'aqua' | 'sky' | 'blush' | 'lavender' | 'white' | 'dark';
+    chatFontSize?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'; // 全 App 文字大小
     lastActiveConversationId?: string;       // 上次使用的對話，重啟時還原
     onboardingCompleted?: boolean;
     pinnedNotes?: PinnedNote[];              // 便利貼（詳見 §5.6）
+    alwaysOnTop?: boolean;                  // 角色視窗保持最上層，預設 true
+    chatBubbleAutoClose?: { enabled: boolean; seconds: number }; // 泡泡自動消失
+    reminderNotificationSound?: { enabled: boolean; volume: number; customSoundPath?: string };
+    messageNotificationSound?: { enabled: boolean; volume: number; customSoundPath?: string };
+    reminderIdleSkipMinutes?: number;        // 閒置超過 N 分鐘時略過提醒（0=不略過）
+    screenshotIncludeInputWindow?: boolean;  // 截圖時是否保留輸入視窗
   };
 }
 
@@ -267,13 +306,14 @@ interface WindowBoundsState {
 ### 4.4 輸入視窗
 
 ```
-┌────────────────────────────────────┐
-│ [🖼️] [🖼️] [🖼️]              📋 Log │ ← 圖片預覽 + 右上 Log 按鈕
-│ ┌──────────────────────────────┐   │
-│ │ 在這裡輸入訊息...              │   │
-│ └──────────────────────────────┘   │
-│ [📸] [🖼️] [📌]         [➤ 送出]   │ ← 截圖、上傳、便利貼、送出
-└────────────────────────────────────┘
+┌────────────────────────────────────────────────┐
+│ [🖼️縮圖] [🖼️縮圖] …                   📋 Log │ ← 附件縮圖列（可捲）＋ Log 按鈕
+│ ┌──────────────────────────────────┐  [➤ 送出] │
+│ │                                  │  [──────] │
+│ │ 在這裡輸入訊息...                 │  [💬 繼續] │ ← 右側垂直：送出 / 繼續群組對話
+│ └──────────────────────────────────┘           │
+│ [🖼️][📸][📸] 縮圖… [🎲][😀] ┃ [📌][🔔]       │ ← 工具列
+└────────────────────────────────────────────────┘
 ```
 
 **功能**：
@@ -288,6 +328,7 @@ interface WindowBoundsState {
 - **送出按鈕**：送出訊息（也可按 Enter；Shift+Enter 換行）
 - **Log 按鈕**：toggle 開關對話記錄視窗
 - **便利貼按鈕**：開啟空白便利貼（詳見 §5.6）
+- **隨機工具按鈕**（🎲）：開啟隨機工具面板（抽籤 / 擲茭 / 擲硬幣 / 骰子，詳見 §5.7）
 - 圖片數量上限：依 LLM 設定的 `maxImagesPerMessage`
 
 ### 4.5 對話記錄視窗（Log）
@@ -356,48 +397,65 @@ sadness, surprise, neutral
 
 ### 4.7 全域設定視窗
 
-分頁式：
+分頁式，左右分組排列：左側 3 個（LLM 設定、記憶、資料），右側 4 個（世界觀、使用者、介面、關於）。
 
-#### 分頁 1：世界與行為
-- 世界觀（textarea）
-- 角色互動範例（textarea）
-- ☑ 對話中自動帶入當下系統時間
-- 自動發話 / 提醒排程設定（§5.5）
-
-#### 分頁 2：LLM
+#### 分頁：LLM 設定
 - 服務商：OpenAI / Claude / Gemini / Grok（下拉）
 - 模型名稱（下拉建議清單 + 可手打，依服務商切換清單）
-- API Key（密碼欄位，加密儲存）
+- API Key（密碼欄位，加密儲存，顯示時遮蔽）
 - 自訂端點（選填，OpenAI 相容服務 / Grok 用）
-- 字數上限：預設 360
-- 群組對話次數上限：預設 3
-- 單訊息圖片上限：預設 5
-- Temperature：預設 0.8
+- 字數上限（預設 360）、群組對話次數上限（預設 3）、單訊息圖片上限（預設 5）、Temperature（預設 0.8）
+- 輔助模型設定（獨立 provider / model，用於提醒發話與情緒分類；詳見 §14.4 X）
+- 「連線測試」和「測試訊息」按鈕
 
-#### 分頁 3：記憶
+#### 分頁：記憶
 - 保留最近 N 則對話（預設 20）
 - 自動摘要閾值（預設 50）
 - 「清除所有對話記錄」按鈕（需確認）
 
-#### 分頁 4：使用者 Persona
-讓 LLM 知道「使用者是誰」，影響角色如何稱呼和對待使用者。欄位精簡：
+#### 分頁：資料
+- 顯示資料儲存路徑，可更改並自動搬移
+- 「開啟資料夾」按鈕 → Windows 檔案總管
+- DSTPack 匯入 / 匯出（搬家包）
 
-- **顯示名稱**：使用者的名字（LLM 在對話中使用）
-- **暱稱**：角色稱呼使用者的方式（例如「主人」、「大人」，可留空同顯示名稱）
-- **自我介紹**：使用者的描述（textarea，選填）
+#### 分頁：世界觀
+- 世界觀 Preset 切換 / 新增 / 重命名 / 刪除
+- 世界觀文字（textarea）
+- 角色互動範例（textarea）
+- ☑ 對話中自動帶入當下系統時間
+- 天氣設定：地點（IP 自動偵測 / 手動輸入）、LLM 潤飾開關（詳見 §14.4 V）
 
-這些欄位會注入 system prompt：
+#### 分頁：使用者
+讓 LLM 知道「使用者是誰」，影響角色如何稱呼和對待使用者。
+
+- Persona Preset 切換 / 新增 / 重命名 / 刪除
+- **顯示名稱**：使用者的名字
+- **暱稱**：角色稱呼使用者的方式（可設多個）
+- **自我介紹**：使用者描述（textarea，選填）
+
+注入 system prompt 格式：
 ```
 【使用者資料】
 名稱：{displayName}（稱呼：{nickname}）
 {description}
 ```
 
-#### 分頁 5：資料
-- 顯示資料儲存路徑
-- 「開啟資料夾」按鈕 → 用 Windows 檔案總管打開
-- 「備份」按鈕（匯出整包資料）
-- 「還原」按鈕
+#### 分頁：介面
+- 色彩主題（9 種，詳見 §14.4 L）
+- 文字大小（5 級，詳見 §14.4 L）
+- 角色視窗保持最上層（alwaysOnTop toggle）
+- 泡泡自動消失（開關 + 秒數）
+- 提醒通知音效（開關、音量、自訂音效路徑）
+- 訊息通知音效（開關、音量、自訂音效路徑）
+- 閒置略過提醒（N 分鐘）
+- Windows 啟動快捷方式管理（加入 / 移除）
+- Hover Menu 觸發方式切換
+
+#### 分頁：關於
+- 版本號、更新日期
+- 「檢查更新」按鈕
+- 授權條款連結（開啟瀏覽器）
+- 開發者工具入口（隱藏，需點特定位置才顯示）
 
 ### 4.8 角色庫視窗
 
@@ -464,70 +522,56 @@ sadness, surprise, neutral
 
 ### 5.5 自動發話 / 提醒排程
 
-三種模式，共用「關鍵字 → LLM → 符合角色個性的提醒台詞」流程。
+提醒系統統一以 `Reminder` 介面儲存，資料獨立存於 `%APPDATA%\DesktopST\reminders.json`。觸發時呼叫 `character:force-speak` IPC，由角色依 `prompt` 關鍵字即興發話。
 
-#### 模式 A：定頻提醒（Frequency Reminder）
-- 使用者設定間隔分鐘數（如每 60 分鐘）與提醒關鍵字（如「起來活動」）
-- 支援「安靜時段」（如 23:00–08:00 不發話）
-- 可設定多條，各自獨立計時
+#### 五種排程類型（`ReminderSchedule`）
 
-#### 模式 B：時段招呼語（Time-slot Greeting）
-- 使用者設定開始 / 結束時刻（如 12:00–13:00）與關鍵字（如「去吃午餐」）
-- 每天僅在進入該時段時觸發一次
-- 可設定每週哪幾天生效
+| 類型 | 說明 |
+|---|---|
+| `startup` | 程式啟動後幾秒觸發（一次）|
+| `once` | 指定時間戳記觸發一次 |
+| `daily` | 每天固定時分觸發 |
+| `weekly` | 每週指定星期幾的固定時分觸發（可複選）|
+| `interval` | 每隔 N 毫秒觸發 |
 
-#### 模式 C：固定時間鬧鐘（Alarm）
-- 使用者設定目標時間（如 20:00）與關鍵字（如「開會」）
-- 支援「提前 N 分鐘通知」
-- 可設定一次性（過後自動停用）或每週重複
+#### 資料結構
 
-#### 共用設定
 ```typescript
-interface AutoSpeakReminder {
+type ReminderSchedule =
+  | { type: 'startup' }
+  | { type: 'once'; at: number }                                 // Unix timestamp (ms)
+  | { type: 'daily'; hour: number; minute: number }
+  | { type: 'weekly'; days: number[]; hour: number; minute: number } // days: 0=週日…6=週六
+  | { type: 'interval'; intervalMs: number }
+
+interface Reminder {
   id: string;
-  type: 'frequency' | 'timeslot' | 'alarm';
+  characterId?: string;          // 未設定時隨機選桌面未靜音角色
+  label: string;                 // 使用者自訂名稱（顯示用）
+  prompt: string;                // 餵給 LLM 的提示詞，e.g. "起來運動"
+  schedule: ReminderSchedule;
   enabled: boolean;
-  label: string;            // 使用者自訂名稱（顯示用）
-  keyword: string;          // 餵給 LLM 的提示詞，e.g. "起來運動"
-  speakerCharacterId?: string;
-  // 未指定 → 從桌面上未禁言的角色隨機選一個
-
-  // type='frequency' 專用
-  intervalMinutes?: number;
-  respectQuietHours?: boolean;
-  lastFiredAt?: number;     // 上次觸發時間（ms），用於間隔計算
-
-  // type='timeslot' 專用
-  startTime?: string;       // "HH:MM"
-  endTime?: string;
-  daysOfWeek?: number[];    // 0=Sun … 6=Sat；空陣列 = 每天
-  lastFiredDate?: string;   // "YYYY-MM-DD"，當天已觸發就不再重複
-  // 重啟程式不重置：只要當天已觸發就算，以 lastFiredDate 為準
-
-  // type='alarm' 專用
-  alarmTime?: string;       // "HH:MM"
-  alarmDaysOfWeek?: number[]; // 空陣列 = 一次性
-  targetDate?: string;      // "YYYY-MM-DD"，一次性用
-  advanceMinutes?: number;  // 提前幾分鐘通知，0 = 準時
-  fired?: boolean;
-  // 一次性鬧鐘觸發後設 fired=true，保留記錄
-  // 使用者可修改 alarmTime/targetDate 後手動重設 fired=false 當下次提醒
+  injectPinnedNotes?: boolean;   // 觸發時附入桌面可見便利貼內容
+  injectConversationContext?: boolean; // 觸發時附入近期對話記錄
+  injectWeather?: boolean;       // 觸發時附入天氣資訊（需先設定地點）
+  lastTriggeredAt?: number;
+  createdAt: number;
 }
 ```
 
 #### LLM 呼叫流程
 ```
-keyword "起來運動"
-  → system prompt（角色人格）+ 指令「請用一句話提醒使用者：{keyword}」
+prompt "起來運動"（+ 可選：便利貼內容 / 近期對話 / 天氣資訊）
+  → system prompt（角色人格）+ 指令「請用一句話提醒使用者：{prompt}」
   → 取得符合角色個性的提醒台詞
   → 顯示於 BubbleWindow（顯示時間較長，預設 15 秒）
 ```
 
-#### 主程序實作
-- Main process 每 60 秒輪詢一次所有啟用中的 Reminder
-- frequency：記錄 `lastFiredAt`，超過 intervalMinutes 才觸發
-- timeslot：記錄 `lastFiredDate`，同一天同一時段只觸發一次
-- alarm：當前時間 >= (alarmTime - advanceMinutes)，觸發後一次性鬧鐘設 `fired=true`
+#### 主程序實作（`reminderScheduler.ts`）
+- Main process 每 60 秒輪詢所有啟用中的 Reminder
+- 各排程類型各自判斷觸發條件（使用 `lastTriggeredAt` 防重複）
+- 閒置超過 `ui.reminderIdleSkipMinutes` 分鐘時略過觸發（0 = 不略過）
+- 提醒管理器視窗（`RemindersManagerWindow`）提供 CRUD + 啟用/停用
 
 ### 5.6 泡泡便利貼（Pinned Note）
 
@@ -550,19 +594,185 @@ keyword "起來運動"
 
 ```typescript
 interface PinnedNote {
-  id: string;               // 預留多張用
+  id: string;
   characterId: string;
+  title: string;            // 便利貼標題（允許空白字串）
   content: string;
-  title?: string;           // 便利貼標題（已實作，允許空白）
-  color?: string;           // 便利貼顏色 hex（已實作，詳見 §14.5 M）
-  fontSize?: number;        // 字型大小（已實作，可個別調整）
+  color: string;            // 便利貼背景色 hex，e.g. '#FFE8AA'
+  visible: boolean;         // true=貼在桌面；false=收回管理介面（隱藏但保留）
   position: { x: number; y: number };
+  size?: { width: number; height: number }; // 自訂大小（可拖曳調整）
+  fontSize?: number;        // 內文字型大小（px），未設定時 fallback 全域字級
   updatedAt: number;
 }
 // 存於 AppSettings.ui.pinnedNotes: PinnedNote[]
-// 目前已移除「每個角色限 1 張」限制，可無限新增（多張時有確認警告）
-// 便利貼管理器（PinnedNotesManagerWindow）提供集中管理介面
+// 無張數上限；3 張起顯示確認警告，更多張時需二次確認
+// 便利貼管理器（PinnedNotesManagerWindow）提供集中列表與 visible 切換
 ```
+
+### 5.7 隨機工具 / 占卜擲骰（Random Tools）
+
+桌面寵物的「抽籤 / 擲茭 / 擲硬幣 / 骰子」隨機工具。**純前端 / 主程序的隨機函數，離線即可使用**；連上 LLM 時可請角色依結果即興詮釋。設計重點為「結果與訊息綁定送出」，避免使用者反覆點按鈕刷好結果。
+
+#### 觸發方式
+
+- 輸入視窗底列在 😊 emoji 按鈕**左側**新增「🎲」按鈕 → 開啟獨立 `RandomToolsWindow`
+- 面板為無框浮動視窗（320×440 px），錨點在 🎲 按鈕左上角正上方，開啟後 blur 自動關閉
+- 面板底部固定顯示警語：「隨機函數僅供娛樂，請勿過於認真看待」
+
+#### Pending 機制（送出當下才實際擲）
+
+1. 在面板點選工具後，面板關閉，輸入視窗**使用者名稱列**右方出現 pending chip
+2. Chip 圖示跟隨工具種類（🏮 抽籤 / 🙏 擲茭 / 🪙 硬幣 / 🎲 骰子）
+3. Chip 右側有 ✕ 可取消；再選其他工具會覆蓋目前 pending（一則訊息只能附一個）
+4. **實際 RNG 在使用者按送出當下才執行**，選定工具時不產生亂數（anti-cheat）
+5. 送出後 chip 消失，結果以 badge 形式顯示於對話記錄 Log，同時附加至使用者對話泡泡
+
+**Chip 位置示意：**
+```
+不移正業的作者：  🏮 抽籤 ✕  ──  天氣測試（目）  🗒
+```
+
+#### 工具細項
+
+##### A. 抽籤（御神籤式）
+
+7 階加權機率（定義為程式碼常數 `OMIKUJI_TIERS`，方便日後調整）：
+
+| 結果 | 機率 |
+|---|---|
+| 大吉 | 12% |
+| 中吉 | 18% |
+| 小吉 | 20% |
+| 吉 | 22% |
+| 末吉 | 15% |
+| 凶 | 10% |
+| 大凶 | 3% |
+
+整體偏正向（吉系 87% / 凶系 13%），大凶罕見但可能出現。
+
+##### B. 擲茭（道教擲筊）
+
+三種結果（非獨立硬幣機率，直接指定加權）：
+
+| 結果 | 含義 | 機率 |
+|---|---|---|
+| 聖筊 | 一正一反，代表「應允」 | 40% |
+| 笑筊 | 兩正，代表「不清楚／笑而不答」 | 30% |
+| 陰筊 | 兩反，代表「不允／不宜」 | 30% |
+
+##### C. 擲硬幣
+
+正面 / 反面各 50%。
+
+##### D. 骰子
+
+**基本**：固定按鈕 **4面 / 6面 / 8面 / 10面 / 12面 / 20面 / 100面**，單顆，點按即完成 pending。
+
+**進階**（面板內 checkbox「進階（多顆／修正／優勢）」展開）：
+
+| 區塊 | 說明 | 骰式範例 |
+|---|---|---|
+| 多顆骰＋修正值 | 自訂骰數（1–20）、面數（2–1000）、修正值（-99 至 +99） | `2d6+3`、`3d8-2` |
+| 優勢 / 劣勢 | 固定按鈕，D&D 5e 常用：2d20 取最高 / 最低 1 顆 | `2d20kh1` / `2d20kl1` |
+| 保留最高 / 最低 N | 自訂骰數、面數、取高或取低、保留幾顆 | `4d6kh3`（屬性生成）|
+
+各區塊下方顯示**即時 notation 預覽**（如 `= 4d6kh3`），方便 TRPG 玩家確認骰式。
+
+#### 視覺呈現
+
+對話記錄（Log）訊息列，使用者名稱後附工具專屬 badge：
+
+```
+【不移正業的作者】 🏮 大吉          我今天應該出門嗎？
+【不移正業的作者】 🙏 聖筊          要不要去吃這家店？
+【不移正業的作者】 🪙 正面          擲硬幣決定
+【不移正業的作者】 🎲 15（4+8+3）  攻擊造成多少傷害？
+【不移正業的作者】 🎲 18（骰：3,7,8,5，取：8+7+5）  生成角色力量值
+```
+
+使用者對話泡泡也會在訊息文字後附加結果文字（換行顯示）。
+
+#### LLM Prompt 注入
+
+隨機結果**附在使用者訊息末端括號內**（另起一行），讓 LLM 自然讀到：
+
+```
+[User]
+我今天應該出門嗎？
+（抽籤結果：大吉）
+
+[User]
+攻擊造成多少傷害？
+（骰子結果：2d6+3 = 15（4+8+3=15））
+
+[User]
+我擲骰生成力量值
+（骰子結果：4d6kh3 = 18（骰出：3, 7, 8, 5，採計：8+7+5）
+```
+
+實作位置：`src/main/ipcHandlers.ts` `message:send` handler，於 `userMsgForPrompt` 時附加，儲存的 `userMsg.content` 保留原始使用者文字不含結果（結果另存 `randomResult` 欄位）。
+
+#### 資料結構
+
+`Message` 新增可選欄位（§3.2 同步）：
+
+```typescript
+interface Message {
+  // ... 既有欄位
+  randomResult?: RandomResult;
+}
+
+type OmikujiTier = '大吉' | '中吉' | '小吉' | '吉' | '末吉' | '凶' | '大凶'
+
+type RandomResult =
+  | { tool: 'omikuji'; result: OmikujiTier }
+  | { tool: 'jiao';    result: '聖筊' | '笑筊' | '陰筊' }
+  | { tool: 'coin';    result: '正面' | '反面' }
+  | {
+      tool: 'dice'
+      faces: number        // 骰子面數
+      count: number        // 投擲顆數
+      rolls: number[]      // 所有骰子點數（未過濾）
+      kept: number[]       // 實際採計的骰子（kh/kl 後的子集；無 keep 時等於 rolls）
+      keepHighest?: number // 保留最高 N 顆（優勢/保留最高 N 時設定）
+      keepLowest?: number  // 保留最低 N 顆（劣勢/保留最低 N 時設定）
+      modifier: number     // 修正值，無則為 0
+      total: number        // sum(kept) + modifier
+    }
+
+interface PendingRandomTool {
+  tool: 'omikuji' | 'jiao' | 'coin' | 'dice'
+  // 骰子專用（其他工具忽略）
+  faces?: number
+  count?: number
+  modifier?: number
+  keepHighest?: number
+  keepLowest?: number
+}
+```
+
+`AppSettings.ui` **不需要**新增欄位（進階 checkbox 狀態為元件 local state，面板位置為固定錨點定位，不記憶）。
+
+#### 相關檔案
+
+| 檔案 | 職責 |
+|---|---|
+| `src/renderer/src/utils/randomTools.ts` | RNG 計算（`computeRandomResult`）、格式化輔助函數 |
+| `src/renderer/src/windows/RandomToolsWindow.tsx` | 浮動工具面板 UI（320×440 px） |
+| `src/main/windowManager.ts` | `createRandomToolsWindow` / `closeRandomToolsWindow` |
+| `src/main/ipcHandlers.ts` | `random-tools:open/close/select` IPC；`message:send` 注入邏輯 |
+| `src/renderer/src/stores/useAppStore.ts` | `sendMessage` 簽名更新（接受 `randomResult`） |
+| `src/renderer/src/windows/InputWindow.tsx` | 🎲 按鈕、pending chip、送出時呼叫 `computeRandomResult` |
+| `src/renderer/src/windows/LogWindow.tsx` | 訊息列 badge 顯示 |
+
+#### 未來擴充（保留空間）
+
+- **抽卡**：使用者自製卡牌牌組，用法類似塔羅或隨機抽圖
+  - 卡片圖由使用者自行準備，本程式不附素材
+  - 預留資料夾：`%APPDATA%\DesktopST\carddecks\{deck_id}\`
+  - 預留 UI：RandomToolsWindow 可在未來加入「抽卡」工具
+- 其他構想：命運轉盤（自訂選項）、二選一決定器、爆炸骰、成功骰（CoC 用）
 
 ---
 
@@ -743,6 +953,8 @@ admiration, amusement, anger, ..., neutral
 ```
 %APPDATA%\DesktopST\
 ├── settings.json              # 全域設定（API Key 加密）
+├── pinned-notes.json          # 便利貼資料（PinnedNote[]）
+├── reminders.json             # 提醒排程資料（Reminder[]）
 ├── characters\
 │   ├── {char_id}\
 │   │   ├── card.json          # 角色卡資料
@@ -827,6 +1039,7 @@ admiration, amusement, anger, ..., neutral
 - [ ] 多 LLM 支援（Claude / Gemini，§7.2）
 - [ ] 自動發話 + 提醒排程（§5.5 設計已確定，待實作）
 - [ ] 泡泡便利貼（§5.6 設計已確定，待實作）
+- [x] 隨機工具 / 占卜擲骰（§5.7）
 - [ ] 使用者自訂情緒名稱
 
 ### 階段 6：未來擴充（不在近期規劃）
@@ -1095,6 +1308,57 @@ src/styles/global.css     ← 全域字型載入
 
 角色視窗的點擊穿透精確到**像素透明度**：游標在角色圖片的透明區域（alpha < 10）不會觸發 hover 或拖曳，只有在不透明區域才感應。選單展開後，整個角色框區域才全面感應（方便操作左右按鈕時游標掃過透明處）。
 
+#### V. 天氣功能（已實作）
+
+在對話與提醒中注入即時天氣資訊，讓角色可以自然地談論天氣。
+
+- **地點取得**：IP 自動定位（ip-api.com）或手動輸入地名（open-meteo geocoding）
+- **天氣資料**：open-meteo forecast API，快取 30 分鐘
+- **注入時機**：
+  1. 對話 system prompt（設定開啟時，每次對話自動帶入）
+  2. 提醒觸發時（`Reminder.injectWeather = true`）
+- **LLM 潤飾**（`weather.polish = true`）：以輔助模型將原始天氣描述自然化後再送主模型
+- **設定位置**：全域設定 → 世界觀分頁 → 天氣區塊
+- **相關欄位**：`AppSettings.weather`（`WeatherSettings` 介面，詳見 §3.3）
+
+#### W. 音效設定（已實作）
+
+兩種通知音效各自獨立設定，存於 `AppSettings.ui`：
+
+| 設定 | 欄位 | 預設 |
+|---|---|---|
+| 提醒觸發音效 | `reminderNotificationSound` | 啟用，音量 0.7 |
+| 訊息收到音效 | `messageNotificationSound` | 啟用，音量 0.7 |
+
+每種音效可設定：開關（`enabled`）、音量（`volume`，0–1）、自訂音效檔路徑（`customSoundPath`，未設定用內建音效）。設定位置：全域設定 → 介面分頁。
+
+#### X. 輔助模型系統（已實作）
+
+提醒發話、天氣潤飾等工具任務可選擇使用獨立的「輔助模型」，與主對話模型分離，降低主模型成本。
+
+- **設定欄位**（`AppSettings.llm`）：
+  - `utilityEnabled`：是否啟用獨立輔助模型
+  - `utilityProvider`：輔助模型供應商（未設定時跟隨主 `provider`）
+  - `utilityModels`：各供應商的輔助模型名稱
+- **適用場合**：提醒台詞生成、天氣描述潤飾（群組對話一律使用主模型）
+- **Token 記錄**：輔助模型的 token 使用記錄在 `Message.utilityInputTokens` / `utilityOutputTokens`
+
+#### Y. 角色位置記憶、Windows 啟動、關於分頁（已實作）
+
+**角色位置記憶**：
+- `Character.lastDesktopSize`、`lastDesktopFlipped`、`lastDesktopPosition`
+- 角色被移除後重新召喚，會還原上次在桌面的縮放、翻轉、位置
+
+**Windows 啟動快捷方式**：
+- 全域設定 → 介面分頁 → 「加入 Windows 啟動」按鈕
+- 新增 / 移除 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\` 捷徑
+
+**關於分頁**：
+- 顯示版本號、更新日期
+- 「檢查更新」：比對遠端版號，有新版時提示（存 `AppSettings.updates`）
+- 授權條款連結（開啟 `https://nori.tw/DeST/license.html`）
+- 開發者工具：隱藏入口（點特定位置才出現），方便除錯
+
 ---
 
 ## 附錄 A：部署與執行說明
@@ -1179,5 +1443,5 @@ CHANGELOG.md        # 版本更新記錄
 
 ---
 
-**文件版本**：v1.5
-**最後更新**：2026-05-13
+**文件版本**：v1.7
+**最後更新**：2026-05-26

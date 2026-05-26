@@ -1848,6 +1848,72 @@ export function getEmojiPickerWindow(): BrowserWindow | null {
   return emojiPickerWindow && !emojiPickerWindow.isDestroyed() ? emojiPickerWindow : null
 }
 
+// ── Random Tools ──────────────────────────────────────────
+
+let randomToolsWindow: BrowserWindow | null = null
+
+export function createRandomToolsWindow(anchorX: number, anchorY: number): BrowserWindow {
+  if (randomToolsWindow && !randomToolsWindow.isDestroyed()) {
+    randomToolsWindow.destroy()
+    randomToolsWindow = null
+  }
+
+  const W = 320
+  const H = 440
+  const display = screen.getDisplayNearestPoint({ x: anchorX, y: anchorY })
+  const wa = display.workArea
+  const x = Math.max(wa.x, Math.min(anchorX, wa.x + wa.width - W))
+  const y = Math.max(wa.y, Math.min(anchorY - H, wa.y + wa.height - H))
+
+  const targetBounds = { x, y, width: W, height: H }
+  randomToolsWindow = new BrowserWindow({
+    ...targetBounds,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    resizable: false,
+    hasShadow: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  randomToolsWindow.setAlwaysOnTop(true, 'pop-up-menu')
+
+  if (VITE_DEV_SERVER_URL) {
+    randomToolsWindow.loadURL(makeURL({ w: 'random-tools' }))
+  } else {
+    randomToolsWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: { w: 'random-tools' }
+    })
+  }
+
+  randomToolsWindow.once('ready-to-show', () => {
+    if (randomToolsWindow && !randomToolsWindow.isDestroyed()) {
+      randomToolsWindow.show()
+      randomToolsWindow.setBounds(targetBounds)
+    }
+  })
+
+  randomToolsWindow.on('closed', () => { randomToolsWindow = null })
+  return randomToolsWindow
+}
+
+export function closeRandomToolsWindow(): void {
+  if (randomToolsWindow && !randomToolsWindow.isDestroyed()) {
+    randomToolsWindow.destroy()
+    randomToolsWindow = null
+  }
+}
+
+export function getRandomToolsWindow(): BrowserWindow | null {
+  return randomToolsWindow && !randomToolsWindow.isDestroyed() ? randomToolsWindow : null
+}
+
 // ── Pinned Notes ──────────────────────────────────────────
 
 export function createPinnedNoteWindow(
