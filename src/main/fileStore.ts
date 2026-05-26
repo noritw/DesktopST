@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
-import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, LegacyAppSettings, PinnedNote, Reminder } from './types'
+import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, ScenePreset, LegacyAppSettings, PinnedNote, Reminder } from './types'
 import { DEFAULT_SETTINGS } from './types'
 import * as secureStore from './secureStore'
 import { loadDstPackZip, readCharacterFromZip, extractCharacterDirFromZip } from './dstPack'
@@ -24,6 +24,7 @@ let CHARS_DIR = path.join(DATA_DIR, 'characters')
 let CONVS_DIR = path.join(DATA_DIR, 'conversations')
 let PERSONAS_DIR = path.join(DATA_DIR, 'personas')
 let WORLDS_DIR = path.join(DATA_DIR, 'worlds')
+let SCENES_DIR = path.join(DATA_DIR, 'scenes')
 
 type DataDirMeta = { dataDir?: string }
 
@@ -36,6 +37,7 @@ function refreshPaths(nextDir: string): void {
   CONVS_DIR = path.join(DATA_DIR, 'conversations')
   PERSONAS_DIR = path.join(DATA_DIR, 'personas')
   WORLDS_DIR = path.join(DATA_DIR, 'worlds')
+  SCENES_DIR = path.join(DATA_DIR, 'scenes')
 }
 
 function loadDataDirFromMeta(): string {
@@ -64,7 +66,7 @@ function saveDataDirMeta(targetDir: string): void {
 refreshPaths(loadDataDirFromMeta())
 
 function ensureDirs() {
-  for (const dir of [DATA_DIR, CHARS_DIR, CONVS_DIR, PERSONAS_DIR, WORLDS_DIR]) {
+  for (const dir of [DATA_DIR, CHARS_DIR, CONVS_DIR, PERSONAS_DIR, WORLDS_DIR, SCENES_DIR]) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   }
 }
@@ -419,6 +421,39 @@ export function loadWorldPreset(id: string): WorldPreset | null {
   if (!fs.existsSync(file)) return null
   try {
     return JSON.parse(fs.readFileSync(file, 'utf-8')) as WorldPreset
+  } catch { return null }
+}
+
+// ── Scene Presets ────────────────────────────────────────
+
+export function loadScenePresets(): ScenePreset[] {
+  ensureDirs()
+  if (!fs.existsSync(SCENES_DIR)) return []
+  return fs.readdirSync(SCENES_DIR)
+    .filter(f => f.endsWith('.json'))
+    .map(f => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(SCENES_DIR, f), 'utf-8')) as ScenePreset
+      } catch { return null }
+    })
+    .filter(Boolean) as ScenePreset[]
+}
+
+export function saveScenePreset(preset: ScenePreset): void {
+  ensureDirs()
+  fs.writeFileSync(path.join(SCENES_DIR, `${preset.id}.json`), JSON.stringify(preset, null, 2), 'utf-8')
+}
+
+export function deleteScenePreset(id: string): void {
+  const file = path.join(SCENES_DIR, `${id}.json`)
+  if (fs.existsSync(file)) fs.unlinkSync(file)
+}
+
+export function loadScenePreset(id: string): ScenePreset | null {
+  const file = path.join(SCENES_DIR, `${id}.json`)
+  if (!fs.existsSync(file)) return null
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as ScenePreset
   } catch { return null }
 }
 
@@ -801,6 +836,7 @@ export function getDataDirSummary(): {
   conversations: number
   personas: number
   worlds: number
+  scenes: number
   pinnedNotes: number
 } {
   return {
@@ -810,6 +846,7 @@ export function getDataDirSummary(): {
     conversations: listConversationIds().length,
     personas: loadPersonaPresets().length,
     worlds: loadWorldPresets().length,
+    scenes: loadScenePresets().length,
     pinnedNotes: loadPinnedNotes().length
   }
 }

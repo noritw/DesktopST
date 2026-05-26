@@ -6,7 +6,7 @@ import {
   OPENAI_DATA_SHARING_INCENTIVE_1M_GROUP
 } from '../constants/openaiDataSharingIncentiveModels'
 import { useAppStore } from '../stores/useAppStore'
-import type { AppSettings, PersonaPreset, WorldPreset } from '../types'
+import type { AppSettings, PersonaPreset, ScenePreset, WorldPreset } from '../types'
 import MonoIcon from '../components/MonoIcon'
 
 const OPENAI_MODEL_LIST_HELP =
@@ -104,8 +104,9 @@ const PROVIDER_KEY_PLACEHOLDER: Record<string, string> = {
 }
 
 const LEFT_TABS = ['LLM 設定', '記憶', '資料'] as const
+const SCENE_TABS = ['情境'] as const
 const RIGHT_TABS = ['世界觀', '使用者', '介面', '關於'] as const
-const TABS = [...LEFT_TABS, ...RIGHT_TABS] as const
+const TABS = [...LEFT_TABS, ...SCENE_TABS, ...RIGHT_TABS] as const
 type Tab = typeof TABS[number]
 const SETTINGS_LAST_TAB_KEY = 'desktopst.settings.lastTab'
 
@@ -136,13 +137,15 @@ const TAB_PARAM_ALIASES: Record<string, Tab> = {
   ui: '介面',
   data: '資料',
   about: '關於',
+  scene: '情境',
   'LLM 設定': 'LLM 設定',
   世界觀: '世界觀',
   使用者: '使用者',
   記憶: '記憶',
   介面: '介面',
   資料: '資料',
-  關於: '關於'
+  關於: '關於',
+  情境: '情境'
 }
 
 function tabFromLocation(): Tab {
@@ -180,10 +183,15 @@ export default function SettingsWindow() {
   const characters = useAppStore(s => s.characters)
   const personaPresets = useAppStore(s => s.personaPresets)
   const worldPresets = useAppStore(s => s.worldPresets)
+  const scenePresets = useAppStore(s => s.scenePresets)
   const savePersonaPreset = useAppStore(s => s.savePersonaPreset)
   const deletePersonaPreset = useAppStore(s => s.deletePersonaPreset)
   const saveWorldPreset = useAppStore(s => s.saveWorldPreset)
   const deleteWorldPreset = useAppStore(s => s.deleteWorldPreset)
+  const captureScene = useAppStore(s => s.captureScene)
+  const deleteScene = useAppStore(s => s.deleteScene)
+  const loadScene = useAppStore(s => s.loadScene)
+  const renameScene = useAppStore(s => s.renameScene)
 
   const [tab, setTab] = useState<Tab>(() => tabFromLocation())
   const [draft, setDraft] = useState<AppSettings | null>(null)
@@ -196,6 +204,11 @@ export default function SettingsWindow() {
   const [personaNickDraft, setPersonaNickDraft] = useState('')
   const [renaming, setRenaming] = useState<'world' | 'persona' | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [sceneRenamingId, setSceneRenamingId] = useState<string | null>(null)
+  const [sceneRenameValue, setSceneRenameValue] = useState('')
+  const [sceneCaptureName, setSceneCaptureName] = useState('')
+  const [sceneLoading, setSceneLoading] = useState<string | null>(null)
+  const [convTitles, setConvTitles] = useState<Record<string, string>>({})
 
   const changeTab = (nextTab: Tab) => {
     setTab(nextTab)
@@ -284,6 +297,14 @@ export default function SettingsWindow() {
   useEffect(() => {
     persistLastSettingsTab(tab)
   }, [tab])
+
+  useEffect(() => {
+    if (tab !== '情境') return
+    void (async () => {
+      const list = await window.api.invoke('conversation:list') as Array<{ id: string; title: string }>
+      setConvTitles(Object.fromEntries(list.map(c => [c.id, c.title])))
+    })()
+  }, [tab, scenePresets])
 
   useEffect(() => {
     const unsub = window.api.on('settings:navigate-tab', (t: unknown) => {
@@ -596,6 +617,44 @@ export default function SettingsWindow() {
     set('activePersonaId', remaining[0]?.id ?? '')
   }
 
+  // ── Scene handlers ──────────────────────────────────────
+  const handleCaptureScene = async () => {
+    const name = sceneCaptureName.trim() || `情境 ${scenePresets.length + 1}`
+    await captureScene(null, name)
+    setSceneCaptureName('')
+  }
+
+  const handleLoadScene = async (id: string) => {
+    setSceneLoading(id)
+    try {
+      const result = await loadScene(id)
+      if ('error' in result) window.alert(result.error)
+    } finally {
+      setSceneLoading(null)
+    }
+  }
+
+  const handleDeleteScene = async (scene: ScenePreset) => {
+    if (!window.confirm(`確定要刪除情境「${scene.name}」？\n\n此操作無法復原。`)) return
+    await deleteScene(scene.id)
+  }
+
+  const startSceneRename = (scene: ScenePreset) => {
+    setSceneRenamingId(scene.id)
+    setSceneRenameValue(scene.name)
+  }
+
+  const commitSceneRename = async () => {
+    if (sceneRenamingId && sceneRenameValue.trim()) {
+      await renameScene(sceneRenamingId, sceneRenameValue.trim())
+    }
+    setSceneRenamingId(null)
+  }
+
+  const handleUpdateScene = async (scene: ScenePreset) => {
+    await captureScene(scene.id, scene.name)
+  }
+
   const startRename = (kind: 'world' | 'persona') => {
     const current = kind === 'world' ? worldDraft?.name : personaDraft?.name
     setRenaming(kind)
@@ -725,6 +784,18 @@ export default function SettingsWindow() {
       <div className="flex items-center gap-3 px-4 py-2 border-b border-border no-drag">
         <div className="flex gap-1 flex-wrap">
           {LEFT_TABS.map(t => (
+            <button
+              key={t}
+              onClick={() => changeTab(t)}
+              className={`tab-btn text-xs ${tab === t ? 'active' : ''}`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        <div className="h-6 w-px bg-border shrink-0" aria-hidden="true" />
+        <div className="flex gap-1 flex-wrap">
+          {SCENE_TABS.map(t => (
             <button
               key={t}
               onClick={() => changeTab(t)}
@@ -1186,6 +1257,162 @@ export default function SettingsWindow() {
             </Field>
           </>
         )}
+
+        {tab === '情境' && (() => {
+          // Color theme display map
+          const THEME_META: Record<string, { label: string; color: string; dark?: boolean }> = {
+            mint:     { label: '薄荷',   color: '#CBFBC4' },
+            butter:   { label: '奶油黃', color: '#FFE8AA' },
+            peach:    { label: '粉橘',   color: '#FFD6B8' },
+            aqua:     { label: '粉藍綠', color: '#B8F4EA' },
+            sky:      { label: '天藍',   color: '#AAEEFF' },
+            blush:    { label: '粉紅',   color: '#FFBBBB' },
+            lavender: { label: '薰衣草', color: '#F0BBFF' },
+            white:    { label: '純白',   color: '#E8E8E8' },
+            dark:     { label: '黑底白字', color: '#252525', dark: true },
+          }
+          return (
+            <>
+              {/* Capture new scene */}
+              <div className="border border-border rounded-2xl p-3 space-y-2 bg-mint-20">
+                <p className="text-xs font-semibold text-primary">儲存目前狀態為新情境</p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    className="input-field flex-1 text-xs"
+                    placeholder={`情境 ${scenePresets.length + 1}`}
+                    value={sceneCaptureName}
+                    onChange={e => setSceneCaptureName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') void handleCaptureScene() }}
+                  />
+                  <button
+                    type="button"
+                    className="text-xs px-3 py-1.5 rounded-full bg-teal font-semibold text-primary hover:bg-mint transition-all shrink-0"
+                    onClick={() => void handleCaptureScene()}
+                  >
+                    儲存情境
+                  </button>
+                </div>
+                <p className="text-[11px] text-secondary leading-snug">
+                  會記錄：目前世界觀、使用者設定、桌面角色位置與大小、對話記錄、介面色彩、視窗位置。
+                </p>
+              </div>
+
+              {/* Scene list */}
+              {scenePresets.length === 0 ? (
+                <p className="text-sm text-secondary text-center py-6">尚無情境。點上方「儲存情境」建立第一個。</p>
+              ) : (
+                <div className="space-y-2">
+                  {scenePresets.slice().sort((a, b) => b.updatedAt - a.updatedAt).map(scene => {
+                    const isActive = draft.activeSceneId === scene.id
+                    const isLoading = sceneLoading === scene.id
+                    const isRenaming = sceneRenamingId === scene.id
+                    const themeMeta = THEME_META[scene.colorTheme ?? 'mint'] ?? THEME_META.mint
+                    const worldName = worldPresets.find(w => w.id === scene.activeWorldId)?.name
+                    const personaName = personaPresets.find(p => p.id === scene.activePersonaId)?.displayName
+                    const convTitle = scene.lastActiveConversationId
+                      ? (convTitles[scene.lastActiveConversationId] ?? null)
+                      : null
+                    const charNames = scene.desktopCharacters
+                      .map(d => characters.find(c => c.id === d.characterId)?.name)
+                      .filter(Boolean) as string[]
+                    return (
+                      <div
+                        key={scene.id}
+                        className={`rounded-2xl overflow-hidden transition-all ${isActive ? 'ring-2 ring-teal' : 'border border-border'}`}
+                      >
+                        {/* Color accent bar */}
+                        <div
+                          className="h-1.5 w-full"
+                          style={{ backgroundColor: themeMeta.color }}
+                        />
+                        <div className="p-3 space-y-2">
+                          {/* Name row */}
+                          <div className="flex items-center gap-2 min-w-0">
+                            {isActive && (
+                              <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal text-primary">使用中</span>
+                            )}
+                            {isRenaming ? (
+                              <input
+                                type="text"
+                                className="input-field text-xs flex-1 min-w-0"
+                                value={sceneRenameValue}
+                                onChange={e => setSceneRenameValue(e.target.value)}
+                                onBlur={() => void commitSceneRename()}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') void commitSceneRename()
+                                  if (e.key === 'Escape') setSceneRenamingId(null)
+                                }}
+                                autoFocus
+                              />
+                            ) : (
+                              <span className="text-sm font-semibold text-primary flex-1 min-w-0 truncate">{scene.name}</span>
+                            )}
+                          </div>
+
+                          {/* Meta info */}
+                          <div className="text-[11px] text-secondary space-y-0.5 leading-snug">
+                            {worldName && <div><span className="text-primary/60">世界觀：</span>{worldName}</div>}
+                            {personaName && <div><span className="text-primary/60">使用者：</span>{personaName}</div>}
+                            {convTitle && <div className="truncate"><span className="text-primary/60">對話：</span>{convTitle}</div>}
+                            {charNames.length > 0 && (
+                              <div className="truncate"><span className="text-primary/60">角色：</span>{charNames.join('、')}</div>
+                            )}
+                            <div className="flex items-center gap-1.5 pt-0.5">
+                              <span
+                                className="inline-block w-2.5 h-2.5 rounded-full border border-black/10 shrink-0"
+                                style={{ backgroundColor: themeMeta.color }}
+                              />
+                              <span>{new Date(scene.updatedAt).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                            </div>
+                          </div>
+
+                          {/* Action buttons */}
+                          <div className="flex gap-1.5 flex-wrap">
+                            {!isActive && (
+                              <button
+                                type="button"
+                                disabled={isLoading}
+                                className="text-xs px-2.5 py-1 rounded-full bg-teal font-semibold text-primary hover:bg-mint transition-all disabled:opacity-50"
+                                onClick={() => void handleLoadScene(scene.id)}
+                              >
+                                {isLoading ? '切換中…' : '切換'}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              title="把目前桌面的角色位置、世界觀、對話等狀態覆寫進這個情境"
+                              className="text-xs px-2.5 py-1 rounded-full border border-border text-primary hover:bg-mint-40 transition-all"
+                              onClick={() => void handleUpdateScene(scene)}
+                            >
+                              覆寫為目前狀態
+                            </button>
+                            {!isRenaming && (
+                              <button
+                                type="button"
+                                className="text-xs px-2.5 py-1 rounded-full border border-border text-primary hover:bg-mint-40 transition-all"
+                                onClick={() => startSceneRename(scene)}
+                              >
+                                重新命名
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="text-xs px-2.5 py-1 rounded-full border border-[#FFBBBB] text-[#E85D3F] hover:bg-[#FFBBBB]/30 transition-all"
+                              onClick={() => void handleDeleteScene(scene)}
+                            >
+                              刪除
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </>
+          )
+        })()}
 
         {tab === '世界觀' && (
           <>

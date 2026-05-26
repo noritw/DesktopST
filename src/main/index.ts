@@ -2,8 +2,8 @@ import { app, Tray, Menu, nativeImage, protocol, screen, shell, BrowserWindow } 
 import { attachDevToolsShortcuts, isDevToolsAllowed } from './devTools'
 import * as path from 'path'
 import * as fs from 'fs'
-import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, triggerReminderSpeak } from './ipcHandlers'
+import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets } from './fileStore'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, triggerReminderSpeak, applySceneById } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import {
@@ -325,11 +325,22 @@ function setupTray(appRoot: string) {
       ? { label: '重新開啟所有輔助視窗', click: () => { restoreDismissedAuxWindows(); refreshTrayMenu() } }
       : { label: '收起所有輔助視窗', click: async () => { await dismissAllAuxWindows(); refreshTrayMenu() } }
     const isAlwaysOnTop = getCharactersAlwaysOnTop()
+    const scenes = loadScenePresets().sort((a, b) => a.name.localeCompare(b.name))
+    const activeSceneId = getSettings().activeSceneId
+    const sceneSubmenu = scenes.length === 0
+      ? [{ label: '（尚無情境，請在設定→情境中新增）', enabled: false }]
+      : scenes.map(s => ({
+          label: s.name,
+          type: 'checkbox' as const,
+          checked: s.id === activeSceneId,
+          click: () => { applySceneById(s.id); refreshTrayMenu() }
+        }))
     const menu = Menu.buildFromTemplate([
       { label: '開啟輸入視窗', click: () => toggleInputWindow() },
       { label: '開啟角色庫', click: () => createCharacterLibraryWindow({ mode: 'home' }) },
       { label: '開啟便利貼管理', click: () => openPinnedNotesManager() },
       { label: '管理提醒', click: () => openRemindersManager() },
+      { label: '切換情境', submenu: sceneSubmenu },
       auxAction,
       { type: 'separator' },
       {

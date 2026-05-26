@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { AppSettings, Character, Conversation, DesktopCharacterState, Message, PersonaPreset, RandomResult, WorldPreset } from '../types'
+import type { AppSettings, Character, Conversation, DesktopCharacterState, Message, PersonaPreset, RandomResult, ScenePreset, WorldPreset } from '../types'
 
 export type CharacterContextSnapshot = {
   characterId: string
@@ -17,6 +17,7 @@ interface AppStore {
   uiAppFocused: boolean
   personaPresets: PersonaPreset[]
   worldPresets: WorldPreset[]
+  scenePresets: ScenePreset[]
 
   // Actions
   loadAll: () => Promise<void>
@@ -49,6 +50,11 @@ interface AppStore {
   deletePersonaPreset: (id: string) => Promise<void>
   saveWorldPreset: (w: WorldPreset) => Promise<void>
   deleteWorldPreset: (id: string) => Promise<void>
+  loadScenes: () => Promise<void>
+  captureScene: (id: string | null, name: string) => Promise<ScenePreset>
+  deleteScene: (id: string) => Promise<void>
+  loadScene: (id: string) => Promise<{ ok: true } | { error: string }>
+  renameScene: (id: string, name: string) => Promise<void>
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -61,6 +67,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   uiAppFocused: true,
   personaPresets: [],
   worldPresets: [],
+  scenePresets: [],
 
   loadAll: async () => {
     const data = await window.api.invoke('store:get-all') as {
@@ -72,6 +79,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
     const personas = await window.api.invoke('presets:persona:list') as PersonaPreset[]
     const worlds = await window.api.invoke('presets:world:list') as WorldPreset[]
+    const scenes = await window.api.invoke('scene:list') as ScenePreset[]
     set({
       settings: data.settings,
       characters: data.characters,
@@ -79,7 +87,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       conversation: data.conversation,
       characterContext: data.characterContext ?? null,
       personaPresets: personas,
-      worldPresets: worlds
+      worldPresets: worlds,
+      scenePresets: scenes
     })
   },
 
@@ -141,6 +150,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       }),
       window.api.on('presets:updated', () => {
         get().loadPresets()
+      }),
+      window.api.on('scenes:updated', () => {
+        get().loadScenes()
       })
     ]
     return () => unsubs.forEach(u => u())
@@ -244,7 +256,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
   loadPresets: async () => {
     const personas = await window.api.invoke('presets:persona:list') as PersonaPreset[]
     const worlds = await window.api.invoke('presets:world:list') as WorldPreset[]
-    set({ personaPresets: personas, worldPresets: worlds })
+    const scenes = await window.api.invoke('scene:list') as ScenePreset[]
+    set({ personaPresets: personas, worldPresets: worlds, scenePresets: scenes })
   },
 
   savePersonaPreset: async (p) => {
@@ -265,6 +278,38 @@ export const useAppStore = create<AppStore>((set, get) => ({
   deleteWorldPreset: async (id) => {
     await window.api.invoke('presets:world:delete', id)
     await get().loadPresets()
+  },
+
+  loadScenes: async () => {
+    const scenes = await window.api.invoke('scene:list') as ScenePreset[]
+    set({ scenePresets: scenes })
+  },
+
+  captureScene: async (id, name) => {
+    const scene = await window.api.invoke('scene:capture', id, name) as ScenePreset
+    await get().loadScenes()
+    return scene
+  },
+
+  deleteScene: async (id) => {
+    await window.api.invoke('scene:delete', id)
+    await get().loadScenes()
+  },
+
+  loadScene: async (id) => {
+    const result = await window.api.invoke('scene:load', id) as { ok: true } | { error: string }
+    if ('ok' in result) {
+      // settings:updated + scenes:updated are broadcast by main; store picks them up via subscribeToEvents
+    }
+    return result
+  },
+
+  renameScene: async (id, name) => {
+    const scenes = get().scenePresets
+    const scene = scenes.find(s => s.id === id)
+    if (!scene) return
+    await window.api.invoke('scene:save', { ...scene, name, updatedAt: Date.now() })
+    await get().loadScenes()
   }
 }))
 

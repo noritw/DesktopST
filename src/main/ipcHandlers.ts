@@ -3,7 +3,7 @@ import { checkForUpdates } from './updateChecker'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, PinnedNote, Reminder, RandomResult } from './types'
+import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM } from './llm/index'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
@@ -1088,6 +1088,77 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   } finally {
     setCharacterThinking(charId, false)
   }
+}
+
+export function applySceneById(id: string): { ok: true } | { error: string } {
+  const scene = fileStore.loadScenePreset(id)
+  if (!scene) return { error: '找不到情境。' }
+
+  // Persist current conversation to current scene before switching
+  if (settings.activeSceneId && settings.activeSceneId !== id) {
+    const currentScene = fileStore.loadScenePreset(settings.activeSceneId)
+    if (currentScene) {
+      currentScene.lastActiveConversationId = settings.ui.lastActiveConversationId
+      currentScene.updatedAt = Date.now()
+      fileStore.saveScenePreset(currentScene)
+    }
+  }
+
+  // Apply persona / world / theme
+  settings.activePersonaId = scene.activePersonaId
+  settings.activeWorldId = scene.activeWorldId
+  settings.activeSceneId = scene.id
+  if (scene.colorTheme !== undefined) settings.ui.colorTheme = scene.colorTheme
+  if (scene.lastActiveConversationId !== undefined) {
+    settings.ui.lastActiveConversationId = scene.lastActiveConversationId
+  }
+
+  // Apply window bounds
+  if (scene.inputWindowBounds) {
+    settings.ui.inputWindowBounds = scene.inputWindowBounds
+    const iw = getInputWindow()
+    if (iw && !iw.isDestroyed()) iw.setBounds(scene.inputWindowBounds)
+  }
+  if (scene.logWindowBounds) {
+    settings.ui.logWindowBounds = scene.logWindowBounds
+    const lw = getLogWindow()
+    if (lw && !lw.isDestroyed()) lw.setBounds(scene.logWindowBounds)
+  }
+
+  // Apply desktop characters
+  const prevIds = new Set(settings.ui.desktopCharacters.map(d => d.characterId))
+  const nextIds = new Set(scene.desktopCharacters.map(d => d.characterId))
+
+  for (const charId of prevIds) {
+    if (!nextIds.has(charId)) {
+      settings.ui.desktopCharacters = settings.ui.desktopCharacters.filter(d => d.characterId !== charId)
+      closeCharacterWindow(charId)
+    }
+  }
+
+  for (const newState of scene.desktopCharacters) {
+    const existing = settings.ui.desktopCharacters.find(d => d.characterId === newState.characterId)
+    if (existing) {
+      Object.assign(existing, newState)
+      const win = getCharacterWindow(newState.characterId)
+      if (win && !win.isDestroyed()) {
+        win.setPosition(Math.round(newState.position.x), Math.round(newState.position.y))
+        resizeCharacterWindow(newState.characterId, newState.size)
+      }
+    } else {
+      const char = characters.find(c => c.id === newState.characterId)
+      if (char) {
+        settings.ui.desktopCharacters.push({ ...newState })
+        createCharacterWindow(newState.characterId, newState.position, newState.size)
+      }
+    }
+  }
+
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
+  broadcastToAll('scenes:updated', null)
+  return { ok: true }
 }
 
 export function registerIpcHandlers() {
@@ -2802,6 +2873,53 @@ export function registerIpcHandlers() {
     broadcastToAll('presets:updated', null)
     return true
   })
+
+  // ── Scene Presets ─────────────────────────────────────────
+
+  ipcMain.handle('scene:list', () => fileStore.loadScenePresets())
+
+  ipcMain.handle('scene:save', (_, preset: ScenePreset) => {
+    const now = Date.now()
+    preset.updatedAt = now
+    if (!preset.createdAt) preset.createdAt = now
+    fileStore.saveScenePreset(preset)
+    broadcastToAll('scenes:updated', null)
+    return preset
+  })
+
+  ipcMain.handle('scene:delete', (_, id: string) => {
+    fileStore.deleteScenePreset(id)
+    if (settings.activeSceneId === id) {
+      settings.activeSceneId = undefined
+      fileStore.saveSettings(settings)
+      broadcastToAll('settings:updated', settings)
+    }
+    broadcastToAll('scenes:updated', null)
+    return true
+  })
+
+  // Capture current app state as a scene snapshot (create new or update existing)
+  ipcMain.handle('scene:capture', (_, id: string | null, name: string) => {
+    const now = Date.now()
+    const scene: ScenePreset = {
+      id: id ?? uuidv4(),
+      name,
+      activePersonaId: settings.activePersonaId,
+      activeWorldId: settings.activeWorldId,
+      desktopCharacters: JSON.parse(JSON.stringify(settings.ui.desktopCharacters)) as typeof settings.ui.desktopCharacters,
+      lastActiveConversationId: settings.ui.lastActiveConversationId,
+      colorTheme: settings.ui.colorTheme,
+      inputWindowBounds: settings.ui.inputWindowBounds,
+      logWindowBounds: settings.ui.logWindowBounds,
+      createdAt: id ? (fileStore.loadScenePreset(id)?.createdAt ?? now) : now,
+      updatedAt: now
+    }
+    fileStore.saveScenePreset(scene)
+    broadcastToAll('scenes:updated', null)
+    return scene
+  })
+
+  ipcMain.handle('scene:load', (_, id: string) => applySceneById(id))
 
   // ── Reminders ────────────────────────────────────────────
 

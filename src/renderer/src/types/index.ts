@@ -146,9 +146,26 @@ export interface WorldPreset {
   updatedAt: number
 }
 
+export type ColorTheme = 'mint' | 'butter' | 'peach' | 'aqua' | 'sky' | 'blush' | 'lavender' | 'white' | 'dark'
+
+export interface ScenePreset {
+  id: string
+  name: string
+  activePersonaId: string
+  activeWorldId: string
+  desktopCharacters: DesktopCharacterState[]
+  lastActiveConversationId?: string
+  colorTheme?: ColorTheme
+  inputWindowBounds?: WindowBoundsState
+  logWindowBounds?: WindowBoundsState
+  createdAt: number
+  updatedAt: number
+}
+
 export interface AppSettings {
   activePersonaId: string
   activeWorldId: string
+  activeSceneId?: string
   injectSystemTime: boolean
   weather?: WeatherSettings
   llm: {
@@ -197,7 +214,7 @@ export interface AppSettings {
     /** 便利貼資料 */
     pinnedNotes?: PinnedNote[]
     /** 介面配色主題 */
-    colorTheme?: 'mint' | 'butter' | 'peach' | 'aqua' | 'sky' | 'blush' | 'lavender' | 'white' | 'dark'
+    colorTheme?: ColorTheme
     /** 角色視窗永遠顯示在最上層 */
     alwaysOnTop?: boolean
     /** 對話泡泡自動消失設定 */

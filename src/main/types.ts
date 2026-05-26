@@ -100,6 +100,22 @@ export interface WorldPreset {
   updatedAt: number
 }
 
+export type ColorTheme = 'mint' | 'butter' | 'peach' | 'aqua' | 'sky' | 'blush' | 'lavender' | 'white' | 'dark'
+
+export interface ScenePreset {
+  id: string
+  name: string
+  activePersonaId: string
+  activeWorldId: string
+  desktopCharacters: DesktopCharacterState[]
+  lastActiveConversationId?: string
+  colorTheme?: ColorTheme
+  inputWindowBounds?: WindowBoundsState
+  logWindowBounds?: WindowBoundsState
+  createdAt: number
+  updatedAt: number
+}
+
 export interface WeatherSettings {
   enabled: boolean
   polish: boolean
@@ -129,6 +145,7 @@ export interface PendingRandomTool {
 export interface AppSettings {
   activePersonaId: string
   activeWorldId: string
+  activeSceneId?: string
   injectSystemTime: boolean
   weather?: WeatherSettings
   llm: {
@@ -196,6 +213,8 @@ export interface AppSettings {
       volume: number
       customSoundPath?: string
     }
+    /** 介面配色主題 */
+    colorTheme?: ColorTheme
     /** 閒置超過幾分鐘時略過提醒（0 = 不略過）*/
     reminderIdleSkipMinutes?: number
     /** 截圖時是否保留對話輸入框 */
