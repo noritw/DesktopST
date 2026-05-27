@@ -135,6 +135,10 @@ export interface MobileSettings {
   enabled: boolean
   port: number
   useTunnel: boolean
+  relay?: {
+    deviceId?: string
+    relayUrl: string
+  }
 }
 
 export type OmikujiTier = '大吉' | '中吉' | '小吉' | '吉' | '末吉' | '凶' | '大凶'

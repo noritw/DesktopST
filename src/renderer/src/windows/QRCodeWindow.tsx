@@ -6,6 +6,7 @@ interface MobileStatus {
   tunnelReady: boolean
   url: string | null
   localUrl: string
+  relayUrl: string
   connectedCount: number
   cloudflaredAvailable: boolean
 }
@@ -20,8 +21,8 @@ export default function QRCodeWindow() {
       const s = await window.api.invoke('mobile:get-status') as MobileStatus
       setStatus(s)
 
-      // Generate QR code from the best available URL
-      const url = s.tunnelReady && s.url ? s.url : s.running ? s.localUrl : null
+      // Generate QR code from relay URL (most stable) → tunnel → local
+      const url = s.relayUrl || (s.tunnelReady && s.url ? s.url : s.running ? s.localUrl : null)
       if (url) {
         const dataUrl = await window.api.invoke('mobile:generate-qr', url) as string | null
         setQrDataUrl(dataUrl)
@@ -41,7 +42,9 @@ export default function QRCodeWindow() {
     }
   }, [])
 
-  const displayUrl = status?.tunnelReady && status.url
+  const displayUrl = status?.relayUrl
+    ? status.relayUrl
+    : status?.tunnelReady && status.url
     ? status.url
     : status?.running
     ? status.localUrl
@@ -80,8 +83,11 @@ export default function QRCodeWindow() {
   }
 
   const extStatus = status as MobileStatus & { tunnelStatus?: string }
-  const statusLabel = status.tunnelReady
+  const firewallBlocked = extStatus.tunnelStatus === 'firewall-blocked'
+  const statusLabel = status.relayUrl && status.tunnelReady
     ? `✅ 已就緒（${status.connectedCount} 支裝置連線中）`
+    : firewallBlocked
+    ? '🚫 防火牆可能阻擋了 Tunnel'
     : extStatus.tunnelStatus === 'downloading'
     ? '⬇️ 正在下載 Cloudflare Tunnel…'
     : status.running
@@ -117,6 +123,18 @@ export default function QRCodeWindow() {
           <button style={{ ...styles.copyBtn, ...noDrag }} onClick={handleCopy}>
             {copied ? '✓ 已複製' : '複製網址'}
           </button>
+        )}
+
+        {firewallBlocked && (
+          <div style={styles.warnBox}>
+            🚫 Tunnel 連線超時，可能是 Windows 防火牆阻擋。
+            <button
+              style={{ ...styles.fixBtn, ...noDrag }}
+              onClick={() => window.api.invoke('mobile:fix-firewall')}
+            >
+              自動修復防火牆
+            </button>
+          </div>
         )}
 
         {!status.cloudflaredAvailable && (
@@ -231,6 +249,19 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '8px 12px',
     lineHeight: 1.6,
     textAlign: 'center',
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 8,
+  },
+  fixBtn: {
+    padding: '6px 16px',
+    borderRadius: 20,
+    border: 'none',
+    background: '#FFBBBB',
+    color: '#3D5A52',
+    fontSize: 13,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
   },
   localHint: {
     fontSize: 12,

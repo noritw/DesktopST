@@ -42,8 +42,10 @@ import {
   stopCloudflared,
   getUrl as getCloudflaredUrl,
   isRunning as isCloudflaredRunning,
-  isCloudflaredAvailable
+  isCloudflaredAvailable,
+  onUrlReady
 } from './cloudflaredManager'
+import { registerTunnel, registerStarting, registerOffline, getRelayUrl } from './relayService'
 import type { DesktopCharacterState } from './types'
 
 function isOffscreen(pos: { x: number; y: number }, win: { width: number; height: number }): boolean {
@@ -351,10 +353,13 @@ app.on('window-all-closed', () => {
   // Do nothing — keep app running in tray
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', async (event) => {
+  event.preventDefault()
   flushSaveSettings()
   stopMobileServer()
   stopCloudflared()
+  await registerOffline()  // 等待完成後再關閉
+  app.exit()
 })
 
 // ── Mobile server ─────────────────────────────────────────
@@ -370,6 +375,7 @@ export function getMobileStatus() {
     tunnelReady: !!getCloudflaredUrl(),
     url: getCloudflaredUrl(),
     localUrl: `http://${networkIp}:${port}`,
+    relayUrl: getRelayUrl(),
     connectedCount: getConnectedCount(),
     cloudflaredAvailable: isCloudflaredAvailable()
   }
@@ -459,8 +465,14 @@ function initMobileServer(): void {
           return
         }
       }
+      void registerStarting()  // 先佔位，讓手機看到等待頁
       void startCloudflared(port).then(() => {
         broadcastMobileStatus(getMobileStatus())
+        onUrlReady((url) => {
+          registerTunnel(url).then(result => {
+            if (!result.ok) console.warn('[Relay] Registration failed:', result.error)
+          })
+        })
       })
     }
   }).catch(e => console.error('[MobileServer] Failed to start:', e))

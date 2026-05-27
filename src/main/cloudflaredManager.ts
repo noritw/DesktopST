@@ -91,6 +91,23 @@ function notifyStatus(status: 'connecting' | 'ready' | 'error'): void {
   }
 }
 
+/** 用提升權限的 PowerShell 新增防火牆規則，讓 cloudflared 不被擋 */
+export async function addFirewallException(): Promise<boolean> {
+  const exePath = getCloudflaredExePath()
+  if (!fs.existsSync(exePath)) return false
+  return new Promise((resolve) => {
+    const ps = `New-NetFirewallRule -DisplayName 'DesktopST-cloudflared' -Program '${exePath}' -Direction Inbound -Action Allow -ErrorAction SilentlyContinue`
+    const proc = child_process.spawn('powershell', [
+      '-Command',
+      `Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile -Command "${ps.replace(/'/g, "\\'")}"' -Wait`
+    ], { shell: false })
+    proc.on('exit', (code) => resolve(code === 0))
+    proc.on('error', () => resolve(false))
+  })
+}
+
+const TUNNEL_TIMEOUT_MS = 30_000
+
 export async function startCloudflared(port: number): Promise<void> {
   if (tunnelProcess) return
 
@@ -104,6 +121,14 @@ export async function startCloudflared(port: number): Promise<void> {
   currentUrl = null
   notifyStatus('connecting')
 
+  // 若超過 30 秒還沒拿到 URL，通知前端可能被防火牆擋住
+  const timeoutHandle = setTimeout(() => {
+    if (!currentUrl) {
+      console.warn('[Cloudflared] Timeout: no URL after 30s, possibly blocked by firewall')
+      notifyStatus('firewall-blocked' as 'error')
+    }
+  }, TUNNEL_TIMEOUT_MS)
+
   tunnelProcess = child_process.spawn(
     exePath,
     ['tunnel', '--url', `http://localhost:${port}`],
@@ -115,6 +140,7 @@ export async function startCloudflared(port: number): Promise<void> {
     const match = text.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/)
     if (match && !currentUrl) {
       currentUrl = match[0]
+      clearTimeout(timeoutHandle)
       console.log('[Cloudflared] Tunnel URL:', currentUrl)
       notifyStatus('ready')
       for (const cb of urlCallbacks) {

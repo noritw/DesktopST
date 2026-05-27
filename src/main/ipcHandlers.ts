@@ -3754,4 +3754,9 @@ export function registerIpcHandlers() {
       return null
     }
   })
+
+  ipcMain.handle('mobile:fix-firewall', async () => {
+    const { addFirewallException } = await import('./cloudflaredManager')
+    return addFirewallException()
+  })
 }

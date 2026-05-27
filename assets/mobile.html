@@ -53,6 +53,19 @@
     transition: background 0.15s; -webkit-tap-highlight-color: transparent; }
   .icon-btn:active { background: rgba(255,255,255,0.9); }
 
+  /* ── PC menu dropdown ── */
+  #pc-menu-wrap { position: relative; }
+  #pc-menu { display: none; position: absolute; top: 42px; right: 0;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+    min-width: 160px; padding: 4px; z-index: 300; }
+  #pc-menu.visible { display: block; }
+  .pc-menu-item { display: block; width: 100%; text-align: left;
+    background: none; border: none; padding: 9px 12px; border-radius: 8px;
+    font-size: 14px; color: var(--text); cursor: pointer; font-family: inherit;
+    -webkit-tap-highlight-color: transparent; white-space: nowrap; }
+  .pc-menu-item:active { background: var(--mint); }
+
   /* ── Chat ── */
   #chat { flex: 1; overflow-y: auto; padding: 12px 12px 4px;
     display: flex; flex-direction: column; gap: 10px;
@@ -208,8 +221,13 @@
   <div id="header-actions">
     <button class="icon-btn" id="menu-btn" title="選單">☰</button>
     <button class="icon-btn" id="manage-btn" title="角色管理">👥</button>
-    <button class="icon-btn" id="ss-clean-btn" title="截圖（乾淨）">📷</button>
-    <button class="icon-btn" id="ss-chars-btn" title="截圖（含角色）">🖼️</button>
+    <div id="pc-menu-wrap">
+      <button class="icon-btn" id="pc-btn" title="電腦操作">🖥️</button>
+      <div id="pc-menu">
+        <button class="pc-menu-item" data-act="ss-chars">🖼️ 含角色截圖</button>
+        <button class="pc-menu-item" data-act="ss-clean">📷 隱藏程式截圖</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -398,7 +416,10 @@
   }
 
   // ── Avatar ──
-  function avatarUrl(id) { return '/api/avatar/' + encodeURIComponent(id); }
+  function avatarUrl(id) {
+    const base = window.__relayDeviceId ? '/' + window.__relayDeviceId : '';
+    return base + '/api/avatar/' + encodeURIComponent(id);
+  }
 
   function makeImgOrPh(id, cls) {
     const img = document.createElement('img');
@@ -545,10 +566,13 @@
   function removeThinking() { document.getElementById('thinking-el')?.remove(); }
 
   // ── WebSocket ──
+  var wsFailCount = 0;
   function connectWS() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(proto + '//' + location.host);
-    ws.addEventListener('open', () => { wsRetryCount = 0; showToast('已連線'); });
+    // 優先用 Worker 注入的 tunnel WebSocket URL，否則連本機
+    const wsUrl = window.__tunnelWsUrl || (proto + '//' + location.host);
+    ws = new WebSocket(wsUrl);
+    ws.addEventListener('open', () => { wsRetryCount = 0; wsFailCount = 0; showToast('已連線'); });
     ws.addEventListener('message', e => {
       let d; try { d = JSON.parse(e.data); } catch { return; }
       if (d.type === 'message' && d.message) {
@@ -571,6 +595,13 @@
     });
     ws.addEventListener('close', () => {
       ws = null;
+      wsFailCount++;
+      // 重試 4 次都失敗，且是透過 relay 連線 → 回 relay 重載頁面取得新 tunnel URL
+      if (wsFailCount >= 4 && window.__relayPageUrl) {
+        showToast('重新取得連線資訊…');
+        setTimeout(() => { window.location.href = window.__relayPageUrl; }, 1000);
+        return;
+      }
       const delay = Math.min(500 * Math.pow(2, wsRetryCount), 8000);
       wsRetryCount++;
       showToast('連線中斷，重連中…');
@@ -938,8 +969,24 @@
     } catch { showToast('截圖失敗'); }
   }
 
-  document.getElementById('ss-clean-btn').addEventListener('click', () => takeScreenshot(false));
-  document.getElementById('ss-chars-btn').addEventListener('click', () => takeScreenshot(true));
+  const $pcMenu = document.getElementById('pc-menu');
+  const $pcBtn = document.getElementById('pc-btn');
+  function closePcMenu() { $pcMenu.classList.remove('visible'); }
+  $pcBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    $pcMenu.classList.toggle('visible');
+  });
+  document.addEventListener('click', (e) => {
+    if (!$pcMenu.contains(e.target) && e.target !== $pcBtn) closePcMenu();
+  });
+  $pcMenu.querySelectorAll('.pc-menu-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = btn.dataset.act;
+      closePcMenu();
+      if (act === 'ss-clean') takeScreenshot(false);
+      else if (act === 'ss-chars') takeScreenshot(true);
+    });
+  });
 
   document.getElementById('ss-close-btn').addEventListener('click', () => $ssOverlay.classList.remove('visible'));
 
