@@ -402,10 +402,11 @@ async function handleRequest(
   if (method === 'GET' && url === '/api/windows') {
     const { exec } = await import('child_process')
     const { screen: s } = await import('electron')
+    // 取得有主視窗的程序列表（含位置，用於判斷所在螢幕）
     const script = [
       '$OutputEncoding=[Text.Encoding]::UTF8;[Console]::OutputEncoding=[Text.Encoding]::UTF8',
       'Add-Type -TypeDefinition \'using System;using System.Runtime.InteropServices;public class WH{[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out RECT r);[StructLayout(LayoutKind.Sequential)]public struct RECT{public int L,T,R,B;}}\'',
-      '$w=Get-Process|?{$_.MainWindowHandle-ne 0-and $_.MainWindowTitle-ne \'\'}|%{$hwnd=$_.MainWindowHandle;$r=New-Object WH+RECT;[WH]::GetWindowRect($hwnd,[ref]$r)|Out-Null;[pscustomobject]@{hwnd=$hwnd.ToInt64();title=$_.MainWindowTitle;proc=$_.ProcessName;x=$r.L;y=$r.T;w=$r.R-$r.L;h=$r.B-$r.T}}',
+      '$w=Get-Process|?{$_.MainWindowHandle-ne 0-and $_.MainWindowTitle-ne \'\'}|%{$hwnd=$_.MainWindowHandle;$r=New-Object WH+RECT;[WH]::GetWindowRect($hwnd,[ref]$r)|Out-Null;[pscustomobject]@{pid=$_.Id;title=$_.MainWindowTitle;proc=$_.ProcessName;x=$r.L;y=$r.T;w=$r.R-$r.L;h=$r.B-$r.T}}',
       'if($w){$w|ConvertTo-Json -Compress -Depth 1}else{\'[]\'}'
     ].join(';')
     const raw = await new Promise<string>((resolve) => {
@@ -424,7 +425,7 @@ async function handleRequest(
           cx >= d.bounds.x && cx < d.bounds.x + d.bounds.width &&
           cy >= d.bounds.y && cy < d.bounds.y + d.bounds.height
         )
-        return { hwnd: w.hwnd, title: w.title, proc: w.proc, displayIndex: di >= 0 ? di : 0 }
+        return { pid: w.pid, title: w.title, proc: w.proc, displayIndex: di >= 0 ? di : 0 }
       })
       jsonOk(res, result)
     } catch { jsonOk(res, []) }
@@ -432,36 +433,21 @@ async function handleRequest(
   }
 
   // ── POST /api/focus-window ──
+  // 使用 WScript.Shell.AppActivate(pid) — 不呼叫 SetForegroundWindow，
+  // 避免從背景程序呼叫 Win32 API 導致輸入佇列鎖死
   if (method === 'POST' && url === '/api/focus-window') {
     const body = await readBody(req)
-    let payload: { hwnd?: number }
+    let payload: { pid?: number }
     try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
-    if (!payload.hwnd) { jsonError(res, 400, 'hwnd required'); return }
+    if (!payload.pid) { jsonError(res, 400, 'pid required'); return }
     const { exec } = await import('child_process')
-    const { screen: s } = await import('electron')
-    const hwnd = Number(payload.hwnd)
-    const script = [
-      'Add-Type -TypeDefinition \'using System;using System.Runtime.InteropServices;public class WA{[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr h,int c);[DllImport("user32.dll")]public static extern bool SetForegroundWindow(IntPtr h);[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out RECT r);[StructLayout(LayoutKind.Sequential)]public struct RECT{public int L,T,R,B;}}\'',
-      `$hwnd=[IntPtr]::new(${hwnd})`,
-      '[WA]::ShowWindow($hwnd,9)|Out-Null',
-      '[WA]::SetForegroundWindow($hwnd)|Out-Null',
-      '$r=New-Object WA+RECT;[WA]::GetWindowRect($hwnd,[ref]$r)|Out-Null',
-      'Write-Output "$($r.L),$($r.T)"'
-    ].join(';')
-    const out = await new Promise<string>((resolve) => {
-      exec(`powershell -NoProfile -NonInteractive -Command "${script}"`, { encoding: 'utf8', timeout: 4000 }, (err, stdout) => {
-        resolve(err ? '' : stdout.trim())
-      })
+    const pid = Number(payload.pid)
+    // AppActivate 會自動 restore 最小化視窗並帶到前台，不走 P/Invoke
+    const script = `$sh=New-Object -ComObject 'WScript.Shell';$null=$sh.AppActivate(${pid})`
+    await new Promise<void>((resolve) => {
+      exec(`powershell -NoProfile -NonInteractive -Command "${script}"`, { encoding: 'utf8', timeout: 3000 }, () => resolve())
     })
-    const parts = out.split(',')
-    const winX = parseInt(parts[0]) || 0
-    const winY = parseInt(parts[1]) || 0
-    const displays = s.getAllDisplays()
-    const di = displays.findIndex(d =>
-      winX >= d.bounds.x && winX < d.bounds.x + d.bounds.width &&
-      winY >= d.bounds.y && winY < d.bounds.y + d.bounds.height
-    )
-    jsonOk(res, { ok: true, displayIndex: di >= 0 ? di : 0 })
+    jsonOk(res, { ok: true })
     return
   }
 

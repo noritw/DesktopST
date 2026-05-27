@@ -1092,21 +1092,17 @@
         el.innerHTML = `<span class="pc-win-title">${w.title}</span><span class="pc-win-proc">${w.proc}${displaysCache.length > 1 ? ' · ' + dispLabel : ''}</span>`;
         el.addEventListener('click', async () => {
           $pcSheetOverlay.classList.remove('visible');
+          // 立即更新觀看中螢幕（不需等 server 回應）
+          setCurrentDisplay(w.displayIndex ?? 0);
+          const label = displaysCache[currentDisplayIndex]?.label ?? `螢幕 ${currentDisplayIndex + 1}`;
           showToast('切換中…');
           try {
-            const res = await fetch('/api/focus-window', {
+            await fetch('/api/focus-window', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ hwnd: w.hwnd })
+              body: JSON.stringify({ pid: w.pid })
             });
-            if (res.ok) {
-              const data = await res.json();
-              setCurrentDisplay(data.displayIndex ?? 0);
-              const label = displaysCache[currentDisplayIndex]?.label ?? `螢幕 ${currentDisplayIndex + 1}`;
-              showToast(`已切換 · 觀看中：${label}`);
-            } else {
-              showToast('切換失敗');
-            }
+            showToast(`已切換 · 觀看中：${label}`);
           } catch { showToast('切換失敗'); }
         });
         $pcSheetBody.appendChild(el);
