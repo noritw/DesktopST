@@ -14,6 +14,14 @@ export default function SpotifySettingsWindow() {
     if (settings?.spotify?.clientId) setClientId(settings.spotify.clientId)
   }, [settings?.spotify?.clientId])
 
+  // On mount: pull current status in case event was missed
+  useEffect(() => {
+    window.api.invoke('spotify:get-status').then((status: unknown) => {
+      const s = status as { connected: boolean; displayName?: string } | null
+      if (s?.connected && s.displayName) setWaiting(false)
+    }).catch(() => {})
+  }, [])
+
   // When displayName appears in settings, auth completed
   useEffect(() => {
     if (waiting && connected) {
