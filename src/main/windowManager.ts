@@ -1470,23 +1470,29 @@ function getScreenshotDisplayInfo(): { displayId: number; displayWidth: number; 
   return { displayId: display.id, displayWidth: display.size.width, displayHeight: display.size.height }
 }
 
+function getScreenshotDisplayInfoByIndex(displayIndex: number): { displayId: number; displayWidth: number; displayHeight: number } {
+  const displays = screen.getAllDisplays()
+  const display = displays[displayIndex] ?? screen.getPrimaryDisplay()
+  return { displayId: display.id, displayWidth: display.size.width, displayHeight: display.size.height }
+}
+
 /** Hide every DesktopST window before capturing the screen (pure desktop). */
-export function hideAllWindowsForScreenshot(): { displayId: number; displayWidth: number; displayHeight: number } {
+export function hideAllWindowsForScreenshot(displayIndex?: number): { displayId: number; displayWidth: number; displayHeight: number } {
   for (const w of collectAllDesktopSTWindows()) {
     w.setOpacity(0)
   }
-  return getScreenshotDisplayInfo()
+  return displayIndex != null ? getScreenshotDisplayInfoByIndex(displayIndex) : getScreenshotDisplayInfo()
 }
 
 /** Keep all DesktopST windows visible; optionally hide input window. */
-export function prepareScreenshotKeepingDesktopST(hideInputWindow: boolean = false): { displayId: number; displayWidth: number; displayHeight: number } {
+export function prepareScreenshotKeepingDesktopST(hideInputWindow: boolean = false, displayIndex?: number): { displayId: number; displayWidth: number; displayHeight: number } {
   if (hideInputWindow) {
     const input = getInputWindow()
     if (input && !input.isDestroyed()) {
       input.setOpacity(0)
     }
   }
-  return getScreenshotDisplayInfo()
+  return displayIndex != null ? getScreenshotDisplayInfoByIndex(displayIndex) : getScreenshotDisplayInfo()
 }
 
 export function restoreAllWindowsAfterScreenshot(): void {

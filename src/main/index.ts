@@ -411,7 +411,7 @@ function initMobileServer(): void {
     sendMessage: async (payload) => { await handleSendMessageFromMobile(payload) },
     addDesktopCharacter: addDesktopCharacterDirect,
     removeDesktopCharacter: removeDesktopCharacterDirect,
-    captureScreenshot: captureScreenshotDirect,
+    captureScreenshot: (withChars: boolean, displayIndex?: number) => captureScreenshotDirect(withChars, displayIndex),
     getConversationList: getConversationListDirect,
     loadConversation: loadConversationDirect,
     getScenes: getScenesDirect,

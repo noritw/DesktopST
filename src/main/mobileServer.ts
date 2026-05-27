@@ -19,7 +19,7 @@ export interface MobileBridge {
   sendMessage: (payload: { content: string; randomResult?: RandomResult }) => Promise<void>
   addDesktopCharacter: (characterId: string) => Promise<boolean>
   removeDesktopCharacter: (characterId: string) => boolean
-  captureScreenshot: (withChars: boolean) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
+  captureScreenshot: (withChars: boolean, displayIndex?: number) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
   getConversationList: () => { id: string; title: string; updatedAt: number; active: boolean }[]
   loadConversation: (id: string) => boolean
   getScenes: () => import('./types').ScenePreset[]
@@ -366,10 +366,15 @@ async function handleRequest(
     return
   }
 
-  // ── GET /api/screenshot/clean ──
-  if (method === 'GET' && url === '/api/screenshot/clean') {
+  // ── GET /api/screenshot/clean|with-chars ──
+  if (method === 'GET' && (url.startsWith('/api/screenshot/clean') || url.startsWith('/api/screenshot/with-chars'))) {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-    const result = await bridge.captureScreenshot(false)
+    const qIdx = url.indexOf('?')
+    const urlPath = qIdx >= 0 ? url.slice(0, qIdx) : url
+    const qs = qIdx >= 0 ? new URLSearchParams(url.slice(qIdx + 1)) : new URLSearchParams()
+    const displayIndex = parseInt(qs.get('displayIndex') ?? '0') || 0
+    const withChars = urlPath === '/api/screenshot/with-chars'
+    const result = await bridge.captureScreenshot(withChars, displayIndex)
     if (!result.ok || !result.dataUrl) { jsonError(res, 500, result.error ?? 'Screenshot failed'); return }
     const [header, b64] = result.dataUrl.split(',')
     const mime = header.replace('data:', '').replace(';base64', '')
@@ -378,15 +383,85 @@ async function handleRequest(
     return
   }
 
-  // ── GET /api/screenshot/with-chars ──
-  if (method === 'GET' && url === '/api/screenshot/with-chars') {
-    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-    const result = await bridge.captureScreenshot(true)
-    if (!result.ok || !result.dataUrl) { jsonError(res, 500, result.error ?? 'Screenshot failed'); return }
-    const [header, b64] = result.dataUrl.split(',')
-    const mime = header.replace('data:', '').replace(';base64', '')
-    res.writeHead(200, { 'Content-Type': mime })
-    res.end(Buffer.from(b64, 'base64'))
+  // ── GET /api/displays ──
+  if (method === 'GET' && url === '/api/displays') {
+    const { screen: s } = await import('electron')
+    const displays = s.getAllDisplays()
+    const primary = s.getPrimaryDisplay()
+    jsonOk(res, displays.map((d, i) => ({
+      index: i,
+      label: `螢幕 ${i + 1}${d.id === primary.id ? '（主）' : ''}`,
+      isPrimary: d.id === primary.id,
+      bounds: d.bounds,
+      size: d.size
+    })))
+    return
+  }
+
+  // ── GET /api/windows ──
+  if (method === 'GET' && url === '/api/windows') {
+    const { exec } = await import('child_process')
+    const { screen: s } = await import('electron')
+    const script = [
+      '$OutputEncoding=[Text.Encoding]::UTF8;[Console]::OutputEncoding=[Text.Encoding]::UTF8',
+      'Add-Type -TypeDefinition \'using System;using System.Runtime.InteropServices;public class WH{[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out RECT r);[StructLayout(LayoutKind.Sequential)]public struct RECT{public int L,T,R,B;}}\'',
+      '$w=Get-Process|?{$_.MainWindowHandle-ne 0-and $_.MainWindowTitle-ne \'\'}|%{$hwnd=$_.MainWindowHandle;$r=New-Object WH+RECT;[WH]::GetWindowRect($hwnd,[ref]$r)|Out-Null;[pscustomobject]@{hwnd=$hwnd.ToInt64();title=$_.MainWindowTitle;proc=$_.ProcessName;x=$r.L;y=$r.T;w=$r.R-$r.L;h=$r.B-$r.T}}',
+      'if($w){$w|ConvertTo-Json -Compress -Depth 1}else{\'[]\'}'
+    ].join(';')
+    const raw = await new Promise<string>((resolve) => {
+      exec(`powershell -NoProfile -NonInteractive -Command "${script}"`, { encoding: 'utf8', timeout: 6000 }, (err, stdout) => {
+        resolve(err ? '[]' : stdout.trim())
+      })
+    })
+    try {
+      const arr = JSON.parse(raw)
+      const wins = (Array.isArray(arr) ? arr : [arr]).filter(w => w?.title)
+      const displays = s.getAllDisplays()
+      const result = wins.map(w => {
+        const cx = (w.x ?? 0) + (w.w ?? 0) / 2
+        const cy = (w.y ?? 0) + (w.h ?? 0) / 2
+        const di = displays.findIndex(d =>
+          cx >= d.bounds.x && cx < d.bounds.x + d.bounds.width &&
+          cy >= d.bounds.y && cy < d.bounds.y + d.bounds.height
+        )
+        return { hwnd: w.hwnd, title: w.title, proc: w.proc, displayIndex: di >= 0 ? di : 0 }
+      })
+      jsonOk(res, result)
+    } catch { jsonOk(res, []) }
+    return
+  }
+
+  // ── POST /api/focus-window ──
+  if (method === 'POST' && url === '/api/focus-window') {
+    const body = await readBody(req)
+    let payload: { hwnd?: number }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.hwnd) { jsonError(res, 400, 'hwnd required'); return }
+    const { exec } = await import('child_process')
+    const { screen: s } = await import('electron')
+    const hwnd = Number(payload.hwnd)
+    const script = [
+      'Add-Type -TypeDefinition \'using System;using System.Runtime.InteropServices;public class WA{[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr h,int c);[DllImport("user32.dll")]public static extern bool SetForegroundWindow(IntPtr h);[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out RECT r);[StructLayout(LayoutKind.Sequential)]public struct RECT{public int L,T,R,B;}}\'',
+      `$hwnd=[IntPtr]::new(${hwnd})`,
+      '[WA]::ShowWindow($hwnd,9)|Out-Null',
+      '[WA]::SetForegroundWindow($hwnd)|Out-Null',
+      '$r=New-Object WA+RECT;[WA]::GetWindowRect($hwnd,[ref]$r)|Out-Null',
+      'Write-Output "$($r.L),$($r.T)"'
+    ].join(';')
+    const out = await new Promise<string>((resolve) => {
+      exec(`powershell -NoProfile -NonInteractive -Command "${script}"`, { encoding: 'utf8', timeout: 4000 }, (err, stdout) => {
+        resolve(err ? '' : stdout.trim())
+      })
+    })
+    const parts = out.split(',')
+    const winX = parseInt(parts[0]) || 0
+    const winY = parseInt(parts[1]) || 0
+    const displays = s.getAllDisplays()
+    const di = displays.findIndex(d =>
+      winX >= d.bounds.x && winX < d.bounds.x + d.bounds.width &&
+      winY >= d.bounds.y && winY < d.bounds.y + d.bounds.height
+    )
+    jsonOk(res, { ok: true, displayIndex: di >= 0 ? di : 0 })
     return
   }
 

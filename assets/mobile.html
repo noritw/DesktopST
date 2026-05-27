@@ -58,13 +58,43 @@
   #pc-menu { display: none; position: absolute; top: 42px; right: 0;
     background: var(--surface); border: 1px solid var(--border);
     border-radius: var(--radius-sm); box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-    min-width: 160px; padding: 4px; z-index: 300; }
+    min-width: 175px; padding: 4px; z-index: 300; }
   #pc-menu.visible { display: block; }
   .pc-menu-item { display: block; width: 100%; text-align: left;
     background: none; border: none; padding: 9px 12px; border-radius: 8px;
     font-size: 14px; color: var(--text); cursor: pointer; font-family: inherit;
     -webkit-tap-highlight-color: transparent; white-space: nowrap; }
   .pc-menu-item:active { background: var(--mint); }
+  .pc-menu-info { padding: 7px 12px 4px; font-size: 12px; color: var(--text-sub); white-space: nowrap; }
+  .pc-menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
+
+  /* ── PC windows/displays sheet ── */
+  #pc-sheet-overlay { display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.25); z-index: 400; align-items: flex-end; }
+  #pc-sheet-overlay.visible { display: flex; }
+  #pc-sheet { width: 100%; background: var(--surface); border-radius: var(--radius) var(--radius) 0 0;
+    display: flex; flex-direction: column; max-height: 70dvh; }
+  #pc-sheet-header { padding: 14px 16px 0; display: flex; align-items: center;
+    justify-content: space-between; flex-shrink: 0; }
+  #pc-sheet-title { font-size: 15px; font-weight: 600; }
+  #pc-sheet-close { background: none; border: none; font-size: 20px; cursor: pointer;
+    color: var(--text-sub); padding: 0 4px; }
+  #pc-sheet-body { overflow-y: auto; flex: 1; padding: 8px 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+  #pc-sheet-loading { text-align: center; padding: 24px; color: var(--text-sub); font-size: 14px; }
+  .pc-win-item { display: flex; flex-direction: column; padding: 10px 8px;
+    border-bottom: 1px solid var(--border); cursor: pointer; border-radius: 8px;
+    -webkit-tap-highlight-color: transparent; }
+  .pc-win-item:active { background: var(--mint); }
+  .pc-win-title { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pc-win-proc { font-size: 11px; color: var(--text-sub); margin-top: 2px; }
+  .pc-disp-item { display: flex; align-items: center; padding: 12px 8px;
+    border-bottom: 1px solid var(--border); cursor: pointer; border-radius: 8px; gap: 10px;
+    -webkit-tap-highlight-color: transparent; }
+  .pc-disp-item:active { background: var(--mint); }
+  .pc-disp-item.selected { background: var(--mint); }
+  .pc-disp-label { font-size: 14px; flex: 1; }
+  .pc-disp-check { font-size: 16px; }
 
   /* ── Chat ── */
   #chat { flex: 1; overflow-y: auto; padding: 12px 12px 4px;
@@ -224,8 +254,13 @@
     <div id="pc-menu-wrap">
       <button class="icon-btn" id="pc-btn" title="電腦操作">🖥️</button>
       <div id="pc-menu">
+        <div class="pc-menu-info" id="pc-display-info" style="display:none">觀看中：<strong id="pc-display-label">螢幕 1</strong></div>
+        <div class="pc-menu-sep" id="pc-display-sep" style="display:none"></div>
         <button class="pc-menu-item" data-act="ss-chars">🖼️ 含角色截圖</button>
-        <button class="pc-menu-item" data-act="ss-clean">📷 隱藏程式截圖</button>
+        <button class="pc-menu-item" data-act="ss-clean">📷 不含角色截圖</button>
+        <div class="pc-menu-sep"></div>
+        <button class="pc-menu-item" id="pc-switch-display-btn" data-act="switch-display" style="display:none">🖥️ 切換螢幕</button>
+        <button class="pc-menu-item" data-act="switch-window">🪟 切換視窗</button>
       </div>
     </div>
   </div>
@@ -326,6 +361,19 @@
   <div id="ss-toolbar">
     <button class="ss-btn" id="ss-add-btn">加入對話</button>
     <button class="ss-btn" id="ss-close-btn">關閉</button>
+  </div>
+</div>
+
+<!-- ── PC 視窗/螢幕選擇 sheet ── -->
+<div id="pc-sheet-overlay">
+  <div id="pc-sheet">
+    <div id="pc-sheet-header">
+      <span id="pc-sheet-title">切換視窗</span>
+      <button id="pc-sheet-close">✕</button>
+    </div>
+    <div id="pc-sheet-body">
+      <div id="pc-sheet-loading">載入中…</div>
+    </div>
   </div>
 </div>
 
@@ -953,20 +1001,119 @@
     $ssImg.style.transform = 'translate(' + ssTx + 'px,' + ssTy + 'px) scale(' + ssScale + ')';
   }
 
+  // ── 觀看中螢幕狀態 ──
+  let currentDisplayIndex = 0;
+  let displaysCache = [];
+
+  async function initDisplays() {
+    try {
+      const r = await fetch('/api/displays');
+      if (!r.ok) return;
+      displaysCache = await r.json();
+      if (displaysCache.length > 1) {
+        document.getElementById('pc-display-info').style.display = '';
+        document.getElementById('pc-display-sep').style.display = '';
+        document.getElementById('pc-switch-display-btn').style.display = '';
+        updateDisplayLabel();
+      }
+    } catch {}
+  }
+
+  function updateDisplayLabel() {
+    const d = displaysCache[currentDisplayIndex];
+    document.getElementById('pc-display-label').textContent = d ? d.label : `螢幕 ${currentDisplayIndex + 1}`;
+  }
+
+  function setCurrentDisplay(index) {
+    currentDisplayIndex = index;
+    updateDisplayLabel();
+  }
+
   async function takeScreenshot(withChars) {
     showToast('截圖中…');
     try {
-      const r = await fetch(withChars ? '/api/screenshot/with-chars' : '/api/screenshot/clean');
+      const endpoint = withChars ? '/api/screenshot/with-chars' : '/api/screenshot/clean';
+      const r = await fetch(`${endpoint}?displayIndex=${currentDisplayIndex}`);
       if (!r.ok) { showToast('截圖失敗'); return; }
       const blob = await r.blob();
       if (currentSsDataUrl) URL.revokeObjectURL(currentSsDataUrl);
       currentSsDataUrl = URL.createObjectURL(blob);
-      // New screenshot → reset transform
       ssScale = 1; ssTx = 0; ssTy = 0;
       applySSTransform(false);
       $ssImg.src = currentSsDataUrl;
       $ssOverlay.classList.add('visible');
     } catch { showToast('截圖失敗'); }
+  }
+
+  // ── PC sheet (視窗/螢幕選擇) ──
+  const $pcSheetOverlay = document.getElementById('pc-sheet-overlay');
+  const $pcSheetTitle   = document.getElementById('pc-sheet-title');
+  const $pcSheetBody    = document.getElementById('pc-sheet-body');
+  document.getElementById('pc-sheet-close').addEventListener('click', () => {
+    $pcSheetOverlay.classList.remove('visible');
+  });
+  $pcSheetOverlay.addEventListener('click', (e) => {
+    if (e.target === $pcSheetOverlay) $pcSheetOverlay.classList.remove('visible');
+  });
+
+  function openDisplaysSheet() {
+    $pcSheetTitle.textContent = '選擇觀看螢幕';
+    $pcSheetBody.innerHTML = '';
+    displaysCache.forEach((d, i) => {
+      const el = document.createElement('div');
+      el.className = 'pc-disp-item' + (i === currentDisplayIndex ? ' selected' : '');
+      el.innerHTML = `<span class="pc-disp-label">${d.label}</span><span class="pc-disp-check">${i === currentDisplayIndex ? '✓' : ''}</span>`;
+      el.addEventListener('click', () => {
+        setCurrentDisplay(i);
+        $pcSheetOverlay.classList.remove('visible');
+        showToast(`觀看中：${d.label}`);
+      });
+      $pcSheetBody.appendChild(el);
+    });
+    $pcSheetOverlay.classList.add('visible');
+  }
+
+  async function openWindowsSheet() {
+    $pcSheetTitle.textContent = '切換視窗';
+    $pcSheetBody.innerHTML = '<div id="pc-sheet-loading">載入中…</div>';
+    $pcSheetOverlay.classList.add('visible');
+    try {
+      const r = await fetch('/api/windows');
+      const wins = r.ok ? await r.json() : [];
+      $pcSheetBody.innerHTML = '';
+      if (!wins.length) {
+        $pcSheetBody.innerHTML = '<div id="pc-sheet-loading">找不到開啟中的視窗</div>';
+        return;
+      }
+      wins.forEach(w => {
+        const el = document.createElement('div');
+        el.className = 'pc-win-item';
+        const dispLabel = displaysCache[w.displayIndex] ? displaysCache[w.displayIndex].label : `螢幕 ${w.displayIndex + 1}`;
+        el.innerHTML = `<span class="pc-win-title">${w.title}</span><span class="pc-win-proc">${w.proc}${displaysCache.length > 1 ? ' · ' + dispLabel : ''}</span>`;
+        el.addEventListener('click', async () => {
+          $pcSheetOverlay.classList.remove('visible');
+          showToast('切換中…');
+          try {
+            const res = await fetch('/api/focus-window', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ hwnd: w.hwnd })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              setCurrentDisplay(data.displayIndex ?? 0);
+              const label = displaysCache[currentDisplayIndex]?.label ?? `螢幕 ${currentDisplayIndex + 1}`;
+              showToast(`已切換 · 觀看中：${label}`);
+            } else {
+              showToast('切換失敗');
+            }
+          } catch { showToast('切換失敗'); }
+        });
+        $pcSheetBody.appendChild(el);
+      });
+    } catch {
+      $pcSheetBody.innerHTML = '<div id="pc-sheet-loading">載入失敗</div>';
+    }
   }
 
   const $pcMenu = document.getElementById('pc-menu');
@@ -985,8 +1132,12 @@
       closePcMenu();
       if (act === 'ss-clean') takeScreenshot(false);
       else if (act === 'ss-chars') takeScreenshot(true);
+      else if (act === 'switch-display') openDisplaysSheet();
+      else if (act === 'switch-window') openWindowsSheet();
     });
   });
+
+  initDisplays();
 
   document.getElementById('ss-close-btn').addEventListener('click', () => $ssOverlay.classList.remove('visible'));
 

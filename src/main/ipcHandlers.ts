@@ -539,11 +539,11 @@ export function removeDesktopCharacterDirect(characterId: string): boolean {
   return true
 }
 
-export async function captureScreenshotDirect(withChars: boolean): Promise<{ ok: boolean; dataUrl?: string; error?: string }> {
+export async function captureScreenshotDirect(withChars: boolean, displayIndex?: number): Promise<{ ok: boolean; dataUrl?: string; error?: string }> {
   const hideInput = !(settings.ui.screenshotIncludeInputWindow ?? false)
   const info = withChars
-    ? prepareScreenshotKeepingDesktopST(hideInput)
-    : hideAllWindowsForScreenshot()
+    ? prepareScreenshotKeepingDesktopST(hideInput, displayIndex)
+    : hideAllWindowsForScreenshot(displayIndex)
   await new Promise(resolve => setTimeout(resolve, 300))
   try {
     const all = await desktopCapturer.getSources({
