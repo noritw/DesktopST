@@ -48,16 +48,17 @@
 
 ### TRPG 擴充包
 
-專為單人桌遊 / TRPG 玩家設計的角色包，可搭配內建擲骰系統使用。
+專為單人桌遊 / TRPG 玩家設計的角色包，可搭配內建擲骰系統（D&D 風格骰子）使用。
 
 內含：
-- **GM 織**：負責說書、規則引導、劇情推進的主持人角色
+- **GM 織**：說書人與規則引導者，負責描述場景、推進劇情、裁定規則
 - **星離宸（冒險者版）**、**琉緋璃（冒險者版）**：改編自主線角色的冒險版同伴
-- 預設好的 TRPG 用 Persona 與世界觀設定，匯入即可開始遊玩
+- 預設好的 TRPG 用 Persona 與世界觀設定
 
-在程式設定內匯入 `.dstpack` 檔案即可，不影響原有角色。
+匯入後需將角色擺上桌面、切換 Persona 與世界觀預設，再與 GM 織開啟對話展開冒險。  
+在程式設定 → 資料分頁匯入 `.dstpack` 檔案即可，不影響原有角色。
 
-[⬇ 下載 TRPG 擴充包](https://github.com/noritw/DesktopST/releases/latest/download/DesktopST_TRPGPack.dstpack)
+[⬇ 下載 TRPG 擴充包](https://github.com/noritw/DesktopST/releases/download/trpg-pack/DesktopST_TRPGPack.dstpack)
 
 ---
 
