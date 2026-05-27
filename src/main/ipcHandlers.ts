@@ -20,6 +20,9 @@ import {
   geocodeCity, detectLocationByIP, fetchWeather, getCachedWeatherData,
   getWeatherContextString, invalidateWeatherCache
 } from './weatherService'
+import {
+  buildAuthUrl, handleAuthCallback, clearAuthFile, isAuthenticated, getSpotifyContextString
+} from './spotifyService'
 import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
@@ -29,7 +32,7 @@ import {
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
   hideSpeechBubble, persistSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition,
   showUserSpeechBubble, hideUserSpeechBubble, updateUserSpeechBubbleSize,
-  reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects, updateSpriteActualHeight,
+  reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects, setCharacterInteractable, updateSpriteActualHeight,
   beginCharacterDrag, moveDraggedCharacter, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
   setUnfocusedBubbleOpacity, setCharactersAlwaysOnTop, getCharactersAlwaysOnTop, setCharacterAlwaysOnTop,
   createCharacterLibraryWindow,
@@ -38,6 +41,7 @@ import {
   createPinnedNoteWindow, updatePinnedNoteContent, updatePinnedNoteColor, closePinnedNote, getPinnedNoteWindow, getPinnedNoteWindowState,
   openPinnedNotesManager, closePinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
   openRemindersManager, closeRemindersManager,
+  openSpotifySettingsWindow, closeSpotifySettingsWindow,
   hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu,
   createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow,
   createRandomToolsWindow, closeRandomToolsWindow,
@@ -1171,6 +1175,31 @@ export function applySceneById(id: string): { ok: true } | { error: string } {
   return { ok: true }
 }
 
+export async function handleSpotifyProtocolUrl(url: string): Promise<void> {
+  try {
+    const parsed = new URL(url)
+    if (parsed.hostname !== 'spotify-callback') return
+    const code = parsed.searchParams.get('code')
+    const error = parsed.searchParams.get('error')
+    if (error || !code) {
+      broadcastToAll('spotify:auth-error', error ?? '授權失敗')
+      return
+    }
+    const result = await handleAuthCallback(code)
+    if (result.ok) {
+      if (!settings.spotify) settings.spotify = { enabled: true, clientId: '' }
+      settings.spotify.displayName = result.displayName
+      settings.spotify.enabled = true
+      fileStore.saveSettings(settings)
+      broadcastToAll('settings:updated', settings)
+    } else {
+      broadcastToAll('spotify:auth-error', result.error ?? '授權失敗')
+    }
+  } catch (e) {
+    console.error('[Spotify] protocol url error:', e)
+  }
+}
+
 export function registerIpcHandlers() {
 
   // Store: get initial snapshot for any renderer
@@ -1301,6 +1330,41 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('weather:get-cache', () => getCachedWeatherData())
+
+  // Spotify
+  ipcMain.handle('spotify:open-settings', () => {
+    openSpotifySettingsWindow()
+  })
+
+  ipcMain.handle('spotify:close-settings', () => {
+    closeSpotifySettingsWindow()
+  })
+
+  ipcMain.handle('spotify:start-auth', async (_, clientId: string) => {
+    const trimmed = clientId.trim()
+    if (!trimmed) return { ok: false, error: '請輸入 Client ID' }
+    settings.spotify = { ...(settings.spotify ?? { enabled: false }), clientId: trimmed }
+    fileStore.saveSettings(settings)
+    const url = buildAuthUrl(trimmed)
+    shell.openExternal(url)
+    return { ok: true }
+  })
+
+  ipcMain.handle('spotify:disconnect', () => {
+    clearAuthFile()
+    if (settings.spotify) {
+      settings.spotify = { ...settings.spotify, enabled: false, displayName: undefined }
+      fileStore.saveSettings(settings)
+      broadcastToAll('settings:updated', settings)
+    }
+    return { ok: true }
+  })
+
+  ipcMain.handle('spotify:get-status', () => ({
+    connected: isAuthenticated(),
+    displayName: settings.spotify?.displayName,
+    enabled: settings.spotify?.enabled ?? false
+  }))
 
   // Characters
   ipcMain.handle('characters:list', () => characters)
@@ -1820,6 +1884,10 @@ export function registerIpcHandlers() {
     setCharacterHitRects(characterId, rects)
   })
 
+  ipcMain.on('desktop:set-interactable', (_, characterId: string, isInteractable: boolean) => {
+    setCharacterInteractable(characterId, isInteractable)
+  })
+
   ipcMain.on('desktop:update-sprite-height', (_, characterId: string, h: number) => {
     updateSpriteActualHeight(characterId, h)
   })
@@ -2209,8 +2277,11 @@ export function registerIpcHandlers() {
     const recentMessagesBase = [...conv.messages.slice(0, -1), userMsgForPrompt].slice(-(settings.memory.keepRecentN))
     let lastReplyText = ''
 
-    // Pre-fetch weather context once for this message (shared across all responders)
+    // Pre-fetch weather + spotify context once for this message (shared across all responders)
     const weatherContext = settings.weather?.enabled ? await getWeatherContextString(settings) : null
+    const spotifyContext = settings.spotify?.enabled ? await getSpotifyContextString(settings) : null
+    const extraContextParts = [weatherContext, spotifyContext].filter(Boolean) as string[]
+    const combinedExtraContext = extraContextParts.length > 0 ? extraContextParts.join('\n\n') : null
 
     // Emotion split: use utility model to classify if utilityEnabled + character has custom sprites
     const primaryHasCustomSprites = Object.values(primaryChar.emotions ?? {}).some(p => p?.trim())
@@ -2227,7 +2298,7 @@ export function registerIpcHandlers() {
         persona: activePersona,
         world: activeWorld,
         desktopCharacterNames,
-        extraSystemContext: weatherContext ?? undefined,
+        extraSystemContext: combinedExtraContext ?? undefined,
         splitEmotion: doSplitEmotion
       })
       const primaryReply = stripOtherCharacterSpeakerLines(
@@ -2346,7 +2417,7 @@ export function registerIpcHandlers() {
           persona: activePersona,
           world: activeWorld,
           desktopCharacterNames,
-          extraSystemContext: weatherContext ?? undefined,
+          extraSystemContext: combinedExtraContext ?? undefined,
           splitEmotion: doSplitEmotionSec
         })
         const cleanReply = stripOtherCharacterSpeakerLines(
@@ -2462,6 +2533,10 @@ export function registerIpcHandlers() {
     if (settings.weather?.enabled) {
       const weatherStr = await getWeatherContextString(settings)
       if (weatherStr) ctxParts.push(weatherStr)
+    }
+    if (settings.spotify?.enabled) {
+      const spotifyStr = await getSpotifyContextString(settings)
+      if (spotifyStr) ctxParts.push(spotifyStr)
     }
     const extraSystemContext = ctxParts.join('\n\n') || undefined
 

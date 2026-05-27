@@ -140,7 +140,7 @@ export async function fetchWeather(lat: number, lon: number, locationName: strin
 }
 
 export function buildWeatherTemplate(locationName: string, data: WeatherData): string {
-  return `[使用者所在地天氣]\n${locationName}：${data.description}，氣溫 ${data.temperatureC}°C，濕度 ${data.humidity}%，風速 ${data.windSpeed} m/s`
+  return `[Weather]\n${locationName}：${data.description}，氣溫 ${data.temperatureC}°C，濕度 ${data.humidity}%，風速 ${data.windSpeed} m/s`
 }
 
 export async function polishWeatherDescription(locationName: string, data: WeatherData, settings: AppSettings): Promise<string> {
@@ -168,7 +168,7 @@ export async function polishWeatherDescription(locationName: string, data: Weath
     })
     const polished = content.trim()
     if (!polished) throw new Error('empty')
-    return `[使用者所在地天氣]\n${polished}`
+    return `[Weather]\n${polished}`
   } catch {
     return buildWeatherTemplate(locationName, data)
   }

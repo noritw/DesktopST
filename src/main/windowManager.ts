@@ -218,6 +218,8 @@ const BUBBLE_USER_OFFSET_DEFAULT: Readonly<{ x: number; y: number }> = { x: 0, y
 
 type ScreenRect = { x: number; y: number; w: number; h: number }
 const hitRects = new Map<string, { sprite: ScreenRect | null; buttons: ScreenRect | null }>()
+/** Renderer 回報「游標是否真的在不透明區域」；取代 sprite bounding-box 判斷 */
+const characterInteractableState = new Map<string, boolean>()
 const draggingCharacters = new Set<string>()
 let activeDraggingCharacterId: string | null = null
 /** 拖曳桌面角色時暫時 hide 的其他角色對白（僅 hide 視窗，不改 renderer 狀態） */
@@ -404,7 +406,14 @@ function ensureHitTestLoop(): void {
         // Never click-through while dragging: mouseup must always reach the renderer.
         const dragging = draggingCharacters.has(characterId)
         const rects = hitRects.get(characterId)
-        const inside = dragging || (!!rects && (pointInRect(cursor, rects.sprite) || pointInRect(cursor, rects.buttons)))
+        const onButtons = !!rects?.buttons && pointInRect(cursor, rects.buttons)
+        const inSpriteBounds = !!rects?.sprite && pointInRect(cursor, rects.sprite)
+        // Use renderer-reported pixel-level opacity instead of bounding box.
+        // This allows clicks to pass through to characters behind transparent areas.
+        // Fall back to allowing (true) when renderer hasn't reported yet so it can
+        // receive the first mousemove and report back.
+        const rendererInteractable = characterInteractableState.get(characterId)
+        const inside = dragging || onButtons || (inSpriteBounds && (rendererInteractable ?? true))
         shouldIgnore = !inside
       }
       if (lastIgnoreMouseState.get(characterId) !== shouldIgnore) {
@@ -470,6 +479,7 @@ export function createCharacterWindow(
   win.on('closed', () => {
     characterWindows.delete(characterId)
     hitRects.delete(characterId)
+    characterInteractableState.delete(characterId)
     lastIgnoreMouseState.delete(characterId)
     maybeStopHitTestLoop()
   })
@@ -574,6 +584,10 @@ export function setCharacterWindowClickThrough(characterId: string, clickThrough
   // forward: even when ignoring, still forward mouse move for hover effects where supported
   win.setIgnoreMouseEvents(clickThrough, { forward: true })
   return true
+}
+
+export function setCharacterInteractable(characterId: string, isInteractable: boolean): void {
+  characterInteractableState.set(characterId, isInteractable)
 }
 
 export function setCharacterHitRects(
@@ -749,6 +763,7 @@ export function destroyAllCharacterWindows(): void {
   for (const [id, win] of [...characterWindows]) {
     characterWindows.delete(id)
     hitRects.delete(id)
+    characterInteractableState.delete(id)
     lastIgnoreMouseState.delete(id)
     scaleModeAnchorFeet.delete(id)
     bubbleHiddenForCharacterDrag.delete(id)
@@ -2411,6 +2426,62 @@ export function restoreAuxWindowsFromSnapshot(entries: VisibleAuxWindowSnapshotE
   if (lastFocusable && !lastFocusable.isDestroyed()) {
     lastFocusable.moveTop()
     if (lastFocusable.isFocusable()) lastFocusable.focus()
+  }
+}
+
+// ── Spotify settings window ───────────────────────────────
+
+let spotifySettingsWindow: BrowserWindow | null = null
+
+export function openSpotifySettingsWindow(): BrowserWindow {
+  if (spotifySettingsWindow && !spotifySettingsWindow.isDestroyed()) {
+    spotifySettingsWindow.show()
+    spotifySettingsWindow.focus()
+    spotifySettingsWindow.moveTop()
+    return spotifySettingsWindow
+  }
+
+  const wa = screen.getPrimaryDisplay().workArea
+  const w = 400, h = 460
+  spotifySettingsWindow = new BrowserWindow({
+    x: Math.round(wa.x + (wa.width - w) / 2),
+    y: Math.round(wa.y + (wa.height - h) / 2),
+    width: w,
+    height: h,
+    frame: false,
+    transparent: false,
+    backgroundColor: '#F7FFFC',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  spotifySettingsWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  if (VITE_DEV_SERVER_URL) {
+    spotifySettingsWindow.loadURL(makeURL({ w: 'spotify-settings' }))
+  } else {
+    spotifySettingsWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: { w: 'spotify-settings' }
+    })
+  }
+  if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
+    spotifySettingsWindow.webContents.openDevTools({ mode: 'detach' })
+  }
+  spotifySettingsWindow.on('closed', () => { spotifySettingsWindow = null })
+  spotifySettingsWindow.show()
+  raiseAuxAboveCharacters()
+  spotifySettingsWindow.moveTop()
+  spotifySettingsWindow.focus()
+  return spotifySettingsWindow
+}
+
+export function closeSpotifySettingsWindow(): void {
+  if (spotifySettingsWindow && !spotifySettingsWindow.isDestroyed()) {
+    spotifySettingsWindow.close()
   }
 }
 

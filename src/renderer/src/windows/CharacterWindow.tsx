@@ -87,6 +87,7 @@ export default function CharacterWindow({ characterId }: Props) {
   const [flipDraft, setFlipDraft] = useState(flipped)
   const [overrideEmotion, setOverrideEmotion] = useState<string | null>(null)
 
+  const prevInteractableRef = useRef<boolean>(false)
   const interactiveRef = useRef<HTMLDivElement>(null)
   const menuPinnedRef = useRef(menuPinned)
   useEffect(() => { menuPinnedRef.current = menuPinned }, [menuPinned])
@@ -156,6 +157,16 @@ export default function CharacterWindow({ characterId }: Props) {
       setHovered(true)
     }
   }, [spriteOpaque])
+
+  // 將像素層級的互動狀態回報給 main process，取代 bounding-box 判斷
+  // 讓前方角色的透明區域可以正確穿透到後方角色
+  useEffect(() => {
+    const isInteractable = spriteOpaque || hovered || scaleMode
+    if (isInteractable !== prevInteractableRef.current) {
+      prevInteractableRef.current = isInteractable
+      window.api.send('desktop:set-interactable', characterId, isInteractable)
+    }
+  }, [characterId, spriteOpaque, hovered, scaleMode])
   useEffect(() => {
     if (!scaleMode) {
       setScaleDraft(size)

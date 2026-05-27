@@ -1630,6 +1630,37 @@ export default function SettingsWindow() {
                 )}
               </label>
             </div>
+
+            {/* Spotify 設定 */}
+            <div className="border-t border-border pt-3 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={draft.spotify?.enabled ?? false}
+                  onChange={e => set('spotify.enabled', e.target.checked)}
+                  disabled={!draft.spotify?.displayName}
+                  className="accent-teal w-4 h-4 disabled:opacity-40"
+                />
+                <span className={`text-sm ${draft.spotify?.displayName ? 'text-primary' : 'text-secondary'}`}>
+                  對話中自動帶入 Spotify 播放資訊
+                </span>
+                {!draft.spotify?.displayName && (
+                  <span className="text-[11px] text-secondary">（請先連結帳號）</span>
+                )}
+              </label>
+              {draft.spotify?.displayName && (
+                <p className="text-xs text-secondary">
+                  已連結：<span className="text-primary font-medium">{draft.spotify.displayName}</span>
+                </p>
+              )}
+              <button
+                type="button"
+                className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary hover:bg-teal transition-all"
+                onClick={() => window.api.invoke('spotify:open-settings')}
+              >
+                Spotify 帳號設定
+              </button>
+            </div>
           </>
         )}
 

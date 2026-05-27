@@ -84,6 +84,12 @@ export type ReminderSchedule =
   | { type: 'weekly'; days: number[]; hour: number; minute: number }
   | { type: 'interval'; intervalMs: number }
 
+export interface SpotifySettings {
+  enabled: boolean
+  clientId: string
+  displayName?: string
+}
+
 export interface WeatherSettings {
   enabled: boolean
   polish: boolean
@@ -168,6 +174,7 @@ export interface AppSettings {
   activeSceneId?: string
   injectSystemTime: boolean
   weather?: WeatherSettings
+  spotify?: SpotifySettings
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok'
     /** @deprecated use apiKeys[provider] instead */

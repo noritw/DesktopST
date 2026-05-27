@@ -3,7 +3,7 @@ import { attachDevToolsShortcuts, isDevToolsAllowed } from './devTools'
 import * as path from 'path'
 import * as fs from 'fs'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, triggerReminderSpeak, applySceneById } from './ipcHandlers'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import {
@@ -149,6 +149,27 @@ function repairDesktopCharacterLayout(desktopCharacters: DesktopCharacterState[]
   return changed
 }
 
+// ── Single-instance lock + protocol handler ───────────────
+
+// Dev mode needs explicit main-script path so the second instance can start
+// correctly before hitting requestSingleInstanceLock and quitting
+if (app.isPackaged) {
+  app.setAsDefaultProtocolClient('desktopst')
+} else {
+  app.setAsDefaultProtocolClient('desktopst', process.execPath, [
+    path.resolve(process.argv[1] ?? '.')
+  ])
+}
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, commandLine) => {
+    const url = commandLine.find(arg => arg.startsWith('desktopst://'))
+    if (url) handleSpotifyProtocolUrl(url)
+  })
+}
+
 // ── App lifecycle ─────────────────────────────────────────
 
 app.on('ready', async () => {
@@ -157,6 +178,10 @@ app.on('ready', async () => {
     const raw = request.url.slice('local://'.length)
     callback({ path: decodeURIComponent(raw) })
   })
+
+  // Handle protocol URL passed at startup (app wasn't running when redirect happened)
+  const startupProtocolUrl = process.argv.find(arg => arg.startsWith('desktopst://'))
+  if (startupProtocolUrl) handleSpotifyProtocolUrl(startupProtocolUrl)
 
   const appRoot = app.isPackaged
     ? path.dirname(app.getPath('exe'))

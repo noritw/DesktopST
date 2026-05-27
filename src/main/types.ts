@@ -125,6 +125,12 @@ export interface WeatherSettings {
   locationSource: 'ip' | 'manual' | ''
 }
 
+export interface SpotifySettings {
+  enabled: boolean
+  clientId: string
+  displayName?: string
+}
+
 export type OmikujiTier = '大吉' | '中吉' | '小吉' | '吉' | '末吉' | '凶' | '大凶'
 
 export type RandomResult =
@@ -148,6 +154,7 @@ export interface AppSettings {
   activeSceneId?: string
   injectSystemTime: boolean
   weather?: WeatherSettings
+  spotify?: SpotifySettings
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok'
     /** @deprecated use apiKeys[provider] instead; kept for migration */
