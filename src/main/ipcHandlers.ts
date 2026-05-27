@@ -24,6 +24,7 @@ import {
   buildAuthUrl, handleAuthCallback, clearAuthFile, isAuthenticated, getSpotifyContextString
 } from './spotifyService'
 import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
+import { pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
   resizeCharacterWindow, getCharacterWindowSize, enterCharacterScaleMode, exitCharacterScaleMode, enterScaleModeWindow,
@@ -42,6 +43,7 @@ import {
   openPinnedNotesManager, closePinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
   openRemindersManager, closeRemindersManager,
   openSpotifySettingsWindow, closeSpotifySettingsWindow,
+  openQRCodeWindow,
   hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu,
   createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow,
   createRandomToolsWindow, closeRandomToolsWindow,
@@ -469,6 +471,207 @@ function cleanupOldAvatarFiles(dir: string, keepPath: string): void {
 }
 
 export function getSettings(): AppSettings { return settings }
+
+// ── Mobile bridge exports ─────────────────────────────────
+
+export function getCharacters(): Character[] { return characters }
+
+export function getActiveConversationForMobile(): { id: string; participantIds: string[]; messages: Message[] } | null {
+  const conv = getActiveConversation()
+  if (!conv) return null
+  return {
+    id: conv.id,
+    participantIds: conv.participantIds,
+    messages: conv.messages.slice(-50)
+  }
+}
+
+/** Mobile server が message を受け取ったときに呼ぶコールバック */
+let mobileMessageListener: ((msg: Message) => void) | null = null
+export function setMobileMessageListener(fn: ((msg: Message) => void) | null): void {
+  mobileMessageListener = fn
+}
+
+export function notifyMobileMessage(msg: Message): void {
+  mobileMessageListener?.(msg)
+}
+
+export async function addDesktopCharacterDirect(characterId: string): Promise<boolean> {
+  if (settings.ui.desktopCharacters.some(d => d.characterId === characterId)) return false
+  const char = getCharacter(characterId)
+  const size = (char?.lastDesktopSize && Number.isFinite(char.lastDesktopSize) && char.lastDesktopSize > 0)
+    ? char.lastDesktopSize : 1
+  const flipped = char?.lastDesktopFlipped ?? false
+  const pos = char?.lastDesktopPosition ?? (() => {
+    const wa = screen.getPrimaryDisplay().workArea
+    return { x: Math.round(wa.x + wa.width / 2), y: Math.round(wa.y + wa.height * 0.6) }
+  })()
+  const state: import('./types').DesktopCharacterState = {
+    characterId,
+    position: pos,
+    size,
+    flipped,
+    muted: false,
+    zIndex: Date.now()
+  }
+  settings.ui.desktopCharacters.push(state)
+  fileStore.saveSettings(settings)
+  createCharacterWindow(characterId, state.position, state.size)
+  broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
+  return true
+}
+
+export function removeDesktopCharacterDirect(characterId: string): boolean {
+  if (settings.ui.desktopCharacters.length <= 1) return false
+  const removing = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
+  if (!removing) return false
+  const char = getCharacter(characterId)
+  if (char) {
+    char.lastDesktopSize = removing.size
+    char.lastDesktopFlipped = removing.flipped
+    char.lastDesktopPosition = removing.position
+    fileStore.saveCharacter(char)
+  }
+  settings.ui.desktopCharacters = settings.ui.desktopCharacters.filter(d => d.characterId !== characterId)
+  fileStore.saveSettings(settings)
+  closeCharacterWindow(characterId)
+  broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
+  return true
+}
+
+export async function captureScreenshotDirect(withChars: boolean): Promise<{ ok: boolean; dataUrl?: string; error?: string }> {
+  const hideInput = !(settings.ui.screenshotIncludeInputWindow ?? false)
+  const info = withChars
+    ? prepareScreenshotKeepingDesktopST(hideInput)
+    : hideAllWindowsForScreenshot()
+  await new Promise(resolve => setTimeout(resolve, 300))
+  try {
+    const all = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: info.displayWidth, height: info.displayHeight }
+    })
+    const source = all.find(s => parseInt(s.display_id) === info.displayId) ?? all[0]
+    if (!source) return { ok: false, error: 'No screen source found' }
+    const dataUrl = source.thumbnail.toDataURL()
+    if (!dataUrl || dataUrl.length < 100) return { ok: false, error: 'Empty thumbnail' }
+    return { ok: true, dataUrl }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  } finally {
+    restoreAllWindowsAfterScreenshot()
+  }
+}
+
+// ── Mobile: conversation / scene / preset management ─────
+
+export function getConversationListDirect(): { id: string; title: string; updatedAt: number; active: boolean }[] {
+  const ids = fileStore.listConversationIds()
+  return ids
+    .map(id => {
+      const conv = getOrLoadConversation(id)
+      return conv
+        ? { id: conv.id, title: conv.title, updatedAt: conv.updatedAt, active: id === activeConversationId }
+        : { id, title: '對話', updatedAt: 0, active: false }
+    })
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+}
+
+export function loadConversationDirect(id: string): boolean {
+  const conv = getOrLoadConversation(id)
+  if (!conv) return false
+  activeConversationId = id
+  syncLastActiveConversationToSettings()
+  broadcastConversationUpdate(conv)
+  syncCharacterContextsFromConversation(conv)
+  return true
+}
+
+export function getScenesDirect(): import('./types').ScenePreset[] {
+  return fileStore.loadScenePresets().sort((a, b) => a.createdAt - b.createdAt)
+}
+
+export function getPersonaPresetsDirect(): import('./types').PersonaPreset[] {
+  return fileStore.loadPersonaPresets()
+}
+
+export function getWorldPresetsDirect(): import('./types').WorldPreset[] {
+  return fileStore.loadWorldPresets()
+}
+
+export function activatePersonaDirect(id: string): boolean {
+  const preset = fileStore.loadPersonaPreset(id)
+  if (!preset) return false
+  settings.activePersonaId = id
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return true
+}
+
+export function activateWorldDirect(id: string): boolean {
+  const preset = fileStore.loadWorldPreset(id)
+  if (!preset) return false
+  settings.activeWorldId = id
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return true
+}
+
+/** mobile:get-status IPC 的 status 查詢函式（由 index.ts 注入）*/
+let _getMobileStatusFn: (() => unknown) | null = null
+export function setGetMobileStatusFn(fn: () => unknown): void { _getMobileStatusFn = fn }
+
+/** mobile server 透過這個呼叫 send message（在 registerIpcHandlers 之後才可用）*/
+let _mobileSendImpl: ((payload: { content: string; images?: string[]; randomResult?: RandomResult }) => Promise<{ ok: boolean } | { error: string }>) | null = null
+
+export function handleSendMessageFromMobile(payload: { content: string; randomResult?: RandomResult }): Promise<{ ok: boolean } | { error: string }> {
+  if (!_mobileSendImpl) return Promise.resolve({ error: 'IPC handlers not registered yet' })
+  return _mobileSendImpl(payload)
+}
+
+export function deleteMessageDirect(id: string): boolean {
+  if (!activeConversationId) return false
+  const conv = getOrLoadConversation(activeConversationId)
+  if (!conv) return false
+  const idx = conv.messages.findIndex(m => m.id === id)
+  if (idx === -1) return false
+  conv.messages.splice(idx, 1)
+  conv.updatedAt = Date.now()
+  fileStore.saveConversation(conv)
+  broadcastConversationUpdate(conv)
+  return true
+}
+
+export function editMessageDirect(id: string, content: string): boolean {
+  if (!activeConversationId) return false
+  const conv = getOrLoadConversation(activeConversationId)
+  if (!conv) return false
+  const msg = conv.messages.find(m => m.id === id)
+  if (!msg) return false
+  msg.content = content.trim()
+  conv.updatedAt = Date.now()
+  fileStore.saveConversation(conv)
+  broadcastConversationUpdate(conv)
+  return true
+}
+
+export async function resendMessageDirect(id: string): Promise<{ ok: boolean } | { error: string }> {
+  if (!_mobileSendImpl) return { error: 'IPC handlers not ready' }
+  if (!activeConversationId) return { error: '找不到對話' }
+  const conv = getOrLoadConversation(activeConversationId)
+  if (!conv) return { error: '找不到對話' }
+  const idx = conv.messages.findIndex(m => m.id === id)
+  if (idx === -1) return { error: '找不到訊息' }
+  const msg = conv.messages[idx]
+  if (msg.role !== 'user') return { error: '只能重新發送使用者訊息' }
+  const content = msg.content
+  const randomResult = msg.randomResult
+  // Truncate to before this message, then re-send
+  conv.messages = conv.messages.slice(0, idx)
+  conv.updatedAt = Date.now()
+  fileStore.saveConversation(conv)
+  broadcastConversationUpdate(conv)  // resets mobileLastConvMessageCount via hook
+  return _mobileSendImpl({ content, randomResult })
+}
 
 export function initState(
   s: AppSettings,
@@ -1000,6 +1203,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
 
   setCharacterThinking(charId, true)
+  if (isMobileServerRunning()) mobilePushThinking(charId)
   deferRaiseCharacterAbovePinnedNotes(charId)
   try {
     let cleanReply = ''
@@ -2172,7 +2376,7 @@ export function registerIpcHandlers() {
   })
 
   // Messaging
-  ipcMain.handle('message:send', async (_, payload: { content: string; images?: string[]; randomResult?: RandomResult }) => {
+  const sendMsgBody = async (payload: { content: string; images?: string[]; randomResult?: RandomResult }): Promise<{ ok: boolean } | { error: string }> => {
     const conv = getActiveConversation()
     if (!conv) return { error: 'No active conversation' }
 
@@ -2272,6 +2476,7 @@ export function registerIpcHandlers() {
     }
 
     setCharacterThinking(primaryId, true)
+    if (isMobileServerRunning()) mobilePushThinking(primaryId)
     deferRaiseCharacterAbovePinnedNotes(primaryId)
 
     const recentMessagesBase = [...conv.messages.slice(0, -1), userMsgForPrompt].slice(-(settings.memory.keepRecentN))
@@ -2496,7 +2701,9 @@ export function registerIpcHandlers() {
     flushConversationBroadcast()
     fileStore.saveConversation(conv)
     return { ok: true }
-  })
+  }
+  _mobileSendImpl = sendMsgBody
+  ipcMain.handle('message:send', (_, payload) => sendMsgBody(payload))
 
   // Force speak: one character speaks now
   ipcMain.handle('character:force-speak', async (_, characterId: string) => {
@@ -3521,5 +3728,30 @@ export function registerIpcHandlers() {
       broadcastToAll('settings:updated', settings)
     }
     return result
+  })
+
+  // ── Mobile remote chat ────────────────────────────────
+  ipcMain.handle('mobile:get-status', () => {
+    if (!_getMobileStatusFn) return { enabled: false, running: false, tunnelReady: false, url: null, localUrl: '', connectedCount: 0, cloudflaredAvailable: false }
+    return _getMobileStatusFn()
+  })
+
+  ipcMain.handle('mobile:open-qr', () => {
+    openQRCodeWindow()
+    return true
+  })
+
+  ipcMain.handle('mobile:generate-qr', async (_, url: string) => {
+    try {
+      const qrcode = await import('qrcode')
+      const dataUrl = await qrcode.toDataURL(url, {
+        width: 200,
+        margin: 2,
+        color: { dark: '#3D5A52', light: '#FFFFFF' }
+      })
+      return dataUrl
+    } catch {
+      return null
+    }
   })
 }

@@ -2,8 +2,9 @@ import { app, Tray, Menu, nativeImage, protocol, screen, shell, BrowserWindow } 
 import { attachDevToolsShortcuts, isDevToolsAllowed } from './devTools'
 import * as path from 'path'
 import * as fs from 'fs'
+import * as os from 'os'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl } from './ipcHandlers'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, getConversationListDirect, loadConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import {
@@ -18,12 +19,31 @@ import {
   openSettingsWindow,
   openPinnedNotesManager,
   openRemindersManager,
+  openQRCodeWindow,
   getCharacterWindowSize,
   suppressAuxAutoHide,
   setCharactersAlwaysOnTop,
   getCharactersAlwaysOnTop,
-  destroyAllCharacterWindows
+  destroyAllCharacterWindows,
+  setMobileConversationHook,
+  broadcastMobileStatus
 } from './windowManager'
+import {
+  startMobileServer,
+  stopMobileServer,
+  setBridge,
+  pushMessage,
+  pushDesktopUpdate,
+  getConnectedCount,
+  isServerRunning
+} from './mobileServer'
+import {
+  startCloudflared,
+  stopCloudflared,
+  getUrl as getCloudflaredUrl,
+  isRunning as isCloudflaredRunning,
+  isCloudflaredAvailable
+} from './cloudflaredManager'
 import type { DesktopCharacterState } from './types'
 
 function isOffscreen(pos: { x: number; y: number }, win: { width: number; height: number }): boolean {
@@ -302,6 +322,9 @@ app.on('ready', async () => {
 
   // System tray
   setupTray(appRoot)
+
+  // Mobile server
+  initMobileServer()
 })
 
 // When app loses focus to another application, hide all auxiliary UI to reduce distractions.
@@ -330,7 +353,118 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   flushSaveSettings()
+  stopMobileServer()
+  stopCloudflared()
 })
+
+// ── Mobile server ─────────────────────────────────────────
+
+/** 供 QRCodeWindow IPC 查詢 */
+export function getMobileStatus() {
+  const s = getSettings()
+  const port = s.mobile?.port ?? 3721
+  const networkIp = getLocalIp()
+  return {
+    enabled: s.mobile?.enabled ?? false,
+    running: isServerRunning(),
+    tunnelReady: !!getCloudflaredUrl(),
+    url: getCloudflaredUrl(),
+    localUrl: `http://${networkIp}:${port}`,
+    connectedCount: getConnectedCount(),
+    cloudflaredAvailable: isCloudflaredAvailable()
+  }
+}
+
+function getLocalIp(): string {
+  const interfaces = os.networkInterfaces()
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name] ?? []) {
+      if (iface.family === 'IPv4' && !iface.internal) return iface.address
+    }
+  }
+  return '127.0.0.1'
+}
+
+let mobileLastConvId = ''
+let mobileLastConvMessageCount = 0
+
+// 把 getMobileStatus 注入 ipcHandlers（避免循環 import）
+setGetMobileStatusFn(getMobileStatus)
+
+function initMobileServer(): void {
+  const s = getSettings()
+  if (!s.mobile?.enabled) return
+
+  const port = s.mobile.port ?? 3721
+
+  // Build the bridge
+  setBridge({
+    getCharacters,
+    getDesktopCharacterIds: () => getSettings().ui.desktopCharacters.map(d => d.characterId),
+    getActiveConversation: getActiveConversationForMobile,
+    sendMessage: async (payload) => { await handleSendMessageFromMobile(payload) },
+    addDesktopCharacter: addDesktopCharacterDirect,
+    removeDesktopCharacter: removeDesktopCharacterDirect,
+    captureScreenshot: captureScreenshotDirect,
+    getConversationList: getConversationListDirect,
+    loadConversation: loadConversationDirect,
+    getScenes: getScenesDirect,
+    applyScene: applySceneById,
+    getPersonaPresets: getPersonaPresetsDirect,
+    getWorldPresets: getWorldPresetsDirect,
+    activatePersona: activatePersonaDirect,
+    activateWorld: activateWorldDirect,
+    getActivePersonaId: () => getSettings().activePersonaId,
+    getActiveWorldId: () => getSettings().activeWorldId,
+    getColorTheme: () => getSettings().ui.colorTheme ?? 'mint',
+    deleteMessage: deleteMessageDirect,
+    editMessage: editMessageDirect,
+    resendMessage: resendMessageDirect
+  })
+
+  // Hook conversation broadcasts → push new messages to mobile clients
+  setMobileConversationHook((conv) => {
+    const msgs = conv.messages
+    // If conversation switched, reset counter without pushing historical messages
+    if (conv.id !== mobileLastConvId) {
+      mobileLastConvId = conv.id
+      mobileLastConvMessageCount = msgs.length
+      return
+    }
+    if (msgs.length > mobileLastConvMessageCount) {
+      const newMsgs = msgs.slice(mobileLastConvMessageCount)
+      for (const msg of newMsgs) pushMessage(msg)
+      mobileLastConvMessageCount = msgs.length
+    } else if (msgs.length < mobileLastConvMessageCount) {
+      // Messages were deleted / cleared
+      mobileLastConvMessageCount = msgs.length
+    }
+  })
+
+  // Desktop updated → push to mobile
+  setMobileMessageListener(null) // not used directly; we use conversation hook
+
+  startMobileServer(port).then(async () => {
+    broadcastMobileStatus(getMobileStatus())
+    if (s.mobile?.useTunnel !== false) {
+      // 若找不到 cloudflared.exe，先自動下載
+      if (!isCloudflaredAvailable()) {
+        console.log('[MobileServer] cloudflared not found, downloading…')
+        broadcastMobileStatus({ ...getMobileStatus(), tunnelStatus: 'downloading' })
+        const { downloadCloudflaredIfNeeded } = await import('./cloudflaredManager')
+        const ok = await downloadCloudflaredIfNeeded()
+        if (!ok) {
+          console.warn('[MobileServer] cloudflared download failed, tunnel unavailable')
+          broadcastMobileStatus(getMobileStatus())
+          return
+        }
+      }
+      void startCloudflared(port).then(() => {
+        broadcastMobileStatus(getMobileStatus())
+      })
+    }
+  }).catch(e => console.error('[MobileServer] Failed to start:', e))
+}
 
 // ── System tray ───────────────────────────────────────────
 
@@ -362,6 +496,7 @@ function setupTray(appRoot: string) {
         }))
     const menu = Menu.buildFromTemplate([
       { label: '開啟輸入視窗', click: () => toggleInputWindow() },
+      { label: '📱 到手機上繼續對話', click: () => openQRCodeWindow() },
       { label: '開啟角色庫', click: () => createCharacterLibraryWindow({ mode: 'home' }) },
       { label: '開啟便利貼管理', click: () => openPinnedNotesManager() },
       { label: '管理提醒', click: () => openRemindersManager() },

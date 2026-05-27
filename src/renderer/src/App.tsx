@@ -16,6 +16,7 @@ import RemindersManagerWindow from './windows/RemindersManagerWindow'
 import SpotifySettingsWindow from './windows/SpotifySettingsWindow'
 import EmojiPickerWindow from './windows/EmojiPickerWindow'
 import RandomToolsWindow from './windows/RandomToolsWindow'
+import QRCodeWindow from './windows/QRCodeWindow'
 import ErrorBoundary from './components/ErrorBoundary'
 
 const w = typeof window !== 'undefined' && window.windowParams
@@ -158,6 +159,7 @@ export default function App() {
   if (w === 'preview') return <ErrorBoundary><PreviewWindow /></ErrorBoundary>
   if (w === 'emoji-picker') return <ErrorBoundary><EmojiPickerWindow /></ErrorBoundary>
   if (w === 'random-tools') return <ErrorBoundary><RandomToolsWindow /></ErrorBoundary>
+  if (w === 'qrcode') return <ErrorBoundary><QRCodeWindow /></ErrorBoundary>
 
   // Fallback: show nothing (should not happen)
   return (

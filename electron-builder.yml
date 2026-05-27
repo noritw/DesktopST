@@ -9,6 +9,10 @@ extraFiles:
     to: assets
   - from: docs
     to: docs
+  - from: bin/cloudflared.exe
+    to: cloudflared/cloudflared.exe
+    filter:
+      - "**/*"
 asarUnpack:
   - docs/**/*
 win:

@@ -131,6 +131,12 @@ export interface SpotifySettings {
   displayName?: string
 }
 
+export interface MobileSettings {
+  enabled: boolean
+  port: number
+  useTunnel: boolean
+}
+
 export type OmikujiTier = '大吉' | '中吉' | '小吉' | '吉' | '末吉' | '凶' | '大凶'
 
 export type RandomResult =
@@ -155,6 +161,7 @@ export interface AppSettings {
   injectSystemTime: boolean
   weather?: WeatherSettings
   spotify?: SpotifySettings
+  mobile?: MobileSettings
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok'
     /** @deprecated use apiKeys[provider] instead; kept for migration */

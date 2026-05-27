@@ -1957,6 +1957,50 @@ export default function SettingsWindow() {
             <p className="text-xs text-secondary ml-6">勾選後，使用「保留DesktopST角色」截圖模式時會連同輸入框顯示；不勾選則只截圖角色。</p>
 
             <div className="border-t border-border pt-3" />
+            <p className="text-xs font-medium text-secondary">📱 手機遠端對話</p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draft.mobile?.enabled ?? false}
+                onChange={e => set('mobile', { ...(draft.mobile ?? { port: 3721, useTunnel: true }), enabled: e.target.checked })}
+                className="accent-teal w-4 h-4"
+              />
+              <span className="text-sm text-primary">啟用手機遠端對話</span>
+            </label>
+            {(draft.mobile?.enabled) && (
+              <div className="ml-6 space-y-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={draft.mobile?.useTunnel ?? true}
+                    onChange={e => set('mobile', { ...(draft.mobile ?? { port: 3721, enabled: true }), useTunnel: e.target.checked })}
+                    className="accent-teal w-4 h-4"
+                  />
+                  <span className="text-sm text-primary">使用 Cloudflare Tunnel（外網可存取）</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-secondary">Port：</span>
+                  <input
+                    type="number"
+                    min={1024}
+                    max={65535}
+                    value={draft.mobile?.port ?? 3721}
+                    onChange={e => set('mobile', { ...(draft.mobile ?? { enabled: true, useTunnel: true }), port: Number(e.target.value) })}
+                    className="w-24 px-2 py-1 text-sm border border-border rounded-lg bg-base text-primary"
+                  />
+                </div>
+                <p className="text-xs text-secondary">變更設定後需重啟 DesktopST 才生效。從 Tray 選單開啟「到手機上繼續對話」掃描 QR Code 即可連線。</p>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 rounded-lg text-sm bg-mint text-primary border border-border"
+                  onClick={() => window.api.invoke('mobile:open-qr')}
+                >
+                  開啟 QR Code 視窗
+                </button>
+              </div>
+            )}
+
+            <div className="border-t border-border pt-3" />
             <p className="text-xs font-medium text-secondary">提醒通知</p>
             <label className="flex items-center gap-2 cursor-pointer">
               <input

@@ -2485,6 +2485,66 @@ export function closeSpotifySettingsWindow(): void {
   }
 }
 
+// ── QR Code window ────────────────────────────────────────
+
+let qrCodeWindow: BrowserWindow | null = null
+
+export function openQRCodeWindow(): BrowserWindow {
+  if (qrCodeWindow && !qrCodeWindow.isDestroyed()) {
+    qrCodeWindow.show()
+    qrCodeWindow.focus()
+    qrCodeWindow.moveTop()
+    return qrCodeWindow
+  }
+
+  const wa = screen.getPrimaryDisplay().workArea
+  const w = 320, h = 440
+  qrCodeWindow = new BrowserWindow({
+    x: Math.round(wa.x + (wa.width - w) / 2),
+    y: Math.round(wa.y + (wa.height - h) / 2),
+    width: w,
+    height: h,
+    frame: false,
+    transparent: false,
+    backgroundColor: '#F7FFFC',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    title: '到手機上繼續對話',
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  qrCodeWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  if (VITE_DEV_SERVER_URL) {
+    qrCodeWindow.loadURL(makeURL({ w: 'qrcode' }))
+  } else {
+    qrCodeWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: { w: 'qrcode' }
+    })
+  }
+  if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
+    qrCodeWindow.webContents.openDevTools({ mode: 'detach' })
+  }
+  qrCodeWindow.on('closed', () => { qrCodeWindow = null })
+  qrCodeWindow.show()
+  raiseAuxAboveCharacters()
+  qrCodeWindow.moveTop()
+  qrCodeWindow.focus()
+  return qrCodeWindow
+}
+
+export function getQRCodeWindow(): BrowserWindow | null {
+  return qrCodeWindow && !qrCodeWindow.isDestroyed() ? qrCodeWindow : null
+}
+
+export function broadcastMobileStatus(status: unknown): void {
+  const win = getQRCodeWindow()
+  if (win) win.webContents.send('mobile:status-updated', status)
+}
+
 export function hideAllAuxWindowsExceptPinnedNotes(): void {
   for (const w of [inputWindow, userBubbleWindow, logWindow, settingsWindow, characterLibraryWindow, previewWindow, pinnedNotesManagerWindow, remindersManagerWindow, emojiPickerWindow, pinnedNoteColorMenuWindow]) {
     if (w && !w.isDestroyed() && w.isVisible()) w.hide()
@@ -2591,6 +2651,12 @@ export function stripConversationForLog(conv: Conversation): Conversation {
   }
 }
 
+/** Mobile server conversation hook — fires on every broadcastConversationUpdate */
+let mobileConversationHook: ((conv: Conversation) => void) | null = null
+export function setMobileConversationHook(fn: ((conv: Conversation) => void) | null): void {
+  mobileConversationHook = fn
+}
+
 /** Targeted broadcast for conversation updates.
  *  - Log window gets a stripped copy (no debug prompts; keeps image thumbnails).
  *  - Input window gets a stripped copy (no images, no debug prompts).
@@ -2604,6 +2670,9 @@ export function broadcastConversationUpdate(conv: Conversation): void {
     logWindow.webContents.send('conversation:updated', strippedLog)
   if (inputWindow && !inputWindow.isDestroyed())
     inputWindow.webContents.send('conversation:updated', strippedInput)
+
+  // Notify mobile server
+  mobileConversationHook?.(conv)
 }
 
 /** 延後一個 event loop 再推送，避免與 thinking / 泡泡顯示搶同一個主程序 tick。 */

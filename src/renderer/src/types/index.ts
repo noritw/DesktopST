@@ -90,6 +90,12 @@ export interface SpotifySettings {
   displayName?: string
 }
 
+export interface MobileSettings {
+  enabled: boolean
+  port: number
+  useTunnel: boolean
+}
+
 export interface WeatherSettings {
   enabled: boolean
   polish: boolean
@@ -175,6 +181,7 @@ export interface AppSettings {
   injectSystemTime: boolean
   weather?: WeatherSettings
   spotify?: SpotifySettings
+  mobile?: MobileSettings
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok'
     /** @deprecated use apiKeys[provider] instead */
