@@ -1089,21 +1089,27 @@
         const el = document.createElement('div');
         el.className = 'pc-win-item';
         const dispLabel = displaysCache[w.displayIndex] ? displaysCache[w.displayIndex].label : `螢幕 ${w.displayIndex + 1}`;
-        el.innerHTML = `<span class="pc-win-title">${w.title}</span><span class="pc-win-proc">${w.proc}${displaysCache.length > 1 ? ' · ' + dispLabel : ''}</span>`;
+        const minTag = w.minimized ? ' · 已最小化' : '';
+        el.innerHTML = `<span class="pc-win-title">${w.title}</span><span class="pc-win-proc">${w.proc}${displaysCache.length > 1 ? ' · ' + dispLabel : ''}${minTag}</span>`;
         el.addEventListener('click', async () => {
           $pcSheetOverlay.classList.remove('visible');
-          // 立即更新觀看中螢幕（不需等 server 回應）
           setCurrentDisplay(w.displayIndex ?? 0);
-          const label = displaysCache[currentDisplayIndex]?.label ?? `螢幕 ${currentDisplayIndex + 1}`;
-          showToast('切換中…');
+          showToast('截圖中…');
           try {
-            await fetch('/api/focus-window', {
+            const r = await fetch('/api/capture-window', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ pid: w.pid })
+              body: JSON.stringify({ hwnd: w.hwnd, title: w.title })
             });
-            showToast(`已切換 · 觀看中：${label}`);
-          } catch { showToast('切換失敗'); }
+            if (!r.ok) { showToast('截圖失敗'); return; }
+            const blob = await r.blob();
+            if (currentSsDataUrl) URL.revokeObjectURL(currentSsDataUrl);
+            currentSsDataUrl = URL.createObjectURL(blob);
+            ssScale = 1; ssTx = 0; ssTy = 0;
+            applySSTransform(false);
+            $ssImg.src = currentSsDataUrl;
+            $ssOverlay.classList.add('visible');
+          } catch { showToast('截圖失敗'); }
         });
         $pcSheetBody.appendChild(el);
       });

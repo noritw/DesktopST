@@ -405,8 +405,8 @@ async function handleRequest(
     // 取得有主視窗的程序列表（含位置，用於判斷所在螢幕）
     const script = [
       '$OutputEncoding=[Text.Encoding]::UTF8;[Console]::OutputEncoding=[Text.Encoding]::UTF8',
-      'Add-Type -TypeDefinition \'using System;using System.Runtime.InteropServices;public class WH{[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out RECT r);[StructLayout(LayoutKind.Sequential)]public struct RECT{public int L,T,R,B;}}\'',
-      '$w=Get-Process|?{$_.MainWindowHandle-ne 0-and $_.MainWindowTitle-ne \'\'}|%{$hwnd=$_.MainWindowHandle;$r=New-Object WH+RECT;[WH]::GetWindowRect($hwnd,[ref]$r)|Out-Null;[pscustomobject]@{pid=$_.Id;title=$_.MainWindowTitle;proc=$_.ProcessName;x=$r.L;y=$r.T;w=$r.R-$r.L;h=$r.B-$r.T}}',
+      'Add-Type -TypeDefinition \'using System;using System.Runtime.InteropServices;public class WH{[DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out RECT r);[DllImport("user32.dll")]public static extern bool IsIconic(IntPtr h);[StructLayout(LayoutKind.Sequential)]public struct RECT{public int L,T,R,B;}}\'',
+      '$w=Get-Process|?{$_.MainWindowHandle-ne 0-and $_.MainWindowTitle-ne \'\'}|%{$hwnd=$_.MainWindowHandle;$r=New-Object WH+RECT;[WH]::GetWindowRect($hwnd,[ref]$r)|Out-Null;[pscustomobject]@{pid=$_.Id;hwnd=$hwnd.ToInt64();title=$_.MainWindowTitle;proc=$_.ProcessName;minimized=[WH]::IsIconic($hwnd);x=$r.L;y=$r.T;w=$r.R-$r.L;h=$r.B-$r.T}}',
       'if($w){$w|ConvertTo-Json -Compress -Depth 1}else{\'[]\'}'
     ].join(';')
     const raw = await new Promise<string>((resolve) => {
@@ -425,29 +425,57 @@ async function handleRequest(
           cx >= d.bounds.x && cx < d.bounds.x + d.bounds.width &&
           cy >= d.bounds.y && cy < d.bounds.y + d.bounds.height
         )
-        return { pid: w.pid, title: w.title, proc: w.proc, displayIndex: di >= 0 ? di : 0 }
+        return { pid: w.pid, hwnd: w.hwnd, title: w.title, proc: w.proc, minimized: !!w.minimized, displayIndex: di >= 0 ? di : 0 }
       })
       jsonOk(res, result)
     } catch { jsonOk(res, []) }
     return
   }
 
-  // ── POST /api/focus-window ──
-  // 使用 WScript.Shell.AppActivate(pid) — 不呼叫 SetForegroundWindow，
-  // 避免從背景程序呼叫 Win32 API 導致輸入佇列鎖死
-  if (method === 'POST' && url === '/api/focus-window') {
+  // ── POST /api/capture-window ──
+  // 若視窗最小化先 SW_RESTORE（不搶焦點），再用 desktopCapturer 截圖回傳
+  if (method === 'POST' && url === '/api/capture-window') {
     const body = await readBody(req)
-    let payload: { pid?: number }
+    let payload: { hwnd?: number; title?: string }
     try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
-    if (!payload.pid) { jsonError(res, 400, 'pid required'); return }
-    const { exec } = await import('child_process')
-    const pid = Number(payload.pid)
-    // AppActivate 會自動 restore 最小化視窗並帶到前台，不走 P/Invoke
-    const script = `$sh=New-Object -ComObject 'WScript.Shell';$null=$sh.AppActivate(${pid})`
-    await new Promise<void>((resolve) => {
-      exec(`powershell -NoProfile -NonInteractive -Command "${script}"`, { encoding: 'utf8', timeout: 3000 }, () => resolve())
-    })
-    jsonOk(res, { ok: true })
+    if (!payload.title) { jsonError(res, 400, 'title required'); return }
+
+    // 若最小化先還原（ShowWindow 不影響輸入焦點，安全）
+    if (payload.hwnd) {
+      const { exec } = await import('child_process')
+      const hwnd = Number(payload.hwnd)
+      const restoreScript = [
+        'Add-Type -TypeDefinition \'using System;using System.Runtime.InteropServices;public class WR{[DllImport("user32.dll")]public static extern bool IsIconic(IntPtr h);[DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr h,int c);}\'',
+        `$h=[IntPtr]::new(${hwnd})`,
+        'if([WR]::IsIconic($h)){[WR]::ShowWindow($h,9)|Out-Null;Write-Output "restored"}else{Write-Output "ok"}'
+      ].join(';')
+      const restored = await new Promise<boolean>((resolve) => {
+        exec(`powershell -NoProfile -NonInteractive -Command "${restoreScript}"`, { encoding: 'utf8', timeout: 3000 }, (_err, stdout) => {
+          resolve(stdout.trim().includes('restored'))
+        })
+      })
+      if (restored) await new Promise(r => setTimeout(r, 350))
+    }
+
+    // 用 desktopCapturer 截取該視窗
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['window'],
+        thumbnailSize: { width: 2560, height: 1600 }
+      })
+      const title = payload.title
+      const source = sources.find(s => s.name === title)
+        ?? sources.find(s => s.name.includes(title) || title.includes(s.name))
+      if (!source) { jsonError(res, 404, 'Window not found in capture sources'); return }
+      const dataUrl = source.thumbnail.toDataURL()
+      if (!dataUrl || dataUrl.length < 200) { jsonError(res, 500, 'Empty thumbnail'); return }
+      const [header, b64] = dataUrl.split(',')
+      const mime = header.replace('data:', '').replace(';base64', '')
+      res.writeHead(200, { 'Content-Type': mime })
+      res.end(Buffer.from(b64, 'base64'))
+    } catch (e) {
+      jsonError(res, 500, String(e))
+    }
     return
   }
 
