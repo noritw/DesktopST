@@ -15,6 +15,7 @@ interface AppStore {
   characterContext: CharacterContextSnapshot | null
   isSending: boolean
   uiAppFocused: boolean
+  isLoaded: boolean
   personaPresets: PersonaPreset[]
   worldPresets: WorldPreset[]
   scenePresets: ScenePreset[]
@@ -65,6 +66,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   characterContext: null,
   isSending: false,
   uiAppFocused: true,
+  isLoaded: false,
   personaPresets: [],
   worldPresets: [],
   scenePresets: [],
@@ -86,6 +88,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       desktopCharacters: data.desktopCharacters,
       conversation: data.conversation,
       characterContext: data.characterContext ?? null,
+      isLoaded: true,
       personaPresets: personas,
       worldPresets: worlds,
       scenePresets: scenes

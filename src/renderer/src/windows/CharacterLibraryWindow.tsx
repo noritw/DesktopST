@@ -22,6 +22,7 @@ function parseInitialNavigatePayload(): CharacterLibraryNavigatePayload {
 export default function CharacterLibraryWindow() {
   const characters = useAppStore(s => s.characters)
   const desktopCharacters = useAppStore(s => s.desktopCharacters)
+  const isLoaded = useAppStore(s => s.isLoaded)
   const saveCharacter = useAppStore(s => s.saveCharacter)
   const addToDesktop = useAppStore(s => s.addToDesktop)
   const removeFromDesktop = useAppStore(s => s.removeFromDesktop)
@@ -294,7 +295,11 @@ export default function CharacterLibraryWindow() {
       </header>
 
       <main className="flex-1 overflow-y-auto p-4">
-        {characters.length === 0 ? (
+        {!isLoaded ? (
+          <div className="h-full flex items-center justify-center text-secondary text-sm">
+            載入中…
+          </div>
+        ) : characters.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center px-6 gap-3 text-secondary text-sm">
             <p>尚無角色。你可以按「＋ 新增」建立空白角色，或使用「匯入角色卡／搬家包」載入 ST 卡（JSON／PNG）或 DesktopST 搬家包（.dstpack）。</p>
           </div>

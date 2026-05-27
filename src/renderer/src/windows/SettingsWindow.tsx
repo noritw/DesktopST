@@ -304,7 +304,7 @@ export default function SettingsWindow() {
       const list = await window.api.invoke('conversation:list') as Array<{ id: string; title: string }>
       setConvTitles(Object.fromEntries(list.map(c => [c.id, c.title])))
     })()
-  }, [tab, scenePresets])
+  }, [tab])
 
   useEffect(() => {
     const unsub = window.api.on('settings:navigate-tab', (t: unknown) => {
