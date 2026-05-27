@@ -405,6 +405,22 @@
 (function () {
   'use strict';
 
+  window.__mobileToken = window.__mobileToken || new URLSearchParams(location.search).get('token') || '';
+  (function () {
+    const originalFetch = window.fetch;
+    window.fetch = function(input, init) {
+      init = init || {};
+      const headers = new Headers(init.headers || {});
+      if (window.__mobileToken) headers.set('X-DesktopST-Token', window.__mobileToken);
+      init.headers = headers;
+      return originalFetch.call(this, input, init);
+    };
+  })();
+
+  function tokenQuery() {
+    return window.__mobileToken ? '?token=' + encodeURIComponent(window.__mobileToken) : '';
+  }
+
   // ── State ──
   let ws = null, wsRetryCount = 0;
   let state = { desktopCharacters: [], conversation: null };
@@ -466,7 +482,7 @@
   // ── Avatar ──
   function avatarUrl(id) {
     const base = window.__relayDeviceId ? '/' + window.__relayDeviceId : '';
-    return base + '/api/avatar/' + encodeURIComponent(id);
+    return base + '/api/avatar/' + encodeURIComponent(id) + tokenQuery();
   }
 
   function makeImgOrPh(id, cls) {
@@ -618,7 +634,7 @@
   function connectWS() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     // 優先用 Worker 注入的 tunnel WebSocket URL，否則連本機
-    const wsUrl = window.__tunnelWsUrl || (proto + '//' + location.host);
+    const wsUrl = window.__tunnelWsUrl || (proto + '//' + location.host + tokenQuery());
     ws = new WebSocket(wsUrl);
     ws.addEventListener('open', () => { wsRetryCount = 0; wsFailCount = 0; showToast('已連線'); });
     ws.addEventListener('message', e => {

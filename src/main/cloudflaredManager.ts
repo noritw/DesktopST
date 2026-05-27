@@ -157,6 +157,9 @@ export async function startCloudflared(port: number): Promise<void> {
     console.log('[Cloudflared] Process exited with code:', code)
     tunnelProcess = null
     currentUrl = null
+    import('./relayService')
+      .then(({ registerOffline }) => registerOffline())
+      .catch(() => {})
   })
 
   tunnelProcess.on('error', (e) => {
@@ -164,6 +167,9 @@ export async function startCloudflared(port: number): Promise<void> {
     tunnelProcess = null
     currentUrl = null
     notifyStatus('error')
+    import('./relayService')
+      .then(({ registerOffline }) => registerOffline())
+      .catch(() => {})
   })
 }
 

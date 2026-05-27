@@ -45,7 +45,7 @@ import {
   isCloudflaredAvailable,
   onUrlReady
 } from './cloudflaredManager'
-import { registerTunnel, registerStarting, registerOffline, getRelayUrl } from './relayService'
+import { registerTunnel, registerStarting, registerOffline, getRelayUrl, getAccessToken } from './relayService'
 import type { DesktopCharacterState } from './types'
 
 function isOffscreen(pos: { x: number; y: number }, win: { width: number; height: number }): boolean {
@@ -369,12 +369,14 @@ export function getMobileStatus() {
   const s = getSettings()
   const port = s.mobile?.port ?? 3721
   const networkIp = getLocalIp()
+  const token = encodeURIComponent(getAccessToken())
+  const tunnelUrl = getCloudflaredUrl()
   return {
     enabled: s.mobile?.enabled ?? false,
     running: isServerRunning(),
-    tunnelReady: !!getCloudflaredUrl(),
-    url: getCloudflaredUrl(),
-    localUrl: `http://${networkIp}:${port}`,
+    tunnelReady: !!tunnelUrl,
+    url: tunnelUrl ? `${tunnelUrl}?token=${token}` : null,
+    localUrl: `http://${networkIp}:${port}?token=${token}`,
     relayUrl: getRelayUrl(),
     connectedCount: getConnectedCount(),
     cloudflaredAvailable: isCloudflaredAvailable()

@@ -9,6 +9,7 @@ import * as path from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { app, desktopCapturer } from 'electron'
 import type { Message, RandomResult } from './types'
+import { getAccessToken } from './relayService'
 
 // ── 注入的 bridge（由 index.ts 啟動時注入）────────────────
 
@@ -143,17 +144,24 @@ async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {
-  const url = req.url ?? '/'
+  const rawUrl = req.url ?? '/'
+  const requestUrl = new URL(rawUrl, 'http://localhost')
+  const url = requestUrl.pathname
   const method = req.method ?? 'GET'
 
   // CORS headers（讓瀏覽器能正常存取）
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-DesktopST-Token, Authorization')
 
   if (method === 'OPTIONS') {
     res.writeHead(204)
     res.end()
+    return
+  }
+
+  if (!isAuthorized(req, requestUrl)) {
+    jsonError(res, 401, 'Unauthorized')
     return
   }
 
@@ -369,10 +377,8 @@ async function handleRequest(
   // ── GET /api/screenshot/clean|with-chars ──
   if (method === 'GET' && (url.startsWith('/api/screenshot/clean') || url.startsWith('/api/screenshot/with-chars'))) {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-    const qIdx = url.indexOf('?')
-    const urlPath = qIdx >= 0 ? url.slice(0, qIdx) : url
-    const qs = qIdx >= 0 ? new URLSearchParams(url.slice(qIdx + 1)) : new URLSearchParams()
-    const displayIndex = parseInt(qs.get('displayIndex') ?? '0') || 0
+    const displayIndex = parseInt(requestUrl.searchParams.get('displayIndex') ?? '0') || 0
+    const urlPath = url
     const withChars = urlPath === '/api/screenshot/with-chars'
     const result = await bridge.captureScreenshot(withChars, displayIndex)
     if (!result.ok || !result.dataUrl) { jsonError(res, 500, result.error ?? 'Screenshot failed'); return }
@@ -559,7 +565,12 @@ export function startMobileServer(port: number): Promise<void> {
     })
 
     wss = new WebSocketServer({ server })
-    wss.on('connection', (ws) => {
+    wss.on('connection', (ws, req) => {
+      const requestUrl = new URL(req.url ?? '/', 'http://localhost')
+      if (!isAuthorized(req, requestUrl)) {
+        ws.close(1008, 'Unauthorized')
+        return
+      }
       clients.add(ws)
       console.log(`[MobileServer] Client connected (total: ${clients.size})`)
       ws.on('close', () => {
@@ -613,6 +624,17 @@ function readBody(req: http.IncomingMessage): Promise<string> {
     req.on('end', () => resolve(body))
     req.on('error', () => resolve(''))
   })
+}
+
+function isAuthorized(req: http.IncomingMessage, url: URL): boolean {
+  const expected = getAccessToken()
+  const header = req.headers['x-desktopst-token']
+  const headerToken = Array.isArray(header) ? header[0] : header
+  const bearer = req.headers.authorization?.startsWith('Bearer ')
+    ? req.headers.authorization.slice(7)
+    : ''
+  const queryToken = url.searchParams.get('token') ?? ''
+  return headerToken === expected || bearer === expected || queryToken === expected
 }
 
 // 讓 screenshot 能用 desktopCapturer（需從 electron import）
