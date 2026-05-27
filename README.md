@@ -16,6 +16,7 @@
 - **SillyTavern 相容**：可匯入 SillyTavern PNG 格式角色卡
 - **多 LLM 供應商**：支援 OpenAI、Gemini（Google）、Claude（Anthropic）、Grok（xAI），可自訂 endpoint
 - **天氣感知對話**：設定所在地點後，角色會參考即時天氣資訊進行互動
+- **Spotify 音樂感知**：連接 Spotify 帳號後，角色會參考目前播放的曲目、藝術家與曲風進行互動
 - **擲骰系統**：支援 D&D 風格骰子（1dN、修正值、keep highest / lowest），適合桌遊或 TRPG
 - **圖片附件 / 截圖**：可附上圖片讓角色看圖回應，也能截取目前螢幕傳送
 - **便利貼系統**：桌面上可貼多張浮動便利貼，支援拖曳、調整大小、顏色

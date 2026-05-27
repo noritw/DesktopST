@@ -182,6 +182,16 @@ npm run typecheck # 型別檢查
   - `safeStorage` 不可用時 fallback 純文字並印警告
   - DST Pack 匯出排除 API Key，UI 提示換機需重新輸入
   - 設定視窗 API Key 欄位下方顯示本機加密說明
+- [x] Spotify 音樂偵測
+  - OAuth PKCE 授權流程（自訂 URI scheme `desktopst://spotify-callback`）
+  - 使用者需自行申請 Spotify Developer App（Client ID）並授權個人帳號
+  - 取得當前播放曲目、藝術家、流派（genres）、曲風特徵（energy / valence）
+  - 對話 system prompt 自動注入 `[Spotify: Now Playing] "曲名" — 藝術家` 格式字串
+  - Token 自動刷新，Access Token / Refresh Token 以 `safeStorage` 加密存於 `spotify-auth.json`
+  - Spotify 設定視窗（`spotify-settings`）：輸入 Client ID、OAuth 連線、斷線、顯示已連線帳號
+  - 啟用開關位於全域設定 → 世界觀分頁
+  - 相關欄位：`AppSettings.spotify`（`SpotifySettings` 介面）
+  - 相關檔案：`src/main/spotifyService.ts`、`src/renderer/src/windows/SpotifySettingsWindow.tsx`
 - [x] 多人桌面聊天與對話泡泡效能優化
   - 角色視窗不再接收完整 `conversation`；`store:get-all` 回傳 `characterContext` 精簡快照
   - `character:thinking` / `character:context-update` 改為單角色 IPC，不再 `broadcastToAll`

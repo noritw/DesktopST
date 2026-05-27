@@ -1343,6 +1343,30 @@ src/styles/global.css     ← 全域字型載入
 - **適用場合**：提醒台詞生成、天氣描述潤飾（群組對話一律使用主模型）
 - **Token 記錄**：輔助模型的 token 使用記錄在 `Message.utilityInputTokens` / `utilityOutputTokens`
 
+#### Z. Spotify 音樂偵測（已實作）
+
+在對話中注入使用者目前正在 Spotify 播放的曲目資訊，讓角色可以自然地回應音樂話題。
+
+- **授權方式**：OAuth 2.0 PKCE flow，重導向至自訂 URI scheme `desktopst://spotify-callback`
+- **使用者前置條件**：需自行至 Spotify Developer Dashboard 建立 App 並取得 Client ID，將 `desktopst://spotify-callback` 加入 Redirect URIs
+- **取得資訊**：
+  - 當前曲目名稱、藝術家
+  - 藝術家流派（genres，via `/v1/artists/{id}`）
+  - 曲風特徵 energy / valence（via `/v1/audio-features/{id}`）
+- **注入格式**：`[Spotify: Now Playing] "曲名" — 藝術家 · 流派 · 氣氛描述`
+- **Token 管理**：Access Token 過期自動以 Refresh Token 更新；兩者皆以 `safeStorage` 加密存於 `%APPDATA%\DesktopST\spotify-auth.json`
+- **設定位置**：全域設定 → 世界觀分頁 → Spotify 區塊（顯示連線狀態 / 開啟設定視窗按鈕）
+- **設定視窗**（`spotify-settings` window）：輸入 Client ID → 點「連線」開啟瀏覽器授權 → 回調後自動關閉視窗並顯示已連線帳號名稱；支援斷線
+- **相關欄位**（`AppSettings`）：
+  ```typescript
+  spotify?: {
+    enabled: boolean;
+    clientId: string;
+    displayName?: string;   // 已連線的 Spotify 帳號顯示名稱
+  }
+  ```
+- **相關檔案**：`src/main/spotifyService.ts`、`src/renderer/src/windows/SpotifySettingsWindow.tsx`
+
 #### Y. 角色位置記憶、Windows 啟動、關於分頁（已實作）
 
 **角色位置記憶**：
