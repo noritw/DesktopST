@@ -14,6 +14,7 @@ import PinnedNoteColorMenuWindow from './windows/PinnedNoteColorMenuWindow'
 import PinnedNotesManagerWindow from './windows/PinnedNotesManagerWindow'
 import RemindersManagerWindow from './windows/RemindersManagerWindow'
 import SpotifySettingsWindow from './windows/SpotifySettingsWindow'
+import RemoteControlLogWindow from './windows/RemoteControlLogWindow'
 import EmojiPickerWindow from './windows/EmojiPickerWindow'
 import RandomToolsWindow from './windows/RandomToolsWindow'
 import QRCodeWindow from './windows/QRCodeWindow'
@@ -150,6 +151,7 @@ export default function App() {
   if (w === 'pinned-note-color-menu') return <ErrorBoundary><PinnedNoteColorMenuWindow /></ErrorBoundary>
   if (w === 'pinned-notes-manager') return <ErrorBoundary><PinnedNotesManagerWindow /></ErrorBoundary>
   if (w === 'reminders-manager') return <ErrorBoundary><RemindersManagerWindow /></ErrorBoundary>
+  if (w === 'remote-control-log') return <ErrorBoundary><RemoteControlLogWindow /></ErrorBoundary>
   if (w === 'spotify-settings') return <ErrorBoundary><SpotifySettingsWindow /></ErrorBoundary>
   if (w === 'user-bubble') return <ErrorBoundary><UserBubbleWindow /></ErrorBoundary>
   if (w === 'input') return <ErrorBoundary><InputWindow /></ErrorBoundary>

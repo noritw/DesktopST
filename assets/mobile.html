@@ -233,6 +233,7 @@
   .ss-btn { flex: 1; padding: 11px 0; border-radius: var(--radius-sm); border: none;
     font-size: 14px; cursor: pointer; font-family: inherit; }
   #ss-add-btn { background: var(--mint2); color: var(--text); }
+  #ss-refresh-btn { background: rgba(255,255,255,0.18); color: #fff; flex: 0 0 52px; font-size: 18px; }
   #ss-close-btn { background: rgba(255,255,255,0.15); color: #fff; }
   #ss-hint { text-align: center; color: rgba(255,255,255,0.4); font-size: 11px;
     padding: 4px 0 0; flex-shrink: 0; }
@@ -279,6 +280,25 @@
     background: rgba(20,20,20,0.82); color: #fff; border-radius: 10px;
     padding: 2px 7px; font-size: 11px; font-family: monospace; white-space: nowrap;
     transform: translate(-50%, calc(-100% - 10px)); display: none; }
+  /* 雙指滾動方向提示（固定在視窗中央） */
+  #ss-scroll-indicator {
+    position: absolute; pointer-events: none; z-index: 25;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(20,20,20,0.78); color: #fff;
+    border-radius: 20px; padding: 8px 22px;
+    font-size: 32px; line-height: 1;
+    opacity: 0; transition: opacity 0.15s;
+  }
+  /* 右鍵模式切換按鈕 */
+  #ss-rclick-toggle { border: 1.5px solid; border-radius: 8px; background: none;
+    font-size: 12px; cursor: pointer; font-family: inherit; white-space: nowrap;
+    padding: 5px 10px; -webkit-tap-highlight-color: transparent;
+    transition: background 0.15s, color 0.15s, border-color 0.15s; }
+  #ss-rclick-toggle.lft { border-color: rgba(255,100,100,0.45); color: rgba(255,150,150,0.9); }
+  #ss-rclick-toggle.lft:active { background: rgba(255,80,80,0.2); }
+  #ss-rclick-toggle.rgt { border-color: rgba(80,160,255,0.7); color: rgba(140,200,255,0.95);
+    background: rgba(80,160,255,0.15); }
+  #ss-rclick-toggle.rgt:active { background: rgba(80,160,255,0.3); }
 
   /* ── PC programs / system sheet ── */
   .prog-item { display: flex; align-items: center; gap: 10px; padding: 10px 8px;
@@ -466,9 +486,11 @@
     </div>
     <!-- 座標顯示標籤（跟著準星） -->
     <div id="ss-coord-badge"></div>
+    <!-- 雙指滾動方向提示 -->
+    <div id="ss-scroll-indicator"></div>
     <button id="ss-remote-toggle" class="off" style="display:none">遙控</button>
   </div>
-  <div id="ss-hint">雙指縮放 · 雙擊還原</div>
+  <div id="ss-hint">雙指縮放 · 單指移動 · 雙擊還原</div>
   <!-- 遙控模式工具列（預設隱藏） -->
   <div id="ss-remote-bar">
     <div id="ss-keys">
@@ -488,10 +510,12 @@
     <div id="ss-remote-enter-wrap">
       <input type="checkbox" id="ss-remote-enter-check">
       <label for="ss-remote-enter-check" id="ss-remote-enter-label">送出後按 Enter</label>
+      <button id="ss-rclick-toggle" class="lft" style="margin-left:auto">🖱 左鍵</button>
     </div>
   </div>
   <div id="ss-toolbar">
     <button class="ss-btn" id="ss-add-btn">加入對話</button>
+    <button class="ss-btn" id="ss-refresh-btn" title="重新整理截圖">↺</button>
     <button class="ss-btn" id="ss-close-btn">關閉</button>
   </div>
 </div>
@@ -1207,7 +1231,20 @@
   let ssScale = 1, ssTx = 0, ssTy = 0;
   let ssInitDist = 0, ssBaseScale = 1, ssBaseTx = 0, ssBaseTy = 0;
   let ssPanStartX = 0, ssPanStartY = 0, ssIsPinching = false, ssLastTap = 0;
-  let ssGestureMoved = false; // 本次觸控序列是否發生過 pan 或 pinch（用於擋掉誤判 double-tap）
+  let ssGestureMoved = false; // 本次觸控序列是否發生過 pan 或 pinch
+
+  // 雙指滾動狀態（遙控模式下使用）
+  let ssScrollMidX = 0, ssScrollMidY = 0;
+  let ssScrollAccX = 0, ssScrollAccY = 0;
+  let ssScrollLastTime = 0;
+  let ssScrollTarget = null; // 滾動中心對應的桌面物理座標
+  let ssScrollIndicatorTimer = null;
+  let ssRightClickMode = false; // 右鍵點擊模式
+
+  // 執行遙控操作後自動重新截圖的輔助函式
+  function autoRefreshAfter(delayMs) {
+    if (lastSsRefresh) setTimeout(async () => { try { await lastSsRefresh(); } catch {} }, delayMs);
+  }
 
   function ssDist(t1, t2) { return Math.hypot(t2.clientX-t1.clientX, t2.clientY-t1.clientY); }
 
@@ -1258,6 +1295,7 @@
   // 當前截圖對應的座標範圍（用於遙控點擊換算）
   let currentSsBounds = null; // { x, y, w, h } 物理座標
   let lastSsRefresh = null;   // 上次截圖的重新整理 function（遙控後呼叫）
+  let lastSsWasClean = false; // 上次截圖是否為「不含角色」模式
 
   // ── 螢幕鎖定 / 電源狀態 ───────────────────────────────────
   const $ssLockBanner     = document.getElementById('ss-lock-banner');
@@ -1318,6 +1356,7 @@
   }
 
   async function takeScreenshot(withChars) {
+    lastSsWasClean = !withChars;
     showToast('截圖中…');
     try {
       const endpoint = withChars ? '/api/screenshot/with-chars' : '/api/screenshot/clean';
@@ -1470,6 +1509,13 @@
 
   document.getElementById('ss-close-btn').addEventListener('click', () => $ssOverlay.classList.remove('visible'));
 
+  // ── 重新整理截圖 ──
+  document.getElementById('ss-refresh-btn').addEventListener('click', async () => {
+    if (!lastSsRefresh) { showToast('尚未截圖'); return; }
+    showToast('重新整理中…');
+    try { await lastSsRefresh(); } catch {}
+  });
+
   document.getElementById('ss-add-btn').addEventListener('click', () => {
     if (!currentSsDataUrl) return;
     const imgEl = document.createElement('img');
@@ -1488,13 +1534,23 @@
     $ssOverlay.classList.remove('visible');
   });
 
-  // Pinch-zoom + pan on screenshot
-  $ssImg.addEventListener('touchstart', e => {
+  // Pinch-zoom + pan on screenshot（遙控模式下雙指改為滾動）
+  // 掛在 $ssViewport 而非 $ssImg，手指滑出圖片邊緣也不中斷
+  $ssViewport.addEventListener('touchstart', e => {
     if (e.touches.length === 2) {
-      ssIsPinching = true;
       ssGestureMoved = true;
-      ssInitDist = ssDist(e.touches[0], e.touches[1]);
-      ssBaseScale = ssScale; ssBaseTx = ssTx; ssBaseTy = ssTy;
+      if (ssRemoteMode) {
+        ssIsPinching = false;
+        ssScrollMidX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        ssScrollMidY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        ssScrollAccX = 0; ssScrollAccY = 0; ssScrollLastTime = 0;
+        const rect = $ssViewport.getBoundingClientRect();
+        ssScrollTarget = ssToScreenCoords(ssScrollMidX - rect.left, ssScrollMidY - rect.top);
+      } else {
+        ssIsPinching = true;
+        ssInitDist = ssDist(e.touches[0], e.touches[1]);
+        ssBaseScale = ssScale; ssBaseTx = ssTx; ssBaseTy = ssTy;
+      }
     } else if (e.touches.length === 1) {
       ssIsPinching = false;
       ssGestureMoved = false;
@@ -1503,32 +1559,77 @@
     }
   }, { passive: true });
 
-  $ssImg.addEventListener('touchmove', e => {
+  $ssViewport.addEventListener('touchmove', e => {
     e.preventDefault();
     if (e.touches.length === 2) {
-      ssIsPinching = true;
       ssGestureMoved = true;
-      // scale 下限 1.0(不允許縮比 fit 還小,避免「彈回原大小」的視覺錯覺)
-      ssScale = Math.max(1.0, Math.min(8, ssBaseScale * ssDist(e.touches[0], e.touches[1]) / ssInitDist));
-      applySSTransform(false);
+      if (ssRemoteMode) {
+        // 遙控模式：雙指滾動
+        const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        const dx = midX - ssScrollMidX;
+        const dy = midY - ssScrollMidY;
+        ssScrollMidX = midX; ssScrollMidY = midY;
+        if (Math.abs(dy) > 0.3 || Math.abs(dx) > 0.3) showScrollIndicator(dy, dx);
+        // 正規化：以螢幕高度 12 等分為一格滾輪，讓短距離滑動也靈敏
+        const vpH = $ssViewport.offsetHeight || 400;
+        const vpW = $ssViewport.offsetWidth  || 400;
+        ssScrollAccX += dx / (vpW / 10);
+        ssScrollAccY += dy / (vpH / 10);
+        const now = Date.now();
+        if ((Math.abs(ssScrollAccX) >= 0.15 || Math.abs(ssScrollAccY) >= 0.15) && now - ssScrollLastTime > 40) {
+          if (ssScrollTarget) {
+            const sx = ssScrollAccX, sy = ssScrollAccY;
+            ssScrollAccX = 0; ssScrollAccY = 0;
+            ssScrollLastTime = now;
+            rcFetch('/api/remote/scroll', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ x: ssScrollTarget.x, y: ssScrollTarget.y, deltaX: sx, deltaY: sy })
+            }).catch(() => {});
+          }
+        }
+      } else {
+        ssIsPinching = true;
+        ssScale = Math.max(1.0, Math.min(8, ssBaseScale * ssDist(e.touches[0], e.touches[1]) / ssInitDist));
+        applySSTransform(false);
+      }
     } else if (e.touches.length === 1 && !ssIsPinching) {
       const dx = e.touches[0].clientX - ssPanStartX - ssTx;
       const dy = e.touches[0].clientY - ssPanStartY - ssTy;
       if (Math.abs(dx) > 3 || Math.abs(dy) > 3) ssGestureMoved = true;
-      ssTx = e.touches[0].clientX - ssPanStartX;
-      ssTy = e.touches[0].clientY - ssPanStartY;
-      applySSTransform(false);
+      if (!ssRemoteMode) {
+        ssTx = e.touches[0].clientX - ssPanStartX;
+        ssTy = e.touches[0].clientY - ssPanStartY;
+        applySSTransform(false);
+      }
     }
   }, { passive: false });
 
-  $ssImg.addEventListener('touchend', e => {
-    // 雙指→單指:重設剩餘手指的 pan 基準,並維持 pinching 狀態到所有手指離開
+  $ssViewport.addEventListener('touchend', e => {
+    // 雙指→單指：重設剩餘手指的 pan 基準
     if (e.touches.length === 1 && ssIsPinching) {
       ssPanStartX = e.touches[0].clientX - ssTx;
       ssPanStartY = e.touches[0].clientY - ssTy;
       return;
     }
-    if (e.touches.length === 0) ssIsPinching = false;
+    // 遙控模式雙指滾動結束：送出剩餘累積量並隱藏提示 + 自動截圖
+    if (ssRemoteMode && e.touches.length === 0 && (Math.abs(ssScrollAccX) > 0.05 || Math.abs(ssScrollAccY) > 0.05)) {
+      hideScrollIndicator();
+      if (ssScrollTarget) {
+        const sx = ssScrollAccX, sy = ssScrollAccY;
+        ssScrollAccX = 0; ssScrollAccY = 0;
+        rcFetch('/api/remote/scroll', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ x: ssScrollTarget.x, y: ssScrollTarget.y, deltaX: sx, deltaY: sy })
+        }).then(() => autoRefreshAfter(400)).catch(() => {});
+      }
+      ssScrollTarget = null;
+      return;
+    }
+    if (e.touches.length === 0) {
+      ssIsPinching = false; ssScrollTarget = null;
+      hideScrollIndicator();
+    }
 
     const now = Date.now();
 
@@ -1541,13 +1642,17 @@
         const coords = ssToScreenCoords(tx, ty);
         if (coords) {
           const isDouble = now - ssLastTap < 300;
+          const btn = ssRightClickMode ? 'right' : 'left';
+          const rippleColor = ssRightClickMode ? 'rgba(80,160,255,0.9)' : 'rgba(255,60,60,0.9)';
+          $ssRipple.style.borderColor = rippleColor;
           showRipple(tx, ty);
           showClickMarker(tx, ty, coords);
-          showToast(isDouble ? `雙擊 (${coords.x}, ${coords.y})` : `點擊 (${coords.x}, ${coords.y})`);
+          const label = ssRightClickMode ? '右鍵' : (isDouble ? '雙擊' : '點擊');
+          showToast(`${label} (${coords.x}, ${coords.y})`);
           rcFetch('/api/remote/click', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ x: coords.x, y: coords.y, double: isDouble })
-          }).then(() => { if (lastSsRefresh) setTimeout(lastSsRefresh, 300); }).catch(() => {});
+            body: JSON.stringify({ x: coords.x, y: coords.y, button: btn, double: isDouble && !ssRightClickMode })
+          }).then(() => autoRefreshAfter(500)).catch(() => {});
           ssLastTap = isDouble ? 0 : now;
         } else {
           showToast('點在截圖範圍外');
@@ -1592,11 +1697,14 @@
   }
 
   // 遙控請求專用 fetch：自動附帶裝置識別 header
+  // X-Device-Nickname 以 encodeURIComponent 編碼，確保 HTTP header 只含 ASCII，
+  // 避免 Safari/iPadOS 對非 ASCII header 值拋出 TypeError 導致功能偵測失敗。
   function rcFetch(url, opts) {
     opts = opts || {};
     const headers = new Headers(opts.headers || {});
     headers.set('X-Device-Id', getDeviceId());
-    headers.set('X-Device-Nickname', getDeviceNickname() || '未命名裝置');
+    const nick = getDeviceNickname() || '';
+    headers.set('X-Device-Nickname', nick ? encodeURIComponent(nick) : 'unnamed');
     opts.headers = headers;
     return fetch(url, opts);
   }
@@ -1679,9 +1787,32 @@
   const $ssRemoteToggle = document.getElementById('ss-remote-toggle');
   const $ssRemoteBar    = document.getElementById('ss-remote-bar');
   const $ssHint         = document.getElementById('ss-hint');
-  const $ssRipple       = document.getElementById('ss-click-ripple');
-  const $ssCrosshair    = document.getElementById('ss-crosshair');
-  const $ssCoordBadge   = document.getElementById('ss-coord-badge');
+  const $ssRipple          = document.getElementById('ss-click-ripple');
+  const $ssCrosshair       = document.getElementById('ss-crosshair');
+  const $ssCoordBadge      = document.getElementById('ss-coord-badge');
+  const $ssScrollIndicator = document.getElementById('ss-scroll-indicator');
+  const $ssRclickToggle    = document.getElementById('ss-rclick-toggle');
+
+  function showScrollIndicator(dy, dx) {
+    const arrow = Math.abs(dy) >= Math.abs(dx)
+      ? (dy < 0 ? '↑' : '↓')
+      : (dx < 0 ? '←' : '→');
+    $ssScrollIndicator.textContent = arrow;
+    $ssScrollIndicator.style.opacity = '1';
+    clearTimeout(ssScrollIndicatorTimer);
+    ssScrollIndicatorTimer = setTimeout(() => { $ssScrollIndicator.style.opacity = '0'; }, 600);
+  }
+
+  function hideScrollIndicator() {
+    clearTimeout(ssScrollIndicatorTimer);
+    $ssScrollIndicator.style.opacity = '0';
+  }
+
+  function setRightClickMode(on) {
+    ssRightClickMode = on;
+    $ssRclickToggle.textContent = on ? '🖱 右鍵' : '🖱 左鍵';
+    $ssRclickToggle.className = on ? 'rgt' : 'lft';
+  }
 
   function setRemoteMode(on) {
     ssRemoteMode = on;
@@ -1691,8 +1822,17 @@
     $ssHint.style.display = on ? 'none' : '';
     $ssImg.classList.toggle('remote-mode', on);
     document.getElementById('ss-add-btn').style.display = on ? 'none' : '';
-    if (!on) hideClickMarker();  // 退出遙控模式時清除準星
+    if (on) {
+      if (lastSsWasClean) fetch('/api/remote/hide-windows', { method: 'POST' }).catch(() => {});
+    } else {
+      hideClickMarker();
+      hideScrollIndicator();
+      setRightClickMode(false);
+      fetch('/api/remote/restore-windows', { method: 'POST' }).catch(() => {});
+    }
   }
+
+  $ssRclickToggle.addEventListener('click', () => setRightClickMode(!ssRightClickMode));
 
   $ssRemoteToggle.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1752,7 +1892,7 @@
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, pressEnter: $ssEnterCheck.checked })
       });
-      if (lastSsRefresh) setTimeout(lastSsRefresh, 400);
+      autoRefreshAfter(600);
     } catch {}
   }
 
@@ -1775,6 +1915,7 @@
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ keys })
         });
+        autoRefreshAfter(500);
       } catch {}
     });
   });

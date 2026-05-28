@@ -40,6 +40,8 @@ export interface MobileBridge {
   getRemoteControlSettings: () => import('./types').RemoteControlSettings | undefined
   notifyRemoteClickPending: () => void  // 點擊前廣播：讓角色視窗暫時穿透
   notifyRemoteAction: () => void        // 點擊後廣播：顯示遠端控制指示
+  hideWindowsForRemote: () => void      // 遙控模式：隱藏所有 DeST 視窗
+  restoreWindowsForRemote: () => void   // 遙控模式：恢復所有 DeST 視窗
 }
 
 // ── 裝置資訊解析工具 ──────────────────────────────────────
@@ -59,7 +61,11 @@ function extractDeviceInfo(req: http.IncomingMessage): DeviceInfo {
   const rawId = req.headers['x-device-id']
   const deviceId = (Array.isArray(rawId) ? rawId[0] : rawId) ?? ''
   const rawNick = req.headers['x-device-nickname']
-  const deviceNickname = (Array.isArray(rawNick) ? rawNick[0] : rawNick) ?? '未命名裝置'
+  const rawNickStr = (Array.isArray(rawNick) ? rawNick[0] : rawNick) ?? ''
+  let deviceNickname = '未命名裝置'
+  if (rawNickStr) {
+    try { deviceNickname = decodeURIComponent(rawNickStr) } catch { deviceNickname = rawNickStr }
+  }
   const ua = req.headers['user-agent']
   const deviceLabel = parseDeviceLabel(Array.isArray(ua) ? ua[0] : ua)
   return { ip, deviceId, deviceNickname, deviceLabel }
@@ -180,7 +186,7 @@ async function handleRequest(
   // CORS headers（讓瀏覽器能正常存取）
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-DesktopST-Token, Authorization')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-DesktopST-Token, Authorization, X-Device-Id, X-Device-Nickname')
 
   if (method === 'OPTIONS') {
     res.writeHead(204)
@@ -622,6 +628,22 @@ async function handleRequest(
       return
     }
 
+    // ── POST /api/remote/hide-windows ── 遙控模式：隱藏所有 DeST 視窗
+    if (method === 'POST' && url === '/api/remote/hide-windows') {
+      if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+      bridge.hideWindowsForRemote()
+      jsonOk(res, { ok: true })
+      return
+    }
+
+    // ── POST /api/remote/restore-windows ── 遙控模式：恢復所有 DeST 視窗
+    if (method === 'POST' && url === '/api/remote/restore-windows') {
+      if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+      bridge.restoreWindowsForRemote()
+      jsonOk(res, { ok: true })
+      return
+    }
+
     // ── POST /api/remote/type ──
     if (method === 'POST' && url === '/api/remote/type') {
       if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
@@ -732,6 +754,24 @@ async function handleRequest(
       return
     }
 
+    // ── POST /api/remote/scroll ──
+    if (method === 'POST' && url === '/api/remote/scroll') {
+      if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
+      const body = await readBody(req)
+      let payload: { x?: number; y?: number; deltaX?: number; deltaY?: number }
+      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+      if (payload.x == null || payload.y == null) { jsonError(res, 400, 'x and y required'); return }
+      const result = await rc.scrollAt(
+        payload.x, payload.y,
+        payload.deltaX ?? 0, payload.deltaY ?? 0
+      )
+      if (result.ok) {
+        appendRemoteLog({ ...devInfo, action: 'scroll', detail: `(${payload.x}, ${payload.y}) dx=${payload.deltaX ?? 0} dy=${payload.deltaY ?? 0}` })
+      }
+      jsonOk(res, result)
+      return
+    }
+
     // ── POST /api/remote/monitor-off ──
     // 只關閉螢幕背光（不觸發 Windows 鎖定），省電用
     if (method === 'POST' && url === '/api/remote/monitor-off') {
@@ -749,6 +789,8 @@ async function handleRequest(
     // 移動一下滑鼠以喚醒螢幕（從螢幕保護程式或鎖定畫面）
     if (method === 'POST' && url === '/api/remote/wake') {
       if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
+      // 釋放防休眠狀態
+      rc.releaseMonitorOff()
       const { exec: e3 } = await import('child_process')
       // 取得目前游標位置再移回，避免干擾使用者正在操作的位置
       const wakeScript = [

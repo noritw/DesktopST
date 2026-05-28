@@ -26,7 +26,9 @@ import {
   getCharactersAlwaysOnTop,
   destroyAllCharacterWindows,
   setMobileConversationHook,
-  broadcastMobileStatus
+  broadcastMobileStatus,
+  hideAllWindowsForRemote,
+  restoreAllWindowsAfterRemote
 } from './windowManager'
 import {
   startMobileServer,
@@ -405,7 +407,6 @@ function initMobileServer(): void {
 
   const port = s.mobile.port ?? 3721
 
-  // Build the bridge
   setBridge({
     getCharacters,
     getDesktopCharacterIds: () => getSettings().ui.desktopCharacters.map(d => d.characterId),
@@ -430,7 +431,9 @@ function initMobileServer(): void {
     resendMessage: resendMessageDirect,
     getRemoteControlSettings: () => getSettings().remoteControl,
     notifyRemoteClickPending: () => broadcastToAll('character:remote-click-pending', {}),
-    notifyRemoteAction: () => broadcastToAll('character:remote-action', {})
+    notifyRemoteAction: () => broadcastToAll('character:remote-action', {}),
+    hideWindowsForRemote: () => hideAllWindowsForRemote(),
+    restoreWindowsForRemote: () => restoreAllWindowsAfterRemote()
   })
 
   // Hook conversation broadcasts → push new messages to mobile clients

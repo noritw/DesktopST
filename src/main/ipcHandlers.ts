@@ -25,6 +25,7 @@ import {
 } from './spotifyService'
 import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
 import { pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
+import { getRemoteLog, clearRemoteLog } from './remoteControlLog'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
   resizeCharacterWindow, getCharacterWindowSize, enterCharacterScaleMode, exitCharacterScaleMode, enterScaleModeWindow,
@@ -42,6 +43,7 @@ import {
   createPinnedNoteWindow, updatePinnedNoteContent, updatePinnedNoteColor, closePinnedNote, getPinnedNoteWindow, getPinnedNoteWindowState,
   openPinnedNotesManager, closePinnedNotesManager, configurePinnedNotePersistence, getBubbleWindow,
   openRemindersManager, closeRemindersManager,
+  openRemoteControlLog, closeRemoteControlLog,
   openSpotifySettingsWindow, closeSpotifySettingsWindow,
   openQRCodeWindow,
   hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu,
@@ -1615,12 +1617,10 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('remote:get-log', () => {
-    const { getRemoteLog } = require('./remoteControlLog')
     return getRemoteLog()
   })
 
   ipcMain.handle('remote:clear-log', () => {
-    const { clearRemoteLog } = require('./remoteControlLog')
     clearRemoteLog()
     return { ok: true }
   })
@@ -2337,6 +2337,16 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('window:close-reminders-manager', () => {
     closeRemindersManager()
+    return true
+  })
+
+  ipcMain.handle('window:open-remote-control-log', () => {
+    openRemoteControlLog()
+    return true
+  })
+
+  ipcMain.handle('window:close-remote-control-log', () => {
+    closeRemoteControlLog()
     return true
   })
 

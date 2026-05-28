@@ -4,12 +4,22 @@
  * 全部透過 PowerShell + Win32 API 實作，不需要 native npm module。
  */
 
-import { exec } from 'child_process'
+import { exec, spawn } from 'child_process'
 import { shell } from 'electron'
 import type { RegisteredProgram } from './types'
 
 // 啟動中程式追蹤：programId → pid[]
 const launchedPids = new Map<string, number[]>()
+
+// 防止系統休眠的背景 PS 程序（關閉螢幕時啟動，喚醒時終止）
+let keepAwakeProcess: ReturnType<typeof spawn> | null = null
+
+function stopKeepAwake(): void {
+  if (keepAwakeProcess) {
+    try { keepAwakeProcess.kill() } catch {}
+    keepAwakeProcess = null
+  }
+}
 
 // ── 工具 ──────────────────────────────────────────────────
 
@@ -33,6 +43,16 @@ const CLICK_TYPE_DEF = [
   'public class RC{',
   '[DllImport(\\"user32.dll\\")]public static extern bool SetCursorPos(int x,int y);',
   '[DllImport(\\"user32.dll\\")]public static extern void mouse_event(uint f,int dx,int dy,uint d,UIntPtr e);',
+  '}\''
+].join('')
+
+/** Add-Type 定義（scroll 用，dwData 為 int 方便傳負值） */
+const SCROLL_TYPE_DEF = [
+  'Add-Type -TypeDefinition \'',
+  'using System;using System.Runtime.InteropServices;',
+  'public class RS{',
+  '[DllImport(\\"user32.dll\\")]public static extern bool SetCursorPos(int x,int y);',
+  '[DllImport(\\"user32.dll\\")]public static extern void mouse_event(uint f,int dx,int dy,int d,UIntPtr e);',
   '}\''
 ].join('')
 
@@ -207,19 +227,77 @@ export async function isProgramRunning(program: RegisteredProgram): Promise<bool
   return result.stdout === '1'
 }
 
+// ── 滑鼠滾輪 ──────────────────────────────────────────────
+
+/**
+ * 在桌面物理座標 (x, y) 執行滾輪事件。
+ * deltaY > 0 = 向上滾（同 TouchEvent.deltaY 方向相反，這裡遵循 WheelEvent 慣例）
+ * deltaX > 0 = 向右滾
+ * 每單位約等於一格滾輪（WHEEL_DELTA=120）。
+ */
+export async function scrollAt(
+  x: number,
+  y: number,
+  deltaX: number,
+  deltaY: number
+): Promise<{ ok: boolean; error?: string }> {
+  const steps: string[] = []
+  // MOUSEEVENTF_WHEEL=0x0800, MOUSEEVENTF_HWHEEL=0x01000
+  // Windows: 正 delta = 向上，負 delta = 向下
+  if (deltaY !== 0) {
+    const d = Math.round(deltaY * 120)
+    steps.push(`[RS]::mouse_event(0x0800,0,0,${d},[UIntPtr]::Zero)`)
+  }
+  if (deltaX !== 0) {
+    const d = Math.round(deltaX * 120)
+    steps.push(`[RS]::mouse_event(0x01000,0,0,${d},[UIntPtr]::Zero)`)
+  }
+  if (!steps.length) return { ok: true }
+
+  const script = [
+    SCROLL_TYPE_DEF,
+    `[RS]::SetCursorPos(${Math.round(x)},${Math.round(y)})`,
+    'Start-Sleep -Milliseconds 30',
+    ...steps
+  ].join(';')
+
+  return runPS(script)
+}
+
 // ── 系統動作 ─────────────────────────────────────────────
 
 /**
- * 只關閉螢幕背光（不鎖定 Windows）。
- * 使用 WM_SYSCOMMAND / SC_MONITORPOWER，喚醒只需移動滑鼠。
- * 注意：若 Windows「需要登入」設為「從睡眠喚醒時」，仍需密碼；建議改為「從不」。
+ * 只關閉螢幕背光（不觸發 Windows 鎖定），省電用。
+ * 同時啟動背景 PS 程序設定 ES_SYSTEM_REQUIRED，防止系統休眠（保持伺服器在線）。
+ * 需要建議使用者將 Windows「需要登入」改為「從不」，這樣喚醒後不需密碼。
  */
 export async function monitorOff(): Promise<{ ok: boolean; error?: string }> {
-  const script = [
-    'Add-Type -TypeDefinition \'using System;using System.Runtime.InteropServices;public class Mon{[DllImport(\\"user32.dll\\")]public static extern IntPtr SendMessage(IntPtr h,int m,int w,int l);}\'',
-    '[Mon]::SendMessage([IntPtr](-1),0x0112,0xF170,2)|Out-Null'
+  stopKeepAwake()
+
+  // 啟動持續執行的 PS 程序：防止系統休眠 + 關閉螢幕背光
+  const keepScript = [
+    `Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;`,
+    `public class MPC{`,
+    `[DllImport("user32.dll")]public static extern IntPtr SendMessage(IntPtr h,int m,int w,int l);`,
+    `[DllImport("kernel32.dll")]public static extern uint SetThreadExecutionState(uint s);}'`,
+    `[MPC]::SetThreadExecutionState(0x80000001)|Out-Null`,
+    `[MPC]::SendMessage([IntPtr](-1),0x0112,0xF170,2)|Out-Null`,
+    `while($true){Start-Sleep -Seconds 30;[MPC]::SetThreadExecutionState(0x80000001)|Out-Null}`
   ].join(';')
-  return runPS(script)
+
+  keepAwakeProcess = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', keepScript], {
+    detached: false,
+    stdio: 'ignore'
+  })
+  keepAwakeProcess.on('error', () => { keepAwakeProcess = null })
+  keepAwakeProcess.on('exit', () => { keepAwakeProcess = null })
+
+  return { ok: true }
+}
+
+/** 喚醒螢幕後釋放防休眠狀態（由 wake 端點呼叫） */
+export function releaseMonitorOff(): void {
+  stopKeepAwake()
 }
 
 export async function shutdownPc(restart: boolean): Promise<{ ok: boolean; error?: string }> {

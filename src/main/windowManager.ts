@@ -1501,6 +1501,26 @@ export function restoreAllWindowsAfterScreenshot(): void {
   }
 }
 
+// 遙控模式用：隱藏所有 DeST 視窗，記錄哪些是可見的以便稍後恢復
+let remoteHiddenWindows: BrowserWindow[] = []
+
+export function hideAllWindowsForRemote(): void {
+  remoteHiddenWindows = []
+  for (const w of collectAllDesktopSTWindows()) {
+    if (!w.isDestroyed() && w.isVisible()) {
+      w.hide()
+      remoteHiddenWindows.push(w)
+    }
+  }
+}
+
+export function restoreAllWindowsAfterRemote(): void {
+  for (const w of remoteHiddenWindows) {
+    if (!w.isDestroyed()) w.show()
+  }
+  remoteHiddenWindows = []
+}
+
 export function raiseAllCharactersAboveAux(): void {
   charactersRaisedAboveAux = true
   if (!charactersAlwaysOnTop) return
@@ -2097,6 +2117,7 @@ export async function getPinnedNoteWindowState(noteId: string): Promise<WindowBo
 
 let pinnedNotesManagerWindow: BrowserWindow | null = null
 let remindersManagerWindow: BrowserWindow | null = null
+let remoteControlLogWindow: BrowserWindow | null = null
 let pinnedNoteColorMenuWindow: BrowserWindow | null = null
 
 type ScreenBounds = { x: number; y: number; width: number; height: number }
@@ -2293,6 +2314,59 @@ export function closePinnedNotesManager(): void {
 export function closeRemindersManager(): void {
   if (remindersManagerWindow && !remindersManagerWindow.isDestroyed()) {
     remindersManagerWindow.close()
+  }
+}
+
+export function openRemoteControlLog(): BrowserWindow {
+  if (remoteControlLogWindow && !remoteControlLogWindow.isDestroyed()) {
+    remoteControlLogWindow.show()
+    remoteControlLogWindow.focus()
+    remoteControlLogWindow.moveTop()
+    return remoteControlLogWindow
+  }
+
+  const wa = screen.getPrimaryDisplay().workArea
+  const w = 500, h = 560
+  remoteControlLogWindow = new BrowserWindow({
+    x: Math.round(wa.x + (wa.width - w) / 2),
+    y: Math.round(wa.y + (wa.height - h) / 2),
+    width: w,
+    height: h,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  remoteControlLogWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  remoteControlLogWindow.setMinimumSize(380, 300)
+
+  if (VITE_DEV_SERVER_URL) {
+    remoteControlLogWindow.loadURL(makeURL({ w: 'remote-control-log' }))
+  } else {
+    remoteControlLogWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: { w: 'remote-control-log' }
+    })
+  }
+
+  remoteControlLogWindow.on('closed', () => { remoteControlLogWindow = null })
+  remoteControlLogWindow.show()
+  raiseAuxAboveCharacters()
+  remoteControlLogWindow.moveTop()
+  remoteControlLogWindow.focus()
+  return remoteControlLogWindow
+}
+
+export function closeRemoteControlLog(): void {
+  if (remoteControlLogWindow && !remoteControlLogWindow.isDestroyed()) {
+    remoteControlLogWindow.close()
   }
 }
 

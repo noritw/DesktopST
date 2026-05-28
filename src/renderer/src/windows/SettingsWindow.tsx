@@ -228,9 +228,6 @@ export default function SettingsWindow() {
   const [programPickerLoading, setProgramPickerLoading] = useState(false)
   const [programPickerItems, setProgramPickerItems] = useState<{ name: string; path: string }[]>([])
   const [programPickerSearch, setProgramPickerSearch] = useState('')
-  const [showRcLog, setShowRcLog] = useState(false)
-  const [rcLogEntries, setRcLogEntries] = useState<Array<{ timestamp: number; ip: string; deviceId: string; deviceNickname: string; deviceLabel: string; action: string; detail: string }>>([])
-  const [rcLogLoading, setRcLogLoading] = useState(false)
   const [appVersion, setAppVersion] = useState('')
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [windowsStartupSupported, setWindowsStartupSupported] = useState(false)
@@ -2422,70 +2419,12 @@ export default function SettingsWindow() {
                 <button
                   type="button"
                   className="px-3 py-1.5 rounded-lg text-xs border bg-surface text-primary border-border"
-                  onClick={async () => {
-                    setShowRcLog(true)
-                    setRcLogLoading(true)
-                    try {
-                      const entries = await window.api.invoke('remote:get-log')
-                      setRcLogEntries(Array.isArray(entries) ? entries : [])
-                    } finally {
-                      setRcLogLoading(false)
-                    }
-                  }}
+                  onClick={() => window.api.invoke('window:open-remote-control-log')}
                 >
                   查看記錄
                 </button>
               </div>
             </div>
-
-            {showRcLog && (
-              <div className="rounded-xl border border-border bg-surface p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium text-primary">遙控操作記錄（最新 500 筆）</p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      className="text-xs text-secondary"
-                      onClick={async () => {
-                        await window.api.invoke('remote:clear-log')
-                        setRcLogEntries([])
-                      }}
-                    >
-                      清除
-                    </button>
-                    <button
-                      type="button"
-                      className="text-xs text-secondary"
-                      onClick={() => setShowRcLog(false)}
-                    >
-                      關閉
-                    </button>
-                  </div>
-                </div>
-                {rcLogLoading ? (
-                  <p className="text-xs text-secondary text-center py-3">載入中…</p>
-                ) : rcLogEntries.length === 0 ? (
-                  <p className="text-xs text-secondary text-center py-3">尚無記錄</p>
-                ) : (
-                  <div className="max-h-64 overflow-y-auto space-y-1">
-                    {rcLogEntries.map((e, i) => (
-                      <div key={i} className="text-xs border-b border-border pb-1 last:border-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-secondary">{new Date(e.timestamp).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                          <span className="font-medium text-primary">{e.deviceNickname}</span>
-                          <span className="text-secondary">({e.deviceLabel})</span>
-                          <span className="text-secondary">{e.ip}</span>
-                        </div>
-                        <div className="text-primary mt-0.5">
-                          <span className="font-mono bg-mint-20 rounded px-1 mr-1">{e.action}</span>
-                          {e.detail}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         )}
 
