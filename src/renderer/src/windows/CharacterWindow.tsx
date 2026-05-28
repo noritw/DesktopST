@@ -51,6 +51,8 @@ export default function CharacterWindow({ characterId }: Props) {
   const [isThinking, setIsThinking] = useState(false)
   const [contextEmotion, setContextEmotion] = useState<string | undefined>(undefined)
   const hoverMenuOnHover = useAppStore(s => s.settings?.ui.hoverMenuOnHover ?? true)
+  const [remoteActive, setRemoteActive] = useState(false)
+  const remoteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const urlSize = window.windowParams?.get('size') ?? new URLSearchParams(window.location.search).get('size')
   const initialSize = urlSize ? Number(urlSize) : NaN
@@ -146,9 +148,29 @@ export default function CharacterWindow({ characterId }: Props) {
       window.api.on('character:display-emotion', (payload) => {
         const { emotion } = payload as { emotion: string }
         setOverrideEmotion(emotion)
+      }),
+      window.api.on('character:remote-click-pending', () => {
+        // 點擊前預先進入遠端模式，確保角色視窗穿透，不擋住點擊目標
+        setRemoteActive(true)
+        if (remoteTimerRef.current) clearTimeout(remoteTimerRef.current)
+        remoteTimerRef.current = setTimeout(() => {
+          setRemoteActive(false)
+          remoteTimerRef.current = null
+        }, 800)  // 短暫穿透 800ms，等 remote-action 接力延長
+      }),
+      window.api.on('character:remote-action', () => {
+        setRemoteActive(true)
+        if (remoteTimerRef.current) clearTimeout(remoteTimerRef.current)
+        remoteTimerRef.current = setTimeout(() => {
+          setRemoteActive(false)
+          remoteTimerRef.current = null
+        }, 4000)
       })
     ]
-    return () => unsubs.forEach(u => u())
+    return () => {
+      unsubs.forEach(u => u())
+      if (remoteTimerRef.current) clearTimeout(remoteTimerRef.current)
+    }
   }, [characterId])
 
   // spriteOpaque=true 時觸發 hover；關閉 hover 由 mousemove 的容器邊界判斷
@@ -160,13 +182,14 @@ export default function CharacterWindow({ characterId }: Props) {
 
   // 將像素層級的互動狀態回報給 main process，取代 bounding-box 判斷
   // 讓前方角色的透明區域可以正確穿透到後方角色
+  // remoteActive 時強制穿透，避免角色視窗擋住遠端點擊目標
   useEffect(() => {
-    const isInteractable = spriteOpaque || hovered || scaleMode
+    const isInteractable = (spriteOpaque || hovered || scaleMode) && !remoteActive
     if (isInteractable !== prevInteractableRef.current) {
       prevInteractableRef.current = isInteractable
       window.api.send('desktop:set-interactable', characterId, isInteractable)
     }
-  }, [characterId, spriteOpaque, hovered, scaleMode])
+  }, [characterId, spriteOpaque, hovered, scaleMode, remoteActive])
   useEffect(() => {
     if (!scaleMode) {
       setScaleDraft(size)
@@ -562,6 +585,33 @@ export default function CharacterWindow({ characterId }: Props) {
                 <span className="dst-thinking-dots">
                   <span>.</span><span>.</span><span>.</span>
                 </span>
+              </div>
+            )}
+            {remoteActive && (
+              <div
+                className="absolute left-0 right-0 flex justify-center pointer-events-none select-none"
+                style={{ bottom: '100%', marginBottom: 6, zIndex: 20 }}
+                aria-label="遠端控制中"
+              >
+                <div
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    background: 'rgba(220,30,30,0.92)', color: '#fff',
+                    borderRadius: 20, padding: '3px 10px 3px 7px',
+                    fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.25)'
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 18, height: 18, borderRadius: '50%',
+                      background: '#fff', color: '#dc1e1e',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontWeight: 900, fontSize: 13, flexShrink: 0
+                    }}
+                  >!</span>
+                  遠端控制中
+                </div>
               </div>
             )}
             <CharacterSprite

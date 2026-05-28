@@ -427,7 +427,10 @@ function initMobileServer(): void {
     getColorTheme: () => getSettings().ui.colorTheme ?? 'mint',
     deleteMessage: deleteMessageDirect,
     editMessage: editMessageDirect,
-    resendMessage: resendMessageDirect
+    resendMessage: resendMessageDirect,
+    getRemoteControlSettings: () => getSettings().remoteControl,
+    notifyRemoteClickPending: () => broadcastToAll('character:remote-click-pending', {}),
+    notifyRemoteAction: () => broadcastToAll('character:remote-action', {})
   })
 
   // Hook conversation broadcasts → push new messages to mobile clients

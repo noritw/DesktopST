@@ -199,6 +199,13 @@ export function loadSettings(): AppSettings {
         ...DEFAULT_SETTINGS.memory,
         ...typed.memory
       },
+      remoteControl: {
+        ...DEFAULT_SETTINGS.remoteControl!,
+        ...typed.remoteControl,
+        registeredPrograms: Array.isArray(typed.remoteControl?.registeredPrograms)
+          ? typed.remoteControl!.registeredPrograms
+          : []
+      },
       ui: {
         ...DEFAULT_SETTINGS.ui,
         ...typed.ui,

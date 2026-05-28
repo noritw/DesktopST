@@ -10,6 +10,8 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { app, desktopCapturer } from 'electron'
 import type { Message, RandomResult } from './types'
 import { getAccessToken } from './relayService'
+import * as rc from './remoteControl'
+import { appendRemoteLog, getRemoteLog, clearRemoteLog, parseDeviceLabel } from './remoteControlLog'
 
 // ── 注入的 bridge（由 index.ts 啟動時注入）────────────────
 
@@ -35,6 +37,32 @@ export interface MobileBridge {
   deleteMessage: (id: string) => boolean
   editMessage: (id: string, content: string) => boolean
   resendMessage: (id: string) => Promise<{ ok: boolean } | { error: string }>
+  getRemoteControlSettings: () => import('./types').RemoteControlSettings | undefined
+  notifyRemoteClickPending: () => void  // 點擊前廣播：讓角色視窗暫時穿透
+  notifyRemoteAction: () => void        // 點擊後廣播：顯示遠端控制指示
+}
+
+// ── 裝置資訊解析工具 ──────────────────────────────────────
+
+interface DeviceInfo {
+  ip: string
+  deviceId: string
+  deviceNickname: string
+  deviceLabel: string
+}
+
+function extractDeviceInfo(req: http.IncomingMessage): DeviceInfo {
+  const forwarded = req.headers['x-forwarded-for']
+  const ip = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0]?.trim()
+    ?? req.socket.remoteAddress
+    ?? '未知'
+  const rawId = req.headers['x-device-id']
+  const deviceId = (Array.isArray(rawId) ? rawId[0] : rawId) ?? ''
+  const rawNick = req.headers['x-device-nickname']
+  const deviceNickname = (Array.isArray(rawNick) ? rawNick[0] : rawNick) ?? '未命名裝置'
+  const ua = req.headers['user-agent']
+  const deviceLabel = parseDeviceLabel(Array.isArray(ua) ? ua[0] : ua)
+  return { ip, deviceId, deviceNickname, deviceLabel }
 }
 
 let bridge: MobileBridge | null = null
@@ -378,12 +406,20 @@ async function handleRequest(
   if (method === 'GET' && (url.startsWith('/api/screenshot/clean') || url.startsWith('/api/screenshot/with-chars'))) {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
     const displayIndex = parseInt(requestUrl.searchParams.get('displayIndex') ?? '0') || 0
-    const urlPath = url
-    const withChars = urlPath === '/api/screenshot/with-chars'
+    const withChars = url === '/api/screenshot/with-chars'
     const result = await bridge.captureScreenshot(withChars, displayIndex)
     if (!result.ok || !result.dataUrl) { jsonError(res, 500, result.error ?? 'Screenshot failed'); return }
     const [header, b64] = result.dataUrl.split(',')
     const mime = header.replace('data:', '').replace(';base64', '')
+    // X-Display-Bounds 讓手機端知道這張截圖對應的螢幕物理座標範圍，用於遙控點擊座標換算
+    const { screen: scr } = await import('electron')
+    const displays = scr.getAllDisplays()
+    const disp = displays[displayIndex] ?? displays[0]
+    if (disp) {
+      const b = disp.bounds
+      res.setHeader('X-Display-Bounds', JSON.stringify({ x: b.x, y: b.y, w: b.width, h: b.height }))
+      res.setHeader('X-Scale-Factor', String(disp.scaleFactor ?? 1))
+    }
     res.writeHead(200, { 'Content-Type': mime })
     res.end(Buffer.from(b64, 'base64'))
     return
@@ -431,7 +467,7 @@ async function handleRequest(
           cx >= d.bounds.x && cx < d.bounds.x + d.bounds.width &&
           cy >= d.bounds.y && cy < d.bounds.y + d.bounds.height
         )
-        return { pid: w.pid, hwnd: w.hwnd, title: w.title, proc: w.proc, minimized: !!w.minimized, displayIndex: di >= 0 ? di : 0 }
+        return { pid: w.pid, hwnd: w.hwnd, title: w.title, proc: w.proc, minimized: !!w.minimized, displayIndex: di >= 0 ? di : 0, x: w.x ?? 0, y: w.y ?? 0, w: w.w ?? 0, h: w.h ?? 0 }
       })
       jsonOk(res, result)
     } catch { jsonOk(res, []) }
@@ -477,6 +513,31 @@ async function handleRequest(
       if (!dataUrl || dataUrl.length < 200) { jsonError(res, 500, 'Empty thumbnail'); return }
       const [header, b64] = dataUrl.split(',')
       const mime = header.replace('data:', '').replace(';base64', '')
+      // X-Window-Bounds：視窗的實際可視範圍（供遙控點擊座標換算）
+      // 優先用 DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS=9) 取得視覺邊界（不含陰影），
+      // 失敗時 fallback 到 GetWindowRect
+      if (payload.hwnd) {
+        const { exec: e2 } = await import('child_process')
+        const boundsScript = [
+          'Add-Type -TypeDefinition \'using System;using System.Runtime.InteropServices;',
+          '[StructLayout(LayoutKind.Sequential)]public struct WRECT{public int L,T,R,B;}',
+          'public class WBounds{',
+          '[DllImport(\\"dwmapi.dll\\")]public static extern int DwmGetWindowAttribute(IntPtr h,int a,out WRECT r,int s);',
+          '[DllImport(\\"user32.dll\\")]public static extern bool GetWindowRect(IntPtr h,out WRECT r);}\'',
+          `$h=[IntPtr]::new(${Number(payload.hwnd)});$r=New-Object WRECT`,
+          '$sz=[System.Runtime.InteropServices.Marshal]::SizeOf([WRECT])',
+          '$hr=[WBounds]::DwmGetWindowAttribute($h,9,[ref]$r,$sz)',
+          'if($hr-eq 0){Write-Output "$($r.L),$($r.T),$($r.R-$r.L),$($r.B-$r.T)"}',
+          'else{[WBounds]::GetWindowRect($h,[ref]$r)|Out-Null;Write-Output "$($r.L),$($r.T),$($r.R-$r.L),$($r.B-$r.T)"}'
+        ].join('')
+        const boundsRaw = await new Promise<string>(r => {
+          e2(`powershell -NoProfile -NonInteractive -Command "${boundsScript}"`, { encoding: 'utf8', timeout: 4000 }, (_, out) => r(out?.trim() ?? ''))
+        })
+        if (boundsRaw) {
+          const [wx, wy, ww, wh] = boundsRaw.split(',').map(Number)
+          if (!isNaN(wx) && ww > 0 && wh > 0) res.setHeader('X-Window-Bounds', JSON.stringify({ x: wx, y: wy, w: ww, h: wh }))
+        }
+      }
       res.writeHead(200, { 'Content-Type': mime })
       res.end(Buffer.from(b64, 'base64'))
     } catch (e) {
@@ -532,6 +593,195 @@ async function handleRequest(
     const result = rollRandomTool(payload.tool, numParams as Record<string, number>)
     if (!result) { jsonError(res, 400, 'Unknown tool'); return }
     jsonOk(res, { result })
+    return
+  }
+
+  // ── 遙控 API ────────────────────────────────────────────
+
+  if (url.startsWith('/api/remote/')) {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const rcSettings = bridge.getRemoteControlSettings()
+
+    const devInfo = extractDeviceInfo(req)
+
+    // ── POST /api/remote/click ──
+    if (method === 'POST' && url === '/api/remote/click') {
+      if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
+      const body = await readBody(req)
+      let payload: { x?: number; y?: number; button?: 'left' | 'right' | 'middle'; double?: boolean }
+      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+      if (payload.x == null || payload.y == null) { jsonError(res, 400, 'x and y required'); return }
+      // 點擊前廣播：讓所有角色視窗暫時穿透，避免透明視窗擋住點擊目標
+      bridge.notifyRemoteClickPending()
+      const result = await rc.clickAt(payload.x, payload.y, payload.button ?? 'left', payload.double ?? false)
+      if (result.ok) {
+        appendRemoteLog({ ...devInfo, action: 'click', detail: `(${payload.x}, ${payload.y})${payload.double ? ' 雙擊' : ''}${payload.button && payload.button !== 'left' ? ' ' + payload.button : ''}` })
+        bridge.notifyRemoteAction()
+      }
+      jsonOk(res, result)
+      return
+    }
+
+    // ── POST /api/remote/type ──
+    if (method === 'POST' && url === '/api/remote/type') {
+      if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
+      const body = await readBody(req)
+      let payload: { text?: string; pressEnter?: boolean }
+      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+      const text = String(payload.text ?? '')
+      if (!text) { jsonError(res, 400, 'text required'); return }
+      // 輸入前也廣播，確保後續 Enter 等按鍵不被視窗攔截
+      bridge.notifyRemoteClickPending()
+      const result = await rc.typeText(text)
+      if (result.ok && payload.pressEnter) await rc.sendKey('Enter')
+      if (result.ok) {
+        appendRemoteLog({ ...devInfo, action: 'type', detail: text.length > 40 ? text.slice(0, 40) + '…' : text })
+        bridge.notifyRemoteAction()
+      }
+      jsonOk(res, result)
+      return
+    }
+
+    // ── POST /api/remote/key ──
+    if (method === 'POST' && url === '/api/remote/key') {
+      if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
+      const body = await readBody(req)
+      let payload: { keys?: string }
+      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+      if (!payload.keys) { jsonError(res, 400, 'keys required'); return }
+      const result = await rc.sendKey(payload.keys)
+      if (result.ok) {
+        appendRemoteLog({ ...devInfo, action: 'key', detail: payload.keys })
+        bridge.notifyRemoteAction()
+      }
+      jsonOk(res, result)
+      return
+    }
+
+    // ── POST /api/remote/system ──
+    if (method === 'POST' && url === '/api/remote/system') {
+      if (!rcSettings?.enableSystemActions) { jsonError(res, 403, 'System actions disabled'); return }
+      const body = await readBody(req)
+      let payload: { action?: string }
+      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+      if (payload.action !== 'shutdown' && payload.action !== 'restart') { jsonError(res, 400, 'action must be shutdown or restart'); return }
+      appendRemoteLog({ ...devInfo, action: payload.action, detail: payload.action === 'shutdown' ? '關機' : '重新開機' })
+      bridge.notifyRemoteAction()
+      const result = await rc.shutdownPc(payload.action === 'restart')
+      jsonOk(res, result)
+      return
+    }
+
+    // ── GET /api/remote/programs ──
+    if (method === 'GET' && url === '/api/remote/programs') {
+      const programs = rcSettings?.registeredPrograms ?? []
+      const withStatus = await Promise.all(programs.map(async p => ({
+        id: p.id,
+        name: p.name,
+        iconDataUrl: p.iconDataUrl,
+        running: await rc.isProgramRunning(p)
+      })))
+      jsonOk(res, withStatus)
+      return
+    }
+
+    // ── POST /api/remote/programs/launch ──
+    if (method === 'POST' && url === '/api/remote/programs/launch') {
+      const body = await readBody(req)
+      let payload: { id?: string }
+      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+      if (!payload.id) { jsonError(res, 400, 'id required'); return }
+      const prog = rcSettings?.registeredPrograms.find(p => p.id === payload.id)
+      if (!prog) { jsonError(res, 404, 'Program not found'); return }
+      const result = await rc.launchProgram(prog)
+      if (result.ok) {
+        appendRemoteLog({ ...devInfo, action: 'launch', detail: prog.name })
+        bridge.notifyRemoteAction()
+      }
+      jsonOk(res, result)
+      return
+    }
+
+    // ── POST /api/remote/programs/close ──
+    if (method === 'POST' && url === '/api/remote/programs/close') {
+      const body = await readBody(req)
+      let payload: { id?: string }
+      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+      if (!payload.id) { jsonError(res, 400, 'id required'); return }
+      const prog = rcSettings?.registeredPrograms.find(p => p.id === payload.id)
+      if (!prog) { jsonError(res, 404, 'Program not found'); return }
+      const result = await rc.closeProgram(prog)
+      if (result.ok) {
+        appendRemoteLog({ ...devInfo, action: 'close', detail: prog.name })
+        bridge.notifyRemoteAction()
+      }
+      jsonOk(res, result)
+      return
+    }
+
+    // ── GET /api/remote/log ──
+    if (method === 'GET' && url === '/api/remote/log') {
+      jsonOk(res, getRemoteLog())
+      return
+    }
+
+    // ── POST /api/remote/log/clear ──
+    if (method === 'POST' && url === '/api/remote/log/clear') {
+      clearRemoteLog()
+      jsonOk(res, { ok: true })
+      return
+    }
+
+    // ── POST /api/remote/monitor-off ──
+    // 只關閉螢幕背光（不觸發 Windows 鎖定），省電用
+    if (method === 'POST' && url === '/api/remote/monitor-off') {
+      if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
+      const result = await rc.monitorOff()
+      if (result.ok) {
+        appendRemoteLog({ ...devInfo, action: 'monitor-off', detail: '關閉螢幕' })
+        bridge.notifyRemoteAction()
+      }
+      jsonOk(res, result)
+      return
+    }
+
+    // ── POST /api/remote/wake ──
+    // 移動一下滑鼠以喚醒螢幕（從螢幕保護程式或鎖定畫面）
+    if (method === 'POST' && url === '/api/remote/wake') {
+      if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
+      const { exec: e3 } = await import('child_process')
+      // 取得目前游標位置再移回，避免干擾使用者正在操作的位置
+      const wakeScript = [
+        'Add-Type -TypeDefinition \'using System;using System.Runtime.InteropServices;public class WK{[DllImport(\\"user32.dll\\")]public static extern bool SetCursorPos(int x,int y);[DllImport(\\"user32.dll\\")]public static extern bool GetCursorPos(out POINT p);[StructLayout(LayoutKind.Sequential)]public struct POINT{public int X,Y;}}\'',
+        '$p=New-Object WK+POINT;[WK]::GetCursorPos([ref]$p)|Out-Null',
+        '[WK]::SetCursorPos($p.X+1,$p.Y+1)|Out-Null',
+        'Start-Sleep -Milliseconds 50',
+        '[WK]::SetCursorPos($p.X,$p.Y)|Out-Null'
+      ].join(';')
+      await new Promise<void>(resolve => {
+        e3(`powershell -NoProfile -NonInteractive -Command "${wakeScript}"`, { timeout: 3000 }, () => resolve())
+      })
+      appendRemoteLog({ ...devInfo, action: 'wake', detail: '喚醒螢幕' })
+      bridge.notifyRemoteAction()
+      jsonOk(res, { ok: true })
+      return
+    }
+
+    jsonError(res, 404, 'Remote API not found')
+    return
+  }
+
+  // ── GET /api/system/lock-status ──
+  // 偵測 Windows 是否鎖定（logonui.exe 以 Session 0+ 執行代表登入畫面）
+  if (method === 'GET' && url === '/api/system/lock-status') {
+    const { exec: e4 } = await import('child_process')
+    const lockScript = `$p=Get-Process logonui -ErrorAction SilentlyContinue;if($p){'locked'}else{'unlocked'}`
+    const status = await new Promise<string>(resolve => {
+      e4(`powershell -NoProfile -NonInteractive -Command "${lockScript}"`, { encoding: 'utf8', timeout: 3000 }, (_, out) => {
+        resolve(out?.trim() === 'locked' ? 'locked' : 'unlocked')
+      })
+    })
+    jsonOk(res, { locked: status === 'locked' })
     return
   }
 

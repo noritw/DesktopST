@@ -1502,6 +1502,129 @@ export function registerIpcHandlers() {
     return true
   })
 
+  // ── Remote Control（白名單程式管理）──
+
+  /**
+   * 給定 exe 或 lnk 路徑，回傳 { launchPath, defaultName, iconDataUrl }
+   * launchPath 保持原始路徑（lnk 就是 lnk），啟動時用 shell.openPath 讓 Windows 處理，
+   * 這樣 UWP / Store app 也能正常開啟。圖示另外抓（getFileIcon 會 follow lnk）。
+   */
+  async function resolveProgram(filePath: string): Promise<{ path: string; defaultName: string; iconDataUrl?: string } | null> {
+    const fileName = filePath.split(/[\\/]/).pop() ?? filePath
+    const defaultName = fileName.replace(/\.(?:exe|lnk)$/i, '')
+    let iconDataUrl: string | undefined
+    try {
+      const icon = await app.getFileIcon(filePath, { size: 'normal' })
+      const resized = icon.resize({ width: 32, height: 32, quality: 'best' })
+      iconDataUrl = resized.toDataURL()
+    } catch (e) {
+      console.warn('[remote] getFileIcon failed:', e)
+    }
+    return { path: filePath, defaultName, iconDataUrl }
+  }
+
+  ipcMain.handle('remote:pick-program', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const result = win
+      ? await dialog.showOpenDialog(win, {
+          title: '選擇要登錄的程式',
+          properties: ['openFile'],
+          filters: [
+            { name: '程式或捷徑', extensions: ['exe', 'lnk'] },
+            { name: '全部檔案', extensions: ['*'] }
+          ]
+        })
+      : await dialog.showOpenDialog({
+          title: '選擇要登錄的程式',
+          properties: ['openFile'],
+          filters: [
+            { name: '程式或捷徑', extensions: ['exe', 'lnk'] },
+            { name: '全部檔案', extensions: ['*'] }
+          ]
+        })
+    if (result.canceled || !result.filePaths[0]) return null
+    return resolveProgram(result.filePaths[0])
+  })
+
+  ipcMain.handle('remote:resolve-program', async (_, filePath: string) => {
+    if (typeof filePath !== 'string' || !filePath) return null
+    return resolveProgram(filePath)
+  })
+
+  /** 遞迴掃描開始選單，回傳所有 .lnk 的 { name, path } */
+  ipcMain.handle('remote:list-start-menu', async () => {
+    const { readdirSync, statSync } = await import('fs')
+    const { join } = await import('path')
+    const folders = [
+      join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+      'C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs'
+    ]
+    const results: { name: string; path: string }[] = []
+    function scan(dir: string) {
+      try {
+        for (const entry of readdirSync(dir)) {
+          const full = join(dir, entry)
+          try {
+            const stat = statSync(full)
+            if (stat.isDirectory()) {
+              scan(full)
+            } else if (entry.toLowerCase().endsWith('.lnk')) {
+              results.push({ name: entry.replace(/\.lnk$/i, ''), path: full })
+            }
+          } catch {}
+        }
+      } catch {}
+    }
+    for (const f of folders) scan(f)
+    results.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+    return results
+  })
+
+  /** 列出目前執行中有 exe 路徑的程式（去重、排除系統程序） */
+  ipcMain.handle('remote:list-processes', async () => {
+    const { exec } = await import('child_process')
+    const script = [
+      '$OutputEncoding=[Text.Encoding]::UTF8;[Console]::OutputEncoding=[Text.Encoding]::UTF8',
+      '$p=Get-Process -ErrorAction SilentlyContinue|Where-Object{$_.Path}|Sort-Object ProcessName|Select-Object ProcessName,Path',
+      'if($p){$p|ConvertTo-Json -Compress -Depth 1}else{\'[]\'}'
+    ].join(';')
+    const raw = await new Promise<string>(resolve => {
+      exec(`powershell -NoProfile -NonInteractive -Command "${script}"`, { encoding: 'utf8', timeout: 8000 }, (err, stdout) => {
+        resolve(err ? '[]' : stdout.trim())
+      })
+    })
+    try {
+      const arr = JSON.parse(raw)
+      const list = (Array.isArray(arr) ? arr : [arr]) as { ProcessName: string; Path: string }[]
+      const systemDirs = ['\\windows\\system32\\', '\\windows\\syswow64\\', '\\windows\\systemapps\\']
+      // 同路徑去重，再過濾系統目錄
+      const seen = new Set<string>()
+      return list
+        .filter(p => {
+          if (!p?.Path) return false
+          const lower = p.Path.toLowerCase()
+          if (systemDirs.some(d => lower.includes(d))) return false
+          if (seen.has(lower)) return false
+          seen.add(lower)
+          return true
+        })
+        .map(p => ({ name: p.ProcessName, path: p.Path }))
+    } catch {
+      return []
+    }
+  })
+
+  ipcMain.handle('remote:get-log', () => {
+    const { getRemoteLog } = require('./remoteControlLog')
+    return getRemoteLog()
+  })
+
+  ipcMain.handle('remote:clear-log', () => {
+    const { clearRemoteLog } = require('./remoteControlLog')
+    clearRemoteLog()
+    return { ok: true }
+  })
+
   ipcMain.handle('app:set-always-on-top', (_, enabled: boolean) => {
     settings.ui.alwaysOnTop = enabled
     setCharactersAlwaysOnTop(enabled)

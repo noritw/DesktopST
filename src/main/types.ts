@@ -141,6 +141,24 @@ export interface MobileSettings {
   }
 }
 
+export interface RegisteredProgram {
+  id: string
+  name: string              // 顯示名稱
+  path: string              // 可執行檔絕對路徑
+  args?: string             // 啟動參數
+  iconDataUrl?: string      // 32x32 圖示,從 exe 抽取
+  createdAt: number
+}
+
+export interface RemoteControlSettings {
+  /** 允許手機端遙控鍵鼠（點擊 / 輸入文字 / 快捷鍵）*/
+  enableInputControl: boolean
+  /** 允許手機端執行系統動作（關機 / 重開機） */
+  enableSystemActions: boolean
+  /** 白名單登錄程式 */
+  registeredPrograms: RegisteredProgram[]
+}
+
 export type OmikujiTier = '大吉' | '中吉' | '小吉' | '吉' | '末吉' | '凶' | '大凶'
 
 export type RandomResult =
@@ -166,6 +184,7 @@ export interface AppSettings {
   weather?: WeatherSettings
   spotify?: SpotifySettings
   mobile?: MobileSettings
+  remoteControl?: RemoteControlSettings
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok'
     /** @deprecated use apiKeys[provider] instead; kept for migration */
@@ -296,6 +315,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   memory: {
     keepRecentN: 20,
     autoSummarizeAfter: 50
+  },
+  remoteControl: {
+    enableInputControl: false,
+    enableSystemActions: false,
+    registeredPrograms: []
   },
   ui: {
     desktopCharacters: [],

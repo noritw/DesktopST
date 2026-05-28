@@ -105,7 +105,7 @@ const PROVIDER_KEY_PLACEHOLDER: Record<string, string> = {
 
 const LEFT_TABS = ['LLM 設定', '記憶', '資料'] as const
 const SCENE_TABS = ['情境'] as const
-const RIGHT_TABS = ['世界觀', '使用者', '介面', '關於'] as const
+const RIGHT_TABS = ['世界觀', '使用者', '介面', '遙控', '關於'] as const
 const TABS = [...LEFT_TABS, ...SCENE_TABS, ...RIGHT_TABS] as const
 type Tab = typeof TABS[number]
 const SETTINGS_LAST_TAB_KEY = 'desktopst.settings.lastTab'
@@ -224,6 +224,13 @@ export default function SettingsWindow() {
   const [utilityConnResult, setUtilityConnResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [dataDir, setDataDir] = useState('')
   const [changingDataDir, setChangingDataDir] = useState(false)
+  const [programPickerMode, setProgramPickerMode] = useState<'start-menu' | 'processes' | null>(null)
+  const [programPickerLoading, setProgramPickerLoading] = useState(false)
+  const [programPickerItems, setProgramPickerItems] = useState<{ name: string; path: string }[]>([])
+  const [programPickerSearch, setProgramPickerSearch] = useState('')
+  const [showRcLog, setShowRcLog] = useState(false)
+  const [rcLogEntries, setRcLogEntries] = useState<Array<{ timestamp: number; ip: string; deviceId: string; deviceNickname: string; deviceLabel: string; action: string; detail: string }>>([])
+  const [rcLogLoading, setRcLogLoading] = useState(false)
   const [appVersion, setAppVersion] = useState('')
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [windowsStartupSupported, setWindowsStartupSupported] = useState(false)
@@ -2123,6 +2130,363 @@ export default function SettingsWindow() {
               </div>
             )}
           </>
+        )}
+
+        {tab === '遙控' && (
+          <div className="space-y-4">
+            <div className="rounded-xl bg-mint-20 border border-border px-4 py-3 space-y-1">
+              <p className="text-xs font-medium text-primary">⚠️ 注意</p>
+              <p className="text-xs text-secondary leading-relaxed">
+                此頁設定手機端能對電腦做的事。開啟「鍵鼠遙控」後，連線的手機可以點擊桌面任意位置與輸入文字；開啟「系統動作」後可以關機 / 重開機。
+                白名單登錄的程式則隨時可以從手機端啟動或關閉，<b>不在白名單的程式無法被遠端開啟</b>。
+              </p>
+            </div>
+
+            {!draft.mobile?.enabled && (
+              <div className="rounded-xl border border-border px-4 py-3 bg-surface">
+                <p className="text-sm text-secondary">
+                  此功能依賴「手機遠端對話」。請先到「介面」分頁啟用手機功能。
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-secondary">權限</p>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={draft.remoteControl?.enableInputControl ?? false}
+                  onChange={e => set('remoteControl.enableInputControl', e.target.checked)}
+                  className="accent-teal w-4 h-4 mt-0.5"
+                />
+                <span className="text-sm text-primary">
+                  允許鍵鼠遙控
+                  <span className="block text-xs text-secondary mt-0.5">手機端可在截圖上點擊、輸入文字、送快捷鍵</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={draft.remoteControl?.enableSystemActions ?? false}
+                  onChange={e => set('remoteControl.enableSystemActions', e.target.checked)}
+                  className="accent-teal w-4 h-4 mt-0.5"
+                />
+                <span className="text-sm text-primary">
+                  允許系統動作
+                  <span className="block text-xs text-secondary mt-0.5">手機端可關機 / 重開機</span>
+                </span>
+              </label>
+            </div>
+
+            <div className="border-t border-border pt-3 space-y-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <p className="text-xs font-medium text-secondary">已登錄程式（白名單）</p>
+                <div className="flex gap-2">
+                  {(['start-menu', 'processes'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      type="button"
+                      className={`px-3 py-1.5 rounded-lg text-xs border ${programPickerMode === mode ? 'bg-mint text-primary border-teal' : 'bg-surface text-primary border-border'}`}
+                      onClick={async () => {
+                        if (programPickerMode === mode) { setProgramPickerMode(null); return }
+                        setProgramPickerSearch('')
+                        setProgramPickerMode(mode)
+                        setProgramPickerLoading(true)
+                        const channel = mode === 'start-menu' ? 'remote:list-start-menu' : 'remote:list-processes'
+                        const items = await window.api.invoke(channel) as { name: string; path: string }[]
+                        setProgramPickerItems(items)
+                        setProgramPickerLoading(false)
+                      }}
+                    >
+                      {mode === 'start-menu' ? '開始選單' : '執行中程式'}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="px-3 py-1.5 rounded-lg text-xs bg-surface text-primary border border-border"
+                    onClick={async () => {
+                      const picked = await window.api.invoke('remote:pick-program') as
+                        { path: string; defaultName: string; iconDataUrl?: string } | null
+                      if (!picked) return
+                      setDirty(true)
+                      setDraft(prev => {
+                        if (!prev) return prev
+                        const next = JSON.parse(JSON.stringify(prev)) as AppSettings
+                        if (!next.remoteControl) next.remoteControl = { enableInputControl: false, enableSystemActions: false, registeredPrograms: [] }
+                        if (next.remoteControl.registeredPrograms.some(p => p.path === picked.path)) return next
+                        next.remoteControl.registeredPrograms.push({
+                          id: crypto.randomUUID(),
+                          name: picked.defaultName,
+                          path: picked.path,
+                          iconDataUrl: picked.iconDataUrl,
+                          createdAt: Date.now()
+                        })
+                        return next
+                      })
+                    }}
+                  >
+                    瀏覽檔案
+                  </button>
+                </div>
+              </div>
+
+              {programPickerMode && (
+                <div className="rounded-xl border border-border bg-surface overflow-hidden">
+                  <div className="p-2 border-b border-border">
+                    <input
+                      autoFocus
+                      type="text"
+                      placeholder="搜尋..."
+                      value={programPickerSearch}
+                      onChange={e => setProgramPickerSearch(e.target.value)}
+                      className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-base text-primary"
+                    />
+                  </div>
+                  <div className="max-h-52 overflow-y-auto">
+                    {programPickerLoading ? (
+                      <p className="text-xs text-secondary text-center py-4">載入中…</p>
+                    ) : (() => {
+                      const q = programPickerSearch.toLowerCase()
+                      const filtered = programPickerItems.filter(i => !q || i.name.toLowerCase().includes(q))
+                      if (!filtered.length) return <p className="text-xs text-secondary text-center py-4">找不到</p>
+                      return filtered.map(item => (
+                        <button
+                          key={item.path}
+                          type="button"
+                          className="w-full text-left px-3 py-2 hover:bg-mint-20 border-b border-border last:border-b-0"
+                          onClick={async () => {
+                            setProgramPickerMode(null)
+                            const picked = await window.api.invoke('remote:resolve-program', item.path) as
+                              { path: string; defaultName: string; iconDataUrl?: string } | null
+                            if (!picked) return
+                            setDirty(true)
+                            setDraft(prev => {
+                              if (!prev) return prev
+                              const next = JSON.parse(JSON.stringify(prev)) as AppSettings
+                              if (!next.remoteControl) next.remoteControl = { enableInputControl: false, enableSystemActions: false, registeredPrograms: [] }
+                              if (next.remoteControl.registeredPrograms.some(p => p.path === picked.path)) return next
+                              next.remoteControl.registeredPrograms.push({
+                                id: crypto.randomUUID(),
+                                name: item.name,
+                                path: picked.path,
+                                iconDataUrl: picked.iconDataUrl,
+                                createdAt: Date.now()
+                              })
+                              return next
+                            })
+                          }}
+                        >
+                          <p className="text-sm text-primary">{item.name}</p>
+                          <p className="text-xs text-secondary font-mono truncate">{item.path}</p>
+                        </button>
+                      ))
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {(draft.remoteControl?.registeredPrograms ?? []).length === 0 ? (
+                <div
+                  className="rounded-xl border-2 border-dashed border-border py-6 text-center space-y-1
+                    data-[drag=over]:border-teal data-[drag=over]:bg-mint-20 transition-colors"
+                  onDragOver={e => { e.preventDefault(); e.currentTarget.dataset.drag = 'over' }}
+                  onDragLeave={e => { delete e.currentTarget.dataset.drag }}
+                  onDrop={async e => {
+                    e.preventDefault()
+                    delete e.currentTarget.dataset.drag
+                    const files = Array.from(e.dataTransfer.files)
+                    for (const f of files) {
+                      if (!/\.(exe|lnk)$/i.test(f.name)) continue
+                      const picked = await window.api.invoke('remote:resolve-program', (f as File & { path: string }).path) as
+                        { path: string; defaultName: string; iconDataUrl?: string } | null
+                      if (!picked) continue
+                      setDirty(true)
+                      setDraft(prev => {
+                        if (!prev) return prev
+                        const next = JSON.parse(JSON.stringify(prev)) as AppSettings
+                        if (!next.remoteControl) next.remoteControl = { enableInputControl: false, enableSystemActions: false, registeredPrograms: [] }
+                        if (next.remoteControl.registeredPrograms.some(p => p.path === picked.path)) return next
+                        next.remoteControl.registeredPrograms.push({
+                          id: crypto.randomUUID(),
+                          name: picked.defaultName,
+                          path: picked.path,
+                          iconDataUrl: picked.iconDataUrl,
+                          createdAt: Date.now()
+                        })
+                        return next
+                      })
+                    }
+                  }}
+                >
+                  <p className="text-sm text-secondary">尚未登錄任何程式</p>
+                  <p className="text-xs text-secondary opacity-60">把 .exe 或桌面捷徑（.lnk）拖進來，或點上方「＋ 新增程式」</p>
+                </div>
+              ) : (
+                <div
+                  className="space-y-2 data-[drag=over]:outline data-[drag=over]:outline-2 data-[drag=over]:outline-teal data-[drag=over]:outline-offset-2 rounded-lg transition-all"
+                  onDragOver={e => { e.preventDefault(); e.currentTarget.dataset.drag = 'over' }}
+                  onDragLeave={e => { delete e.currentTarget.dataset.drag }}
+                  onDrop={async e => {
+                    e.preventDefault()
+                    delete e.currentTarget.dataset.drag
+                    const files = Array.from(e.dataTransfer.files)
+                    for (const f of files) {
+                      if (!/\.(exe|lnk)$/i.test(f.name)) continue
+                      const picked = await window.api.invoke('remote:resolve-program', (f as File & { path: string }).path) as
+                        { path: string; defaultName: string; iconDataUrl?: string } | null
+                      if (!picked) continue
+                      setDirty(true)
+                      setDraft(prev => {
+                        if (!prev) return prev
+                        const next = JSON.parse(JSON.stringify(prev)) as AppSettings
+                        if (!next.remoteControl) next.remoteControl = { enableInputControl: false, enableSystemActions: false, registeredPrograms: [] }
+                        if (next.remoteControl.registeredPrograms.some(p => p.path === picked.path)) return next
+                        next.remoteControl.registeredPrograms.push({
+                          id: crypto.randomUUID(),
+                          name: picked.defaultName,
+                          path: picked.path,
+                          iconDataUrl: picked.iconDataUrl,
+                          createdAt: Date.now()
+                        })
+                        return next
+                      })
+                    }
+                  }}
+                >
+                  {(draft.remoteControl?.registeredPrograms ?? []).map((prog, idx) => (
+                    <div key={prog.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-surface border border-border">
+                      {prog.iconDataUrl ? (
+                        <img src={prog.iconDataUrl} alt="" className="w-8 h-8 shrink-0" />
+                      ) : (
+                        <div className="w-8 h-8 shrink-0 rounded bg-mint-20" />
+                      )}
+                      <div className="flex-1 min-w-0 space-y-1">
+                        <input
+                          type="text"
+                          value={prog.name}
+                          onChange={e => {
+                            const v = e.target.value
+                            setDirty(true)
+                            setDraft(prev => {
+                              if (!prev?.remoteControl) return prev
+                              const next = JSON.parse(JSON.stringify(prev)) as AppSettings
+                              next.remoteControl!.registeredPrograms[idx].name = v
+                              return next
+                            })
+                          }}
+                          className="w-full px-2 py-1 text-sm border border-border rounded bg-base text-primary"
+                          placeholder="顯示名稱"
+                        />
+                        <p className="text-xs text-secondary font-mono break-all truncate" title={prog.path}>{prog.path}</p>
+                        <input
+                          type="text"
+                          value={prog.args ?? ''}
+                          onChange={e => {
+                            const v = e.target.value
+                            setDirty(true)
+                            setDraft(prev => {
+                              if (!prev?.remoteControl) return prev
+                              const next = JSON.parse(JSON.stringify(prev)) as AppSettings
+                              next.remoteControl!.registeredPrograms[idx].args = v
+                              return next
+                            })
+                          }}
+                          className="w-full px-2 py-1 text-xs border border-border rounded bg-base text-primary font-mono"
+                          placeholder="啟動參數（選填）"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="px-2 py-1 text-xs text-secondary hover:text-primary"
+                        onClick={() => {
+                          setDirty(true)
+                          setDraft(prev => {
+                            if (!prev?.remoteControl) return prev
+                            const next = JSON.parse(JSON.stringify(prev)) as AppSettings
+                            next.remoteControl!.registeredPrograms.splice(idx, 1)
+                            return next
+                          })
+                        }}
+                      >
+                        刪除
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-border pt-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-secondary">遙控操作記錄</p>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 rounded-lg text-xs border bg-surface text-primary border-border"
+                  onClick={async () => {
+                    setShowRcLog(true)
+                    setRcLogLoading(true)
+                    try {
+                      const entries = await window.api.invoke('remote:get-log')
+                      setRcLogEntries(Array.isArray(entries) ? entries : [])
+                    } finally {
+                      setRcLogLoading(false)
+                    }
+                  }}
+                >
+                  查看記錄
+                </button>
+              </div>
+            </div>
+
+            {showRcLog && (
+              <div className="rounded-xl border border-border bg-surface p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium text-primary">遙控操作記錄（最新 500 筆）</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      className="text-xs text-secondary"
+                      onClick={async () => {
+                        await window.api.invoke('remote:clear-log')
+                        setRcLogEntries([])
+                      }}
+                    >
+                      清除
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-secondary"
+                      onClick={() => setShowRcLog(false)}
+                    >
+                      關閉
+                    </button>
+                  </div>
+                </div>
+                {rcLogLoading ? (
+                  <p className="text-xs text-secondary text-center py-3">載入中…</p>
+                ) : rcLogEntries.length === 0 ? (
+                  <p className="text-xs text-secondary text-center py-3">尚無記錄</p>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto space-y-1">
+                    {rcLogEntries.map((e, i) => (
+                      <div key={i} className="text-xs border-b border-border pb-1 last:border-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-secondary">{new Date(e.timestamp).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                          <span className="font-medium text-primary">{e.deviceNickname}</span>
+                          <span className="text-secondary">({e.deviceLabel})</span>
+                          <span className="text-secondary">{e.ip}</span>
+                        </div>
+                        <div className="text-primary mt-0.5">
+                          <span className="font-mono bg-mint-20 rounded px-1 mr-1">{e.action}</span>
+                          {e.detail}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {tab === '資料' && (

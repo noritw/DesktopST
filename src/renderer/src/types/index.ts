@@ -96,6 +96,21 @@ export interface MobileSettings {
   useTunnel: boolean
 }
 
+export interface RegisteredProgram {
+  id: string
+  name: string
+  path: string
+  args?: string
+  iconDataUrl?: string
+  createdAt: number
+}
+
+export interface RemoteControlSettings {
+  enableInputControl: boolean
+  enableSystemActions: boolean
+  registeredPrograms: RegisteredProgram[]
+}
+
 export interface WeatherSettings {
   enabled: boolean
   polish: boolean
@@ -182,6 +197,7 @@ export interface AppSettings {
   weather?: WeatherSettings
   spotify?: SpotifySettings
   mobile?: MobileSettings
+  remoteControl?: RemoteControlSettings
   llm: {
     provider: 'openai' | 'claude' | 'gemini' | 'grok'
     /** @deprecated use apiKeys[provider] instead */
