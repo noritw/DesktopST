@@ -1625,6 +1625,11 @@ export function registerIpcHandlers() {
     return { ok: true }
   })
 
+  ipcMain.handle('app:relaunch', () => {
+    app.relaunch()
+    app.exit(0)
+  })
+
   ipcMain.handle('app:set-always-on-top', (_, enabled: boolean) => {
     settings.ui.alwaysOnTop = enabled
     setCharactersAlwaysOnTop(enabled)

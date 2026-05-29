@@ -274,15 +274,28 @@ export async function scrollAt(
 export async function monitorOff(): Promise<{ ok: boolean; error?: string }> {
   stopKeepAwake()
 
-  // 啟動持續執行的 PS 程序：防止系統休眠 + 關閉螢幕背光
+  // 稍微延遲後關閉螢幕，確保前景動作已完成
+  await new Promise(r => setTimeout(r, 200))
+
+  // 關閉螢幕：最簡單、最可靠的 PowerShell 方式
+  // WM_SYSCOMMAND=0x0112, SC_MONITORPOWER=0xF170, lParam=2（關閉）
+  // 送至 HWND_BROADCAST (-1)
+  const offScript = `(Add-Type -MemberDefinition '[DllImport("user32.dll")]public static extern int SendMessage(int h,int m,int w,int l);' -Name a -PassThru)::SendMessage(-1,0x112,0xf170,2)`
+
+  // 用 exec 直接執行（更可靠）
+  await new Promise<void>(resolve => {
+    exec(
+      `powershell -NoProfile -NonInteractive -Command "${offScript}"`,
+      { timeout: 3000, encoding: 'utf8' },
+      () => resolve()
+    )
+  })
+
+  // 啟動持續執行的 PS 程序：防止系統休眠（保持伺服器在線）
   const keepScript = [
-    `Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;`,
-    `public class MPC{`,
-    `[DllImport("user32.dll")]public static extern IntPtr SendMessage(IntPtr h,int m,int w,int l);`,
-    `[DllImport("kernel32.dll")]public static extern uint SetThreadExecutionState(uint s);}'`,
-    `[MPC]::SetThreadExecutionState(0x80000001)|Out-Null`,
-    `[MPC]::SendMessage([IntPtr](-1),0x0112,0xF170,2)|Out-Null`,
-    `while($true){Start-Sleep -Seconds 30;[MPC]::SetThreadExecutionState(0x80000001)|Out-Null}`
+    `Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class DeSTKA{[DllImport("kernel32.dll")]public static extern uint SetThreadExecutionState(uint s);}'`,
+    `[DeSTKA]::SetThreadExecutionState(0x80000001u)|Out-Null`,
+    `while($true){Start-Sleep -Seconds 30;[DeSTKA]::SetThreadExecutionState(0x80000001u)|Out-Null}`
   ].join(';')
 
   keepAwakeProcess = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', keepScript], {

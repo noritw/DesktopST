@@ -209,6 +209,7 @@ export default function SettingsWindow() {
   const [sceneCaptureName, setSceneCaptureName] = useState('')
   const [sceneLoading, setSceneLoading] = useState<string | null>(null)
   const [convTitles, setConvTitles] = useState<Record<string, string>>({})
+  const [showRestartBanner, setShowRestartBanner] = useState(false)
 
   const changeTab = (nextTab: Tab) => {
     setTab(nextTab)
@@ -489,6 +490,7 @@ export default function SettingsWindow() {
     try {
       const settingsToSave = JSON.parse(JSON.stringify(data)) as AppSettings
       settingsToSave.llm.model = settingsToSave.llm.models?.[settingsToSave.llm.provider] ?? settingsToSave.llm.model
+      const mobileChanged = JSON.stringify(settings?.mobile) !== JSON.stringify(settingsToSave.mobile)
       if (worldDraft) {
         worldDraft.updatedAt = Date.now()
         await saveWorldPreset(worldDraft)
@@ -501,6 +503,7 @@ export default function SettingsWindow() {
       dirtyRef.current = false
       setDraft(settingsToSave)
       setDirty(false)
+      if (mobileChanged) setShowRestartBanner(true)
     } finally {
       setIsSaving(false)
     }
@@ -1961,50 +1964,6 @@ export default function SettingsWindow() {
             <p className="text-xs text-secondary ml-6">勾選後，使用「保留DesktopST角色」截圖模式時會連同輸入框顯示；不勾選則只截圖角色。</p>
 
             <div className="border-t border-border pt-3" />
-            <p className="text-xs font-medium text-secondary">📱 手機遠端對話</p>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={draft.mobile?.enabled ?? false}
-                onChange={e => set('mobile', { ...(draft.mobile ?? { port: 3721, useTunnel: true }), enabled: e.target.checked })}
-                className="accent-teal w-4 h-4"
-              />
-              <span className="text-sm text-primary">啟用手機遠端對話</span>
-            </label>
-            {(draft.mobile?.enabled) && (
-              <div className="ml-6 space-y-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={draft.mobile?.useTunnel ?? true}
-                    onChange={e => set('mobile', { ...(draft.mobile ?? { port: 3721, enabled: true }), useTunnel: e.target.checked })}
-                    className="accent-teal w-4 h-4"
-                  />
-                  <span className="text-sm text-primary">使用 Cloudflare Tunnel（外網可存取）</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-secondary">Port：</span>
-                  <input
-                    type="number"
-                    min={1024}
-                    max={65535}
-                    value={draft.mobile?.port ?? 3721}
-                    onChange={e => set('mobile', { ...(draft.mobile ?? { enabled: true, useTunnel: true }), port: Number(e.target.value) })}
-                    className="w-24 px-2 py-1 text-sm border border-border rounded-lg bg-base text-primary"
-                  />
-                </div>
-                <p className="text-xs text-secondary">變更設定後需重啟 DesktopST 才生效。從 Tray 選單開啟「到手機上繼續對話」掃描 QR Code 即可連線。</p>
-                <button
-                  type="button"
-                  className="px-3 py-1.5 rounded-lg text-sm bg-mint text-primary border border-border"
-                  onClick={() => window.api.invoke('mobile:open-qr')}
-                >
-                  開啟 QR Code 視窗
-                </button>
-              </div>
-            )}
-
-            <div className="border-t border-border pt-3" />
             <p className="text-xs font-medium text-secondary">提醒通知</p>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -2131,21 +2090,58 @@ export default function SettingsWindow() {
 
         {tab === '遙控' && (
           <div className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-secondary">📱 手機遠端對話</p>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={draft.mobile?.enabled ?? false}
+                  onChange={e => set('mobile', { ...(draft.mobile ?? { port: 3721, useTunnel: true }), enabled: e.target.checked })}
+                  className="accent-teal w-4 h-4"
+                />
+                <span className="text-sm text-primary">啟用手機遠端對話</span>
+              </label>
+              {(draft.mobile?.enabled) && (
+                <div className="ml-6 space-y-2">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={draft.mobile?.useTunnel ?? true}
+                      onChange={e => set('mobile', { ...(draft.mobile ?? { port: 3721, enabled: true }), useTunnel: e.target.checked })}
+                      className="accent-teal w-4 h-4"
+                    />
+                    <span className="text-sm text-primary">使用 Cloudflare Tunnel（外網可存取）</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-secondary">Port：</span>
+                    <input
+                      type="number"
+                      min={1024}
+                      max={65535}
+                      value={draft.mobile?.port ?? 3721}
+                      onChange={e => set('mobile', { ...(draft.mobile ?? { enabled: true, useTunnel: true }), port: Number(e.target.value) })}
+                      className="w-24 px-2 py-1 text-sm border border-border rounded-lg bg-base text-primary"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="px-3 py-1.5 rounded-lg text-sm bg-mint text-primary border border-border"
+                    onClick={() => window.api.invoke('mobile:open-qr')}
+                  >
+                    開啟 QR Code 視窗
+                  </button>
+                </div>
+              )}
+            </div>
+
             <div className="rounded-xl bg-mint-20 border border-border px-4 py-3 space-y-1">
               <p className="text-xs font-medium text-primary">⚠️ 注意</p>
               <p className="text-xs text-secondary leading-relaxed">
                 此頁設定手機端能對電腦做的事。開啟「鍵鼠遙控」後，連線的手機可以點擊桌面任意位置與輸入文字；開啟「系統動作」後可以關機 / 重開機。
                 白名單登錄的程式則隨時可以從手機端啟動或關閉，<b>不在白名單的程式無法被遠端開啟</b>。
+                {!draft.mobile?.enabled && <span className="block mt-1 text-amber-600">需先啟用上方的「手機遠端對話」，以下功能才能使用。</span>}
               </p>
             </div>
-
-            {!draft.mobile?.enabled && (
-              <div className="rounded-xl border border-border px-4 py-3 bg-surface">
-                <p className="text-sm text-secondary">
-                  此功能依賴「手機遠端對話」。請先到「介面」分頁啟用手機功能。
-                </p>
-              </div>
-            )}
 
             <div className="space-y-2">
               <p className="text-xs font-medium text-secondary">權限</p>
@@ -2595,6 +2591,27 @@ export default function SettingsWindow() {
         )}
       </div>
 
+      {showRestartBanner && (
+        <div className="px-4 py-2.5 border-t border-border no-drag flex items-center justify-between gap-3 bg-butter">
+          <span className="text-sm text-primary">手機遠端設定已變更，需重啟才能生效。</span>
+          <div className="flex gap-2 shrink-0">
+            <button
+              type="button"
+              className="text-xs text-secondary hover:text-primary"
+              onClick={() => setShowRestartBanner(false)}
+            >
+              稍後
+            </button>
+            <button
+              type="button"
+              className="px-3 py-1 rounded-lg text-xs bg-mint text-primary border border-border"
+              onClick={() => window.api.invoke('app:relaunch')}
+            >
+              立即重啟
+            </button>
+          </div>
+        </div>
+      )}
       <div className="px-4 py-3 border-t border-border no-drag flex items-center justify-between">
         <span className="text-sm text-secondary">
           {isSaving ? '儲存中…' : dirty ? '有未儲存的變更' : '已儲存'}
