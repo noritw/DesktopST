@@ -176,10 +176,10 @@ function repairDesktopCharacterLayout(desktopCharacters: DesktopCharacterState[]
 // ── GPU 加速 ───────────────────────────────────────────────
 // 部分機器（尤其較舊內顯／特定驅動版本）會被 Chromium 列入 GPU blocklist，
 // 導致透明視窗退回 SwiftShader 軟體合成 → CPU/記憶體暴增。
-// 預設忽略 blocklist 以重新啟用硬體合成；若某台機器驅動真的不穩定造成畫面異常／崩潰，
-// 可設環境變數 DESKTOPST_NO_GPU_OVERRIDE=1 關閉此行為。
+// 正常機器不需要此旗標（反而可能讓 GPU 程序多佔記憶體）。
+// 若某台機器確認是 GPU blocklist 問題，可設環境變數 DESKTOPST_IGNORE_GPU_BLOCKLIST=1 啟用。
 // 注意：此 switch 必須在 app ready 之前設定。
-if (process.env['DESKTOPST_NO_GPU_OVERRIDE'] !== '1') {
+if (process.env['DESKTOPST_IGNORE_GPU_BLOCKLIST'] === '1') {
   app.commandLine.appendSwitch('ignore-gpu-blocklist')
 }
 
