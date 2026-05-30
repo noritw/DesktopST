@@ -173,6 +173,16 @@ function repairDesktopCharacterLayout(desktopCharacters: DesktopCharacterState[]
   return changed
 }
 
+// ── GPU 加速 ───────────────────────────────────────────────
+// 部分機器（尤其較舊內顯／特定驅動版本）會被 Chromium 列入 GPU blocklist，
+// 導致透明視窗退回 SwiftShader 軟體合成 → CPU/記憶體暴增。
+// 預設忽略 blocklist 以重新啟用硬體合成；若某台機器驅動真的不穩定造成畫面異常／崩潰，
+// 可設環境變數 DESKTOPST_NO_GPU_OVERRIDE=1 關閉此行為。
+// 注意：此 switch 必須在 app ready 之前設定。
+if (process.env['DESKTOPST_NO_GPU_OVERRIDE'] !== '1') {
+  app.commandLine.appendSwitch('ignore-gpu-blocklist')
+}
+
 // ── Single-instance lock + protocol handler ───────────────
 
 // Dev mode needs explicit main-script path so the second instance can start
@@ -196,7 +206,33 @@ if (!app.requestSingleInstanceLock()) {
 
 // ── App lifecycle ─────────────────────────────────────────
 
+/**
+ * 把 GPU 加速狀態寫到 %APPDATA%\DesktopST\gpu-diagnostics.log。
+ * 用來切分「另一台電腦特別吃資源」是不是因為退回 SwiftShader 軟體渲染
+ * （透明視窗在軟體合成下 CPU/記憶體會暴增）。
+ * 看 log 裡 gl_compositing / gpu_compositing 是否為 "disabled_software" 或 "software_only"。
+ */
+function logGpuDiagnostics(): void {
+  try {
+    const status = app.getGPUFeatureStatus()
+    const lines = [
+      `[GPU] ${new Date().toISOString()}`,
+      `platform=${process.platform} arch=${process.arch} electron=${process.versions.electron} chrome=${process.versions.chrome}`,
+      ...Object.entries(status).map(([k, v]) => `  ${k}: ${v}`)
+    ]
+    const software = Object.values(status).some(v => /software/i.test(String(v)))
+    lines.push(`  >> hardwareAccelerated=${!software ? 'YES' : 'NO (falling back to software rendering — 透明視窗會很吃 CPU/記憶體)'}`)
+    const text = lines.join('\n') + '\n\n'
+    console.log(text)
+    const logPath = path.join(app.getPath('userData'), 'gpu-diagnostics.log')
+    fs.writeFileSync(logPath, text, 'utf8')
+  } catch (e) {
+    console.error('[GPU] diagnostics failed:', e)
+  }
+}
+
 app.on('ready', async () => {
+  logGpuDiagnostics()
   // Register local:// file protocol before any window loads
   protocol.registerFileProtocol('local', (request, callback) => {
     const raw = request.url.slice('local://'.length)
