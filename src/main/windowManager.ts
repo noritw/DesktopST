@@ -224,6 +224,7 @@ const draggingCharacters = new Set<string>()
 let activeDraggingCharacterId: string | null = null
 /** 拖曳桌面角色時暫時 hide 的其他角色對白（僅 hide 視窗，不改 renderer 狀態） */
 const bubblesSuppressedForDesktopDrag = new Map<string, boolean>()
+let hitTestTimer: NodeJS.Timeout | null = null
 /** setIgnoreMouseEvents 的上次狀態快取；只有變更時才呼叫 Win32 API */
 const lastIgnoreMouseState = new Map<string, boolean>()
 let charactersRaisedAboveAux = false
@@ -376,25 +377,93 @@ export function shouldSuppressAuxAutoHide(): boolean {
   return Date.now() < suppressAuxAutoHideUntil
 }
 
-/** renderer の `desktop:set-interactable` IPC を受けて即座に setIgnoreMouseEvents を更新する。
- *  ドラッグ中は drag 系の関数が直接制御するため、ここでは変更しない。 */
-function applyIgnoreMouse(characterId: string, isInteractable: boolean): void {
-  const win = characterWindows.get(characterId)
-  if (!win || win.isDestroyed()) return
-  const shouldIgnore = !isInteractable
-  if (lastIgnoreMouseState.get(characterId) !== shouldIgnore) {
-    lastIgnoreMouseState.set(characterId, shouldIgnore)
-    win.setIgnoreMouseEvents(shouldIgnore, { forward: true })
-  }
+function pointInRect(p: { x: number; y: number }, r: ScreenRect | null): boolean {
+  if (!r) return false
+  const pad = 12
+  return p.x >= r.x - pad && p.x <= r.x + r.w + pad && p.y >= r.y - pad && p.y <= r.y + r.h + pad
 }
 
 export function isCursorOverInteractiveCharacter(): boolean {
-  // renderer が最後に報告した interactable 状態を使う。
-  // カーソル座標のポーリングが不要になり、状態変化時の IPC で即時更新される。
-  for (const isInteractable of characterInteractableState.values()) {
-    if (isInteractable) return true
+  const cursor = screen.getCursorScreenPoint()
+  for (const rects of hitRects.values()) {
+    if (pointInRect(cursor, rects.sprite) || pointInRect(cursor, rects.buttons)) return true
   }
   return false
+}
+
+/** 命中測試輪詢間隔：游標在角色附近或拖曳中用 33ms（順手），否則 120ms（省 CPU） */
+const HIT_TEST_ACTIVE_MS = 33
+const HIT_TEST_IDLE_MS = 120
+/** 判定「游標接近角色」時，在角色矩形外再放寬的喚醒邊界（px） */
+const HIT_TEST_NEAR_MARGIN = 64
+
+function rectContainsWithMargin(p: { x: number; y: number }, r: ScreenRect | null, margin: number): boolean {
+  if (!r) return false
+  return p.x >= r.x - margin && p.x <= r.x + r.w + margin && p.y >= r.y - margin && p.y <= r.y + r.h + margin
+}
+
+function isCursorNearAnyCharacter(cursor: { x: number; y: number }): boolean {
+  for (const rects of hitRects.values()) {
+    if (rectContainsWithMargin(cursor, rects.sprite, HIT_TEST_NEAR_MARGIN)) return true
+    if (rectContainsWithMargin(cursor, rects.buttons, HIT_TEST_NEAR_MARGIN)) return true
+  }
+  return false
+}
+
+function runHitTestPass(): void {
+  const draggingId = activeDraggingCharacterId
+  const cursor = screen.getCursorScreenPoint()
+  for (const [characterId, win] of characterWindows.entries()) {
+    if (!win || win.isDestroyed()) continue
+    let shouldIgnore = true
+    if (draggingId) {
+      // Dragging mode: only active dragging character keeps interaction enabled.
+      shouldIgnore = characterId !== draggingId
+    } else {
+      // Never click-through while dragging: mouseup must always reach the renderer.
+      const dragging = draggingCharacters.has(characterId)
+      const rects = hitRects.get(characterId)
+      const onButtons = !!rects?.buttons && pointInRect(cursor, rects.buttons)
+      const inSpriteBounds = !!rects?.sprite && pointInRect(cursor, rects.sprite)
+      // Use renderer-reported pixel-level opacity instead of bounding box.
+      // This allows clicks to pass through to characters behind transparent areas.
+      // Fall back to allowing (true) when renderer hasn't reported yet so it can
+      // receive the first mousemove and report back.
+      const rendererInteractable = characterInteractableState.get(characterId)
+      const inside = dragging || onButtons || (inSpriteBounds && (rendererInteractable ?? true))
+      shouldIgnore = !inside
+    }
+    if (lastIgnoreMouseState.get(characterId) !== shouldIgnore) {
+      lastIgnoreMouseState.set(characterId, shouldIgnore)
+      win.setIgnoreMouseEvents(shouldIgnore, { forward: true })
+    }
+  }
+}
+
+function ensureHitTestLoop(): void {
+  if (hitTestTimer) return
+  // 用自我排程的 setTimeout 取代固定 33ms setInterval：游標遠離所有角色時自動降頻到 120ms，
+  // 在無 GPU／軟體渲染的機器上明顯降低背景 CPU 喚醒次數，互動時仍維持 33ms 的手感。
+  const schedule = (delay: number) => {
+    hitTestTimer = setTimeout(() => {
+      runHitTestPass()
+      if (characterWindows.size === 0) { hitTestTimer = null; return }
+      const cursor = screen.getCursorScreenPoint()
+      const active = activeDraggingCharacterId !== null
+        || draggingCharacters.size > 0
+        || isCursorNearAnyCharacter(cursor)
+      schedule(active ? HIT_TEST_ACTIVE_MS : HIT_TEST_IDLE_MS)
+    }, delay)
+  }
+  schedule(HIT_TEST_ACTIVE_MS)
+}
+
+function maybeStopHitTestLoop(): void {
+  if (characterWindows.size > 0) return
+  if (hitTestTimer) {
+    clearTimeout(hitTestTimer)
+    hitTestTimer = null
+  }
 }
 
 export function createCharacterWindow(
@@ -446,7 +515,9 @@ export function createCharacterWindow(
     hitRects.delete(characterId)
     characterInteractableState.delete(characterId)
     lastIgnoreMouseState.delete(characterId)
+    maybeStopHitTestLoop()
   })
+  ensureHitTestLoop()
   // DevTools is opt-in to avoid UI overlays (inspect/rulers) interfering with the pet window.
   if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
     win.webContents.openDevTools({ mode: 'detach' })
@@ -551,9 +622,6 @@ export function setCharacterWindowClickThrough(characterId: string, clickThrough
 
 export function setCharacterInteractable(characterId: string, isInteractable: boolean): void {
   characterInteractableState.set(characterId, isInteractable)
-  // ドラッグ中は drag 系が直接制御しているため変更しない
-  if (activeDraggingCharacterId !== null || draggingCharacters.has(characterId)) return
-  applyIgnoreMouse(characterId, isInteractable)
 }
 
 export function setCharacterHitRects(
@@ -564,6 +632,7 @@ export function setCharacterHitRects(
   if (!win || win.isDestroyed()) return false
   if (!rects) hitRects.delete(characterId)
   else hitRects.set(characterId, rects)
+  ensureHitTestLoop()
   return true
 }
 
@@ -624,15 +693,6 @@ export function beginCharacterDrag(
   setCharacterDragging(characterId, true)
   bringCharacterToFront(characterId)
   suppressOtherBubblesDuringDrag(characterId)
-
-  // ドラッグ開始：この角色だけインタラクティブ、他は全て click-through
-  for (const [id, cw] of characterWindows.entries()) {
-    const shouldIgnore = id !== characterId
-    if (lastIgnoreMouseState.get(id) !== shouldIgnore) {
-      lastIgnoreMouseState.set(id, shouldIgnore)
-      if (!cw.isDestroyed()) cw.setIgnoreMouseEvents(shouldIgnore, { forward: true })
-    }
-  }
 
   const startBounds = win.getBounds()
   bubbleUserOffsetSnapshotBeforeDrag.set(
@@ -703,15 +763,7 @@ export function endCharacterDrag(characterId: string): { x: number; y: number } 
 
   activeDragLastPositions.delete(characterId)
   setCharacterDragging(characterId, false)
-  if (draggingCharacters.size === 0) {
-    restoreBubblesSuppressedForDesktopDrag()
-    // ドラッグ終了：全角色を renderer の最後の interactable 報告に基づいて復元
-    for (const [id, cw] of characterWindows.entries()) {
-      if (cw.isDestroyed()) continue
-      const isInteractable = characterInteractableState.get(id) ?? false
-      applyIgnoreMouse(id, isInteractable)
-    }
-  }
+  if (draggingCharacters.size === 0) restoreBubblesSuppressedForDesktopDrag()
   return pos
 }
 
@@ -782,6 +834,7 @@ export function destroyAllCharacterWindows(): void {
     } catch { /* ignore destroyed / unloaded windows */ }
   }
 
+  maybeStopHitTestLoop()
 }
 
 // ── Speech bubble windows (separate from character window) ──
