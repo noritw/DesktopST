@@ -100,7 +100,6 @@ export default function CharacterWindow({ characterId }: Props) {
   const headActionsRef = useRef<HTMLDivElement | null>(null)
   const closeMenuRef = useRef<HTMLDivElement | null>(null)
   const scaleControlsRef = useRef<HTMLDivElement | null>(null)
-  const reportHitRectsRef = useRef<(() => void) | null>(null)
   const dragStartRef = useRef<{ x: number; y: number } | null>(null)
   const dragPendingRef = useRef<{ x: number; y: number } | null>(null)
   const dragRafRef = useRef<number | null>(null)
@@ -271,8 +270,6 @@ export default function CharacterWindow({ characterId }: Props) {
       dragStartRef.current = null
       dragPendingRef.current = null
       window.api.invoke('desktop:drag-end', characterId)
-      // 拖曳結束後視窗位置已改變，立即更新 hit-rects（否則要等下次 menuVisible/scaleMode 變化）
-      reportHitRectsRef.current?.()
       target.removeEventListener('pointermove', onMove)
       target.removeEventListener('pointerup', onUp)
     }
@@ -298,11 +295,21 @@ export default function CharacterWindow({ characterId }: Props) {
       h: Math.round(r.height)
     })
 
+    // 只在 hit-rects 真的變化時才送 IPC，避免每個角色每 tick 都喚醒主程序
+    // （在無 GPU／軟體渲染的機器上，省下的每次 IPC + 主程序合成都有感）
+    let lastPayload = ''
+    const sendIfChanged = (payload: { sprite: ReturnType<typeof toScreenRect> | null; buttons: ReturnType<typeof toScreenRect> | null }) => {
+      const serialized = JSON.stringify(payload)
+      if (serialized === lastPayload) return
+      lastPayload = serialized
+      window.api.send('desktop:update-hit-rects', characterId, payload)
+    }
+
     const tick = () => {
       const spriteEl = interactiveRef.current
       if (!spriteEl) return
       if (scaleMode) {
-        window.api.send('desktop:update-hit-rects', characterId, {
+        sendIfChanged({
           sprite: toScreenRect(document.documentElement.getBoundingClientRect()),
           buttons: null
         })
@@ -318,18 +325,15 @@ export default function CharacterWindow({ characterId }: Props) {
           closeMenuRef.current
         ])
       }
-      window.api.send('desktop:update-hit-rects', characterId, { sprite, buttons })
+      sendIfChanged({ sprite, buttons })
     }
 
-    reportHitRectsRef.current = tick
     tick()
-
-    // 縮放模式下主程序會連續 setBounds 改變視窗大小／位置，需要跟上；
-    // 其他情況（普通站立、選單開關）由 useEffect deps 觸發重跑即可，不需輪詢。
-    const id = scaleMode ? window.setInterval(tick, 80) : null
+    // 縮放預覽／選單開啟時需要較即時的回報；靜止站立時放慢即可（去重後多半不送）
+    const intervalMs = scaleMode ? 80 : 200
+    const id = window.setInterval(tick, intervalMs)
     return () => {
-      if (id !== null) window.clearInterval(id)
-      reportHitRectsRef.current = null
+      window.clearInterval(id)
       window.api.send('desktop:update-hit-rects', characterId, null)
     }
   }, [characterId, scaleMode, menuVisible])
