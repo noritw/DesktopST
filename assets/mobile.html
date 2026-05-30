@@ -226,8 +226,7 @@
     display: flex; align-items: center; justify-content: center;
     touch-action: none; }
   #ss-img { max-width: 100%; max-height: 100%; transform-origin: center center;
-    touch-action: none; border-radius: 4px; display: block; user-select: none; -webkit-user-drag: none;
-    will-change: transform; }
+    touch-action: none; border-radius: 4px; display: block; user-select: none; -webkit-user-drag: none; }
   #ss-toolbar { padding: 12px 16px; padding-bottom: max(12px, env(safe-area-inset-bottom));
     display: flex; gap: 8px; flex-shrink: 0; }
   .ss-btn { flex: 1; padding: 11px 0; border-radius: var(--radius-sm); border: none;
@@ -1258,10 +1257,16 @@
     ssTy = Math.max(-maxY, Math.min(maxY, ssTy));
   }
 
+  let ssRasterTimer = null;
   function applySSTransform(animate) {
     clampSSPan();
+    // 互動／動畫期間提升為合成層 → 拖曳縮放流暢
+    $ssImg.style.willChange = 'transform';
     $ssImg.style.transition = animate ? 'transform 0.2s ease' : 'none';
     $ssImg.style.transform = 'translate(' + ssTx + 'px,' + ssTy + 'px) scale(' + ssScale + ')';
+    // 互動結束後移除 will-change，讓瀏覽器以當前縮放重新光柵化 → 放大後變清晰
+    if (ssRasterTimer) clearTimeout(ssRasterTimer);
+    ssRasterTimer = setTimeout(() => { $ssImg.style.willChange = 'auto'; }, animate ? 260 : 180);
   }
 
   // ── 觀看中螢幕狀態 ──
