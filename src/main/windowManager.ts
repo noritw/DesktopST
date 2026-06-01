@@ -203,7 +203,10 @@ const bubbleUserOffsetSnapshotBeforeDrag = new Map<string, { x: number; y: numbe
 /** 避免異常 IPC 傳入無限大；一般長文仍完整顯示 */
 const BUBBLE_MAX_HEIGHT_PX = 32000
 /** 依桌面角色數量決定可同時存在的泡泡上限（至少 1）。 */
+let lowPerformanceModeEnabled = false
+let lowPerformanceLogMessageLimit = 50
 function getBubbleConcurrentWindowLimit(): number {
+  if (lowPerformanceModeEnabled) return 1
   return Math.max(1, characterWindows.size)
 }
 /** 立體角色立繪頂端與對白框下緣的間距（px） */
@@ -225,6 +228,18 @@ let activeDraggingCharacterId: string | null = null
 /** 拖曳桌面角色時暫時 hide 的其他角色對白（僅 hide 視窗，不改 renderer 狀態） */
 const bubblesSuppressedForDesktopDrag = new Map<string, boolean>()
 let hitTestTimer: NodeJS.Timeout | null = null
+/** 事件驅動命中測試：開啟時停用主程序的常駐游標輪詢，改為「活動門控的慢輪詢」混合策略——
+ *  閒置時完全不喚醒（0 輪詢），只有 renderer 偵測到游標在角色視窗範圍內活動時，才啟動一個
+ *  很慢的對帳輪詢（ACTIVITY_POLL_MS），把點擊穿透狀態對齊到游標真實位置；游標離開角色一段時間
+ *  沒有活動就自動停止。兼顧省電與「靠近角色時不必多點幾下」。 */
+let eventDrivenHitTestEnabled = false
+/** 活動門控慢輪詢的計時器與最後活動時間戳（僅事件驅動模式使用） */
+let activityPollTimer: NodeJS.Timeout | null = null
+let lastPointerActivityAt = 0
+/** 事件驅動模式：偵測到活動後的慢輪詢間隔（ms）。比常駐輪詢的 33/120ms 省電許多。 */
+const ACTIVITY_POLL_MS = 250
+/** 事件驅動模式：游標離開角色後，超過此時間無活動就停止慢輪詢，回到 0 喚醒。 */
+const ACTIVITY_IDLE_TIMEOUT_MS = 1500
 /** setIgnoreMouseEvents 的上次狀態快取；只有變更時才呼叫 Win32 API */
 const lastIgnoreMouseState = new Map<string, boolean>()
 let charactersRaisedAboveAux = false
@@ -278,6 +293,12 @@ export function getCharactersAlwaysOnTop(): boolean {
 }
 let suppressAuxAutoHideUntil = 0
 let lastShownBubbleCharacterId: string | null = null
+
+export function setLowPerformanceMode(enabled: boolean, logMessageLimit = 50): void {
+  lowPerformanceModeEnabled = enabled
+  lowPerformanceLogMessageLimit = clamp(Math.round(Number(logMessageLimit) || 50), 10, 500)
+  if (enabled) pruneSpeechBubbleWindows(lastShownBubbleCharacterId ?? '')
+}
 
 let characterLibraryWindow: BrowserWindow | null = null
 type CharacterLibraryNavigateMode = 'home' | 'edit'
@@ -410,6 +431,72 @@ function isCursorNearAnyCharacter(cursor: { x: number; y: number }): boolean {
   return false
 }
 
+/** 集中入口：只在狀態真的改變時才呼叫 Win32 API。事件驅動模式用，拖曳中由 drag 系直接控制。 */
+function applyIgnoreMouse(characterId: string, isInteractable: boolean): void {
+  const win = characterWindows.get(characterId)
+  if (!win || win.isDestroyed()) return
+  const shouldIgnore = !isInteractable
+  if (lastIgnoreMouseState.get(characterId) !== shouldIgnore) {
+    lastIgnoreMouseState.set(characterId, shouldIgnore)
+    win.setIgnoreMouseEvents(shouldIgnore, { forward: true })
+  }
+}
+
+/** 事件驅動模式：依 renderer 最後回報的 interactable 狀態，重新套用所有角色的 click-through。
+ *  用於切換模式的當下、或結束拖曳時，把狀態對齊到正確值。 */
+function reapplyAllIgnoreMouseFromState(): void {
+  for (const [id, isInteractable] of characterInteractableState.entries()) {
+    applyIgnoreMouse(id, isInteractable ?? false)
+  }
+}
+
+/** 切換事件驅動命中測試。開啟時停掉輪詢並依現況對齊一次；關閉時恢復輪詢。 */
+export function setEventDrivenHitTest(enabled: boolean): void {
+  if (eventDrivenHitTestEnabled === enabled) return
+  eventDrivenHitTestEnabled = enabled
+  if (enabled) {
+    if (hitTestTimer) { clearTimeout(hitTestTimer); hitTestTimer = null }
+    // 切換當下沒有 mousemove 觸發，先依 renderer 最後回報的狀態對齊一次，避免角色卡在錯誤狀態。
+    reapplyAllIgnoreMouseFromState()
+  } else {
+    stopActivityPollLoop()
+    if (characterWindows.size > 0) ensureHitTestLoop()
+  }
+}
+
+/** 事件驅動模式：renderer 偵測到游標在角色視窗範圍內活動時呼叫。記下活動時間並確保慢輪詢在跑。 */
+export function notifyPointerActivity(): void {
+  if (!eventDrivenHitTestEnabled) return
+  lastPointerActivityAt = Date.now()
+  ensureActivityPollLoop()
+}
+
+/** 事件驅動模式專用的慢輪詢：用很長的間隔對帳真實游標位置，當作事件的安全網。
+ *  超過 ACTIVITY_IDLE_TIMEOUT_MS 沒有新活動（且非拖曳中）就自動停止，回到 0 喚醒。 */
+function ensureActivityPollLoop(): void {
+  if (!eventDrivenHitTestEnabled) return
+  if (activityPollTimer) return
+  if (characterWindows.size === 0) return
+  const tick = (): void => {
+    runHitTestPass()
+    if (characterWindows.size === 0) { activityPollTimer = null; return }
+    const dragging = activeDraggingCharacterId !== null || draggingCharacters.size > 0
+    if (!dragging && Date.now() - lastPointerActivityAt > ACTIVITY_IDLE_TIMEOUT_MS) {
+      activityPollTimer = null
+      return
+    }
+    activityPollTimer = setTimeout(tick, ACTIVITY_POLL_MS)
+  }
+  activityPollTimer = setTimeout(tick, ACTIVITY_POLL_MS)
+}
+
+function stopActivityPollLoop(): void {
+  if (activityPollTimer) {
+    clearTimeout(activityPollTimer)
+    activityPollTimer = null
+  }
+}
+
 function runHitTestPass(): void {
   const draggingId = activeDraggingCharacterId
   const cursor = screen.getCursorScreenPoint()
@@ -441,6 +528,7 @@ function runHitTestPass(): void {
 }
 
 function ensureHitTestLoop(): void {
+  if (eventDrivenHitTestEnabled) return
   if (hitTestTimer) return
   // 用自我排程的 setTimeout 取代固定 33ms setInterval：游標遠離所有角色時自動降頻到 120ms，
   // 在無 GPU／軟體渲染的機器上明顯降低背景 CPU 喚醒次數，互動時仍維持 33ms 的手感。
@@ -464,6 +552,7 @@ function maybeStopHitTestLoop(): void {
     clearTimeout(hitTestTimer)
     hitTestTimer = null
   }
+  stopActivityPollLoop()
 }
 
 export function createCharacterWindow(
@@ -622,6 +711,13 @@ export function setCharacterWindowClickThrough(characterId: string, clickThrough
 
 export function setCharacterInteractable(characterId: string, isInteractable: boolean): void {
   characterInteractableState.set(characterId, isInteractable)
+  // 事件驅動模式：renderer 回報的瞬間直接生效，不等輪詢 tick。
+  // 拖曳中由 drag 系直接控制 click-through，這裡跳過避免互相覆蓋。
+  if (!eventDrivenHitTestEnabled) return
+  // 狀態回報也是一種游標活動訊號，順手喚醒慢輪詢當安全網。
+  notifyPointerActivity()
+  if (activeDraggingCharacterId !== null || draggingCharacters.has(characterId)) return
+  applyIgnoreMouse(characterId, isInteractable)
 }
 
 export function setCharacterHitRects(
@@ -694,6 +790,18 @@ export function beginCharacterDrag(
   bringCharacterToFront(characterId)
   suppressOtherBubblesDuringDrag(characterId)
 
+  if (eventDrivenHitTestEnabled) {
+    notifyPointerActivity()
+    // 事件驅動模式沒有輪詢，拖曳開始時顯式設定：被拖角色保持互動，其他全部 click-through。
+    for (const [id, cw] of characterWindows.entries()) {
+      const shouldIgnore = id !== characterId
+      if (lastIgnoreMouseState.get(id) !== shouldIgnore) {
+        lastIgnoreMouseState.set(id, shouldIgnore)
+        if (!cw.isDestroyed()) cw.setIgnoreMouseEvents(shouldIgnore, { forward: true })
+      }
+    }
+  }
+
   const startBounds = win.getBounds()
   bubbleUserOffsetSnapshotBeforeDrag.set(
     characterId,
@@ -763,7 +871,11 @@ export function endCharacterDrag(characterId: string): { x: number; y: number } 
 
   activeDragLastPositions.delete(characterId)
   setCharacterDragging(characterId, false)
-  if (draggingCharacters.size === 0) restoreBubblesSuppressedForDesktopDrag()
+  if (draggingCharacters.size === 0) {
+    restoreBubblesSuppressedForDesktopDrag()
+    // 事件驅動模式：拖曳結束後依 renderer 最後回報的 interactable 狀態復原所有角色。
+    if (eventDrivenHitTestEnabled) reapplyAllIgnoreMouseFromState()
+  }
   return pos
 }
 
@@ -1324,7 +1436,8 @@ export function toggleInputWindow(position?: { x: number; y: number }): void {
     return
   }
   if (inputWindow.isVisible()) {
-    inputWindow.hide()
+    if (lowPerformanceModeEnabled) inputWindow.destroy()
+    else inputWindow.hide()
   } else {
     inputWindow.setOpacity(1)
     inputWindow.setResizable(true)
@@ -1451,6 +1564,7 @@ export function hideUserSpeechBubble(): boolean {
 }
 
 export function hideAuxWindowsRememberingState(): void {
+  if (lowPerformanceModeEnabled) return
   for (const w of bubbleWindows.values()) {
     if (w.isVisible()) w.setOpacity(unfocusedBubbleOpacity)
   }
@@ -1463,6 +1577,7 @@ export function hideAuxWindowsRememberingState(): void {
 }
 
 export function restoreAuxWindowsFromRememberedState(): void {
+  if (lowPerformanceModeEnabled) return
   for (const w of bubbleWindows.values()) {
     if (w.isVisible()) w.setOpacity(1)
   }
@@ -1663,6 +1778,7 @@ function ensureLogWindow(): BrowserWindow {
     }
     logWindow.on('closed', () => { logWindow = null })
     logWindow.webContents.on('render-process-gone', (_event, details) => {
+      if (details.reason === 'killed') return
       console.error('[DesktopST] log window renderer gone:', details.reason)
       if (!logWindow || logWindow.isDestroyed()) return
       logWindow.webContents.reload()
@@ -1695,7 +1811,7 @@ export function openLogWindow(options?: { focusTitleInput?: boolean }): void {
 export function toggleLogWindow(): void {
   const win = ensureLogWindow()
   if (win.isVisible()) {
-    win.hide()
+    win.destroy()
     return
   }
   openLogWindow()
@@ -2742,6 +2858,10 @@ function omitHeavyMessageFields(m: Message): Message {
   return rest
 }
 
+function logImagePlaceholder(messageId: string, index: number): string {
+  return `desktopst-log-image:${encodeURIComponent(messageId)}:${index}`
+}
+
 function stripConversationForInput(conv: Conversation): Conversation {
   const hasImages = conv.messages.some(m => m.images && m.images.length > 0)
   if (!hasImages) {
@@ -2759,9 +2879,19 @@ function stripConversationForInput(conv: Conversation): Conversation {
 
 /** Log 視窗用：保留圖片縮圖，但省略 debug prompt 避免 IPC 過大導致 renderer 崩潰。 */
 export function stripConversationForLog(conv: Conversation): Conversation {
+  const messages = lowPerformanceModeEnabled
+    ? conv.messages.slice(-lowPerformanceLogMessageLimit)
+    : conv.messages
   return {
     ...conv,
-    messages: conv.messages.map(omitHeavyMessageFields)
+    messages: messages.map(m => {
+      const stripped = omitHeavyMessageFields(m)
+      if (!lowPerformanceModeEnabled || !m.images || m.images.length === 0) return stripped
+      return {
+        ...stripped,
+        images: m.images.map((_, index) => logImagePlaceholder(m.id, index))
+      }
+    })
   }
 }
 

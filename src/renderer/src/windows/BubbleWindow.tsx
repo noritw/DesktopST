@@ -25,9 +25,9 @@ const BUBBLE_TAIL_ANCHOR_BELOW_PX = 11
 /** 旋轉尖角在錨點下方還會多伸出的像素 */
 const BUBBLE_TAIL_TIP_EXTRA_PX = 4
 
-function bubbleBottomPaddingPx(isLatestSpeaker: boolean): number {
+function bubbleBottomPaddingPx(isLatestSpeaker: boolean, lowPerformanceMode: boolean): number {
   let px = BUBBLE_TAIL_ANCHOR_BELOW_PX + BUBBLE_TAIL_TIP_EXTRA_PX
-  if (isLatestSpeaker) px += LATEST_SHADOW_OFFSET_PX + 2
+  if (isLatestSpeaker && !lowPerformanceMode) px += LATEST_SHADOW_OFFSET_PX + 2
   return px
 }
 
@@ -49,6 +49,7 @@ export default function BubbleWindow({ characterId }: Props) {
   const lastSizeRef = useRef<{ width: number; height: number }>({ width: 280, height: 120 })
 
   const settings = useAppStore(s => s.settings)
+  const lowPerformanceMode = settings?.ui.lowPerformanceMode ?? false
   const displayText = useMemo(() => String(text ?? ''), [text])
 
   const clearTimer = () => {
@@ -246,7 +247,7 @@ export default function BubbleWindow({ characterId }: Props) {
       >
         <div
           aria-hidden
-          className="rounded-2xl rounded-bl-sm border-2 border-dashed border-teal/70 bg-transparent box-border shadow-none"
+          className={`${lowPerformanceMode ? 'rounded-lg' : 'rounded-2xl rounded-bl-sm'} border-2 border-dashed border-teal/70 bg-transparent box-border shadow-none`}
           style={{
             width: Math.max(200, width),
             height: Math.max(78, height),
@@ -264,12 +265,12 @@ export default function BubbleWindow({ characterId }: Props) {
         ref={outerRef}
         className="relative w-fit max-w-[420px]"
         style={{
-          paddingRight: isLatestSpeaker ? LATEST_SHADOW_OFFSET_PX : 0,
-          paddingBottom: bubbleBottomPaddingPx(isLatestSpeaker)
+          paddingRight: isLatestSpeaker && !lowPerformanceMode ? LATEST_SHADOW_OFFSET_PX : 0,
+          paddingBottom: bubbleBottomPaddingPx(isLatestSpeaker, lowPerformanceMode)
         }}
       >
         <div className="inline-grid w-fit">
-          {isLatestSpeaker && (
+          {isLatestSpeaker && !lowPerformanceMode && (
             <div
               className="pointer-events-none col-start-1 row-start-1 z-0 min-h-0 w-full rounded-2xl rounded-bl-sm bg-teal"
               style={{ transform: `translate(${LATEST_SHADOW_OFFSET_PX}px, ${LATEST_SHADOW_OFFSET_PX}px)` }}
@@ -278,7 +279,11 @@ export default function BubbleWindow({ characterId }: Props) {
           )}
           <div
             ref={containerRef}
-            className="relative z-[1] col-start-1 row-start-1 flex min-h-0 w-full flex-col rounded-2xl rounded-bl-sm border border-border bg-surface-95 text-sm leading-snug text-primary shadow-panel"
+            className={`relative z-[1] col-start-1 row-start-1 flex min-h-0 w-full flex-col border border-border text-sm leading-snug text-primary ${
+              lowPerformanceMode
+                ? 'rounded-lg bg-surface shadow-none'
+                : 'rounded-2xl rounded-bl-sm bg-surface-95 shadow-panel'
+            }`}
           >
         <div className="drag-region flex shrink-0 items-center justify-between gap-2 px-3 py-1.5">
           <div
@@ -291,7 +296,7 @@ export default function BubbleWindow({ characterId }: Props) {
           <div className="flex gap-1">
             <button
               type="button"
-              className="no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-surface-80 text-secondary transition-colors hover:bg-mint hover:text-primary"
+              className={`no-drag flex h-5 w-5 shrink-0 items-center justify-center border border-border text-secondary transition-colors hover:bg-mint hover:text-primary ${lowPerformanceMode ? 'rounded-md bg-surface' : 'rounded-full bg-surface-80'}`}
               title="釘選為便利貼"
               onClick={() => pinBubble()}
             >
@@ -299,7 +304,7 @@ export default function BubbleWindow({ characterId }: Props) {
             </button>
             <button
               type="button"
-              className="no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-surface-80 text-secondary transition-colors hover:bg-mint hover:text-primary"
+              className={`no-drag flex h-5 w-5 shrink-0 items-center justify-center border border-border text-secondary transition-colors hover:bg-mint hover:text-primary ${lowPerformanceMode ? 'rounded-md bg-surface' : 'rounded-full bg-surface-80'}`}
               title="關閉對話泡泡"
               onClick={closeBubble}
             >
@@ -328,7 +333,7 @@ export default function BubbleWindow({ characterId }: Props) {
             <MessageText text={displayText} />
           </div>
         )}
-        {isLatestSpeaker && (
+        {isLatestSpeaker && !lowPerformanceMode && (
           <div
             ref={shadowTailMeasureRef}
             className="pointer-events-none absolute left-4 z-0 h-3 w-3 overflow-visible"
@@ -343,10 +348,10 @@ export default function BubbleWindow({ characterId }: Props) {
           className="absolute left-4 z-[2] h-3 w-3 overflow-visible"
           style={{
             bottom: `-${BUBBLE_TAIL_ANCHOR_BELOW_PX}px`,
-            filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.05))'
+            filter: lowPerformanceMode ? 'none' : 'drop-shadow(0 1px 1px rgba(0,0,0,0.05))'
           }}
         >
-          <div className="relative z-[1] h-3 w-3 -translate-y-1.5 rotate-45 border-b border-r border-border bg-surface-95" />
+          <div className={`relative z-[1] h-3 w-3 -translate-y-1.5 rotate-45 border-b border-r border-border ${lowPerformanceMode ? 'bg-surface' : 'bg-surface-95'}`} />
         </div>
           </div>
         </div>

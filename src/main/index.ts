@@ -223,7 +223,6 @@ function logGpuDiagnostics(): void {
     const software = Object.values(status).some(v => /software/i.test(String(v)))
     lines.push(`  >> hardwareAccelerated=${!software ? 'YES' : 'NO (falling back to software rendering — 透明視窗會很吃 CPU/記憶體)'}`)
     const text = lines.join('\n') + '\n\n'
-    console.log(text)
     const logPath = path.join(app.getPath('userData'), 'gpu-diagnostics.log')
     fs.writeFileSync(logPath, text, 'utf8')
   } catch (e) {

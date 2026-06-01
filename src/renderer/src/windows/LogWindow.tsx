@@ -12,6 +12,15 @@ function formatTime(ts: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+function parseLogImagePlaceholder(src: string): { messageId: string; index: number } | null {
+  const match = /^desktopst-log-image:([^:]+):(\d+)$/.exec(src)
+  if (!match) return null
+  return {
+    messageId: decodeURIComponent(match[1]),
+    index: Number(match[2])
+  }
+}
+
 function stripInjectedTime(content: string): string {
   return String(content ?? '')
     .replace(/\n{0,2}【目前時間】[^\n\r]*(?:\r?\n)?/g, '')
@@ -308,6 +317,19 @@ export default function LogWindow() {
     deleteMessage(id)
   }
 
+  const openMessageImage = async (src: string, fallbackMessageId: string, fallbackIndex: number) => {
+    const placeholder = parseLogImagePlaceholder(src)
+    if (!placeholder) {
+      setPreviewImage(src)
+      return
+    }
+    const messageId = placeholder.messageId || fallbackMessageId
+    const index = Number.isFinite(placeholder.index) ? placeholder.index : fallbackIndex
+    const images = await window.api.invoke('log:get-message-images', messageId) as string[]
+    const image = Array.isArray(images) ? images[index] : null
+    if (image) setPreviewImage(image)
+  }
+
   const renderMessage = (msg: Message) => {
     const isUser = msg.role === 'user'
     const isCharacter = msg.role === 'character'
@@ -480,10 +502,12 @@ export default function LogWindow() {
                       title="預覽圖片"
                       onClick={(event) => {
                         event.stopPropagation()
-                        setPreviewImage(img)
+                        void openMessageImage(img, msg.id, i)
                       }}
                     >
-                      <img src={img} className="w-16 h-16 object-cover" alt="" />
+                      {parseLogImagePlaceholder(img)
+                        ? <span className="block px-2 py-1 text-xs text-secondary">[圖片]</span>
+                        : <img src={img} className="w-16 h-16 object-cover" alt="" />}
                     </button>
                   ))}
                 </div>

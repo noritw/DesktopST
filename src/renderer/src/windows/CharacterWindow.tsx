@@ -7,6 +7,8 @@ import MonoIcon from '../components/MonoIcon'
 /** CharacterSprite 框高為 260×scale；object-fit:contain 時腳常在框內偏上，左右欄需上移才能與視覺腳底對齊 */
 const SIDE_TOOLBAR_FOOT_LIFT_RATIO = 0.072
 const DRAG_SEND_INTERVAL_MS = 33
+/** 事件驅動模式：游標在角色範圍內移動時，送出活動訊號的最小間隔（ms），避免 IPC 過於頻繁 */
+const ACTIVITY_PING_THROTTLE_MS = 150
 
 function mergeScreenRectsFromElements(elements: (HTMLElement | null)[]): { x: number; y: number; w: number; h: number } | null {
   let minL = Infinity
@@ -90,6 +92,8 @@ export default function CharacterWindow({ characterId }: Props) {
   const [overrideEmotion, setOverrideEmotion] = useState<string | null>(null)
 
   const prevInteractableRef = useRef<boolean>(false)
+  /** 事件驅動模式用：節流送出游標活動訊號（最多每 ACTIVITY_PING_THROTTLE_MS 一次） */
+  const lastActivityPingRef = useRef<number>(0)
   const interactiveRef = useRef<HTMLDivElement>(null)
   const menuPinnedRef = useRef(menuPinned)
   useEffect(() => { menuPinnedRef.current = menuPinned }, [menuPinned])
@@ -366,6 +370,14 @@ export default function CharacterWindow({ characterId }: Props) {
       const containerEl = interactiveRef.current
       const spriteEl = spriteDivRef.current
       if (!containerEl || !spriteEl) return
+
+      // 事件驅動模式的活動訊號：游標在此角色視窗範圍內移動（含 click-through 轉發的移動）即代表
+      // 「使用者正在靠近角色」，節流後通知主程序喚醒慢輪詢對帳。非事件驅動模式時主程序會忽略。
+      const nowTs = performance.now()
+      if (nowTs - lastActivityPingRef.current >= ACTIVITY_PING_THROTTLE_MS) {
+        lastActivityPingRef.current = nowTs
+        window.api.send('desktop:pointer-activity')
+      }
 
       // 計算所有互動元素的最小外包矩形，橋接按鈕與角色框之間的空隙
       const clusterBounds = (() => {

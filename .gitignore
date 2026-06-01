@@ -12,6 +12,7 @@ dist/
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 .kiro/
+.vs/
 test-extract/
 scripts/generateNotificationSound.js
 generate-sounds.js

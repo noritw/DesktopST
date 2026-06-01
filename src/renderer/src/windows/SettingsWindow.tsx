@@ -941,9 +941,9 @@ export default function SettingsWindow() {
                   }}
                 >
                   <option value="catalog">一般（最新常用 ID 捷徑）</option>
-                  <option value="incentive-1m">資料分享贈送額度 · 每日 1M 組（官方快照 ID）</option>
-                  <option value="incentive-10m">資料分享贈送額度 · 每日 10M 組（官方快照 ID）</option>
-                  <option value="incentive-all">資料分享贈送額度 · 兩組合併</option>
+                  <option value="incentive-1m">資料分享贈送額度 · 每日 250K 組（我的帳號 / 官方快照 ID）</option>
+                  <option value="incentive-10m">資料分享贈送額度 · 每日 2.5M 組（我的帳號 / 官方快照 ID）</option>
+                  <option value="incentive-all">資料分享贈送額度 · 兩組合併（250K + 2.5M）</option>
                 </select>
                 <p className="text-[11px] text-secondary leading-snug mt-1.5">
                   贈送額度僅在已於 Platform 開啟「分享輸入／輸出」且帳戶顯示符合資格時適用；兩組額度分開計（tier 1–2 為 250K / 2.5M）。
@@ -1174,9 +1174,9 @@ export default function SettingsWindow() {
                         onChange={e => setUtilityOpenaiModelListMode(e.target.value as OpenaiModelListMode)}
                       >
                         <option value="catalog">一般（最新常用 ID 捷徑）</option>
-                        <option value="incentive-1m">資料分享贈送額度 · 每日 1M 組（官方快照 ID）</option>
-                        <option value="incentive-10m">資料分享贈送額度 · 每日 10M 組（官方快照 ID）</option>
-                        <option value="incentive-all">資料分享贈送額度 · 兩組合併</option>
+                        <option value="incentive-1m">資料分享贈送額度 · 每日 250K 組（我的帳號 / 官方快照 ID）</option>
+                        <option value="incentive-10m">資料分享贈送額度 · 每日 2.5M 組（我的帳號 / 官方快照 ID）</option>
+                        <option value="incentive-all">資料分享贈送額度 · 兩組合併（250K + 2.5M）</option>
                       </select>
                       <p className="text-[11px] text-secondary leading-snug mt-1.5">
                         贈送額度僅在已於 Platform 開啟「分享輸入／輸出」且帳戶顯示符合資格時適用；兩組額度分開計（tier 1–2 為 250K / 2.5M）。
@@ -1803,6 +1803,19 @@ export default function SettingsWindow() {
           </>
         )}
 
+        {tab === '記憶' && (
+          <>
+            <Field label={`低效能模式 Log 顯示上限（${draft.ui.lowPerformanceLogMessageLimit ?? 50} 則）`}>
+              <input type="range" min={10} max={500} step={10}
+                value={draft.ui.lowPerformanceLogMessageLimit ?? 50}
+                onChange={e => set('ui.lowPerformanceLogMessageLimit', Number(e.target.value))}
+                className="w-full accent-teal"
+              />
+            </Field>
+            <p className="text-xs text-secondary">只影響 Log 視窗初始載入量，不會改變 LLM 可參考的記憶則數。</p>
+          </>
+        )}
+
         {tab === '介面' && (
           <>
             <p className="text-xs font-medium text-secondary">介面配色</p>
@@ -1918,6 +1931,30 @@ export default function SettingsWindow() {
               </Field>
               <p className="text-xs text-secondary">僅在對白框可見時套用；0% 為完全透明，100% 為不透明。</p>
             </div>
+
+            <div className="border-t border-border pt-3" />
+            <p className="text-xs font-medium text-secondary">效能</p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draft.ui.lowPerformanceMode ?? false}
+                onChange={e => set('ui.lowPerformanceMode', e.target.checked)}
+                className="accent-teal w-4 h-4"
+              />
+              <span className="text-sm text-primary">低效能模式</span>
+            </label>
+            <p className="text-xs text-secondary ml-6">保留角色透明與拖曳；只保留最新 1 個對話泡泡，簡化泡泡裝飾，並停用 App 失焦時的半透明淡出。</p>
+
+            <label className="flex items-center gap-2 cursor-pointer mt-2">
+              <input
+                type="checkbox"
+                checked={draft.ui.eventDrivenHitTest ?? false}
+                onChange={e => set('ui.eventDrivenHitTest', e.target.checked)}
+                className="accent-teal w-4 h-4"
+              />
+              <span className="text-sm text-primary">事件驅動點擊偵測</span>
+            </label>
+            <p className="text-xs text-secondary ml-6">停用主程序的常駐游標輪詢，閒置時不喚醒以降低 CPU／耗電；游標靠近角色時才啟動低頻輪詢對帳，因此點擊靈敏度仍接近一般模式。建議效能吃緊或耗電在意時開啟。</p>
 
             <div className="border-t border-border pt-3" />
             <p className="text-xs font-medium text-secondary">對話泡泡</p>

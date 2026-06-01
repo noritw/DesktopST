@@ -256,6 +256,12 @@ export interface AppSettings {
     reminderIdleSkipMinutes?: number
     /** 截圖時是否保留對話輸入框 */
     screenshotIncludeInputWindow?: boolean
+    /** 低效能模式：保留角色透明，簡化對話泡泡並限制泡泡視窗數量 */
+    lowPerformanceMode?: boolean
+    /** 低效能模式下 Log 視窗初始顯示最近幾則訊息 */
+    lowPerformanceLogMessageLimit?: number
+    /** 事件驅動命中測試：停用主程序游標輪詢，改由 renderer 事件即時驅動點擊穿透（省 CPU，首次點擊可能需先移動游標） */
+    eventDrivenHitTest?: boolean
   }
 }
 
@@ -341,6 +347,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
       enabled: true,
       volume: 0.7
     },
-    screenshotIncludeInputWindow: false
+    screenshotIncludeInputWindow: false,
+    lowPerformanceMode: false,
+    lowPerformanceLogMessageLimit: 50,
+    eventDrivenHitTest: false
   }
 }

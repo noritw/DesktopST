@@ -1262,7 +1262,7 @@ src/styles/global.css     ← 全域字型載入
 - **每 provider 獨立 API Key**：`llm.apiKeys: Record<string, string>`，切換 provider 不會清空已填的 Key
 - **每 provider 獨立模型記憶**：`llm.models: Record<string, string>`，切換 provider 後再切回仍記得上次用的模型
 - **連線測試**：設定 LLM 分頁有「連線」（驗證 API Key）和「測試訊息」（送一句話）兩個按鈕
-- **OpenAI 資料分享贈送額度清單**：可切換顯示「一般」/ 「贈送額度 1M 組」/ 「10M 組」/ 「兩組合併」模型清單
+- **OpenAI 資料分享贈送額度清單**：可切換顯示「一般」/ 「我的帳號贈送額度 250K 組」/ 「2.5M 組」/ 「兩組合併」模型清單
 - **API Key 申請指南**：LLM 分頁頂部有「查看 API Key 申請指南」外部連結按鈕
 
 #### O. 截圖增補（已實作）

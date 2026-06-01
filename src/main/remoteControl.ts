@@ -36,6 +36,37 @@ function runPS(script: string, timeout = 5000): Promise<{ ok: boolean; stdout: s
   })
 }
 
+function runPSArg(script: string, timeout = 5000): Promise<{ ok: boolean; stdout: string; error?: string }> {
+  return new Promise(resolve => {
+    const child = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {
+      windowsHide: true
+    })
+    let stdout = ''
+    let stderr = ''
+    let done = false
+    const finish = (result: { ok: boolean; stdout: string; error?: string }) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      resolve(result)
+    }
+    const timer = setTimeout(() => {
+      try { child.kill() } catch {}
+      finish({ ok: false, stdout: stdout.trim(), error: 'PowerShell timed out' })
+    }, timeout)
+    child.stdout?.on('data', chunk => { stdout += chunk.toString() })
+    child.stderr?.on('data', chunk => { stderr += chunk.toString() })
+    child.on('error', err => finish({ ok: false, stdout: stdout.trim(), error: String(err) }))
+    child.on('exit', code => {
+      finish({
+        ok: code === 0,
+        stdout: stdout.trim(),
+        error: code === 0 ? undefined : (stderr.trim() || `PowerShell exited with code ${code}`)
+      })
+    })
+  })
+}
+
 /** Add-Type 定義（click 用） */
 const CLICK_TYPE_DEF = [
   'Add-Type -TypeDefinition \'',
@@ -279,17 +310,18 @@ export async function monitorOff(): Promise<{ ok: boolean; error?: string }> {
 
   // 關閉螢幕：最簡單、最可靠的 PowerShell 方式
   // WM_SYSCOMMAND=0x0112, SC_MONITORPOWER=0xF170, lParam=2（關閉）
-  // 送至 HWND_BROADCAST (-1)
-  const offScript = `(Add-Type -MemberDefinition '[DllImport("user32.dll")]public static extern int SendMessage(int h,int m,int w,int l);' -Name a -PassThru)::SendMessage(-1,0x112,0xf170,2)`
+  // 送至 HWND_BROADCAST (0xffff)
+  const offScript = [
+    `Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public static class DeSTMon{[DllImport("user32.dll",SetLastError=true)]public static extern IntPtr SendMessageTimeout(IntPtr hWnd,int Msg,IntPtr wParam,IntPtr lParam,int fuFlags,int uTimeout,out IntPtr lpdwResult);}'`,
+    '$result=[IntPtr]::Zero',
+    '[DeSTMon]::SendMessageTimeout([IntPtr]0xffff,0x0112,[IntPtr]0xf170,[IntPtr]2,0x0002,1000,[ref]$result)|Out-Null'
+  ].join(';')
 
-  // 用 exec 直接執行（更可靠）
-  await new Promise<void>(resolve => {
-    exec(
-      `powershell -NoProfile -NonInteractive -Command "${offScript}"`,
-      { timeout: 3000, encoding: 'utf8' },
-      () => resolve()
-    )
-  })
+  // 用參數陣列執行，避免 DllImport("user32.dll") 被 shell 引號切斷。
+  const offResult = await runPSArg(offScript, 3000)
+  if (!offResult.ok) {
+    return { ok: false, error: offResult.error ?? 'Failed to send monitor power command' }
+  }
 
   // 啟動持續執行的 PS 程序：防止系統休眠（保持伺服器在線）
   const keepScript = [

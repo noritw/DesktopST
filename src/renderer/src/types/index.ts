@@ -268,6 +268,12 @@ export interface AppSettings {
     reminderIdleSkipMinutes?: number
     /** Include the input window when capturing screenshots with DesktopST windows visible. */
     screenshotIncludeInputWindow?: boolean
+    /** Low performance mode: keeps character transparency, simplifies bubbles, and limits bubble windows. */
+    lowPerformanceMode?: boolean
+    /** Initial message count shown in the log window while low performance mode is enabled. */
+    lowPerformanceLogMessageLimit?: number
+    /** Event-driven hit testing: disables the main-process cursor polling loop and relies on renderer events instead. */
+    eventDrivenHitTest?: boolean
   }
 }
 

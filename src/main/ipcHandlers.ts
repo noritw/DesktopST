@@ -36,7 +36,7 @@ import {
   showUserSpeechBubble, hideUserSpeechBubble, updateUserSpeechBubbleSize,
   reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects, setCharacterInteractable, updateSpriteActualHeight,
   beginCharacterDrag, moveDraggedCharacter, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
-  setUnfocusedBubbleOpacity, setCharactersAlwaysOnTop, getCharactersAlwaysOnTop, setCharacterAlwaysOnTop,
+  setUnfocusedBubbleOpacity, setCharactersAlwaysOnTop, getCharactersAlwaysOnTop, setCharacterAlwaysOnTop, setLowPerformanceMode, setEventDrivenHitTest, notifyPointerActivity,
   createCharacterLibraryWindow,
   hideAllWindowsForScreenshot, prepareScreenshotKeepingDesktopST, restoreAllWindowsAfterScreenshot,
   showPreviewWindow,
@@ -685,6 +685,8 @@ export function initState(
   const didNormalizePinnedNoteSizes = normalizeLegacyPinnedNoteSizes()
   setUnfocusedBubbleOpacity(settings.ui.unfocusedBubbleOpacity)
   setCharactersAlwaysOnTop(settings.ui.alwaysOnTop ?? true)
+  setLowPerformanceMode(settings.ui.lowPerformanceMode ?? false, settings.ui.lowPerformanceLogMessageLimit ?? 50)
+  setEventDrivenHitTest(settings.ui.eventDrivenHitTest ?? false)
   characters = chars
   configureAuxWindowPersistence(
     (kind) => kind === 'input' ? settings.ui.inputWindowBounds : settings.ui.logWindowBounds,
@@ -1460,6 +1462,13 @@ export function registerIpcHandlers() {
     }
   })
 
+  ipcMain.handle('log:get-message-images', (_, messageId: string) => {
+    const conv = getActiveConversation()
+    if (!conv || !messageId) return []
+    const msg = conv.messages.find(m => m.id === messageId)
+    return Array.isArray(msg?.images) ? msg.images : []
+  })
+
   // Settings
   ipcMain.handle('settings:get', () => settings)
 
@@ -1467,6 +1476,8 @@ export function registerIpcHandlers() {
     s.ui.unfocusedBubbleOpacity = normalizeUnfocusedBubbleOpacity(s.ui.unfocusedBubbleOpacity)
     setUnfocusedBubbleOpacity(s.ui.unfocusedBubbleOpacity)
     setCharactersAlwaysOnTop(s.ui.alwaysOnTop ?? true)
+    setLowPerformanceMode(s.ui.lowPerformanceMode ?? false, s.ui.lowPerformanceLogMessageLimit ?? 50)
+    setEventDrivenHitTest(s.ui.eventDrivenHitTest ?? false)
     setIdleSkipMinutes(s.ui.reminderIdleSkipMinutes ?? 0)
     // These fields are managed exclusively by main-process handlers and must never be
     // overwritten by the renderer's potentially-stale settings draft.
@@ -2220,6 +2231,12 @@ export function registerIpcHandlers() {
     setCharacterInteractable(characterId, isInteractable)
   })
 
+  // 事件驅動模式的「活動訊號」：renderer 偵測到游標在角色視窗範圍內移動時送出（已節流）。
+  // 收到後喚醒慢輪詢當安全網；非事件驅動模式時 notifyPointerActivity 會自行忽略。
+  ipcMain.on('desktop:pointer-activity', () => {
+    notifyPointerActivity()
+  })
+
   ipcMain.on('desktop:update-sprite-height', (_, characterId: string, h: number) => {
     updateSpriteActualHeight(characterId, h)
   })
@@ -2315,7 +2332,9 @@ export function registerIpcHandlers() {
     if (win && !win.isDestroyed()) {
       suppressAuxAutoHide()
       win.setOpacity(1)
-      win.hide()
+      const winType = windowTypeFromSender(event.sender)
+      if (winType === 'log' || (winType === 'input' && settings.ui.lowPerformanceMode)) win.destroy()
+      else win.hide()
     }
     return true
   })
