@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, getConversationListDirect, loadConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect } from './ipcHandlers'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, getConversationListDirect, loadConversationDirect, createConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import {
@@ -36,6 +36,7 @@ import {
   setBridge,
   pushMessage,
   pushDesktopUpdate,
+  pushRemoteControlState,
   getConnectedCount,
   isServerRunning
 } from './mobileServer'
@@ -445,6 +446,15 @@ function initMobileServer(): void {
   setBridge({
     getCharacters,
     getDesktopCharacterIds: () => getSettings().ui.desktopCharacters.map(d => d.characterId),
+    getDesktopCharacters: () => {
+      const chars = getCharacters()
+      return getSettings().ui.desktopCharacters
+        .map(d => {
+          const c = chars.find(c => c.id === d.characterId)
+          return c ? { id: c.id, name: c.name, muted: !!d.muted } : null
+        })
+        .filter((c): c is { id: string; name: string; muted: boolean } => c != null)
+    },
     getActiveConversation: getActiveConversationForMobile,
     sendMessage: async (payload) => { await handleSendMessageFromMobile(payload) },
     addDesktopCharacter: addDesktopCharacterDirect,
@@ -452,6 +462,10 @@ function initMobileServer(): void {
     captureScreenshot: (withChars: boolean, displayIndex?: number) => captureScreenshotDirect(withChars, displayIndex),
     getConversationList: getConversationListDirect,
     loadConversation: loadConversationDirect,
+    createConversation: createConversationDirect,
+    deleteConversation: deleteConversationDirect,
+    forceSpeak: forceSpeakDirect,
+    toggleMute: toggleMuteDirect,
     getScenes: getScenesDirect,
     applyScene: applySceneById,
     getPersonaPresets: getPersonaPresetsDirect,
@@ -465,6 +479,15 @@ function initMobileServer(): void {
     editMessage: editMessageDirect,
     resendMessage: resendMessageDirect,
     getRemoteControlSettings: () => getSettings().remoteControl,
+    setRemoteControlEnabled: (enabled: boolean) => {
+      const s = getSettings()
+      if (!s.remoteControl) return { error: 'Remote control settings not available' }
+      s.remoteControl.enabled = enabled
+      saveSettings(s)
+      broadcastToAll('settings:updated', s)
+      pushRemoteControlState()
+      return { ok: true }
+    },
     notifyRemoteClickPending: () => broadcastToAll('character:remote-click-pending', {}),
     notifyRemoteAction: () => broadcastToAll('character:remote-action', {}),
     hideWindowsForRemote: () => hideAllWindowsForRemote(),

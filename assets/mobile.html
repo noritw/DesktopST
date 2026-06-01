@@ -65,6 +65,8 @@
     font-size: 14px; color: var(--text); cursor: pointer; font-family: inherit;
     -webkit-tap-highlight-color: transparent; white-space: nowrap; }
   .pc-menu-item:active { background: var(--mint); }
+  .pc-menu-item:disabled { opacity: 0.45; cursor: default; }
+  .pc-menu-item:disabled:active { background: none; }
   .pc-menu-info { padding: 7px 12px 4px; font-size: 12px; color: var(--text-sub); white-space: nowrap; }
   .pc-menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
 
@@ -364,6 +366,7 @@
         <button class="pc-menu-item" id="pc-switch-display-btn" data-act="switch-display" style="display:none">🖥️ 切換螢幕</button>
         <button class="pc-menu-item" data-act="switch-window">🪟 切換視窗</button>
         <div class="pc-menu-sep" id="pc-remote-sep" style="display:none"></div>
+        <button class="pc-menu-item" data-act="toggle-remote" id="pc-remote-module-btn" style="display:none">Remote control: off</button>
         <button class="pc-menu-item" data-act="programs" id="pc-programs-btn" style="display:none">📦 程式</button>
         <button class="pc-menu-item" data-act="system" id="pc-system-btn" style="display:none">⚙️ 系統動作</button>
       </div>
@@ -644,7 +647,7 @@
 
   // ── State ──
   let ws = null, wsRetryCount = 0;
-  let state = { desktopCharacters: [], conversation: null };
+  let state = { desktopCharacters: [], conversation: null, remoteControl: { enabled: false, allowedCapabilities: [] } };
   let allLibraryChars = [];
   let pendingRandom = null;
   let isWaiting = false;
@@ -706,12 +709,14 @@
     return base + '/api/avatar/' + encodeURIComponent(id) + tokenQuery();
   }
 
-  function makeImgOrPh(id, cls) {
+  function makeImgOrPh(id, cls, onClick) {
     const img = document.createElement('img');
     img.className = cls; img.src = avatarUrl(id);
+    if (onClick) img.addEventListener('click', onClick);
     img.onerror = () => {
       const ph = document.createElement('div');
       ph.className = cls + '-ph'; ph.textContent = '🐾';
+      if (onClick) ph.addEventListener('click', onClick);
       img.replaceWith(ph);
     };
     return img;
@@ -724,9 +729,11 @@
     for (const c of state.desktopCharacters) {
       const img = document.createElement('img');
       img.className = 'char-avatar'; img.src = avatarUrl(c.id); img.title = c.name;
+      img.addEventListener('click', () => showCharacterMenu(c.id));
       img.onerror = () => {
         const ph = document.createElement('div');
         ph.className = 'char-avatar-ph'; ph.textContent = '🐾'; ph.title = c.name;
+        ph.addEventListener('click', () => showCharacterMenu(c.id));
         img.replaceWith(ph);
       };
       $av.appendChild(img);
@@ -780,7 +787,7 @@
 
     let avatarEl = null;
     if (msg.role === 'character' && msg.characterId) {
-      avatarEl = makeImgOrPh(msg.characterId, 'msg-avatar');
+      avatarEl = makeImgOrPh(msg.characterId, 'msg-avatar', () => showCharacterMenu(msg.characterId));
     }
     // user: no avatar
 
@@ -873,7 +880,10 @@
         showThinking();
         showThinkingBar(d.characterId);
       } else if (d.type === 'desktop-updated' && d.desktopCharacterIds) {
-        refreshDesktopChars(d.desktopCharacterIds);
+        fetchState();
+      } else if (d.type === 'remote-control-state' && d.remoteControl) {
+        state.remoteControl = d.remoteControl;
+        updateRemoteControlUi();
       } else if (d.type === 'reminder') {
         showToast('📌 ' + (d.content || '收到提醒'));
       }
@@ -913,7 +923,9 @@
     const d = await api('/api/state');
     state.desktopCharacters = d.desktopCharacters || [];
     state.conversation = d.conversation || null;
+    state.remoteControl = d.remoteControl || { enabled: false, allowedCapabilities: [] };
     if (d.colorTheme) applyTheme(d.colorTheme);
+    updateRemoteControlUi();
     renderHeader(); renderAll();
   }
 
@@ -976,6 +988,59 @@
     for (const a of actions) {
       const btn = document.createElement('button');
       btn.style.cssText = 'width:100%;border:none;background:none;cursor:pointer;padding:16px;font-size:16px;font-family:inherit;text-align:left;border-bottom:1px solid var(--border);' + (a.danger ? 'color:#E85D3F;' : 'color:var(--text);');
+      btn.textContent = a.label;
+      btn.addEventListener('click', () => { closeSheet('msg-overlay'); a.fn(); });
+      $body.appendChild(btn);
+    }
+    openSheet('msg-overlay');
+  }
+
+  function characterState(id) {
+    return state.desktopCharacters.find(c => c.id === id) || allLibraryChars.find(c => c.id === id) || { id, name: '角色', muted: false };
+  }
+
+  function showCharacterMenu(characterId) {
+    const ch = characterState(characterId);
+    const $body = document.getElementById('msg-menu-body');
+    $body.innerHTML = '';
+    const title = document.createElement('div');
+    title.style.cssText = 'padding:14px 16px 10px;border-bottom:1px solid var(--border);font-weight:700;color:var(--text);';
+    title.textContent = ch.name || '角色';
+    $body.appendChild(title);
+
+    const actions = [
+      {
+        label: '說點什麼',
+        fn: async () => {
+          showToast((ch.name || '角色') + ' 正在想…');
+          const r = await api('/api/characters/speak', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ characterId })
+          });
+          if (r.error) showToast(r.error);
+        }
+      },
+      {
+        label: ch.muted ? '恢復' : '禁言',
+        fn: async () => {
+          const r = await api('/api/characters/toggle-mute', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ characterId })
+          });
+          if (r.error) { showToast('切換失敗'); return; }
+          const stateData = await api('/api/state');
+          state.desktopCharacters = stateData.desktopCharacters || state.desktopCharacters;
+          renderHeader();
+          showToast(r.muted ? '已禁言' : '已恢復');
+        }
+      }
+    ];
+
+    for (const a of actions) {
+      const btn = document.createElement('button');
+      btn.style.cssText = 'width:100%;border:none;background:none;cursor:pointer;padding:16px;font-size:16px;font-family:inherit;text-align:left;border-bottom:1px solid var(--border);color:var(--text);';
       btn.textContent = a.label;
       btn.addEventListener('click', () => { closeSheet('msg-overlay'); a.fn(); });
       $body.appendChild(btn);
@@ -1054,6 +1119,18 @@
       const d = await api('/api/conversations');
       const list = d.conversations || [];
       $body.innerHTML = '';
+      const toolbar = document.createElement('div');
+      toolbar.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:8px';
+      toolbar.innerHTML = '<button class="tool-btn" type="button">新增對話</button>';
+      toolbar.querySelector('button').addEventListener('click', async () => {
+        await api('/api/conversations/new', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+        const stateData = await api('/api/state');
+        state.conversation = stateData.conversation;
+        renderAll();
+        await loadMenuTab('conv');
+        showToast('已新增對話');
+      });
+      $body.appendChild(toolbar);
       for (const conv of list) {
         const item = document.createElement('div');
         item.className = 'list-item' + (conv.active ? ' active-item' : '');
@@ -1064,8 +1141,26 @@
             <div class="list-item-title">${esc(conv.title)}</div>
             <div class="list-item-sub">${date}</div>
           </div>
-          ${conv.active ? '<div class="list-item-badge">✓ 使用中</div>' : ''}
+          ${conv.active ? '<div class="list-item-badge">✓ 使用中</div><button class="prog-btn stop" type="button" data-delete-id="' + conv.id + '">刪除</button>' : ''}
         `;
+        const deleteBtn = item.querySelector('[data-delete-id]');
+        if (deleteBtn) {
+          deleteBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (!confirm('確定要刪除目前這筆對話記錄？')) return;
+            const result = await api('/api/conversations/delete', {
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ id: conv.id })
+            });
+            if (result.error) { showToast('刪除失敗'); return; }
+            const stateData = await api('/api/state');
+            state.conversation = stateData.conversation;
+            renderAll();
+            await loadMenuTab('conv');
+            showToast('已刪除對話');
+          });
+        }
         if (!conv.active) {
           item.addEventListener('click', async () => {
             await api('/api/conversations/load', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ id: conv.id }) });
@@ -1078,7 +1173,12 @@
         }
         $body.appendChild(item);
       }
-      if (!list.length) $body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-sub)">沒有對話記錄</div>';
+      if (!list.length) {
+        const empty = document.createElement('div');
+        empty.style.cssText = 'padding:20px;text-align:center;color:var(--text-sub)';
+        empty.textContent = '沒有對話記錄';
+        $body.appendChild(empty);
+      }
     }
 
     else if (tab === 'scene') {
@@ -1499,12 +1599,14 @@
   });
   $pcMenu.querySelectorAll('.pc-menu-item').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (btn.disabled) return;
       const act = btn.dataset.act;
       closePcMenu();
       if (act === 'ss-clean') takeScreenshot(false);
       else if (act === 'ss-chars') takeScreenshot(true);
       else if (act === 'switch-display') openDisplaysSheet();
       else if (act === 'switch-window') openWindowsSheet();
+      else if (act === 'toggle-remote') setRemoteModuleEnabled(!state.remoteControl?.enabled);
       else if (act === 'programs') ensureDeviceNickname(openProgramsSheet);
       else if (act === 'system') ensureDeviceNickname(openSystemSheet);
     });
@@ -1714,7 +1816,63 @@
     return fetch(url, opts);
   }
 
-  // 裝置暱稱 modal
+  function remoteHas(cap) {
+    return !!state.remoteControl?.allowedCapabilities?.includes(cap);
+  }
+
+  function remoteHasAny(caps) {
+    return caps.some(remoteHas);
+  }
+
+  function updateRemoteControlUi() {
+    const remote = state.remoteControl || { enabled: false, allowedCapabilities: [] };
+    const moduleKnown = remote.allowedCapabilities && remote.allowedCapabilities.length > 0;
+    const inputAvailable = remoteHasAny(['remote.pointer.click', 'remote.pointer.scroll', 'remote.keyboard.type', 'remote.keyboard.hotkey', 'remote.monitor.power']);
+    const programAvailable = remoteHasAny(['remote.program.launch', 'remote.program.close']);
+    const systemAvailable = remoteHasAny(['remote.system.shutdown', 'remote.system.restart', 'remote.monitor.power']);
+    rcEnabled = !!remote.enabled && inputAvailable;
+    rcSystemEnabled = !!remote.enabled && remoteHasAny(['remote.system.shutdown', 'remote.system.restart']);
+
+    const sep = document.getElementById('pc-remote-sep');
+    const moduleBtn = document.getElementById('pc-remote-module-btn');
+    const programsBtn = document.getElementById('pc-programs-btn');
+    const systemBtn = document.getElementById('pc-system-btn');
+    const remoteToggle = document.getElementById('ss-remote-toggle');
+
+    sep.style.display = moduleKnown ? '' : 'none';
+    moduleBtn.style.display = moduleKnown ? '' : 'none';
+    moduleBtn.textContent = remote.enabled ? 'Remote control: on' : 'Remote control: off';
+
+    programsBtn.style.display = programAvailable ? '' : 'none';
+    programsBtn.disabled = !remote.enabled;
+    systemBtn.style.display = systemAvailable ? '' : 'none';
+    systemBtn.disabled = !remote.enabled;
+
+    remoteToggle.style.display = inputAvailable ? '' : 'none';
+    remoteToggle.disabled = !remote.enabled;
+    remoteToggle.textContent = remote.enabled ? '遙控' : '遙控關閉';
+    if (!remote.enabled && ssRemoteMode) setRemoteMode(false);
+  }
+
+  async function setRemoteModuleEnabled(enabled) {
+    const r = await rcFetch('/api/remote/module', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    });
+    if (!r.ok) {
+      showToast('遙控模組切換失敗');
+      return;
+    }
+    const data = await r.json().catch(() => null);
+    if (data?.remoteControl) {
+      state.remoteControl = data.remoteControl;
+      updateRemoteControlUi();
+    }
+    showToast(enabled ? '遙控模組已開啟' : '遙控模組已關閉');
+  }
+
+  // Device nickname modal
   const $deviceModalBg = document.getElementById('device-modal-bg');
   const $deviceNameInput = document.getElementById('device-name-input');
 
@@ -1745,32 +1903,10 @@
 
   // 初始化時讀取遙控設定，決定是否顯示 PC 選單相關按鈕
   async function initRemoteControl() {
-    try {
-      const r = await rcFetch('/api/remote/programs');
-      if (r.status === 403) return; // 未啟用
-      // 若 /api/remote/programs 回傳正常表示白名單功能可用
-      document.getElementById('pc-remote-sep').style.display = '';
-      document.getElementById('pc-programs-btn').style.display = '';
-    } catch {}
-    // 試探系統動作是否啟用
-    try {
-      const r = await rcFetch('/api/remote/system', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      if (r.status !== 403) {
-        rcSystemEnabled = true;
-        document.getElementById('pc-system-btn').style.display = '';
-      }
-    } catch {}
-    // 試探鍵鼠遙控
-    try {
-      const r = await rcFetch('/api/remote/click', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      if (r.status !== 403) {
-        rcEnabled = true;
-        document.getElementById('ss-remote-toggle').style.display = '';
-      }
-    } catch {}
+    updateRemoteControlUi();
   }
 
-  // ── 座標換算：截圖 tap → 桌面物理座標 ──
+  // Screenshot coordinate mapping
   function ssToScreenCoords(touchX, touchY) {
     if (!currentSsBounds) return null;
     const vp = $ssImg.parentElement;

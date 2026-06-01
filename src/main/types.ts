@@ -150,7 +150,36 @@ export interface RegisteredProgram {
   createdAt: number
 }
 
+export type RemoteCapability =
+  | 'remote.viewScreen'
+  | 'remote.captureWindow'
+  | 'remote.pointer.click'
+  | 'remote.pointer.scroll'
+  | 'remote.keyboard.type'
+  | 'remote.keyboard.hotkey'
+  | 'remote.program.launch'
+  | 'remote.program.close'
+  | 'remote.monitor.power'
+  | 'remote.system.shutdown'
+  | 'remote.system.restart'
+
+export interface RegisteredRemoteDevice {
+  id: string
+  nickname: string
+  label?: string
+  createdAt: number
+  lastSeenAt?: number
+}
+
 export interface RemoteControlSettings {
+  enabled: boolean
+  allowedCapabilities: RemoteCapability[]
+  requireConfirmation: RemoteCapability[]
+  allowedDevices: RegisteredRemoteDevice[]
+  logRetention: {
+    maxEntries: number
+    keepDays?: number
+  }
   /** 允許手機端遙控鍵鼠（點擊 / 輸入文字 / 快捷鍵）*/
   enableInputControl: boolean
   /** 允許手機端執行系統動作（關機 / 重開機） */
@@ -323,6 +352,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
     autoSummarizeAfter: 50
   },
   remoteControl: {
+    enabled: false,
+    allowedCapabilities: [],
+    requireConfirmation: [],
+    allowedDevices: [],
+    logRetention: {
+      maxEntries: 500
+    },
     enableInputControl: false,
     enableSystemActions: false,
     registeredPrograms: []

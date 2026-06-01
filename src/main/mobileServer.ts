@@ -10,14 +10,14 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { app, desktopCapturer } from 'electron'
 import type { Message, RandomResult } from './types'
 import { getAccessToken } from './relayService'
-import * as rc from './remoteControl'
-import { appendRemoteLog, getRemoteLog, clearRemoteLog, parseDeviceLabel } from './remoteControlLog'
+import { getRemoteControlClientState, handleRemoteControlRequest } from './modules/remote-control'
 
 // ── 注入的 bridge（由 index.ts 啟動時注入）────────────────
 
 export interface MobileBridge {
   getCharacters: () => import('./types').Character[]
   getDesktopCharacterIds: () => string[]
+  getDesktopCharacters: () => { id: string; name: string; muted: boolean }[]
   getActiveConversation: () => { id: string; participantIds: string[]; messages: Message[] } | null
   sendMessage: (payload: { content: string; randomResult?: RandomResult }) => Promise<void>
   addDesktopCharacter: (characterId: string) => Promise<boolean>
@@ -25,6 +25,10 @@ export interface MobileBridge {
   captureScreenshot: (withChars: boolean, displayIndex?: number) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
   getConversationList: () => { id: string; title: string; updatedAt: number; active: boolean }[]
   loadConversation: (id: string) => boolean
+  createConversation: () => { id: string; title: string; updatedAt: number; active: boolean }
+  deleteConversation: (id: string) => { ok: true; activeConversationId: string } | { error: string }
+  forceSpeak: (characterId: string) => Promise<{ ok: true } | { error: string }>
+  toggleMute: (characterId: string) => boolean
   getScenes: () => import('./types').ScenePreset[]
   applyScene: (id: string) => { ok: true } | { error: string }
   getPersonaPresets: () => import('./types').PersonaPreset[]
@@ -38,6 +42,7 @@ export interface MobileBridge {
   editMessage: (id: string, content: string) => boolean
   resendMessage: (id: string) => Promise<{ ok: boolean } | { error: string }>
   getRemoteControlSettings: () => import('./types').RemoteControlSettings | undefined
+  setRemoteControlEnabled: (enabled: boolean) => { ok: true } | { error: string }
   notifyRemoteClickPending: () => void  // 點擊前廣播：讓角色視窗暫時穿透
   notifyRemoteAction: () => void        // 點擊後廣播：顯示遠端控制指示
   hideWindowsForRemote: () => void      // 遙控模式：隱藏所有 DeST 視窗
@@ -45,31 +50,6 @@ export interface MobileBridge {
 }
 
 // ── 裝置資訊解析工具 ──────────────────────────────────────
-
-interface DeviceInfo {
-  ip: string
-  deviceId: string
-  deviceNickname: string
-  deviceLabel: string
-}
-
-function extractDeviceInfo(req: http.IncomingMessage): DeviceInfo {
-  const forwarded = req.headers['x-forwarded-for']
-  const ip = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(',')[0]?.trim()
-    ?? req.socket.remoteAddress
-    ?? '未知'
-  const rawId = req.headers['x-device-id']
-  const deviceId = (Array.isArray(rawId) ? rawId[0] : rawId) ?? ''
-  const rawNick = req.headers['x-device-nickname']
-  const rawNickStr = (Array.isArray(rawNick) ? rawNick[0] : rawNick) ?? ''
-  let deviceNickname = '未命名裝置'
-  if (rawNickStr) {
-    try { deviceNickname = decodeURIComponent(rawNickStr) } catch { deviceNickname = rawNickStr }
-  }
-  const ua = req.headers['user-agent']
-  const deviceLabel = parseDeviceLabel(Array.isArray(ua) ? ua[0] : ua)
-  return { ip, deviceId, deviceNickname, deviceLabel }
-}
 
 let bridge: MobileBridge | null = null
 export function setBridge(b: MobileBridge): void {
@@ -103,6 +83,17 @@ export function pushReminder(content: string): void {
 
 export function pushThinking(charId?: string): void {
   const payload = JSON.stringify({ type: 'thinking', characterId: charId ?? '' })
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(payload)
+  }
+}
+
+export function pushRemoteControlState(): void {
+  if (!bridge) return
+  const payload = JSON.stringify({
+    type: 'remote-control-state',
+    remoteControl: getRemoteControlClientState(bridge.getRemoteControlSettings())
+  })
   for (const ws of clients) {
     if (ws.readyState === WebSocket.OPEN) ws.send(payload)
   }
@@ -216,17 +207,14 @@ async function handleRequest(
   if (method === 'GET' && url === '/api/state') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
     const conv = bridge.getActiveConversation()
-    const desktopIds = bridge.getDesktopCharacterIds()
-    const allChars = bridge.getCharacters()
-    const desktopChars = allChars
-      .filter(c => desktopIds.includes(c.id))
-      .map(c => ({ id: c.id, name: c.name }))
+    const desktopChars = bridge.getDesktopCharacters()
     jsonOk(res, {
       desktopCharacters: desktopChars,
       conversation: conv
         ? { id: conv.id, messages: conv.messages.slice(-50).map(sanitizeMessage) }
         : null,
-      colorTheme: bridge.getColorTheme()
+      colorTheme: bridge.getColorTheme(),
+      remoteControl: getRemoteControlClientState(bridge.getRemoteControlSettings())
     })
     return
   }
@@ -340,6 +328,52 @@ async function handleRequest(
     if (!payload.id) { jsonError(res, 400, 'id required'); return }
     const ok = bridge.loadConversation(payload.id)
     jsonOk(res, { ok })
+    return
+  }
+
+  // ── POST /api/conversations/new ──
+  if (method === 'POST' && url === '/api/conversations/new') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, { conversation: bridge.createConversation() })
+    return
+  }
+
+  // ── POST /api/conversations/delete ──
+  if (method === 'POST' && url === '/api/conversations/delete') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { id?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const result = bridge.deleteConversation(payload.id)
+    if ('error' in result) { jsonError(res, 400, result.error); return }
+    jsonOk(res, result)
+    return
+  }
+
+  // ── POST /api/characters/speak ──
+  if (method === 'POST' && url === '/api/characters/speak') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { characterId?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.characterId) { jsonError(res, 400, 'characterId required'); return }
+    const result = await bridge.forceSpeak(payload.characterId)
+    if ('error' in result) { jsonError(res, 400, result.error); return }
+    jsonOk(res, result)
+    return
+  }
+
+  // ── POST /api/characters/toggle-mute ──
+  if (method === 'POST' && url === '/api/characters/toggle-mute') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { characterId?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.characterId) { jsonError(res, 400, 'characterId required'); return }
+    const muted = bridge.toggleMute(payload.characterId)
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, { muted })
     return
   }
 
@@ -602,217 +636,12 @@ async function handleRequest(
     return
   }
 
-  // ── 遙控 API ────────────────────────────────────────────
-
+  // -- Remote control API -------------------------------------------------
   if (url.startsWith('/api/remote/')) {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-    const rcSettings = bridge.getRemoteControlSettings()
-
-    const devInfo = extractDeviceInfo(req)
-
-    // ── POST /api/remote/click ──
-    if (method === 'POST' && url === '/api/remote/click') {
-      if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
-      const body = await readBody(req)
-      let payload: { x?: number; y?: number; button?: 'left' | 'right' | 'middle'; double?: boolean }
-      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
-      if (payload.x == null || payload.y == null) { jsonError(res, 400, 'x and y required'); return }
-      // 點擊前廣播：讓所有角色視窗暫時穿透，避免透明視窗擋住點擊目標
-      bridge.notifyRemoteClickPending()
-      const result = await rc.clickAt(payload.x, payload.y, payload.button ?? 'left', payload.double ?? false)
-      if (result.ok) {
-        appendRemoteLog({ ...devInfo, action: 'click', detail: `(${payload.x}, ${payload.y})${payload.double ? ' 雙擊' : ''}${payload.button && payload.button !== 'left' ? ' ' + payload.button : ''}` })
-        bridge.notifyRemoteAction()
-      }
-      jsonOk(res, result)
-      return
-    }
-
-    // ── POST /api/remote/hide-windows ── 遙控模式：隱藏所有 DeST 視窗
-    if (method === 'POST' && url === '/api/remote/hide-windows') {
-      if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-      bridge.hideWindowsForRemote()
-      jsonOk(res, { ok: true })
-      return
-    }
-
-    // ── POST /api/remote/restore-windows ── 遙控模式：恢復所有 DeST 視窗
-    if (method === 'POST' && url === '/api/remote/restore-windows') {
-      if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-      bridge.restoreWindowsForRemote()
-      jsonOk(res, { ok: true })
-      return
-    }
-
-    // ── POST /api/remote/type ──
-    if (method === 'POST' && url === '/api/remote/type') {
-      if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
-      const body = await readBody(req)
-      let payload: { text?: string; pressEnter?: boolean }
-      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
-      const text = String(payload.text ?? '')
-      if (!text) { jsonError(res, 400, 'text required'); return }
-      // 輸入前也廣播，確保後續 Enter 等按鍵不被視窗攔截
-      bridge.notifyRemoteClickPending()
-      const result = await rc.typeText(text)
-      if (result.ok && payload.pressEnter) await rc.sendKey('Enter')
-      if (result.ok) {
-        appendRemoteLog({ ...devInfo, action: 'type', detail: text.length > 40 ? text.slice(0, 40) + '…' : text })
-        bridge.notifyRemoteAction()
-      }
-      jsonOk(res, result)
-      return
-    }
-
-    // ── POST /api/remote/key ──
-    if (method === 'POST' && url === '/api/remote/key') {
-      if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
-      const body = await readBody(req)
-      let payload: { keys?: string }
-      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
-      if (!payload.keys) { jsonError(res, 400, 'keys required'); return }
-      const result = await rc.sendKey(payload.keys)
-      if (result.ok) {
-        appendRemoteLog({ ...devInfo, action: 'key', detail: payload.keys })
-        bridge.notifyRemoteAction()
-      }
-      jsonOk(res, result)
-      return
-    }
-
-    // ── POST /api/remote/system ──
-    if (method === 'POST' && url === '/api/remote/system') {
-      if (!rcSettings?.enableSystemActions) { jsonError(res, 403, 'System actions disabled'); return }
-      const body = await readBody(req)
-      let payload: { action?: string }
-      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
-      if (payload.action !== 'shutdown' && payload.action !== 'restart') { jsonError(res, 400, 'action must be shutdown or restart'); return }
-      appendRemoteLog({ ...devInfo, action: payload.action, detail: payload.action === 'shutdown' ? '關機' : '重新開機' })
-      bridge.notifyRemoteAction()
-      const result = await rc.shutdownPc(payload.action === 'restart')
-      jsonOk(res, result)
-      return
-    }
-
-    // ── GET /api/remote/programs ──
-    if (method === 'GET' && url === '/api/remote/programs') {
-      const programs = rcSettings?.registeredPrograms ?? []
-      const withStatus = await Promise.all(programs.map(async p => ({
-        id: p.id,
-        name: p.name,
-        iconDataUrl: p.iconDataUrl,
-        running: await rc.isProgramRunning(p)
-      })))
-      jsonOk(res, withStatus)
-      return
-    }
-
-    // ── POST /api/remote/programs/launch ──
-    if (method === 'POST' && url === '/api/remote/programs/launch') {
-      const body = await readBody(req)
-      let payload: { id?: string }
-      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
-      if (!payload.id) { jsonError(res, 400, 'id required'); return }
-      const prog = rcSettings?.registeredPrograms.find(p => p.id === payload.id)
-      if (!prog) { jsonError(res, 404, 'Program not found'); return }
-      const result = await rc.launchProgram(prog)
-      if (result.ok) {
-        appendRemoteLog({ ...devInfo, action: 'launch', detail: prog.name })
-        bridge.notifyRemoteAction()
-      }
-      jsonOk(res, result)
-      return
-    }
-
-    // ── POST /api/remote/programs/close ──
-    if (method === 'POST' && url === '/api/remote/programs/close') {
-      const body = await readBody(req)
-      let payload: { id?: string }
-      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
-      if (!payload.id) { jsonError(res, 400, 'id required'); return }
-      const prog = rcSettings?.registeredPrograms.find(p => p.id === payload.id)
-      if (!prog) { jsonError(res, 404, 'Program not found'); return }
-      const result = await rc.closeProgram(prog)
-      if (result.ok) {
-        appendRemoteLog({ ...devInfo, action: 'close', detail: prog.name })
-        bridge.notifyRemoteAction()
-      }
-      jsonOk(res, result)
-      return
-    }
-
-    // ── GET /api/remote/log ──
-    if (method === 'GET' && url === '/api/remote/log') {
-      jsonOk(res, getRemoteLog())
-      return
-    }
-
-    // ── POST /api/remote/log/clear ──
-    if (method === 'POST' && url === '/api/remote/log/clear') {
-      clearRemoteLog()
-      jsonOk(res, { ok: true })
-      return
-    }
-
-    // ── POST /api/remote/scroll ──
-    if (method === 'POST' && url === '/api/remote/scroll') {
-      if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
-      const body = await readBody(req)
-      let payload: { x?: number; y?: number; deltaX?: number; deltaY?: number }
-      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
-      if (payload.x == null || payload.y == null) { jsonError(res, 400, 'x and y required'); return }
-      const result = await rc.scrollAt(
-        payload.x, payload.y,
-        payload.deltaX ?? 0, payload.deltaY ?? 0
-      )
-      if (result.ok) {
-        appendRemoteLog({ ...devInfo, action: 'scroll', detail: `(${payload.x}, ${payload.y}) dx=${payload.deltaX ?? 0} dy=${payload.deltaY ?? 0}` })
-      }
-      jsonOk(res, result)
-      return
-    }
-
-    // ── POST /api/remote/monitor-off ──
-    // 只關閉螢幕背光（不觸發 Windows 鎖定），省電用
-    if (method === 'POST' && url === '/api/remote/monitor-off') {
-      if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
-      const result = await rc.monitorOff()
-      if (result.ok) {
-        appendRemoteLog({ ...devInfo, action: 'monitor-off', detail: '關閉螢幕' })
-        bridge.notifyRemoteAction()
-      }
-      jsonOk(res, result)
-      return
-    }
-
-    // ── POST /api/remote/wake ──
-    // 移動一下滑鼠以喚醒螢幕（從螢幕保護程式或鎖定畫面）
-    if (method === 'POST' && url === '/api/remote/wake') {
-      if (!rcSettings?.enableInputControl) { jsonError(res, 403, 'Input control disabled'); return }
-      // 釋放防休眠狀態
-      rc.releaseMonitorOff()
-      const { exec: e3 } = await import('child_process')
-      // 取得目前游標位置再移回，避免干擾使用者正在操作的位置
-      const wakeScript = [
-        'Add-Type -TypeDefinition \'using System;using System.Runtime.InteropServices;public class WK{[DllImport(\\"user32.dll\\")]public static extern bool SetCursorPos(int x,int y);[DllImport(\\"user32.dll\\")]public static extern bool GetCursorPos(out POINT p);[StructLayout(LayoutKind.Sequential)]public struct POINT{public int X,Y;}}\'',
-        '$p=New-Object WK+POINT;[WK]::GetCursorPos([ref]$p)|Out-Null',
-        '[WK]::SetCursorPos($p.X+1,$p.Y+1)|Out-Null',
-        'Start-Sleep -Milliseconds 50',
-        '[WK]::SetCursorPos($p.X,$p.Y)|Out-Null'
-      ].join(';')
-      await new Promise<void>(resolve => {
-        e3(`powershell -NoProfile -NonInteractive -Command "${wakeScript}"`, { timeout: 3000 }, () => resolve())
-      })
-      appendRemoteLog({ ...devInfo, action: 'wake', detail: '喚醒螢幕' })
-      bridge.notifyRemoteAction()
-      jsonOk(res, { ok: true })
-      return
-    }
-
-    jsonError(res, 404, 'Remote API not found')
+    await handleRemoteControlRequest({ req, res, method, url, host: bridge })
     return
   }
-
   // ── GET /api/system/lock-status ──
   // 偵測 Windows 是否鎖定（logonui.exe 以 Session 0+ 執行代表登入畫面）
   if (method === 'GET' && url === '/api/system/lock-status') {

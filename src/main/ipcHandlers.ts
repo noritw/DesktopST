@@ -24,8 +24,8 @@ import {
   buildAuthUrl, handleAuthCallback, clearAuthFile, isAuthenticated, getSpotifyContextString
 } from './spotifyService'
 import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
-import { pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
-import { getRemoteLog, clearRemoteLog } from './remoteControlLog'
+import { pushRemoteControlState, pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
+import { getRemoteLog, clearRemoteLog } from './modules/remote-control'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
   resizeCharacterWindow, getCharacterWindowSize, enterCharacterScaleMode, exitCharacterScaleMode, enterScaleModeWindow,
@@ -586,6 +586,47 @@ export function loadConversationDirect(id: string): boolean {
   broadcastConversationUpdate(conv)
   syncCharacterContextsFromConversation(conv)
   return true
+}
+
+export function createConversationDirect(): { id: string; title: string; updatedAt: number; active: boolean } {
+  const conv = createNewConversation()
+  broadcastConversationUpdate(conv)
+  syncCharacterContextsFromConversation(conv)
+  return { id: conv.id, title: conv.title, updatedAt: conv.updatedAt, active: true }
+}
+
+export function deleteConversationDirect(id: string): { ok: true; activeConversationId: string } | { error: string } {
+  const deletingId = String(id || '')
+  if (!deletingId) return { error: 'id required' }
+  const exists = !!getOrLoadConversation(deletingId)
+  if (!exists) return { error: 'Conversation not found' }
+
+  fileStore.deleteConversation(deletingId)
+  conversations.delete(deletingId)
+
+  if (activeConversationId !== deletingId) {
+    const active = getActiveConversation()
+    if (active) broadcastConversationUpdate(active)
+    return { ok: true, activeConversationId: activeConversationId ?? '' }
+  }
+
+  activeConversationId = null
+  const nextId = pickNextConversationId(deletingId)
+  if (nextId) {
+    activeConversationId = nextId
+    const next = getOrLoadConversation(nextId)
+    if (next) {
+      syncLastActiveConversationToSettings()
+      broadcastConversationUpdate(next)
+      syncCharacterContextsFromConversation(next)
+      return { ok: true, activeConversationId: next.id }
+    }
+  }
+
+  const fresh = createNewConversation()
+  broadcastConversationUpdate(fresh)
+  syncCharacterContextsFromConversation(fresh)
+  return { ok: true, activeConversationId: fresh.id }
 }
 
 export function getScenesDirect(): import('./types').ScenePreset[] {
@@ -1408,6 +1449,126 @@ export async function handleSpotifyProtocolUrl(url: string): Promise<void> {
   }
 }
 
+
+export async function forceSpeakDirect(characterId: string): Promise<{ ok: true } | { error: string }> {
+    const conv = getActiveConversation()
+    const char = getCharacter(characterId)
+    if (!conv || !char) return { error: 'Not found' }
+
+    // 沒有 API Key 時直接說提示訊息，不進 LLM
+    const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+    if (!hasApiKey) {
+      const noKeyText = '（系統提示：尚未設定 API Key，我沒辦法回應你喔。請點右上角的設定圖示，前往「LLM」分頁填入 API Key，就可以開始聊天囉！）'
+      const msg: Message = {
+        id: uuidv4(),
+        role: 'character',
+        characterId,
+        content: noKeyText,
+        timestamp: Date.now()
+      }
+      conv.messages.push(msg)
+      conv.updatedAt = Date.now()
+      broadcastConversationUpdate(conv)
+      showSpeechBubble(characterId, char.name, noKeyText, undefined, bubbleAnchorForCharacter(characterId))
+      fileStore.saveConversation(conv)
+      return { ok: true }
+    }
+
+    const activePersona = getActivePersona()
+    const activeWorld = getActiveWorld()
+
+    const ctxParts: string[] = []
+    if (conv.messages.length === 0 && char.firstMessage?.trim()) {
+      ctxParts.push(`[角色開場白]\n${char.firstMessage.trim()}\n\n請基於這個開場白的人格和語氣，自由發揮回應。`)
+    }
+    if (settings.weather?.enabled) {
+      const weatherStr = await getWeatherContextString(settings)
+      if (weatherStr) ctxParts.push(weatherStr)
+    }
+    if (settings.spotify?.enabled) {
+      const spotifyStr = await getSpotifyContextString(settings)
+      if (spotifyStr) ctxParts.push(spotifyStr)
+    }
+    const extraSystemContext = ctxParts.join('\n\n') || undefined
+
+    setCharacterThinking(characterId, true)
+    deferRaiseCharacterAbovePinnedNotes(characterId)
+    try {
+      let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
+      const desktopCharNamesForce = settings.ui.desktopCharacters.map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
+      const forceHasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
+      const doSplitEmotionForce = !!(settings.llm.utilityEnabled && forceHasCustomSprites)
+      const { content, emotion: rawEmotionForce, debugPrompt, inputTokens: forceInputTk, outputTokens: forceOutputTk } = await chatWithLLM({
+        settings,
+        character: char,
+        messages: recentMessages,
+        speakerNameById: getSpeakerNameById(),
+        persona: activePersona,
+        world: activeWorld,
+        desktopCharacterNames: desktopCharNamesForce,
+        extraSystemContext,
+        splitEmotion: doSplitEmotionForce
+      })
+      const forcedReply = stripOtherCharacterSpeakerLines(
+        normalizeCharacterDialogue(content, char),
+        char.id
+      )
+      if (!forcedReply) {
+        return { error: '模型輸出包含其他角色台詞，已拒絕這次強制發話。' }
+      }
+      let forceEmotion = rawEmotionForce
+      let forceUtilityInputTk: number | undefined
+      let forceUtilityOutputTk: number | undefined
+      let forceUtilityDebugPrompt: string | undefined
+      if (doSplitEmotionForce) {
+        const cr = await classifyEmotionWithLLM({ settings, character: char, reply: forcedReply })
+        forceEmotion = cr.emotion
+        forceUtilityInputTk = cr.inputTokens
+        forceUtilityOutputTk = cr.outputTokens
+        forceUtilityDebugPrompt = cr.debugPrompt
+      }
+      const forceLlm = messageLlmMeta(debugPrompt, settings)
+      const msg: Message = {
+        id: uuidv4(),
+        role: 'character',
+        characterId,
+        content: forcedReply,
+        llmProvider: forceLlm.provider,
+        llmModel: forceLlm.model,
+        debugPrompt,
+        emotion: forceEmotion,
+        inputTokens: forceInputTk,
+        outputTokens: forceOutputTk,
+        utilityInputTokens: forceUtilityInputTk,
+        utilityOutputTokens: forceUtilityOutputTk,
+        utilityDebugPrompt: forceUtilityDebugPrompt,
+        timestamp: Date.now()
+      }
+      conv.messages.push(msg)
+      conv.updatedAt = Date.now()
+      fileStore.saveConversation(conv)
+      scheduleConversationBroadcast(conv)
+      flushConversationBroadcast()
+      setImmediate(() => {
+        showSpeechBubble(characterId, char.name, forcedReply, msg.emotion, bubbleAnchorForCharacter(characterId))
+        sendCharacterContextUpdate(characterId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
+      })
+      return { ok: true }
+    } catch (e: unknown) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    } finally {
+      setCharacterThinking(characterId, false)
+    }
+}
+
+export function toggleMuteDirect(characterId: string): boolean {
+  const d = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
+  if (!d) return false
+  d.muted = !d.muted
+  fileStore.saveSettings(settings)
+  broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
+  return d.muted
+}
 export function registerIpcHandlers() {
 
   // Store: get initial snapshot for any renderer
@@ -1511,6 +1672,7 @@ export function registerIpcHandlers() {
     if (settings.weather?.locationName !== prevLocationName) invalidateWeatherCache()
     fileStore.saveSettings(settings)
     broadcastToAll('settings:updated', settings)
+    pushRemoteControlState()
     broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
     return true
   })
@@ -2863,116 +3025,7 @@ export function registerIpcHandlers() {
   ipcMain.handle('message:send', (_, payload) => sendMsgBody(payload))
 
   // Force speak: one character speaks now
-  ipcMain.handle('character:force-speak', async (_, characterId: string) => {
-    const conv = getActiveConversation()
-    const char = getCharacter(characterId)
-    if (!conv || !char) return { error: 'Not found' }
-
-    // 沒有 API Key 時直接說提示訊息，不進 LLM
-    const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
-    if (!hasApiKey) {
-      const noKeyText = '（系統提示：尚未設定 API Key，我沒辦法回應你喔。請點右上角的設定圖示，前往「LLM」分頁填入 API Key，就可以開始聊天囉！）'
-      const msg: Message = {
-        id: uuidv4(),
-        role: 'character',
-        characterId,
-        content: noKeyText,
-        timestamp: Date.now()
-      }
-      conv.messages.push(msg)
-      conv.updatedAt = Date.now()
-      broadcastConversationUpdate(conv)
-      showSpeechBubble(characterId, char.name, noKeyText, undefined, bubbleAnchorForCharacter(characterId))
-      fileStore.saveConversation(conv)
-      return { ok: true }
-    }
-
-    const activePersona = getActivePersona()
-    const activeWorld = getActiveWorld()
-
-    const ctxParts: string[] = []
-    if (conv.messages.length === 0 && char.firstMessage?.trim()) {
-      ctxParts.push(`[角色開場白]\n${char.firstMessage.trim()}\n\n請基於這個開場白的人格和語氣，自由發揮回應。`)
-    }
-    if (settings.weather?.enabled) {
-      const weatherStr = await getWeatherContextString(settings)
-      if (weatherStr) ctxParts.push(weatherStr)
-    }
-    if (settings.spotify?.enabled) {
-      const spotifyStr = await getSpotifyContextString(settings)
-      if (spotifyStr) ctxParts.push(spotifyStr)
-    }
-    const extraSystemContext = ctxParts.join('\n\n') || undefined
-
-    setCharacterThinking(characterId, true)
-    deferRaiseCharacterAbovePinnedNotes(characterId)
-    try {
-      let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
-      const desktopCharNamesForce = settings.ui.desktopCharacters.map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
-      const forceHasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
-      const doSplitEmotionForce = !!(settings.llm.utilityEnabled && forceHasCustomSprites)
-      const { content, emotion: rawEmotionForce, debugPrompt, inputTokens: forceInputTk, outputTokens: forceOutputTk } = await chatWithLLM({
-        settings,
-        character: char,
-        messages: recentMessages,
-        speakerNameById: getSpeakerNameById(),
-        persona: activePersona,
-        world: activeWorld,
-        desktopCharacterNames: desktopCharNamesForce,
-        extraSystemContext,
-        splitEmotion: doSplitEmotionForce
-      })
-      const forcedReply = stripOtherCharacterSpeakerLines(
-        normalizeCharacterDialogue(content, char),
-        char.id
-      )
-      if (!forcedReply) {
-        return { error: '模型輸出包含其他角色台詞，已拒絕這次強制發話。' }
-      }
-      let forceEmotion = rawEmotionForce
-      let forceUtilityInputTk: number | undefined
-      let forceUtilityOutputTk: number | undefined
-      let forceUtilityDebugPrompt: string | undefined
-      if (doSplitEmotionForce) {
-        const cr = await classifyEmotionWithLLM({ settings, character: char, reply: forcedReply })
-        forceEmotion = cr.emotion
-        forceUtilityInputTk = cr.inputTokens
-        forceUtilityOutputTk = cr.outputTokens
-        forceUtilityDebugPrompt = cr.debugPrompt
-      }
-      const forceLlm = messageLlmMeta(debugPrompt, settings)
-      const msg: Message = {
-        id: uuidv4(),
-        role: 'character',
-        characterId,
-        content: forcedReply,
-        llmProvider: forceLlm.provider,
-        llmModel: forceLlm.model,
-        debugPrompt,
-        emotion: forceEmotion,
-        inputTokens: forceInputTk,
-        outputTokens: forceOutputTk,
-        utilityInputTokens: forceUtilityInputTk,
-        utilityOutputTokens: forceUtilityOutputTk,
-        utilityDebugPrompt: forceUtilityDebugPrompt,
-        timestamp: Date.now()
-      }
-      conv.messages.push(msg)
-      conv.updatedAt = Date.now()
-      fileStore.saveConversation(conv)
-      scheduleConversationBroadcast(conv)
-      flushConversationBroadcast()
-      setImmediate(() => {
-        showSpeechBubble(characterId, char.name, forcedReply, msg.emotion, bubbleAnchorForCharacter(characterId))
-        sendCharacterContextUpdate(characterId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
-      })
-      return { ok: true }
-    } catch (e: unknown) {
-      return { error: e instanceof Error ? e.message : String(e) }
-    } finally {
-      setCharacterThinking(characterId, false)
-    }
-  })
+  ipcMain.handle('character:force-speak', async (_, characterId: string) => forceSpeakDirect(characterId))
 
   // Continue group conversation: cycle through non-muted desktop characters for maxGroupRounds total replies
   ipcMain.handle('character:continue-group', async () => {
@@ -3099,14 +3152,7 @@ export function registerIpcHandlers() {
   })
 
   // Mute toggle
-  ipcMain.handle('desktop:toggle-mute', (_, characterId: string) => {
-    const d = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
-    if (!d) return false
-    d.muted = !d.muted
-    fileStore.saveSettings(settings)
-    broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
-    return d.muted
-  })
+  ipcMain.handle('desktop:toggle-mute', (_, characterId: string) => toggleMuteDirect(characterId))
 
   // Emoji picker window
   ipcMain.handle('emoji-picker:open', (_, buttonScreenX: number, buttonScreenY: number) => {

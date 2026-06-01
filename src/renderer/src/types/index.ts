@@ -105,7 +105,36 @@ export interface RegisteredProgram {
   createdAt: number
 }
 
+export type RemoteCapability =
+  | 'remote.viewScreen'
+  | 'remote.captureWindow'
+  | 'remote.pointer.click'
+  | 'remote.pointer.scroll'
+  | 'remote.keyboard.type'
+  | 'remote.keyboard.hotkey'
+  | 'remote.program.launch'
+  | 'remote.program.close'
+  | 'remote.monitor.power'
+  | 'remote.system.shutdown'
+  | 'remote.system.restart'
+
+export interface RegisteredRemoteDevice {
+  id: string
+  nickname: string
+  label?: string
+  createdAt: number
+  lastSeenAt?: number
+}
+
 export interface RemoteControlSettings {
+  enabled: boolean
+  allowedCapabilities: RemoteCapability[]
+  requireConfirmation: RemoteCapability[]
+  allowedDevices: RegisteredRemoteDevice[]
+  logRetention: {
+    maxEntries: number
+    keepDays?: number
+  }
   enableInputControl: boolean
   enableSystemActions: boolean
   registeredPrograms: RegisteredProgram[]

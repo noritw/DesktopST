@@ -6,6 +6,7 @@ import type { AppSettings, Character, Conversation, DesktopCharacterState, Perso
 import { DEFAULT_SETTINGS } from './types'
 import * as secureStore from './secureStore'
 import { loadDstPackZip, readCharacterFromZip, extractCharacterDirFromZip } from './dstPack'
+import { normalizeRemoteControlSettings } from './modules/remote-control'
 
 const DEFAULT_DATA_DIR = path.join(app.getPath('userData'), 'DesktopST')
 const STORAGE_META_FILE = path.join(app.getPath('userData'), 'DesktopST-storage.json')
@@ -199,13 +200,10 @@ export function loadSettings(): AppSettings {
         ...DEFAULT_SETTINGS.memory,
         ...typed.memory
       },
-      remoteControl: {
+      remoteControl: normalizeRemoteControlSettings({
         ...DEFAULT_SETTINGS.remoteControl!,
-        ...typed.remoteControl,
-        registeredPrograms: Array.isArray(typed.remoteControl?.registeredPrograms)
-          ? typed.remoteControl!.registeredPrograms
-          : []
-      },
+        ...typed.remoteControl
+      }),
       ui: {
         ...DEFAULT_SETTINGS.ui,
         ...typed.ui,

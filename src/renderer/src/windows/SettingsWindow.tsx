@@ -6,7 +6,7 @@ import {
   OPENAI_DATA_SHARING_INCENTIVE_1M_GROUP
 } from '../constants/openaiDataSharingIncentiveModels'
 import { useAppStore } from '../stores/useAppStore'
-import type { AppSettings, PersonaPreset, ScenePreset, WorldPreset } from '../types'
+import type { AppSettings, PersonaPreset, RemoteCapability, ScenePreset, WorldPreset } from '../types'
 import MonoIcon from '../components/MonoIcon'
 
 const OPENAI_MODEL_LIST_HELP =
@@ -109,6 +109,57 @@ const RIGHT_TABS = ['世界觀', '使用者', '介面', '遙控', '關於'] as c
 const TABS = [...LEFT_TABS, ...SCENE_TABS, ...RIGHT_TABS] as const
 type Tab = typeof TABS[number]
 const SETTINGS_LAST_TAB_KEY = 'desktopst.settings.lastTab'
+
+const REMOTE_INPUT_CAPABILITIES: RemoteCapability[] = [
+  'remote.pointer.click',
+  'remote.pointer.scroll',
+  'remote.keyboard.type',
+  'remote.keyboard.hotkey',
+  'remote.monitor.power'
+]
+
+const REMOTE_SYSTEM_CAPABILITIES: RemoteCapability[] = [
+  'remote.system.shutdown',
+  'remote.system.restart'
+]
+
+const REMOTE_PROGRAM_CAPABILITIES: RemoteCapability[] = [
+  'remote.program.launch',
+  'remote.program.close'
+]
+
+function defaultRemoteControlSettings(): NonNullable<AppSettings['remoteControl']> {
+  return {
+    enabled: false,
+    allowedCapabilities: [],
+    requireConfirmation: [],
+    allowedDevices: [],
+    logRetention: {
+      maxEntries: 500
+    },
+    enableInputControl: false,
+    enableSystemActions: false,
+    registeredPrograms: []
+  }
+}
+
+function setRemoteCapabilityGroup(
+  current: NonNullable<AppSettings['remoteControl']>,
+  capabilities: RemoteCapability[],
+  enabled: boolean
+): RemoteCapability[] {
+  const next = new Set(current.allowedCapabilities ?? [])
+  for (const capability of capabilities) {
+    if (enabled) next.add(capability)
+    else next.delete(capability)
+  }
+  return [...next]
+}
+
+function enableRemoteProgramCapabilities(current: NonNullable<AppSettings['remoteControl']>): void {
+  current.enabled = true
+  current.allowedCapabilities = setRemoteCapabilityGroup(current, REMOTE_PROGRAM_CAPABILITIES, true)
+}
 
 function readLastSettingsTab(): Tab | null {
   try {
@@ -2185,8 +2236,49 @@ export default function SettingsWindow() {
               <label className="flex items-start gap-2 cursor-pointer">
                 <input
                   type="checkbox"
+                  checked={draft.remoteControl?.enabled ?? false}
+                  onChange={e => {
+                    const enabled = e.target.checked
+                    setDirty(true)
+                    setDraft(prev => {
+                      if (!prev) return prev
+                      const next = JSON.parse(JSON.stringify(prev)) as AppSettings
+                      next.remoteControl = {
+                        ...defaultRemoteControlSettings(),
+                        ...next.remoteControl,
+                        enabled
+                      }
+                      return next
+                    })
+                  }}
+                  className="accent-teal w-4 h-4 mt-0.5"
+                />
+                <span className="text-sm text-primary">
+                  遙控模組
+                  <span className="block text-xs text-secondary mt-0.5">需要遠端遙控時才開啟；關閉時 mobile remote API 會拒絕操作。</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
                   checked={draft.remoteControl?.enableInputControl ?? false}
-                  onChange={e => set('remoteControl.enableInputControl', e.target.checked)}
+                  onChange={e => {
+                    const enabled = e.target.checked
+                    setDirty(true)
+                    setDraft(prev => {
+                      if (!prev) return prev
+                      const next = JSON.parse(JSON.stringify(prev)) as AppSettings
+                      const remoteControl = {
+                        ...defaultRemoteControlSettings(),
+                        ...next.remoteControl
+                      }
+                      remoteControl.enableInputControl = enabled
+                      remoteControl.enabled = remoteControl.enabled || enabled
+                      remoteControl.allowedCapabilities = setRemoteCapabilityGroup(remoteControl, REMOTE_INPUT_CAPABILITIES, enabled)
+                      next.remoteControl = remoteControl
+                      return next
+                    })
+                  }}
                   className="accent-teal w-4 h-4 mt-0.5"
                 />
                 <span className="text-sm text-primary">
@@ -2198,7 +2290,23 @@ export default function SettingsWindow() {
                 <input
                   type="checkbox"
                   checked={draft.remoteControl?.enableSystemActions ?? false}
-                  onChange={e => set('remoteControl.enableSystemActions', e.target.checked)}
+                  onChange={e => {
+                    const enabled = e.target.checked
+                    setDirty(true)
+                    setDraft(prev => {
+                      if (!prev) return prev
+                      const next = JSON.parse(JSON.stringify(prev)) as AppSettings
+                      const remoteControl = {
+                        ...defaultRemoteControlSettings(),
+                        ...next.remoteControl
+                      }
+                      remoteControl.enableSystemActions = enabled
+                      remoteControl.enabled = remoteControl.enabled || enabled
+                      remoteControl.allowedCapabilities = setRemoteCapabilityGroup(remoteControl, REMOTE_SYSTEM_CAPABILITIES, enabled)
+                      next.remoteControl = remoteControl
+                      return next
+                    })
+                  }}
                   className="accent-teal w-4 h-4 mt-0.5"
                 />
                 <span className="text-sm text-primary">
@@ -2242,7 +2350,7 @@ export default function SettingsWindow() {
                       setDraft(prev => {
                         if (!prev) return prev
                         const next = JSON.parse(JSON.stringify(prev)) as AppSettings
-                        if (!next.remoteControl) next.remoteControl = { enableInputControl: false, enableSystemActions: false, registeredPrograms: [] }
+                        if (!next.remoteControl) next.remoteControl = defaultRemoteControlSettings()
                         if (next.remoteControl.registeredPrograms.some(p => p.path === picked.path)) return next
                         next.remoteControl.registeredPrograms.push({
                           id: crypto.randomUUID(),
@@ -2251,6 +2359,7 @@ export default function SettingsWindow() {
                           iconDataUrl: picked.iconDataUrl,
                           createdAt: Date.now()
                         })
+                        enableRemoteProgramCapabilities(next.remoteControl)
                         return next
                       })
                     }}
@@ -2293,7 +2402,7 @@ export default function SettingsWindow() {
                             setDraft(prev => {
                               if (!prev) return prev
                               const next = JSON.parse(JSON.stringify(prev)) as AppSettings
-                              if (!next.remoteControl) next.remoteControl = { enableInputControl: false, enableSystemActions: false, registeredPrograms: [] }
+                              if (!next.remoteControl) next.remoteControl = defaultRemoteControlSettings()
                               if (next.remoteControl.registeredPrograms.some(p => p.path === picked.path)) return next
                               next.remoteControl.registeredPrograms.push({
                                 id: crypto.randomUUID(),
@@ -2302,6 +2411,7 @@ export default function SettingsWindow() {
                                 iconDataUrl: picked.iconDataUrl,
                                 createdAt: Date.now()
                               })
+                              enableRemoteProgramCapabilities(next.remoteControl)
                               return next
                             })
                           }}
@@ -2334,7 +2444,7 @@ export default function SettingsWindow() {
                       setDraft(prev => {
                         if (!prev) return prev
                         const next = JSON.parse(JSON.stringify(prev)) as AppSettings
-                        if (!next.remoteControl) next.remoteControl = { enableInputControl: false, enableSystemActions: false, registeredPrograms: [] }
+                        if (!next.remoteControl) next.remoteControl = defaultRemoteControlSettings()
                         if (next.remoteControl.registeredPrograms.some(p => p.path === picked.path)) return next
                         next.remoteControl.registeredPrograms.push({
                           id: crypto.randomUUID(),
@@ -2343,6 +2453,7 @@ export default function SettingsWindow() {
                           iconDataUrl: picked.iconDataUrl,
                           createdAt: Date.now()
                         })
+                        enableRemoteProgramCapabilities(next.remoteControl)
                         return next
                       })
                     }
@@ -2369,7 +2480,7 @@ export default function SettingsWindow() {
                       setDraft(prev => {
                         if (!prev) return prev
                         const next = JSON.parse(JSON.stringify(prev)) as AppSettings
-                        if (!next.remoteControl) next.remoteControl = { enableInputControl: false, enableSystemActions: false, registeredPrograms: [] }
+                        if (!next.remoteControl) next.remoteControl = defaultRemoteControlSettings()
                         if (next.remoteControl.registeredPrograms.some(p => p.path === picked.path)) return next
                         next.remoteControl.registeredPrograms.push({
                           id: crypto.randomUUID(),
@@ -2378,6 +2489,7 @@ export default function SettingsWindow() {
                           iconDataUrl: picked.iconDataUrl,
                           createdAt: Date.now()
                         })
+                        enableRemoteProgramCapabilities(next.remoteControl)
                         return next
                       })
                     }

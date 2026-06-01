@@ -296,7 +296,7 @@ export default function BubbleWindow({ characterId }: Props) {
           <div className="flex gap-1">
             <button
               type="button"
-              className={`no-drag flex h-5 w-5 shrink-0 items-center justify-center border border-border text-secondary transition-colors hover:bg-mint hover:text-primary ${lowPerformanceMode ? 'rounded-md bg-surface' : 'rounded-full bg-surface-80'}`}
+              className={`no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border text-secondary transition-colors hover:bg-mint hover:text-primary ${lowPerformanceMode ? 'bg-surface' : 'bg-surface-80'}`}
               title="釘選為便利貼"
               onClick={() => pinBubble()}
             >
@@ -304,7 +304,7 @@ export default function BubbleWindow({ characterId }: Props) {
             </button>
             <button
               type="button"
-              className={`no-drag flex h-5 w-5 shrink-0 items-center justify-center border border-border text-secondary transition-colors hover:bg-mint hover:text-primary ${lowPerformanceMode ? 'rounded-md bg-surface' : 'rounded-full bg-surface-80'}`}
+              className={`no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border text-secondary transition-colors hover:bg-mint hover:text-primary ${lowPerformanceMode ? 'bg-surface' : 'bg-surface-80'}`}
               title="關閉對話泡泡"
               onClick={closeBubble}
             >
