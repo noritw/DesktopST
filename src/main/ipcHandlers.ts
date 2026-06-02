@@ -25,7 +25,6 @@ import {
 } from './spotifyService'
 import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
 import { pushRemoteControlState, pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
-import { registerRemoteControlIpcHandlers } from './modules/remote-control'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
   resizeCharacterWindow, getCharacterWindowSize, enterCharacterScaleMode, exitCharacterScaleMode, enterScaleModeWindow,
@@ -478,11 +477,12 @@ export function getSettings(): AppSettings { return settings }
 
 export function getCharacters(): Character[] { return characters }
 
-export function getActiveConversationForMobile(): { id: string; participantIds: string[]; messages: Message[] } | null {
+export function getActiveConversationForMobile(): { id: string; title: string; participantIds: string[]; messages: Message[] } | null {
   const conv = getActiveConversation()
   if (!conv) return null
   return {
     id: conv.id,
+    title: conv.title,
     participantIds: conv.participantIds,
     messages: conv.messages.slice(-50)
   }
@@ -588,11 +588,35 @@ export function loadConversationDirect(id: string): boolean {
   return true
 }
 
-export function createConversationDirect(): { id: string; title: string; updatedAt: number; active: boolean } {
+export function createConversationDirect(title?: string): { id: string; title: string; updatedAt: number; active: boolean } {
   const conv = createNewConversation()
+  const nextTitle = String(title ?? '').trim()
+  if (nextTitle) {
+    conv.title = nextTitle
+    conv.updatedAt = Date.now()
+    fileStore.saveConversation(conv)
+  }
   broadcastConversationUpdate(conv)
   syncCharacterContextsFromConversation(conv)
   return { id: conv.id, title: conv.title, updatedAt: conv.updatedAt, active: true }
+}
+
+export function renameConversationDirect(id: string, title: string): { ok: true; conversation: { id: string; title: string; updatedAt: number; active: boolean } } | { error: string } {
+  const conv = getOrLoadConversation(id)
+  if (!conv) return { error: 'Conversation not found' }
+  const nextTitle = String(title || '').trim() || '新對話'
+  conv.title = nextTitle
+  conv.updatedAt = Date.now()
+  conversations.set(conv.id, conv)
+  fileStore.saveConversation(conv)
+  if (conv.id === activeConversationId) {
+    broadcastConversationUpdate(conv)
+    syncCharacterContextsFromConversation(conv)
+  }
+  return {
+    ok: true,
+    conversation: { id: conv.id, title: conv.title, updatedAt: conv.updatedAt, active: conv.id === activeConversationId }
+  }
 }
 
 export function deleteConversationDirect(id: string): { ok: true; activeConversationId: string } | { error: string } {
@@ -669,9 +693,9 @@ export function setApplyMobileRuntimeSettingsFn(fn: (previous: AppSettings, next
 }
 
 /** mobile server 透過這個呼叫 send message（在 registerIpcHandlers 之後才可用）*/
-let _mobileSendImpl: ((payload: { content: string; images?: string[]; randomResult?: RandomResult }) => Promise<{ ok: boolean } | { error: string }>) | null = null
+let _mobileSendImpl: ((payload: { content: string; images?: string[]; randomResult?: RandomResult; sourceDeviceName?: string }) => Promise<{ ok: boolean } | { error: string }>) | null = null
 
-export function handleSendMessageFromMobile(payload: { content: string; randomResult?: RandomResult }): Promise<{ ok: boolean } | { error: string }> {
+export function handleSendMessageFromMobile(payload: { content: string; randomResult?: RandomResult; sourceDeviceName?: string }): Promise<{ ok: boolean } | { error: string }> {
   if (!_mobileSendImpl) return Promise.resolve({ error: 'IPC handlers not registered yet' })
   return _mobileSendImpl(payload)
 }
@@ -1575,8 +1599,6 @@ export function toggleMuteDirect(characterId: string): boolean {
   return d.muted
 }
 export function registerIpcHandlers() {
-  registerRemoteControlIpcHandlers()
-
   // Store: get initial snapshot for any renderer
   ipcMain.handle('store:get-all', (event) => {
     const winType = windowTypeFromSender(event.sender)
@@ -2586,7 +2608,7 @@ export function registerIpcHandlers() {
   })
 
   // Messaging
-  const sendMsgBody = async (payload: { content: string; images?: string[]; randomResult?: RandomResult }): Promise<{ ok: boolean } | { error: string }> => {
+  const sendMsgBody = async (payload: { content: string; images?: string[]; randomResult?: RandomResult; sourceDeviceName?: string }): Promise<{ ok: boolean } | { error: string }> => {
     const conv = getActiveConversation()
     if (!conv) return { error: 'No active conversation' }
 
@@ -2594,9 +2616,17 @@ export function registerIpcHandlers() {
     const activeWorld = getActiveWorld()
 
     let userContentForPrompt = payload.content
+    const sourceDeviceName = String(
+      settings.mobile?.enabled
+        ? payload.sourceDeviceName?.trim() || 'Desktop'
+        : ''
+    ).trim()
+    if (sourceDeviceName) {
+      userContentForPrompt = `[from: ${sourceDeviceName}]\n${userContentForPrompt}`
+    }
     if (payload.randomResult) {
       const label = formatRandomResultForPrompt(payload.randomResult)
-      userContentForPrompt = `${payload.content}${payload.content ? '\n' : ''}（${label}）`
+      userContentForPrompt = `${userContentForPrompt}${userContentForPrompt ? '\n' : ''}（${label}）`
     }
 
     // Add user message

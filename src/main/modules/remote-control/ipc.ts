@@ -3,6 +3,7 @@ import { exec } from 'child_process'
 import { readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import { clearRemoteLog, getRemoteLog } from './logStore'
+import type { ModuleIpcRegistry } from '../moduleTypes'
 
 async function resolveProgram(filePath: string): Promise<{ path: string; defaultName: string; iconDataUrl?: string } | null> {
   const fileName = filePath.split(/[\\/]/).pop() ?? filePath
@@ -78,8 +79,8 @@ async function listProcesses(): Promise<{ name: string; path: string }[]> {
   }
 }
 
-export function registerRemoteControlIpcHandlers(): void {
-  ipcMain.handle('remote:pick-program', async (event) => {
+export function registerRemoteControlIpcHandlers(registry: ModuleIpcRegistry = ipcMain): void {
+  registry.handle('remote:pick-program', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     const options: Electron.OpenDialogOptions = {
       title: '選擇要啟動的程式',
@@ -96,18 +97,18 @@ export function registerRemoteControlIpcHandlers(): void {
     return resolveProgram(result.filePaths[0])
   })
 
-  ipcMain.handle('remote:resolve-program', async (_, filePath: string) => {
+  registry.handle('remote:resolve-program', async (_, filePath: string) => {
     if (typeof filePath !== 'string' || !filePath) return null
     return resolveProgram(filePath)
   })
 
-  ipcMain.handle('remote:list-start-menu', () => listStartMenuPrograms())
+  registry.handle('remote:list-start-menu', () => listStartMenuPrograms())
 
-  ipcMain.handle('remote:list-processes', () => listProcesses())
+  registry.handle('remote:list-processes', () => listProcesses())
 
-  ipcMain.handle('remote:get-log', () => getRemoteLog())
+  registry.handle('remote:get-log', () => getRemoteLog())
 
-  ipcMain.handle('remote:clear-log', () => {
+  registry.handle('remote:clear-log', () => {
     clearRemoteLog()
     return { ok: true }
   })

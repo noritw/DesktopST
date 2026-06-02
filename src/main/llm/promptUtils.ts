@@ -403,6 +403,9 @@ export function buildSystemPrompt(
     )
     if (creatorNotes) ctx.push(`[Author Notes]\n${creatorNotes}`)
     if (settings.injectSystemTime) ctx.push(`[System Time]\n${timeStr}`)
+    if (settings.mobile?.enabled) {
+      ctx.push('[Input Source]\n[from: device] marks the device the user sent from. Treat it as context, not spoken text.')
+    }
     if (extraSystemContext?.trim()) ctx.push(extraSystemContext.trim())
     if (ctx.length > 0) parts.push(ctx.join('\n\n'))
   }

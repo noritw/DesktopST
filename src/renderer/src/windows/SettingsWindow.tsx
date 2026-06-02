@@ -6,7 +6,7 @@ import {
   OPENAI_DATA_SHARING_INCENTIVE_1M_GROUP
 } from '../constants/openaiDataSharingIncentiveModels'
 import { useAppStore } from '../stores/useAppStore'
-import type { AppSettings, PersonaPreset, ScenePreset, WorldPreset } from '../types'
+import type { AppSettings, PersonaPreset, RemoteCapability, ScenePreset, WorldPreset } from '../types'
 import MonoIcon from '../components/MonoIcon'
 import { RemoteControlSettingsPanel } from '../modules/remote-control'
 
@@ -104,10 +104,14 @@ const PROVIDER_KEY_PLACEHOLDER: Record<string, string> = {
   grok: 'xai-...'
 }
 
-const LEFT_TABS = ['LLM 設定', '記憶', '資料'] as const
+const CORE_TABS = ['LLM 設定', '記憶'] as const
 const SCENE_TABS = ['情境'] as const
-const RIGHT_TABS = ['世界觀', '使用者', '介面', '遙控', '關於'] as const
-const TABS = [...LEFT_TABS, ...SCENE_TABS, ...RIGHT_TABS] as const
+const ROLEPLAY_TABS = ['世界觀', '使用者'] as const
+const APP_TABS = ['介面', '擴充'] as const
+const ABOUT_TABS = ['關於'] as const
+const HIDDEN_TABS = ['遙控'] as const
+const VISIBLE_TAB_GROUPS = [CORE_TABS, SCENE_TABS, ROLEPLAY_TABS, APP_TABS, ABOUT_TABS] as const
+const TABS = [...CORE_TABS, ...SCENE_TABS, ...ROLEPLAY_TABS, ...APP_TABS, ...ABOUT_TABS, ...HIDDEN_TABS] as const
 type Tab = typeof TABS[number]
 const SETTINGS_LAST_TAB_KEY = 'desktopst.settings.lastTab'
 
@@ -136,7 +140,12 @@ const TAB_PARAM_ALIASES: Record<string, Tab> = {
   persona: '使用者',
   memory: '記憶',
   ui: '介面',
-  data: '資料',
+  extensions: '擴充',
+  extension: '擴充',
+  modules: '擴充',
+  remote: '遙控',
+  mobile: '遙控',
+  data: '記憶',
   about: '關於',
   scene: '情境',
   'LLM 設定': 'LLM 設定',
@@ -144,7 +153,8 @@ const TAB_PARAM_ALIASES: Record<string, Tab> = {
   使用者: '使用者',
   記憶: '記憶',
   介面: '介面',
-  資料: '資料',
+  擴充: '擴充',
+  資料: '記憶',
   關於: '關於',
   情境: '情境'
 }
@@ -482,6 +492,50 @@ export default function SettingsWindow() {
     })
   }
 
+  const setMobileRemoteExtensionEnabled = (enabled: boolean) => {
+    setDirty(true)
+    setDraft(prev => {
+      if (!prev) return prev
+      const next = JSON.parse(JSON.stringify(prev)) as AppSettings
+      next.mobile = {
+        ...(next.mobile ?? { port: 3721, useTunnel: true }),
+        enabled
+      }
+      const remote = {
+        enabled: false,
+        allowedCapabilities: [],
+        requireConfirmation: [],
+        allowedDevices: [],
+        restrictToAllowedDevices: false,
+        logRetention: { maxEntries: 500 },
+        enableInputControl: false,
+        enableSystemActions: false,
+        registeredPrograms: [],
+        ...next.remoteControl
+      }
+      remote.enabled = enabled
+      remote.enableInputControl = enabled
+      remote.enableSystemActions = enabled
+      const allowed = new Set(remote.allowedCapabilities ?? [])
+      const coreCapabilities: RemoteCapability[] = [
+        'remote.pointer.click',
+        'remote.pointer.scroll',
+        'remote.keyboard.type',
+        'remote.keyboard.hotkey',
+        'remote.monitor.power',
+        'remote.system.shutdown',
+        'remote.system.restart'
+      ]
+      for (const capability of coreCapabilities) {
+        if (enabled) allowed.add(capability)
+        else allowed.delete(capability)
+      }
+      remote.allowedCapabilities = [...allowed]
+      next.remoteControl = remote
+      return next
+    })
+  }
+
   const doAutoSave = async (data: AppSettings) => {
     setIsSaving(true)
     try {
@@ -785,41 +839,22 @@ export default function SettingsWindow() {
 
       {/* Tabs */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-border no-drag">
-        <div className="flex gap-1 flex-wrap">
-          {LEFT_TABS.map(t => (
-            <button
-              key={t}
-              onClick={() => changeTab(t)}
-              className={`tab-btn text-xs ${tab === t ? 'active' : ''}`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-        <div className="h-6 w-px bg-border shrink-0" aria-hidden="true" />
-        <div className="flex gap-1 flex-wrap">
-          {SCENE_TABS.map(t => (
-            <button
-              key={t}
-              onClick={() => changeTab(t)}
-              className={`tab-btn text-xs ${tab === t ? 'active' : ''}`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
-        <div className="h-6 w-px bg-border shrink-0" aria-hidden="true" />
-        <div className="flex gap-1 flex-wrap ml-auto justify-end">
-          {RIGHT_TABS.map(t => (
-            <button
-              key={t}
-              onClick={() => changeTab(t)}
-              className={`tab-btn text-xs ${tab === t ? 'active' : ''}`}
-            >
-              {t}
-            </button>
-          ))}
-        </div>
+        {VISIBLE_TAB_GROUPS.map((group, groupIndex) => (
+          <div key={group.join('|')} className="flex items-center gap-3">
+            {groupIndex > 0 && <div className="h-6 w-px bg-border shrink-0" aria-hidden="true" />}
+            <div className="flex gap-1 flex-wrap">
+              {group.map(t => (
+                <button
+                  key={t}
+                  onClick={() => changeTab(t)}
+                  className={`tab-btn text-xs ${tab === t ? 'active' : ''}`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
 
       {onboardingIncomplete && (
@@ -1490,20 +1525,22 @@ export default function SettingsWindow() {
               <span className="text-sm text-primary">對話中自動帶入當下系統時間</span>
             </label>
 
+            {draft && false && (
+            <>
             {/* 天氣設定 */}
             <div className="border-t border-border pt-3 space-y-3">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={draft.weather?.enabled ?? false}
+                  checked={draft!.weather?.enabled ?? false}
                   onChange={e => set('weather.enabled', e.target.checked)}
-                  disabled={!(draft.weather?.locationName)}
+                  disabled={!(draft!.weather?.locationName)}
                   className="accent-teal w-4 h-4 disabled:opacity-40"
                 />
-                <span className={`text-sm ${draft.weather?.locationName ? 'text-primary' : 'text-secondary'}`}>
+                <span className={`text-sm ${draft!.weather?.locationName ? 'text-primary' : 'text-secondary'}`}>
                   對話中自動帶入天氣資訊
                 </span>
-                {!draft.weather?.locationName && (
+                {!draft!.weather?.locationName && (
                   <span className="text-[11px] text-secondary">（請先設定位置）</span>
                 )}
               </label>
@@ -1586,10 +1623,10 @@ export default function SettingsWindow() {
                   </button>
                 </div>
 
-                {draft.weather?.locationName && (
+                {draft!.weather?.locationName && (
                   <p className="text-xs text-secondary">
-                    目前位置：<span className="text-primary font-medium">{draft.weather.locationName}</span>
-                    {draft.weather.locationSource === 'ip' ? '（自動偵測）' : draft.weather.locationSource === 'manual' ? '（手動設定）' : ''}
+                    目前位置：<span className="text-primary font-medium">{draft!.weather!.locationName}</span>
+                    {draft!.weather!.locationSource === 'ip' ? '（自動偵測）' : draft!.weather!.locationSource === 'manual' ? '（手動設定）' : ''}
                     {' '}
                     <button
                       type="button"
@@ -1613,22 +1650,22 @@ export default function SettingsWindow() {
                 )}
 
                 {weatherMsg && (
-                  <p className={`text-xs ${weatherMsg.type === 'ok' ? 'text-teal' : 'text-[#E85D3F]'}`}>
-                    {weatherMsg.text}
+                  <p className={`text-xs ${weatherMsg!.type === 'ok' ? 'text-teal' : 'text-[#E85D3F]'}`}>
+                    {weatherMsg!.text}
                   </p>
                 )}
               </div>
 
-              <label className={`flex items-center gap-2 cursor-pointer ${!draft.llm.utilityEnabled ? 'opacity-40' : ''}`}>
+              <label className={`flex items-center gap-2 cursor-pointer ${!draft!.llm.utilityEnabled ? 'opacity-40' : ''}`}>
                 <input
                   type="checkbox"
-                  checked={draft.weather?.polish ?? false}
+                  checked={draft!.weather?.polish ?? false}
                   onChange={e => set('weather.polish', e.target.checked)}
-                  disabled={!draft.llm.utilityEnabled}
+                  disabled={!draft!.llm.utilityEnabled}
                   className="accent-teal w-4 h-4"
                 />
                 <span className="text-sm text-primary">用輔助模型潤飾天氣描述</span>
-                {!draft.llm.utilityEnabled && (
+                {!draft!.llm.utilityEnabled && (
                   <span className="text-[11px] text-secondary">（需先啟用輔助模型）</span>
                 )}
               </label>
@@ -1639,21 +1676,21 @@ export default function SettingsWindow() {
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={draft.spotify?.enabled ?? false}
+                  checked={draft!.spotify?.enabled ?? false}
                   onChange={e => set('spotify.enabled', e.target.checked)}
-                  disabled={!draft.spotify?.displayName}
+                  disabled={!draft!.spotify?.displayName}
                   className="accent-teal w-4 h-4 disabled:opacity-40"
                 />
-                <span className={`text-sm ${draft.spotify?.displayName ? 'text-primary' : 'text-secondary'}`}>
+                <span className={`text-sm ${draft!.spotify?.displayName ? 'text-primary' : 'text-secondary'}`}>
                   對話中自動帶入 Spotify 播放資訊
                 </span>
-                {!draft.spotify?.displayName && (
+                {!draft!.spotify?.displayName && (
                   <span className="text-[11px] text-secondary">（請先連結帳號）</span>
                 )}
               </label>
-              {draft.spotify?.displayName && (
+              {draft!.spotify?.displayName && (
                 <p className="text-xs text-secondary">
-                  已連結：<span className="text-primary font-medium">{draft.spotify.displayName}</span>
+                  已連結：<span className="text-primary font-medium">{draft!.spotify!.displayName}</span>
                 </p>
               )}
               <button
@@ -1664,6 +1701,8 @@ export default function SettingsWindow() {
                 Spotify 帳號設定
               </button>
             </div>
+            </>
+            )}
           </>
         )}
 
@@ -2121,11 +2160,176 @@ export default function SettingsWindow() {
           </>
         )}
 
+        {tab === '擴充' && (
+          <div className="space-y-3">
+            <ExtensionRow
+              title="TRPG 骰子功能"
+              description="在輸入框使用骰子、抽籤、擲茭與隨機工具。"
+              enabled={draft.ui.randomToolsEnabled !== false}
+              onToggle={enabled => set('ui.randomToolsEnabled', enabled)}
+              statusText={draft.ui.randomToolsEnabled !== false ? '已啟用' : '已停用'}
+            />
+            <ExtensionRow
+              title="手機遠端對話／遙控"
+              description="用手機傳訊息、查看角色，並可啟用鍵鼠遠端控制；啟用時 prompt 會標記訊息來源裝置。"
+              enabled={!!draft.mobile?.enabled && !!draft.remoteControl?.enabled}
+              onToggle={setMobileRemoteExtensionEnabled}
+              statusText={draft.mobile?.enabled ? (draft.remoteControl?.enabled ? '已啟用' : '僅手機對話') : '已停用'}
+              settingsLabel="設定"
+              onSettings={() => changeTab('遙控')}
+            />
+            <ExtensionRow
+              title="Spotify 資訊"
+              description="讓角色感知目前播放中的音樂與帳號狀態。"
+              enabled={!!draft.spotify?.enabled}
+              onToggle={enabled => set('spotify.enabled', enabled)}
+              disabled={!draft.spotify?.displayName}
+              statusText={draft.spotify?.enabled ? '已啟用' : draft.spotify?.displayName ? '已停用' : '尚未連結'}
+              settingsLabel="設定"
+              onSettings={() => window.api.invoke('spotify:open-settings')}
+            />
+            <ExtensionRow
+              title="天氣資訊"
+              description="讓角色取得所在地天氣、氣溫與濕度。"
+              enabled={!!draft.weather?.enabled}
+              onToggle={enabled => set('weather.enabled', enabled)}
+              disabled={!draft.weather?.locationName}
+              statusText={draft.weather?.enabled ? '已啟用' : draft.weather?.locationName ? '已停用' : '尚未設定位置'}
+              settingsLabel="設定"
+              onSettings={() => document.getElementById('weather-extension-settings')?.scrollIntoView({ block: 'nearest' })}
+            />
+            <div id="weather-extension-settings" className="ml-7 -mt-2 pb-3 border-b border-border space-y-3">
+              <p className="text-xs font-semibold text-primary">位置設定</p>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  disabled={weatherDetecting}
+                  className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary hover:bg-teal transition-all disabled:opacity-50"
+                  onClick={async () => {
+                    setWeatherDetecting(true)
+                    setWeatherMsg(null)
+                    try {
+                      const result = await window.api.invoke('weather:detect-ip') as { city: string; lat: number; lon: number } | null
+                      if (!result) { setWeatherMsg({ type: 'err', text: '偵測失敗，請手動輸入城市名稱' }); return }
+                      set('weather.locationName', result.city)
+                      set('weather.latitude', result.lat)
+                      set('weather.longitude', result.lon)
+                      set('weather.locationSource', 'ip')
+                      setWeatherMsg({ type: 'ok', text: `已偵測到：${result.city}` })
+                    } finally {
+                      setWeatherDetecting(false)
+                    }
+                  }}
+                >
+                  {weatherDetecting ? '偵測中…' : '自動偵測位置（IP）'}
+                </button>
+              </div>
+
+              <div className="flex gap-2 items-center">
+                <input
+                  type="text"
+                  placeholder="手動輸入城市名稱，例如：Tokyo"
+                  className="input-field flex-1 text-sm"
+                  value={weatherCityInput}
+                  onChange={e => setWeatherCityInput(e.target.value)}
+                  onKeyDown={async e => {
+                    if (e.key !== 'Enter' || !weatherCityInput.trim() || weatherGeocoding) return
+                    setWeatherGeocoding(true)
+                    setWeatherMsg(null)
+                    try {
+                      const result = await window.api.invoke('weather:geocode', weatherCityInput.trim()) as { name: string; lat: number; lon: number } | null
+                      if (!result) { setWeatherMsg({ type: 'err', text: '找不到城市，請換個關鍵字' }); return }
+                      set('weather.locationName', result.name)
+                      set('weather.latitude', result.lat)
+                      set('weather.longitude', result.lon)
+                      set('weather.locationSource', 'manual')
+                      setWeatherMsg({ type: 'ok', text: `已設定：${result.name}` })
+                      setWeatherCityInput('')
+                    } finally {
+                      setWeatherGeocoding(false)
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={weatherGeocoding || !weatherCityInput.trim()}
+                  className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary hover:bg-teal transition-all disabled:opacity-50 shrink-0"
+                  onClick={async () => {
+                    if (!weatherCityInput.trim() || weatherGeocoding) return
+                    setWeatherGeocoding(true)
+                    setWeatherMsg(null)
+                    try {
+                      const result = await window.api.invoke('weather:geocode', weatherCityInput.trim()) as { name: string; lat: number; lon: number } | null
+                      if (!result) { setWeatherMsg({ type: 'err', text: '找不到城市，請換個關鍵字' }); return }
+                      set('weather.locationName', result.name)
+                      set('weather.latitude', result.lat)
+                      set('weather.longitude', result.lon)
+                      set('weather.locationSource', 'manual')
+                      setWeatherMsg({ type: 'ok', text: `已設定：${result.name}` })
+                      setWeatherCityInput('')
+                    } finally {
+                      setWeatherGeocoding(false)
+                    }
+                  }}
+                >
+                  {weatherGeocoding ? '查詢中…' : '查詢'}
+                </button>
+              </div>
+
+              {draft.weather?.locationName && (
+                <p className="text-xs text-secondary">
+                  目前位置：<span className="text-primary font-medium">{draft.weather.locationName}</span>
+                  {draft.weather.locationSource === 'ip' ? '（自動偵測）' : draft.weather.locationSource === 'manual' ? '（手動設定）' : ''}
+                  {' '}
+                  <button
+                    type="button"
+                    className="text-xs text-teal underline ml-1"
+                    disabled={weatherFetching}
+                    onClick={async () => {
+                      setWeatherFetching(true)
+                      setWeatherMsg(null)
+                      try {
+                        const data = await window.api.invoke('weather:fetch-now') as { description: string; temperatureC: number; humidity: number; windSpeed: number } | null
+                        if (!data) { setWeatherMsg({ type: 'err', text: '天氣更新失敗' }); return }
+                        setWeatherMsg({ type: 'ok', text: `${data.description} ${data.temperatureC}°C 濕度 ${data.humidity}%` })
+                      } finally {
+                        setWeatherFetching(false)
+                      }
+                    }}
+                  >
+                    {weatherFetching ? '更新中…' : '立即更新天氣'}
+                  </button>
+                </p>
+              )}
+
+              {weatherMsg && (
+                <p className={`text-xs ${weatherMsg.type === 'ok' ? 'text-teal' : 'text-[#E85D3F]'}`}>
+                  {weatherMsg.text}
+                </p>
+              )}
+
+              <label className={`flex items-center gap-2 cursor-pointer ${!draft!.llm.utilityEnabled ? 'opacity-40' : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={draft!.weather?.polish ?? false}
+                  onChange={e => set('weather.polish', e.target.checked)}
+                  disabled={!draft!.llm.utilityEnabled}
+                  className="accent-teal w-4 h-4"
+                />
+                <span className="text-sm text-primary">用輔助模型潤飾天氣描述</span>
+                {!draft!.llm.utilityEnabled && (
+                  <span className="text-[11px] text-secondary">（需先啟用輔助模型）</span>
+                )}
+              </label>
+            </div>
+          </div>
+        )}
+
         {tab === '遙控' && (
           <RemoteControlSettingsPanel draft={draft} set={set} setDraft={setDraft} setDirty={setDirty} />
         )}
 
-        {tab === '資料' && (
+        {tab === '記憶' && (
           <div className="space-y-3">
             <p className="text-sm text-secondary">所有資料存放於：</p>
             <p className="text-xs font-mono bg-surface border border-border rounded-lg px-3 py-2 text-primary break-all">
@@ -2320,6 +2524,55 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     <div className="space-y-1">
       <label className="text-xs font-medium text-secondary">{label}</label>
       {children}
+    </div>
+  )
+}
+
+function ExtensionRow({
+  title,
+  description,
+  enabled,
+  disabled,
+  statusText,
+  settingsLabel,
+  onToggle,
+  onSettings
+}: {
+  title: string
+  description: string
+  enabled: boolean
+  disabled?: boolean
+  statusText: string
+  settingsLabel?: string
+  onToggle: (enabled: boolean) => void
+  onSettings?: () => void
+}) {
+  return (
+    <div className="flex items-center gap-3 border-b border-border last:border-b-0 py-3">
+      <label className={`flex items-center gap-3 flex-1 min-w-0 ${disabled ? 'opacity-60' : 'cursor-pointer'}`}>
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={disabled}
+          onChange={event => onToggle(event.target.checked)}
+          className="accent-teal w-4 h-4 shrink-0"
+        />
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-primary">{title}</span>
+          <span className="block text-xs text-secondary leading-snug">{description}</span>
+        </span>
+      </label>
+      <span className="text-xs text-secondary shrink-0">{statusText}</span>
+      {settingsLabel && (
+        <button
+          type="button"
+          disabled={!onSettings}
+          className="btn-round w-auto px-3 rounded-full h-auto py-1.5 text-xs shrink-0 disabled:opacity-45"
+          onClick={onSettings}
+        >
+          {settingsLabel}
+        </button>
+      )}
     </div>
   )
 }

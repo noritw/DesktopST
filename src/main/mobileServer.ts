@@ -10,7 +10,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { app, desktopCapturer } from 'electron'
 import type { Message, RandomResult } from './types'
 import { getAccessToken } from './relayService'
-import { getRemoteControlClientState, getRemoteControlClientStateForDevice, registerRemoteControlRoutes } from './modules/remote-control'
+import { getRemoteControlClientState, getRemoteControlClientStateForDevice } from './modules/remote-control'
 
 // ── 注入的 bridge（由 index.ts 啟動時注入）────────────────
 
@@ -18,14 +18,15 @@ export interface MobileBridge {
   getCharacters: () => import('./types').Character[]
   getDesktopCharacterIds: () => string[]
   getDesktopCharacters: () => { id: string; name: string; muted: boolean }[]
-  getActiveConversation: () => { id: string; participantIds: string[]; messages: Message[] } | null
-  sendMessage: (payload: { content: string; randomResult?: RandomResult }) => Promise<void>
+  getActiveConversation: () => { id: string; title: string; participantIds: string[]; messages: Message[] } | null
+  sendMessage: (payload: { content: string; randomResult?: RandomResult; sourceDeviceName?: string }) => Promise<void>
   addDesktopCharacter: (characterId: string) => Promise<boolean>
   removeDesktopCharacter: (characterId: string) => boolean
   captureScreenshot: (withChars: boolean, displayIndex?: number) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
   getConversationList: () => { id: string; title: string; updatedAt: number; active: boolean }[]
   loadConversation: (id: string) => boolean
-  createConversation: () => { id: string; title: string; updatedAt: number; active: boolean }
+  createConversation: (title?: string) => { id: string; title: string; updatedAt: number; active: boolean }
+  renameConversation: (id: string, title: string) => { ok: true; conversation: { id: string; title: string; updatedAt: number; active: boolean } } | { error: string }
   deleteConversation: (id: string) => { ok: true; activeConversationId: string } | { error: string }
   forceSpeak: (characterId: string) => Promise<{ ok: true } | { error: string }>
   toggleMute: (characterId: string) => boolean
@@ -38,6 +39,8 @@ export interface MobileBridge {
   getActivePersonaId: () => string
   getActiveWorldId: () => string
   getColorTheme: () => string
+  getRandomToolsEnabled: () => boolean
+  shouldIncludeDeviceNameInPrompt: () => boolean
   deleteMessage: (id: string) => boolean
   editMessage: (id: string, content: string) => boolean
   resendMessage: (id: string) => Promise<{ ok: boolean } | { error: string }>
@@ -77,8 +80,6 @@ export function registerMobileRoute(route: MobileRoute): void {
 function findRegisteredRoute(method: string, pathName: string): MobileRoute | undefined {
   return registeredRoutes.get(`${method} ${pathName}`)
 }
-
-registerRemoteControlRoutes(registerMobileRoute)
 
 // ── 裝置資訊解析工具 ──────────────────────────────────────
 
@@ -123,6 +124,7 @@ export function pushRemoteControlState(): void {
   if (!bridge) return
   const payload = JSON.stringify({
     type: 'remote-control-state',
+    randomToolsEnabled: bridge.getRandomToolsEnabled(),
     remoteControl: getRemoteControlClientState(bridge.getRemoteControlSettings())
   })
   for (const ws of clients) {
@@ -242,9 +244,10 @@ async function handleRequest(
     jsonOk(res, {
       desktopCharacters: desktopChars,
       conversation: conv
-        ? { id: conv.id, messages: conv.messages.slice(-50).map(sanitizeMessage) }
+        ? { id: conv.id, title: conv.title, messages: conv.messages.slice(-50).map(sanitizeMessage) }
         : null,
       colorTheme: bridge.getColorTheme(),
+      randomToolsEnabled: bridge.getRandomToolsEnabled(),
       remoteControl: getRemoteControlClientStateForDevice(bridge.getRemoteControlSettings(), getDeviceIdFromRequest(req))
     })
     return
@@ -284,7 +287,10 @@ async function handleRequest(
     const content = String(payload.content ?? '').trim()
     if (!content && !payload.randomResult) { jsonError(res, 400, 'Empty message'); return }
     try {
-      await bridge.sendMessage({ content, randomResult: payload.randomResult })
+      const sourceDeviceName = bridge.shouldIncludeDeviceNameInPrompt()
+        ? getDeviceDisplayNameFromRequest(req)
+        : undefined
+      await bridge.sendMessage({ content, randomResult: payload.randomResult, sourceDeviceName })
       jsonOk(res, { ok: true })
     } catch (e) {
       jsonError(res, 500, String(e))
@@ -365,7 +371,25 @@ async function handleRequest(
   // ── POST /api/conversations/new ──
   if (method === 'POST' && url === '/api/conversations/new') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-    jsonOk(res, { conversation: bridge.createConversation() })
+    const body = await readBody(req)
+    let payload: { title?: string } = {}
+    if (body.trim()) {
+      try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    }
+    jsonOk(res, { conversation: bridge.createConversation(payload.title) })
+    return
+  }
+
+  // ── POST /api/conversations/rename ──
+  if (method === 'POST' && url === '/api/conversations/rename') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { id?: string; title?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const result = bridge.renameConversation(payload.id, String(payload.title ?? ''))
+    if ('error' in result) { jsonError(res, 400, result.error); return }
+    jsonOk(res, result)
     return
   }
 
@@ -656,6 +680,8 @@ async function handleRequest(
 
   // ── POST /api/random ──
   if (method === 'POST' && url === '/api/random') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    if (!bridge.getRandomToolsEnabled()) { jsonError(res, 403, 'Random tools disabled'); return }
     const body = await readBody(req)
     let payload: { tool: string; faces?: number; count?: number; modifier?: number; keepHighest?: number; keepLowest?: number }
     try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
@@ -782,6 +808,15 @@ function readBody(req: http.IncomingMessage): Promise<string> {
 function getDeviceIdFromRequest(req: http.IncomingMessage): string {
   const rawId = req.headers['x-device-id']
   return (Array.isArray(rawId) ? rawId[0] : rawId) ?? ''
+}
+
+function getDeviceDisplayNameFromRequest(req: http.IncomingMessage): string {
+  const rawNickname = req.headers['x-device-nickname']
+  const nicknameHeader = (Array.isArray(rawNickname) ? rawNickname[0] : rawNickname) ?? ''
+  let nickname = nicknameHeader.trim()
+  try { nickname = decodeURIComponent(nicknameHeader).trim() } catch {}
+  const deviceId = getDeviceIdFromRequest(req).trim()
+  return nickname && nickname !== 'unnamed' ? nickname : deviceId
 }
 
 function isAuthorized(req: http.IncomingMessage, url: URL): boolean {

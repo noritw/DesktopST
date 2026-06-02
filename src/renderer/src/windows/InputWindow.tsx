@@ -27,6 +27,7 @@ export default function InputWindow() {
   const personaPresets = useAppStore(s => s.personaPresets)
 
   const maxImages = settings?.llm?.maxImagesPerMessage ?? 4
+  const randomToolsEnabled = settings?.ui?.randomToolsEnabled !== false
   const activePersona = personaPresets.find(p => p.id === settings?.activePersonaId)
   const personaName = activePersona?.displayName || activePersona?.nickname || '使用者'
   const conversationTitle = conversation?.title || '新對話'
@@ -42,6 +43,13 @@ export default function InputWindow() {
   useEffect(() => {
     textareaRef.current?.focus()
   }, [])
+
+  useEffect(() => {
+    if (randomToolsEnabled) return
+    setPendingTool(null)
+    setRandomToolsOpen(false)
+    window.api.invoke('random-tools:close')
+  }, [randomToolsEnabled])
 
   const insertEmoji = (emoji: string) => {
     const el = textareaRef.current
@@ -391,6 +399,7 @@ export default function InputWindow() {
             </div>
 
             {/* Random Tools picker */}
+            {randomToolsEnabled && (
             <div className="relative shrink-0">
               <button
                 ref={randomBtnRef}
@@ -415,6 +424,7 @@ export default function InputWindow() {
                 🎲
               </button>
             </div>
+            )}
 
             {/* Emoji picker */}
             <div className="relative shrink-0">

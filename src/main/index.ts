@@ -1,10 +1,10 @@
-import { app, Tray, Menu, nativeImage, protocol, screen, shell, BrowserWindow } from 'electron'
+import { app, Tray, Menu, nativeImage, protocol, screen, shell, BrowserWindow, ipcMain } from 'electron'
 import { attachDevToolsShortcuts, isDevToolsAllowed } from './devTools'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect } from './ipcHandlers'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import {
@@ -34,6 +34,7 @@ import {
   startMobileServer,
   stopMobileServer,
   setBridge,
+  registerMobileRoute,
   pushMessage,
   pushDesktopUpdate,
   pushRemoteControlState,
@@ -50,6 +51,9 @@ import {
 } from './cloudflaredManager'
 import { registerTunnel, registerStarting, registerOffline, getRelayUrl, getAccessToken } from './relayService'
 import type { AppSettings, DesktopCharacterState } from './types'
+import { activateModules, registerBuiltInModule } from './modules/moduleHost'
+import { moduleSettingsBridge } from './modules/moduleSettings'
+import { remoteControlModule, setRemoteControlModuleEnabled } from './modules/remote-control'
 
 function isOffscreen(pos: { x: number; y: number }, win: { width: number; height: number }): boolean {
   const px = Number.isFinite(pos.x) ? pos.x : 0
@@ -300,6 +304,18 @@ app.on('ready', async () => {
     saveSettings(settings)
   }
 
+  registerBuiltInModule(remoteControlModule)
+  await activateModules({
+    ipc: {
+      handle: (channel, handler) => ipcMain.handle(channel, handler)
+    },
+    mobile: {
+      registerRoute: registerMobileRoute
+    },
+    settings: moduleSettingsBridge,
+    host: {}
+  })
+
   // Register IPC handlers
   registerIpcHandlers()
 
@@ -493,6 +509,7 @@ function initMobileServer(): void {
     getConversationList: getConversationListDirect,
     loadConversation: loadConversationDirect,
     createConversation: createConversationDirect,
+    renameConversation: renameConversationDirect,
     deleteConversation: deleteConversationDirect,
     forceSpeak: forceSpeakDirect,
     toggleMute: toggleMuteDirect,
@@ -505,6 +522,8 @@ function initMobileServer(): void {
     getActivePersonaId: () => getSettings().activePersonaId,
     getActiveWorldId: () => getSettings().activeWorldId,
     getColorTheme: () => getSettings().ui.colorTheme ?? 'mint',
+    getRandomToolsEnabled: () => getSettings().ui.randomToolsEnabled !== false,
+    shouldIncludeDeviceNameInPrompt: () => getSettings().mobile?.enabled === true,
     deleteMessage: deleteMessageDirect,
     editMessage: editMessageDirect,
     resendMessage: resendMessageDirect,
@@ -512,7 +531,7 @@ function initMobileServer(): void {
     setRemoteControlEnabled: (enabled: boolean) => {
       const s = getSettings()
       if (!s.remoteControl) return { error: 'Remote control settings not available' }
-      s.remoteControl.enabled = enabled
+      s.remoteControl = setRemoteControlModuleEnabled(s.remoteControl, enabled)
       saveSettings(s)
       broadcastToAll('settings:updated', s)
       pushRemoteControlState()

@@ -6,7 +6,13 @@ import type { AppSettings, Character, Conversation, DesktopCharacterState, Perso
 import { DEFAULT_SETTINGS } from './types'
 import * as secureStore from './secureStore'
 import { loadDstPackZip, readCharacterFromZip, extractCharacterDirFromZip } from './dstPack'
-import { normalizeRemoteControlSettings } from './modules/remote-control'
+import {
+  hasRemoteControlModuleSettings,
+  loadRemoteControlModuleSettings,
+  normalizeRemoteControlSettings,
+  saveRemoteControlModuleSettings
+} from './modules/remote-control'
+import { configureModuleSettingsRoot } from './modules/moduleSettings'
 
 const DEFAULT_DATA_DIR = path.join(app.getPath('userData'), 'DesktopST')
 const STORAGE_META_FILE = path.join(app.getPath('userData'), 'DesktopST-storage.json')
@@ -31,6 +37,7 @@ type DataDirMeta = { dataDir?: string }
 
 function refreshPaths(nextDir: string): void {
   DATA_DIR = path.resolve(nextDir)
+  configureModuleSettingsRoot(DATA_DIR)
   SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
   PINNED_NOTES_FILE = path.join(DATA_DIR, 'pinned-notes.json')
   REMINDERS_FILE = path.join(DATA_DIR, 'reminders.json')
@@ -67,7 +74,7 @@ function saveDataDirMeta(targetDir: string): void {
 refreshPaths(loadDataDirFromMeta())
 
 function ensureDirs() {
-  for (const dir of [DATA_DIR, CHARS_DIR, CONVS_DIR, PERSONAS_DIR, WORLDS_DIR, SCENES_DIR]) {
+  for (const dir of [DATA_DIR, path.join(DATA_DIR, 'modules'), CHARS_DIR, CONVS_DIR, PERSONAS_DIR, WORLDS_DIR, SCENES_DIR]) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   }
 }
@@ -150,8 +157,10 @@ function migrateLegacySettings(raw: Record<string, unknown>): { migratedPersonaI
 export function loadSettings(): AppSettings {
   ensureDirs()
   if (!fs.existsSync(SETTINGS_FILE)) {
+    const remoteControl = saveRemoteControlModuleSettings(DEFAULT_SETTINGS.remoteControl!)
     return {
       ...DEFAULT_SETTINGS,
+      remoteControl,
       ui: {
         ...DEFAULT_SETTINGS.ui,
         pinnedNotes: loadPinnedNotes()
@@ -179,6 +188,13 @@ export function loadSettings(): AppSettings {
     const pinnedNotesFromFile = loadPinnedNotes()
     const shouldMigratePinnedNotes = pinnedNotesFromFile.length === 0 && legacyPinnedNotes.length > 0
     const pinnedNotes = shouldMigratePinnedNotes ? legacyPinnedNotes : pinnedNotesFromFile
+    const legacyRemoteControl = normalizeRemoteControlSettings({
+      ...DEFAULT_SETTINGS.remoteControl!,
+      ...typed.remoteControl
+    })
+    const remoteControl = hasRemoteControlModuleSettings()
+      ? loadRemoteControlModuleSettings() ?? legacyRemoteControl
+      : saveRemoteControlModuleSettings(legacyRemoteControl)
 
     const settings: AppSettings = {
       ...DEFAULT_SETTINGS,
@@ -200,10 +216,7 @@ export function loadSettings(): AppSettings {
         ...DEFAULT_SETTINGS.memory,
         ...typed.memory
       },
-      remoteControl: normalizeRemoteControlSettings({
-        ...DEFAULT_SETTINGS.remoteControl!,
-        ...typed.remoteControl
-      }),
+      remoteControl,
       ui: {
         ...DEFAULT_SETTINGS.ui,
         ...typed.ui,
@@ -321,6 +334,9 @@ export function saveReminders(reminders: Reminder[]): void {
 export function saveSettings(settings: AppSettings): void {
   ensureDirs()
   savePinnedNotes(settings.ui.pinnedNotes ?? [])
+  if (settings.remoteControl) {
+    settings.remoteControl = saveRemoteControlModuleSettings(settings.remoteControl)
+  }
   const encryptedApiKeys: Record<string, string> = {}
   for (const [k, v] of Object.entries(settings.llm.apiKeys)) {
     encryptedApiKeys[k] = secureStore.encrypt(v)
@@ -331,6 +347,7 @@ export function saveSettings(settings: AppSettings): void {
     ui: { ...settings.ui }
   }
   delete persisted.ui.pinnedNotes
+  delete persisted.remoteControl
   _pendingSettingsJson = JSON.stringify(persisted, null, 2)
   if (_saveSettingsTimer) clearTimeout(_saveSettingsTimer)
   _saveSettingsTimer = setTimeout(() => {

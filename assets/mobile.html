@@ -644,7 +644,7 @@
 
   // ── State ──
   let ws = null, wsRetryCount = 0;
-  let state = { desktopCharacters: [], conversation: null, remoteControl: { enabled: false, allowedCapabilities: [] } };
+  let state = { desktopCharacters: [], conversation: null, randomToolsEnabled: true, remoteControl: { enabled: false, allowedCapabilities: [] } };
   let allLibraryChars = [];
   let pendingRandom = null;
   let isWaiting = false;
@@ -659,6 +659,8 @@
   const $sendBtn      = document.getElementById('send-btn');
   const $pendingRnd   = document.getElementById('pending-random');
   const $pendingTxt   = document.getElementById('pending-random-text');
+  const $toolBar      = document.getElementById('tool-bar');
+  const $randomOpenBtn = document.getElementById('random-open-btn');
   const $toast        = document.getElementById('conn-toast');
   const $ssOverlay    = document.getElementById('ss-overlay');
   const $ssImg        = document.getElementById('ss-img');
@@ -879,6 +881,10 @@
       } else if (d.type === 'desktop-updated' && d.desktopCharacterIds) {
         fetchState();
       } else if (d.type === 'remote-control-state' && d.remoteControl) {
+        if (typeof d.randomToolsEnabled === 'boolean') {
+          state.randomToolsEnabled = d.randomToolsEnabled;
+          updateRandomToolsUi();
+        }
         fetchState();
       } else if (d.type === 'reminder') {
         showToast('📌 ' + (d.content || '收到提醒'));
@@ -925,10 +931,21 @@
     const d = await api('/api/state');
     state.desktopCharacters = d.desktopCharacters || [];
     state.conversation = d.conversation || null;
+    state.randomToolsEnabled = d.randomToolsEnabled !== false;
     state.remoteControl = d.remoteControl || { enabled: false, allowedCapabilities: [] };
     if (d.colorTheme) applyTheme(d.colorTheme);
+    updateRandomToolsUi();
     updateRemoteControlUi();
     renderHeader(); renderAll();
+  }
+
+  function updateRandomToolsUi() {
+    if ($toolBar) $toolBar.style.display = state.randomToolsEnabled ? '' : 'none';
+    if (!state.randomToolsEnabled) {
+      pendingRandom = null;
+      $pendingRnd.classList.remove('visible');
+      closeSheet('random-overlay');
+    }
   }
 
   async function fetchLibrary() {
@@ -1125,7 +1142,9 @@
       toolbar.style.cssText = 'display:flex;justify-content:flex-end;margin-bottom:8px';
       toolbar.innerHTML = '<button class="tool-btn" type="button">新增對話</button>';
       toolbar.querySelector('button').addEventListener('click', async () => {
-        await api('/api/conversations/new', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+        const title = prompt('請輸入對話名稱', '');
+        if (title == null) return;
+        await api('/api/conversations/new', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title }) });
         const stateData = await api('/api/state');
         state.conversation = stateData.conversation;
         renderAll();
@@ -1143,8 +1162,29 @@
             <div class="list-item-title">${esc(conv.title)}</div>
             <div class="list-item-sub">${date}</div>
           </div>
-          ${conv.active ? '<div class="list-item-badge">✓ 使用中</div><button class="prog-btn stop" type="button" data-delete-id="' + conv.id + '">刪除</button>' : ''}
+          ${conv.active ? '<div class="list-item-badge">✓ 使用中</div>' : ''}
+          <button class="prog-btn" type="button" data-rename-id="${conv.id}">改名</button>
+          ${conv.active ? '<button class="prog-btn stop" type="button" data-delete-id="' + conv.id + '">刪除</button>' : ''}
         `;
+        const renameBtn = item.querySelector('[data-rename-id]');
+        if (renameBtn) {
+          renameBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const nextTitle = prompt('請輸入新的對話名稱', conv.title) || '';
+            if (!nextTitle.trim()) return;
+            const result = await api('/api/conversations/rename', {
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ id: conv.id, title: nextTitle })
+            });
+            if (result.error) { showToast('改名失敗'); return; }
+            const stateData = await api('/api/state');
+            state.conversation = stateData.conversation;
+            renderAll();
+            await loadMenuTab('conv');
+            showToast('已改名');
+          });
+        }
         const deleteBtn = item.querySelector('[data-delete-id]');
         if (deleteBtn) {
           deleteBtn.addEventListener('click', async (e) => {
@@ -1306,11 +1346,16 @@
   }
 
   // ── Random tools ──
-  document.getElementById('random-open-btn').addEventListener('click', () => openSheet('random-overlay'));
+  document.getElementById('random-open-btn').addEventListener('click', () => {
+    if (!state.randomToolsEnabled) { showToast('隨機工具已停用'); return; }
+    openSheet('random-overlay');
+  });
   document.getElementById('random-close').addEventListener('click', () => closeSheet('random-overlay'));
 
   async function rollTool(tool, params) {
+    if (!state.randomToolsEnabled) { showToast('隨機工具已停用'); return; }
     const d = await api('/api/random', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tool, ...params }) });
+    if (d.error) { showToast(d.error); return; }
     if (d.result) {
       pendingRandom = d.result;
       $pendingTxt.textContent = formatRandomPending(d.result);

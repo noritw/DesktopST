@@ -298,6 +298,7 @@ export interface AppSettings {
     reminderIdleSkipMinutes?: number
     /** Include the input window when capturing screenshots with DesktopST windows visible. */
     screenshotIncludeInputWindow?: boolean
+    randomToolsEnabled?: boolean
     /** Low performance mode: keeps character transparency, simplifies bubbles, and limits bubble windows. */
     lowPerformanceMode?: boolean
     /** Initial message count shown in the log window while low performance mode is enabled. */
