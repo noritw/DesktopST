@@ -176,6 +176,7 @@ export interface RemoteControlSettings {
   allowedCapabilities: RemoteCapability[]
   requireConfirmation: RemoteCapability[]
   allowedDevices: RegisteredRemoteDevice[]
+  restrictToAllowedDevices: boolean
   logRetention: {
     maxEntries: number
     keepDays?: number
@@ -356,6 +357,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     allowedCapabilities: [],
     requireConfirmation: [],
     allowedDevices: [],
+    restrictToAllowedDevices: false,
     logRetention: {
       maxEntries: 500
     },

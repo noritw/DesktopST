@@ -15,8 +15,11 @@ export interface RemoteControlLogEntry {
   deviceId: string
   deviceNickname: string
   deviceLabel: string
+  capability?: string
   action: string
   detail: string
+  success?: boolean
+  error?: string
 }
 
 let logCache: RemoteControlLogEntry[] | null = null

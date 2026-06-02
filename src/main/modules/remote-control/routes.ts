@@ -2,7 +2,8 @@ import type * as http from 'http'
 import type { RemoteCapability, RemoteControlSettings } from './types'
 import * as rc from './actions'
 import { appendRemoteLog, clearRemoteLog, getRemoteLog, parseDeviceLabel } from './logStore'
-import { getRemoteControlClientState, isCapabilityAllowed, normalizeRemoteControlSettings } from './settings'
+import { getRemoteControlClientStateForDevice, isCapabilityAllowed, isDeviceAllowed, normalizeRemoteControlSettings } from './settings'
+import type { MobileRouteRegistrar } from '../../mobileServer'
 
 export type RemoteControlRoute =
   | '/api/remote/click'
@@ -43,6 +44,7 @@ interface RemoteDeviceInfo {
 interface RemoteControlHost {
   getRemoteControlSettings: () => RemoteControlSettings | undefined
   setRemoteControlEnabled: (enabled: boolean) => { ok: true } | { error: string }
+  touchAllowedRemoteDevice?: (device: { id: string; nickname: string; label?: string }) => void
   notifyRemoteClickPending: () => void
   notifyRemoteAction: () => void
   hideWindowsForRemote: () => void
@@ -63,30 +65,52 @@ export async function handleRemoteControlRequest(ctx: RemoteControlRequestContex
   const devInfo = extractDeviceInfo(req)
 
   if (method === 'POST' && url === '/api/remote/module') {
+    if (!isDeviceAllowed(rcSettings, devInfo.deviceId)) {
+      logAttempt(devInfo, 'remote.device.allowed', 'blocked-device', url, false, 'Device not allowed')
+      jsonError(res, 403, 'Device not allowed')
+      return
+    }
     const payload = await readJsonBody<{ enabled?: boolean }>(req, res)
     if (!payload) return
     if (typeof payload.enabled !== 'boolean') { jsonError(res, 400, 'enabled required'); return }
     const result = host.setRemoteControlEnabled(payload.enabled)
     if ('error' in result) { jsonError(res, 400, result.error); return }
-    jsonOk(res, { ok: true, remoteControl: getRemoteControlClientState(host.getRemoteControlSettings()) })
+    jsonOk(res, { ok: true, remoteControl: getRemoteControlClientStateForDevice(host.getRemoteControlSettings(), devInfo.deviceId) })
     return
   }
 
   if (!rcSettings.enabled) {
+    logAttempt(devInfo, 'remote.module.disabled', 'request', url, false, 'Remote control module disabled')
     jsonError(res, 403, 'Remote control module disabled')
     return
   }
 
+  if (!isDeviceAllowed(rcSettings, devInfo.deviceId)) {
+    logAttempt(devInfo, 'remote.device.allowed', 'blocked-device', url, false, 'Device not allowed')
+    jsonError(res, 403, 'Device not allowed')
+    return
+  }
+  if (devInfo.deviceId) {
+    host.touchAllowedRemoteDevice?.({
+      id: devInfo.deviceId,
+      nickname: devInfo.deviceNickname,
+      label: devInfo.deviceLabel
+    })
+  }
+
   if (method === 'POST' && url === '/api/remote/click') {
-    if (!isCapabilityAllowed(rcSettings, 'remote.pointer.click')) { jsonError(res, 403, 'Capability disabled'); return }
+    if (!isCapabilityAllowed(rcSettings, 'remote.pointer.click')) { logAttempt(devInfo, 'remote.pointer.click', 'click', 'Capability disabled', false, 'Capability disabled'); jsonError(res, 403, 'Capability disabled'); return }
+    if (!ensureRemoteConfirmation(req, res, rcSettings, devInfo, 'remote.pointer.click', 'click')) return
     const payload = await readJsonBody<{ x?: number; y?: number; button?: 'left' | 'right' | 'middle'; double?: boolean }>(req, res)
     if (!payload) return
     if (payload.x == null || payload.y == null) { jsonError(res, 400, 'x and y required'); return }
     host.notifyRemoteClickPending()
     const result = await rc.clickAt(payload.x, payload.y, payload.button ?? 'left', payload.double ?? false)
     if (result.ok) {
-      appendRemoteLog({ ...devInfo, action: 'click', detail: `(${payload.x}, ${payload.y})${payload.double ? ' 雙擊' : ''}${payload.button && payload.button !== 'left' ? ' ' + payload.button : ''}` })
+      appendRemoteLog({ ...devInfo, capability: 'remote.pointer.click', action: 'click', detail: `(${payload.x}, ${payload.y})${payload.double ? ' 雙擊' : ''}${payload.button && payload.button !== 'left' ? ' ' + payload.button : ''}`, success: true })
       host.notifyRemoteAction()
+    } else {
+      logAttempt(devInfo, 'remote.pointer.click', 'click', result.error ?? 'failed', false, result.error)
     }
     jsonOk(res, result)
     return
@@ -105,7 +129,8 @@ export async function handleRemoteControlRequest(ctx: RemoteControlRequestContex
   }
 
   if (method === 'POST' && url === '/api/remote/type') {
-    if (!isCapabilityAllowed(rcSettings, 'remote.keyboard.type')) { jsonError(res, 403, 'Capability disabled'); return }
+    if (!isCapabilityAllowed(rcSettings, 'remote.keyboard.type')) { logAttempt(devInfo, 'remote.keyboard.type', 'type', 'Capability disabled', false, 'Capability disabled'); jsonError(res, 403, 'Capability disabled'); return }
+    if (!ensureRemoteConfirmation(req, res, rcSettings, devInfo, 'remote.keyboard.type', 'type')) return
     const payload = await readJsonBody<{ text?: string; pressEnter?: boolean }>(req, res)
     if (!payload) return
     const text = String(payload.text ?? '')
@@ -114,22 +139,27 @@ export async function handleRemoteControlRequest(ctx: RemoteControlRequestContex
     const result = await rc.typeText(text)
     if (result.ok && payload.pressEnter) await rc.sendKey('Enter')
     if (result.ok) {
-      appendRemoteLog({ ...devInfo, action: 'type', detail: text.length > 40 ? text.slice(0, 40) + '…' : text })
+      appendRemoteLog({ ...devInfo, capability: 'remote.keyboard.type', action: 'type', detail: text.length > 40 ? text.slice(0, 40) + '…' : text, success: true })
       host.notifyRemoteAction()
+    } else {
+      logAttempt(devInfo, 'remote.keyboard.type', 'type', result.error ?? 'failed', false, result.error)
     }
     jsonOk(res, result)
     return
   }
 
   if (method === 'POST' && url === '/api/remote/key') {
-    if (!isCapabilityAllowed(rcSettings, 'remote.keyboard.hotkey')) { jsonError(res, 403, 'Capability disabled'); return }
+    if (!isCapabilityAllowed(rcSettings, 'remote.keyboard.hotkey')) { logAttempt(devInfo, 'remote.keyboard.hotkey', 'key', 'Capability disabled', false, 'Capability disabled'); jsonError(res, 403, 'Capability disabled'); return }
+    if (!ensureRemoteConfirmation(req, res, rcSettings, devInfo, 'remote.keyboard.hotkey', 'key')) return
     const payload = await readJsonBody<{ keys?: string }>(req, res)
     if (!payload) return
     if (!payload.keys) { jsonError(res, 400, 'keys required'); return }
     const result = await rc.sendKey(payload.keys)
     if (result.ok) {
-      appendRemoteLog({ ...devInfo, action: 'key', detail: payload.keys })
+      appendRemoteLog({ ...devInfo, capability: 'remote.keyboard.hotkey', action: 'key', detail: payload.keys, success: true })
       host.notifyRemoteAction()
+    } else {
+      logAttempt(devInfo, 'remote.keyboard.hotkey', 'key', result.error ?? 'failed', false, result.error)
     }
     jsonOk(res, result)
     return
@@ -140,8 +170,9 @@ export async function handleRemoteControlRequest(ctx: RemoteControlRequestContex
     if (!payload) return
     if (payload.action !== 'shutdown' && payload.action !== 'restart') { jsonError(res, 400, 'action must be shutdown or restart'); return }
     const capability = payload.action === 'restart' ? 'remote.system.restart' : 'remote.system.shutdown'
-    if (!isCapabilityAllowed(rcSettings, capability)) { jsonError(res, 403, 'Capability disabled'); return }
-    appendRemoteLog({ ...devInfo, action: payload.action, detail: payload.action === 'shutdown' ? '關機' : '重新開機' })
+    if (!isCapabilityAllowed(rcSettings, capability)) { logAttempt(devInfo, capability, payload.action, 'Capability disabled', false, 'Capability disabled'); jsonError(res, 403, 'Capability disabled'); return }
+    if (!ensureRemoteConfirmation(req, res, rcSettings, devInfo, capability, payload.action)) return
+    appendRemoteLog({ ...devInfo, capability, action: payload.action, detail: payload.action === 'shutdown' ? '關機' : '重新開機', success: true })
     host.notifyRemoteAction()
     const result = await rc.shutdownPc(payload.action === 'restart')
     jsonOk(res, result)
@@ -161,7 +192,8 @@ export async function handleRemoteControlRequest(ctx: RemoteControlRequestContex
   }
 
   if (method === 'POST' && url === '/api/remote/programs/launch') {
-    if (!isCapabilityAllowed(rcSettings, 'remote.program.launch')) { jsonError(res, 403, 'Capability disabled'); return }
+    if (!isCapabilityAllowed(rcSettings, 'remote.program.launch')) { logAttempt(devInfo, 'remote.program.launch', 'launch', 'Capability disabled', false, 'Capability disabled'); jsonError(res, 403, 'Capability disabled'); return }
+    if (!ensureRemoteConfirmation(req, res, rcSettings, devInfo, 'remote.program.launch', 'launch')) return
     const payload = await readJsonBody<{ id?: string }>(req, res)
     if (!payload) return
     if (!payload.id) { jsonError(res, 400, 'id required'); return }
@@ -169,15 +201,18 @@ export async function handleRemoteControlRequest(ctx: RemoteControlRequestContex
     if (!prog) { jsonError(res, 404, 'Program not found'); return }
     const result = await rc.launchProgram(prog)
     if (result.ok) {
-      appendRemoteLog({ ...devInfo, action: 'launch', detail: prog.name })
+      appendRemoteLog({ ...devInfo, capability: 'remote.program.launch', action: 'launch', detail: prog.name, success: true })
       host.notifyRemoteAction()
+    } else {
+      logAttempt(devInfo, 'remote.program.launch', 'launch', result.error ?? prog.name, false, result.error)
     }
     jsonOk(res, result)
     return
   }
 
   if (method === 'POST' && url === '/api/remote/programs/close') {
-    if (!isCapabilityAllowed(rcSettings, 'remote.program.close')) { jsonError(res, 403, 'Capability disabled'); return }
+    if (!isCapabilityAllowed(rcSettings, 'remote.program.close')) { logAttempt(devInfo, 'remote.program.close', 'close', 'Capability disabled', false, 'Capability disabled'); jsonError(res, 403, 'Capability disabled'); return }
+    if (!ensureRemoteConfirmation(req, res, rcSettings, devInfo, 'remote.program.close', 'close')) return
     const payload = await readJsonBody<{ id?: string }>(req, res)
     if (!payload) return
     if (!payload.id) { jsonError(res, 400, 'id required'); return }
@@ -185,8 +220,10 @@ export async function handleRemoteControlRequest(ctx: RemoteControlRequestContex
     if (!prog) { jsonError(res, 404, 'Program not found'); return }
     const result = await rc.closeProgram(prog)
     if (result.ok) {
-      appendRemoteLog({ ...devInfo, action: 'close', detail: prog.name })
+      appendRemoteLog({ ...devInfo, capability: 'remote.program.close', action: 'close', detail: prog.name, success: true })
       host.notifyRemoteAction()
+    } else {
+      logAttempt(devInfo, 'remote.program.close', 'close', result.error ?? prog.name, false, result.error)
     }
     jsonOk(res, result)
     return
@@ -204,50 +241,110 @@ export async function handleRemoteControlRequest(ctx: RemoteControlRequestContex
   }
 
   if (method === 'POST' && url === '/api/remote/scroll') {
-    if (!isCapabilityAllowed(rcSettings, 'remote.pointer.scroll')) { jsonError(res, 403, 'Capability disabled'); return }
+    if (!isCapabilityAllowed(rcSettings, 'remote.pointer.scroll')) { logAttempt(devInfo, 'remote.pointer.scroll', 'scroll', 'Capability disabled', false, 'Capability disabled'); jsonError(res, 403, 'Capability disabled'); return }
+    if (!ensureRemoteConfirmation(req, res, rcSettings, devInfo, 'remote.pointer.scroll', 'scroll')) return
     const payload = await readJsonBody<{ x?: number; y?: number; deltaX?: number; deltaY?: number }>(req, res)
     if (!payload) return
     if (payload.x == null || payload.y == null) { jsonError(res, 400, 'x and y required'); return }
     const result = await rc.scrollAt(payload.x, payload.y, payload.deltaX ?? 0, payload.deltaY ?? 0)
     if (result.ok) {
-      appendRemoteLog({ ...devInfo, action: 'scroll', detail: `(${payload.x}, ${payload.y}) dx=${payload.deltaX ?? 0} dy=${payload.deltaY ?? 0}` })
+      appendRemoteLog({ ...devInfo, capability: 'remote.pointer.scroll', action: 'scroll', detail: `(${payload.x}, ${payload.y}) dx=${payload.deltaX ?? 0} dy=${payload.deltaY ?? 0}`, success: true })
+    } else {
+      logAttempt(devInfo, 'remote.pointer.scroll', 'scroll', result.error ?? 'failed', false, result.error)
     }
     jsonOk(res, result)
     return
   }
 
   if (method === 'POST' && url === '/api/remote/monitor-off') {
-    if (!isCapabilityAllowed(rcSettings, 'remote.monitor.power')) { jsonError(res, 403, 'Capability disabled'); return }
+    if (!isCapabilityAllowed(rcSettings, 'remote.monitor.power')) { logAttempt(devInfo, 'remote.monitor.power', 'monitor-off', 'Capability disabled', false, 'Capability disabled'); jsonError(res, 403, 'Capability disabled'); return }
+    if (!ensureRemoteConfirmation(req, res, rcSettings, devInfo, 'remote.monitor.power', 'monitor-off')) return
     const result = await rc.monitorOff()
     if (result.ok) {
-      appendRemoteLog({ ...devInfo, action: 'monitor-off', detail: '關閉螢幕' })
+      appendRemoteLog({ ...devInfo, capability: 'remote.monitor.power', action: 'monitor-off', detail: '關閉螢幕', success: true })
       host.notifyRemoteAction()
+    } else {
+      logAttempt(devInfo, 'remote.monitor.power', 'monitor-off', result.error ?? 'failed', false, result.error)
     }
     jsonOk(res, result)
     return
   }
 
   if (method === 'POST' && url === '/api/remote/wake') {
-    if (!isCapabilityAllowed(rcSettings, 'remote.monitor.power')) { jsonError(res, 403, 'Capability disabled'); return }
-    rc.releaseMonitorOff()
-    const { exec } = await import('child_process')
-    const wakeScript = [
-      'Add-Type -TypeDefinition \'using System;using System.Runtime.InteropServices;public class WK{[DllImport(\\"user32.dll\\")]public static extern bool SetCursorPos(int x,int y);[DllImport(\\"user32.dll\\")]public static extern bool GetCursorPos(out POINT p);[StructLayout(LayoutKind.Sequential)]public struct POINT{public int X,Y;}}\'',
-      '$p=New-Object WK+POINT;[WK]::GetCursorPos([ref]$p)|Out-Null',
-      '[WK]::SetCursorPos($p.X+1,$p.Y+1)|Out-Null',
-      'Start-Sleep -Milliseconds 50',
-      '[WK]::SetCursorPos($p.X,$p.Y)|Out-Null'
-    ].join(';')
-    await new Promise<void>(resolve => {
-      exec(`powershell -NoProfile -NonInteractive -Command "${wakeScript}"`, { timeout: 3000 }, () => resolve())
-    })
-    appendRemoteLog({ ...devInfo, action: 'wake', detail: '喚醒螢幕' })
-    host.notifyRemoteAction()
-    jsonOk(res, { ok: true })
+    if (!isCapabilityAllowed(rcSettings, 'remote.monitor.power')) { logAttempt(devInfo, 'remote.monitor.power', 'wake', 'Capability disabled', false, 'Capability disabled'); jsonError(res, 403, 'Capability disabled'); return }
+    if (!ensureRemoteConfirmation(req, res, rcSettings, devInfo, 'remote.monitor.power', 'wake')) return
+    const result = await rc.wakeMonitor()
+    if (result.ok) {
+      appendRemoteLog({ ...devInfo, capability: 'remote.monitor.power', action: 'wake', detail: '喚醒螢幕', success: true })
+      host.notifyRemoteAction()
+    } else {
+      logAttempt(devInfo, 'remote.monitor.power', 'wake', result.error ?? 'failed', false, result.error)
+    }
+    jsonOk(res, result)
     return
   }
 
   jsonError(res, 404, 'Remote API not found')
+}
+
+export function registerRemoteControlRoutes(registerRoute: MobileRouteRegistrar): void {
+  const paths: RemoteControlRoute[] = [
+    '/api/remote/click',
+    '/api/remote/scroll',
+    '/api/remote/type',
+    '/api/remote/key',
+    '/api/remote/programs',
+    '/api/remote/programs/launch',
+    '/api/remote/programs/close',
+    '/api/remote/monitor-off',
+    '/api/remote/wake',
+    '/api/remote/system',
+    '/api/remote/log',
+    '/api/remote/log/clear',
+    '/api/remote/module',
+    '/api/remote/hide-windows',
+    '/api/remote/restore-windows'
+  ]
+  for (const path of paths) {
+    registerRoute({
+      method: path === '/api/remote/programs' || path === '/api/remote/log' ? 'GET' : 'POST',
+      path,
+      requiredCapability: REMOTE_CONTROL_ROUTE_CAPABILITIES[path],
+      handler: ({ req, res, method, url, host }) => handleRemoteControlRequest({ req, res, method, url, host })
+    })
+  }
+}
+
+function logAttempt(
+  devInfo: RemoteDeviceInfo,
+  capability: string,
+  action: string,
+  detail: string,
+  success: boolean,
+  error?: string
+): void {
+  appendRemoteLog({ ...devInfo, capability, action, detail, success, error })
+}
+
+function ensureRemoteConfirmation(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  settings: RemoteControlSettings,
+  devInfo: RemoteDeviceInfo,
+  capability: RemoteCapability,
+  action: string
+): boolean {
+  if (!settings.requireConfirmation.includes(capability)) return true
+  if (hasRemoteConfirmation(req)) return true
+  logAttempt(devInfo, capability, action, 'Confirmation required', false, 'Confirmation required')
+  jsonError(res, 428, 'Confirmation required')
+  return false
+}
+
+function hasRemoteConfirmation(req: http.IncomingMessage): boolean {
+  const raw = req.headers['x-remote-confirmed'] ?? req.headers['x-remote-confirmation']
+  const value = Array.isArray(raw) ? raw[0] : raw
+  return value === '1' || value === 'true'
 }
 
 function extractDeviceInfo(req: http.IncomingMessage): RemoteDeviceInfo {

@@ -21,6 +21,22 @@ function stopKeepAwake(): void {
   }
 }
 
+function startKeepAwake(): void {
+  stopKeepAwake()
+  const keepScript = [
+    `Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class DeSTKA{[DllImport("kernel32.dll")]public static extern uint SetThreadExecutionState(uint s);}'`,
+    `[DeSTKA]::SetThreadExecutionState(0x80000041u)|Out-Null`,
+    `while($true){Start-Sleep -Seconds 20;[DeSTKA]::SetThreadExecutionState(0x80000041u)|Out-Null}`
+  ].join(';')
+
+  keepAwakeProcess = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', keepScript], {
+    detached: false,
+    stdio: 'ignore'
+  })
+  keepAwakeProcess.on('error', () => { keepAwakeProcess = null })
+  keepAwakeProcess.on('exit', () => { keepAwakeProcess = null })
+}
+
 // ── 工具 ──────────────────────────────────────────────────
 
 function runPS(script: string, timeout = 5000): Promise<{ ok: boolean; stdout: string; error?: string }> {
@@ -303,10 +319,10 @@ export async function scrollAt(
  * 需要建議使用者將 Windows「需要登入」改為「從不」，這樣喚醒後不需密碼。
  */
 export async function monitorOff(): Promise<{ ok: boolean; error?: string }> {
-  stopKeepAwake()
+  startKeepAwake()
 
-  // 稍微延遲後關閉螢幕，確保前景動作已完成
-  await new Promise(r => setTimeout(r, 200))
+  // 先讓防睡眠狀態生效，再關閉螢幕，避免部分機器把關螢幕升級成睡眠。
+  await new Promise(r => setTimeout(r, 300))
 
   // 關閉螢幕：最簡單、最可靠的 PowerShell 方式
   // WM_SYSCOMMAND=0x0112, SC_MONITORPOWER=0xF170, lParam=2（關閉）
@@ -320,22 +336,9 @@ export async function monitorOff(): Promise<{ ok: boolean; error?: string }> {
   // 用參數陣列執行，避免 DllImport("user32.dll") 被 shell 引號切斷。
   const offResult = await runPSArg(offScript, 3000)
   if (!offResult.ok) {
+    stopKeepAwake()
     return { ok: false, error: offResult.error ?? 'Failed to send monitor power command' }
   }
-
-  // 啟動持續執行的 PS 程序：防止系統休眠（保持伺服器在線）
-  const keepScript = [
-    `Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class DeSTKA{[DllImport("kernel32.dll")]public static extern uint SetThreadExecutionState(uint s);}'`,
-    `[DeSTKA]::SetThreadExecutionState(0x80000001u)|Out-Null`,
-    `while($true){Start-Sleep -Seconds 30;[DeSTKA]::SetThreadExecutionState(0x80000001u)|Out-Null}`
-  ].join(';')
-
-  keepAwakeProcess = spawn('powershell', ['-NoProfile', '-NonInteractive', '-Command', keepScript], {
-    detached: false,
-    stdio: 'ignore'
-  })
-  keepAwakeProcess.on('error', () => { keepAwakeProcess = null })
-  keepAwakeProcess.on('exit', () => { keepAwakeProcess = null })
 
   return { ok: true }
 }
@@ -343,6 +346,18 @@ export async function monitorOff(): Promise<{ ok: boolean; error?: string }> {
 /** 喚醒螢幕後釋放防休眠狀態（由 wake 端點呼叫） */
 export function releaseMonitorOff(): void {
   stopKeepAwake()
+}
+
+export async function wakeMonitor(): Promise<{ ok: boolean; error?: string }> {
+  releaseMonitorOff()
+  const wakeScript = [
+    `Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class DeSTWake{[DllImport("user32.dll")]public static extern void mouse_event(int dwFlags,int dx,int dy,int dwData,UIntPtr dwExtraInfo);[DllImport("user32.dll")]public static extern bool SetCursorPos(int x,int y);[DllImport("user32.dll")]public static extern bool GetCursorPos(out POINT p);[StructLayout(LayoutKind.Sequential)]public struct POINT{public int X,Y;}}'`,
+    '[DeSTWake]::mouse_event(0x0001,1,1,0,[UIntPtr]::Zero)',
+    'Start-Sleep -Milliseconds 80',
+    '$p=New-Object DeSTWake+POINT;[DeSTWake]::GetCursorPos([ref]$p)|Out-Null',
+    '[DeSTWake]::SetCursorPos($p.X-1,$p.Y-1)|Out-Null'
+  ].join(';')
+  return runPSArg(wakeScript, 3000)
 }
 
 export async function shutdownPc(restart: boolean): Promise<{ ok: boolean; error?: string }> {

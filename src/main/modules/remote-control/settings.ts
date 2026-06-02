@@ -4,11 +4,11 @@ export const INPUT_CONTROL_CAPABILITIES: RemoteCapability[] = [
   'remote.pointer.click',
   'remote.pointer.scroll',
   'remote.keyboard.type',
-  'remote.keyboard.hotkey',
-  'remote.monitor.power'
+  'remote.keyboard.hotkey'
 ]
 
 export const SYSTEM_ACTION_CAPABILITIES: RemoteCapability[] = [
+  'remote.monitor.power',
   'remote.system.shutdown',
   'remote.system.restart'
 ]
@@ -41,6 +41,7 @@ export function normalizeRemoteControlSettings(settings: Partial<RemoteControlSe
       allowedCapabilities: [],
       requireConfirmation: [],
       allowedDevices: [],
+      restrictToAllowedDevices: false,
       logRetention: DEFAULT_REMOTE_LOG_RETENTION,
       enableInputControl: !!settings?.enableInputControl,
       enableSystemActions: !!settings?.enableSystemActions,
@@ -52,6 +53,7 @@ export function normalizeRemoteControlSettings(settings: Partial<RemoteControlSe
     allowedCapabilities,
     requireConfirmation: Array.isArray(settings?.requireConfirmation) ? settings.requireConfirmation : [],
     allowedDevices: Array.isArray(settings?.allowedDevices) ? settings.allowedDevices : [],
+    restrictToAllowedDevices: settings?.restrictToAllowedDevices === true,
     logRetention: {
       ...DEFAULT_REMOTE_LOG_RETENTION,
       ...(settings?.logRetention ?? {})
@@ -70,13 +72,38 @@ export function isCapabilityAllowed(
   return normalized.enabled && normalized.allowedCapabilities.includes(capability)
 }
 
+export function isDeviceAllowed(settings: RemoteControlSettings | undefined, deviceId: string): boolean {
+  const normalized = normalizeRemoteControlSettings(settings)
+  if (!normalized.restrictToAllowedDevices) return true
+  if (normalized.allowedDevices.length === 0) return true
+  if (!deviceId) return false
+  return normalized.allowedDevices.some(device => device.id === deviceId)
+}
+
 export function getRemoteControlClientState(settings: RemoteControlSettings | undefined): {
   enabled: boolean
   allowedCapabilities: RemoteCapability[]
+  requireConfirmation: RemoteCapability[]
+  restrictToAllowedDevices: boolean
+  currentDeviceAllowed?: boolean
+  deviceRestrictionActive: boolean
 } {
   const normalized = normalizeRemoteControlSettings(settings)
   return {
     enabled: normalized.enabled,
-    allowedCapabilities: normalized.allowedCapabilities
+    allowedCapabilities: normalized.allowedCapabilities,
+    requireConfirmation: normalized.requireConfirmation,
+    restrictToAllowedDevices: normalized.restrictToAllowedDevices,
+    deviceRestrictionActive: normalized.restrictToAllowedDevices && normalized.allowedDevices.length > 0
+  }
+}
+
+export function getRemoteControlClientStateForDevice(
+  settings: RemoteControlSettings | undefined,
+  deviceId: string
+): ReturnType<typeof getRemoteControlClientState> {
+  return {
+    ...getRemoteControlClientState(settings),
+    currentDeviceAllowed: isDeviceAllowed(settings, deviceId)
   }
 }

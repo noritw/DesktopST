@@ -1,4 +1,5 @@
 export * from './actions'
+export * from './ipc'
 export * from './logStore'
 export * from './routes'
 export * from './settings'

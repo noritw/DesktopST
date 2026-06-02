@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, getConversationListDirect, loadConversationDirect, createConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect } from './ipcHandlers'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import {
@@ -49,7 +49,7 @@ import {
   onUrlReady
 } from './cloudflaredManager'
 import { registerTunnel, registerStarting, registerOffline, getRelayUrl, getAccessToken } from './relayService'
-import type { DesktopCharacterState } from './types'
+import type { AppSettings, DesktopCharacterState } from './types'
 
 function isOffscreen(pos: { x: number; y: number }, win: { width: number; height: number }): boolean {
   const px = Number.isFinite(pos.x) ? pos.x : 0
@@ -436,6 +436,36 @@ let mobileLastConvMessageCount = 0
 
 // 把 getMobileStatus 注入 ipcHandlers（避免循環 import）
 setGetMobileStatusFn(getMobileStatus)
+setApplyMobileRuntimeSettingsFn(applyMobileRuntimeSettings)
+
+function applyMobileRuntimeSettings(previous: AppSettings, next: AppSettings): void {
+  const prevMobile = previous.mobile
+  const nextMobile = next.mobile
+  const wasEnabled = prevMobile?.enabled ?? false
+  const isEnabled = nextMobile?.enabled ?? false
+  const portChanged = (prevMobile?.port ?? 3721) !== (nextMobile?.port ?? 3721)
+  const tunnelChanged = (prevMobile?.useTunnel ?? true) !== (nextMobile?.useTunnel ?? true)
+
+  if (!isEnabled) {
+    if (wasEnabled || isServerRunning() || isCloudflaredRunning()) {
+      stopMobileServer()
+      stopCloudflared()
+      void registerOffline().finally(() => broadcastMobileStatus(getMobileStatus()))
+    }
+    return
+  }
+
+  if (portChanged && isServerRunning()) {
+    stopMobileServer()
+    stopCloudflared()
+  } else if (tunnelChanged && nextMobile?.useTunnel === false) {
+    stopCloudflared()
+    void registerOffline()
+  }
+
+  initMobileServer()
+  broadcastMobileStatus(getMobileStatus())
+}
 
 function initMobileServer(): void {
   const s = getSettings()
@@ -487,6 +517,18 @@ function initMobileServer(): void {
       broadcastToAll('settings:updated', s)
       pushRemoteControlState()
       return { ok: true }
+    },
+    touchAllowedRemoteDevice: (device) => {
+      if (!device.id) return
+      const s = getSettings()
+      if (!s.remoteControl?.allowedDevices?.length) return
+      const existing = s.remoteControl.allowedDevices.find(d => d.id === device.id)
+      if (!existing) return
+      existing.nickname = device.nickname || existing.nickname
+      existing.label = device.label || existing.label
+      existing.lastSeenAt = Date.now()
+      saveSettings(s)
+      broadcastToAll('settings:updated', s)
     },
     notifyRemoteClickPending: () => broadcastToAll('character:remote-click-pending', {}),
     notifyRemoteAction: () => broadcastToAll('character:remote-action', {}),

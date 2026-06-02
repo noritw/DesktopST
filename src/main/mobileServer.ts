@@ -10,7 +10,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import { app, desktopCapturer } from 'electron'
 import type { Message, RandomResult } from './types'
 import { getAccessToken } from './relayService'
-import { getRemoteControlClientState, handleRemoteControlRequest } from './modules/remote-control'
+import { getRemoteControlClientState, getRemoteControlClientStateForDevice, registerRemoteControlRoutes } from './modules/remote-control'
 
 // ── 注入的 bridge（由 index.ts 啟動時注入）────────────────
 
@@ -43,11 +43,42 @@ export interface MobileBridge {
   resendMessage: (id: string) => Promise<{ ok: boolean } | { error: string }>
   getRemoteControlSettings: () => import('./types').RemoteControlSettings | undefined
   setRemoteControlEnabled: (enabled: boolean) => { ok: true } | { error: string }
+  touchAllowedRemoteDevice?: (device: { id: string; nickname: string; label?: string }) => void
   notifyRemoteClickPending: () => void  // 點擊前廣播：讓角色視窗暫時穿透
   notifyRemoteAction: () => void        // 點擊後廣播：顯示遠端控制指示
   hideWindowsForRemote: () => void      // 遙控模式：隱藏所有 DeST 視窗
   restoreWindowsForRemote: () => void   // 遙控模式：恢復所有 DeST 視窗
 }
+
+export interface MobileRouteContext {
+  req: http.IncomingMessage
+  res: http.ServerResponse
+  method: string
+  url: string
+  requestUrl: URL
+  host: MobileBridge
+}
+
+export interface MobileRoute {
+  method: 'GET' | 'POST'
+  path: string
+  requiredCapability?: string
+  handler: (ctx: MobileRouteContext) => Promise<void> | void
+}
+
+export type MobileRouteRegistrar = (route: MobileRoute) => void
+
+const registeredRoutes = new Map<string, MobileRoute>()
+
+export function registerMobileRoute(route: MobileRoute): void {
+  registeredRoutes.set(`${route.method} ${route.path}`, route)
+}
+
+function findRegisteredRoute(method: string, pathName: string): MobileRoute | undefined {
+  return registeredRoutes.get(`${method} ${pathName}`)
+}
+
+registerRemoteControlRoutes(registerMobileRoute)
 
 // ── 裝置資訊解析工具 ──────────────────────────────────────
 
@@ -177,7 +208,7 @@ async function handleRequest(
   // CORS headers（讓瀏覽器能正常存取）
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-DesktopST-Token, Authorization, X-Device-Id, X-Device-Nickname')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-DesktopST-Token, Authorization, X-Device-Id, X-Device-Nickname, X-Remote-Confirmed, X-Remote-Confirmation')
 
   if (method === 'OPTIONS') {
     res.writeHead(204)
@@ -214,7 +245,7 @@ async function handleRequest(
         ? { id: conv.id, messages: conv.messages.slice(-50).map(sanitizeMessage) }
         : null,
       colorTheme: bridge.getColorTheme(),
-      remoteControl: getRemoteControlClientState(bridge.getRemoteControlSettings())
+      remoteControl: getRemoteControlClientStateForDevice(bridge.getRemoteControlSettings(), getDeviceIdFromRequest(req))
     })
     return
   }
@@ -636,10 +667,11 @@ async function handleRequest(
     return
   }
 
-  // -- Remote control API -------------------------------------------------
-  if (url.startsWith('/api/remote/')) {
+  // -- Module route registry ---------------------------------------------
+  const moduleRoute = findRegisteredRoute(method, url)
+  if (moduleRoute) {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-    await handleRemoteControlRequest({ req, res, method, url, host: bridge })
+    await moduleRoute.handler({ req, res, method, url, requestUrl, host: bridge })
     return
   }
   // ── GET /api/system/lock-status ──
@@ -745,6 +777,11 @@ function readBody(req: http.IncomingMessage): Promise<string> {
     req.on('end', () => resolve(body))
     req.on('error', () => resolve(''))
   })
+}
+
+function getDeviceIdFromRequest(req: http.IncomingMessage): string {
+  const rawId = req.headers['x-device-id']
+  return (Array.isArray(rawId) ? rawId[0] : rawId) ?? ''
 }
 
 function isAuthorized(req: http.IncomingMessage, url: URL): boolean {

@@ -5,8 +5,11 @@ interface LogEntry {
   ip: string
   deviceNickname: string
   deviceLabel: string
+  capability?: string
   action: string
   detail: string
+  success?: boolean
+  error?: string
 }
 
 const ACTION_LABELS: Record<string, string> = {
@@ -59,7 +62,7 @@ export default function RemoteControlLogWindow() {
 
   function handleCopy() {
     const lines = entries.map(e =>
-      `${formatTime(e.timestamp)}\t${e.deviceNickname}（${e.deviceLabel}）\t${e.ip}\t${actionLabel(e.action)}\t${e.detail}`
+      `${formatTime(e.timestamp)}\t${e.deviceNickname}（${e.deviceLabel}）\t${e.ip}\t${e.capability ?? ''}\t${actionLabel(e.action)}\t${e.success === false ? '失敗' : '成功'}\t${e.detail}${e.error ? `\t${e.error}` : ''}`
     )
     navigator.clipboard.writeText(lines.join('\n')).catch(() => {})
   }
@@ -130,9 +133,18 @@ export default function RemoteControlLogWindow() {
                 <span className="font-medium text-primary">{e.deviceNickname}</span>
                 <span className="text-secondary">({e.deviceLabel})</span>
                 <span className="text-secondary font-mono">{e.ip}</span>
+                {e.capability && <span className="text-secondary font-mono">{e.capability}</span>}
+                {e.success === false && (
+                  <span className="px-1.5 py-0.5 rounded-md font-medium text-white text-[10px] bg-danger">
+                    失敗
+                  </span>
+                )}
               </div>
               {e.detail && (
                 <div className="mt-1 text-primary font-mono break-all">{e.detail}</div>
+              )}
+              {e.error && (
+                <div className="mt-1 text-danger font-mono break-all">{e.error}</div>
               )}
             </div>
           ))

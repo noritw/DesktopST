@@ -16,6 +16,7 @@ export interface RemoteControlModuleSettings {
   requireConfirmation: RemoteCapability[]
   registeredPrograms: RegisteredProgram[]
   allowedDevices: RegisteredRemoteDevice[]
+  restrictToAllowedDevices: boolean
   logRetention: {
     maxEntries: number
     keepDays?: number

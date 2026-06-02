@@ -240,10 +240,7 @@
     padding: 4px 0 0; flex-shrink: 0; }
 
   /* ── Screenshot remote control ── */
-  #ss-remote-toggle { position: absolute; top: 10px; right: 10px; z-index: 10;
-    padding: 6px 12px; border-radius: 20px; border: none; font-size: 13px; cursor: pointer;
-    font-family: inherit; transition: background 0.2s, color 0.2s; }
-  #ss-remote-toggle.off { background: rgba(0,0,0,0.4); color: #fff; }
+  #ss-remote-toggle { background: rgba(255,255,255,0.18); color: #fff; }
   #ss-remote-toggle.on  { background: #FF5555; color: #fff; }
   #ss-remote-bar { display: none; flex-direction: column; gap: 6px;
     padding: 8px 12px; padding-bottom: max(8px, env(safe-area-inset-bottom));
@@ -490,7 +487,6 @@
     <div id="ss-coord-badge"></div>
     <!-- 雙指滾動方向提示 -->
     <div id="ss-scroll-indicator"></div>
-    <button id="ss-remote-toggle" class="off" style="display:none">遙控</button>
   </div>
   <div id="ss-hint">雙指縮放 · 單指移動 · 雙擊還原</div>
   <!-- 遙控模式工具列（預設隱藏） -->
@@ -517,6 +513,7 @@
   </div>
   <div id="ss-toolbar">
     <button class="ss-btn" id="ss-add-btn">加入對話</button>
+    <button class="ss-btn off" id="ss-remote-toggle" style="display:none">遙控</button>
     <button class="ss-btn" id="ss-refresh-btn" title="重新整理截圖">↺</button>
     <button class="ss-btn" id="ss-close-btn">關閉</button>
   </div>
@@ -564,7 +561,7 @@
             <span class="sys-btn-icon">🖥️</span>
             <span>關閉螢幕</span>
           </button>
-          <button class="sys-btn" id="sys-wake-btn" style="flex:1;margin:0;display:none">
+          <button class="sys-btn" id="sys-wake-btn" style="flex:1;margin:0">
             <span class="sys-btn-icon">🔓</span>
             <span>喚醒螢幕</span>
           </button>
@@ -882,8 +879,7 @@
       } else if (d.type === 'desktop-updated' && d.desktopCharacterIds) {
         fetchState();
       } else if (d.type === 'remote-control-state' && d.remoteControl) {
-        state.remoteControl = d.remoteControl;
-        updateRemoteControlUi();
+        fetchState();
       } else if (d.type === 'reminder') {
         showToast('📌 ' + (d.content || '收到提醒'));
       }
@@ -915,6 +911,12 @@
 
   // ── API ──
   async function api(url, opts) {
+    opts = opts || {};
+    const headers = new Headers(opts.headers || {});
+    headers.set('X-Device-Id', getDeviceId());
+    const nick = getDeviceNickname() || '';
+    headers.set('X-Device-Nickname', nick ? encodeURIComponent(nick) : 'unnamed');
+    opts.headers = headers;
     try { const r = await fetch(url, opts); return r.json(); }
     catch { return { error: '網路錯誤' }; }
   }
@@ -1421,27 +1423,29 @@
 
   function setLockBanner(locked) {
     $ssLockBanner.style.display = locked ? 'flex' : 'none';
-    if ($sysWakeBtn) $sysWakeBtn.style.display = (locked && rcEnabled) ? '' : 'none';
     if ($sysLockTip) $sysLockTip.style.display = locked ? '' : 'none';
   }
 
   function updateSysScreenSection() {
-    if ($sysScreenSection) $sysScreenSection.style.display = rcEnabled ? '' : 'none';
+    if ($sysScreenSection) $sysScreenSection.style.display = rcMonitorEnabled ? '' : 'none';
+    if ($sysWakeBtn) $sysWakeBtn.style.display = rcMonitorEnabled ? '' : 'none';
   }
 
   async function doWakeScreen() {
+    if (!rcMonitorEnabled) { showToast('螢幕電源功能未啟用'); return; }
     showToast('喚醒中…');
     try {
-      await rcFetch('/api/remote/wake', { method: 'POST' });
+      await rcFetch('/api/remote/wake', { method: 'POST', remoteCapability: 'remote.monitor.power' });
       showToast('已發送喚醒指令');
       setTimeout(checkLockStatus, 1500);
     } catch { showToast('喚醒失敗'); }
   }
 
   async function doMonitorOff() {
+    if (!rcMonitorEnabled) { showToast('螢幕電源功能未啟用'); return; }
     showToast('關閉螢幕中…');
     try {
-      await rcFetch('/api/remote/monitor-off', { method: 'POST' });
+      await rcFetch('/api/remote/monitor-off', { method: 'POST', remoteCapability: 'remote.monitor.power' });
       showToast('螢幕已關閉（移動滑鼠可喚醒）');
     } catch { showToast('操作失敗'); }
   }
@@ -1691,6 +1695,7 @@
             ssScrollLastTime = now;
             rcFetch('/api/remote/scroll', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
+              remoteCapability: 'remote.pointer.scroll',
               body: JSON.stringify({ x: ssScrollTarget.x, y: ssScrollTarget.y, deltaX: sx, deltaY: sy })
             }).catch(() => {});
           }
@@ -1727,6 +1732,7 @@
         ssScrollAccX = 0; ssScrollAccY = 0;
         rcFetch('/api/remote/scroll', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
+          remoteCapability: 'remote.pointer.scroll',
           body: JSON.stringify({ x: ssScrollTarget.x, y: ssScrollTarget.y, deltaX: sx, deltaY: sy })
         }).then(() => autoRefreshAfter(400)).catch(() => {});
       }
@@ -1758,6 +1764,7 @@
           showToast(`${label} (${coords.x}, ${coords.y})`);
           rcFetch('/api/remote/click', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
+            remoteCapability: 'remote.pointer.click',
             body: JSON.stringify({ x: coords.x, y: coords.y, button: btn, double: isDouble && !ssRightClickMode })
           }).then(() => autoRefreshAfter(500)).catch(() => {});
           ssLastTap = isDouble ? 0 : now;
@@ -1782,6 +1789,7 @@
   // ── Remote Control ────────────────────────────────────────
 
   let rcEnabled = false;        // 鍵鼠遙控功能開啟（由 state API 決定）
+  let rcMonitorEnabled = false; // 螢幕電源功能開啟
   let rcSystemEnabled = false;  // 系統動作功能開啟
   let ssRemoteMode = false;     // 截圖 overlay 是否處於遙控模式
 
@@ -1806,12 +1814,26 @@
   // 遙控請求專用 fetch：自動附帶裝置識別 header
   // X-Device-Nickname 以 encodeURIComponent 編碼，確保 HTTP header 只含 ASCII，
   // 避免 Safari/iPadOS 對非 ASCII header 值拋出 TypeError 導致功能偵測失敗。
-  function rcFetch(url, opts) {
+  async function rcFetch(url, opts) {
     opts = opts || {};
+    const remoteCapability = opts.remoteCapability;
+    const remoteDetail = opts.remoteDetail;
+    const remoteConfirmed = opts.remoteConfirmed === true;
+    delete opts.remoteCapability;
+    delete opts.remoteDetail;
+    delete opts.remoteConfirmed;
     const headers = new Headers(opts.headers || {});
     headers.set('X-Device-Id', getDeviceId());
     const nick = getDeviceNickname() || '';
     headers.set('X-Device-Nickname', nick ? encodeURIComponent(nick) : 'unnamed');
+    if (remoteCapability && remoteNeedsConfirmation(remoteCapability)) {
+      if (!remoteConfirmed && !confirmRemoteCapability(remoteCapability, remoteDetail)) {
+        throw new Error('Remote action cancelled');
+      }
+      headers.set('X-Remote-Confirmed', '1');
+    } else if (remoteConfirmed) {
+      headers.set('X-Remote-Confirmed', '1');
+    }
     opts.headers = headers;
     return fetch(url, opts);
   }
@@ -1820,38 +1842,68 @@
     return !!state.remoteControl?.allowedCapabilities?.includes(cap);
   }
 
+  function remoteNeedsConfirmation(cap) {
+    return !!state.remoteControl?.requireConfirmation?.includes(cap);
+  }
+
+  function confirmRemoteCapability(cap, detail) {
+    const labels = {
+      'remote.pointer.click': 'mouse click',
+      'remote.pointer.scroll': 'mouse scroll',
+      'remote.keyboard.type': 'keyboard input',
+      'remote.keyboard.hotkey': 'hotkey',
+      'remote.program.launch': 'launch program',
+      'remote.program.close': 'close program',
+      'remote.monitor.power': 'screen power',
+      'remote.system.shutdown': 'shutdown',
+      'remote.system.restart': 'restart'
+    };
+    const label = labels[cap] || cap;
+    return confirm(`Confirm remote ${label}${detail ? `: ${detail}` : ''}?`);
+  }
+
   function remoteHasAny(caps) {
     return caps.some(remoteHas);
   }
 
   function updateRemoteControlUi() {
     const remote = state.remoteControl || { enabled: false, allowedCapabilities: [] };
-    const moduleKnown = remote.allowedCapabilities && remote.allowedCapabilities.length > 0;
-    const inputAvailable = remoteHasAny(['remote.pointer.click', 'remote.pointer.scroll', 'remote.keyboard.type', 'remote.keyboard.hotkey', 'remote.monitor.power']);
+    const deviceAllowed = remote.currentDeviceAllowed !== false;
+    const moduleKnown = Array.isArray(remote.allowedCapabilities);
+    const inputAvailable = remoteHasAny(['remote.pointer.click', 'remote.pointer.scroll', 'remote.keyboard.type', 'remote.keyboard.hotkey']);
+    const monitorAvailable = remoteHas('remote.monitor.power');
     const programAvailable = remoteHasAny(['remote.program.launch', 'remote.program.close']);
-    const systemAvailable = remoteHasAny(['remote.system.shutdown', 'remote.system.restart', 'remote.monitor.power']);
-    rcEnabled = !!remote.enabled && inputAvailable;
-    rcSystemEnabled = !!remote.enabled && remoteHasAny(['remote.system.shutdown', 'remote.system.restart']);
+    const systemAvailable = remoteHasAny(['remote.system.shutdown', 'remote.system.restart']);
+    const remoteMenuAvailable = moduleKnown && deviceAllowed;
+    rcEnabled = !!remote.enabled && deviceAllowed && inputAvailable;
+    rcSystemEnabled = !!remote.enabled && deviceAllowed && remoteHasAny(['remote.system.shutdown', 'remote.system.restart']);
 
     const sep = document.getElementById('pc-remote-sep');
     const moduleBtn = document.getElementById('pc-remote-module-btn');
     const programsBtn = document.getElementById('pc-programs-btn');
     const systemBtn = document.getElementById('pc-system-btn');
     const remoteToggle = document.getElementById('ss-remote-toggle');
+    const shutdownBtn = document.getElementById('sys-shutdown-btn');
+    const restartBtn = document.getElementById('sys-restart-btn');
 
-    sep.style.display = moduleKnown ? '' : 'none';
-    moduleBtn.style.display = moduleKnown ? '' : 'none';
+    sep.style.display = remoteMenuAvailable ? '' : 'none';
+    moduleBtn.style.display = remoteMenuAvailable ? '' : 'none';
     moduleBtn.textContent = remote.enabled ? 'Remote control: on' : 'Remote control: off';
+    moduleBtn.disabled = false;
 
-    programsBtn.style.display = programAvailable ? '' : 'none';
+    programsBtn.style.display = remoteMenuAvailable && programAvailable ? '' : 'none';
     programsBtn.disabled = !remote.enabled;
-    systemBtn.style.display = systemAvailable ? '' : 'none';
+    systemBtn.style.display = remoteMenuAvailable && (systemAvailable || monitorAvailable) ? '' : 'none';
     systemBtn.disabled = !remote.enabled;
 
-    remoteToggle.style.display = inputAvailable ? '' : 'none';
+    remoteToggle.style.display = deviceAllowed && inputAvailable ? '' : 'none';
     remoteToggle.disabled = !remote.enabled;
     remoteToggle.textContent = remote.enabled ? '遙控' : '遙控關閉';
-    if (!remote.enabled && ssRemoteMode) setRemoteMode(false);
+    if (!rcEnabled && ssRemoteMode) setRemoteMode(false);
+    rcMonitorEnabled = !!remote.enabled && deviceAllowed && monitorAvailable;
+    if (shutdownBtn) shutdownBtn.style.display = remote.enabled && deviceAllowed && remoteHas('remote.system.shutdown') ? '' : 'none';
+    if (restartBtn) restartBtn.style.display = remote.enabled && deviceAllowed && remoteHas('remote.system.restart') ? '' : 'none';
+    updateSysScreenSection();
   }
 
   async function setRemoteModuleEnabled(enabled) {
@@ -1956,20 +2008,21 @@
   }
 
   function setRemoteMode(on) {
+    if (on && !rcEnabled) { showToast('鍵鼠遙控未啟用'); return; }
     ssRemoteMode = on;
     $ssRemoteToggle.textContent = on ? '⏹ 停止遙控' : '遙控';
-    $ssRemoteToggle.className = on ? 'on' : 'off';
+    $ssRemoteToggle.className = `ss-btn ${on ? 'on' : 'off'}`;
     $ssRemoteBar.classList.toggle('visible', on);
     $ssHint.style.display = on ? 'none' : '';
     $ssImg.classList.toggle('remote-mode', on);
     document.getElementById('ss-add-btn').style.display = on ? 'none' : '';
     if (on) {
-      if (lastSsWasClean) fetch('/api/remote/hide-windows', { method: 'POST' }).catch(() => {});
+      if (lastSsWasClean) rcFetch('/api/remote/hide-windows', { method: 'POST' }).catch(() => {});
     } else {
       hideClickMarker();
       hideScrollIndicator();
       setRightClickMode(false);
-      fetch('/api/remote/restore-windows', { method: 'POST' }).catch(() => {});
+      rcFetch('/api/remote/restore-windows', { method: 'POST' }).catch(() => {});
     }
   }
 
@@ -2031,6 +2084,8 @@
     try {
       await rcFetch('/api/remote/type', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
+        remoteCapability: 'remote.keyboard.type',
+        remoteDetail: text.length > 32 ? text.slice(0, 32) + '...' : text,
         body: JSON.stringify({ text, pressEnter: $ssEnterCheck.checked })
       });
       autoRefreshAfter(600);
@@ -2054,6 +2109,8 @@
       try {
         await rcFetch('/api/remote/key', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
+          remoteCapability: 'remote.keyboard.hotkey',
+          remoteDetail: keys,
           body: JSON.stringify({ keys })
         });
         autoRefreshAfter(500);
@@ -2101,6 +2158,8 @@
             const endpoint = isRunning ? '/api/remote/programs/close' : '/api/remote/programs/launch';
             await rcFetch(endpoint, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
+              remoteCapability: isRunning ? 'remote.program.close' : 'remote.program.launch',
+              remoteDetail: prog.name,
               body: JSON.stringify({ id: prog.id })
             });
             await new Promise(r => setTimeout(r, 1000));
@@ -2126,6 +2185,11 @@
   }
 
   async function doSystemAction(action) {
+    const capability = action === 'shutdown' ? 'remote.system.shutdown' : 'remote.system.restart';
+    if (!state.remoteControl?.enabled || !remoteHas(capability)) {
+      showToast('系統動作未啟用');
+      return;
+    }
     const label = action === 'shutdown' ? '關機' : '重新開機';
     if (!confirm(`確定要${label}嗎？`)) return;
     $sysOverlay.classList.remove('visible');
@@ -2133,6 +2197,8 @@
     try {
       await rcFetch('/api/remote/system', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
+        remoteCapability: capability,
+        remoteConfirmed: true,
         body: JSON.stringify({ action })
       });
     } catch {}
