@@ -1111,6 +1111,30 @@ function restoreCharacterAlwaysOnTopAfterBubbleHide(characterId: string): void {
   else cw.setAlwaysOnTop(false)
 }
 
+/**
+ * 發言時把角色＋泡泡抬到前面，順序 cw → bw（讓泡泡疊在角色之上）。
+ *
+ * - 勾了「最上層」：維持原本行為，用高等級的 `screen-saver` band 置頂。
+ * - 沒勾「最上層」：不進 topmost band（不呼叫 setAlwaysOnTop），只用 moveTop()
+ *   把兩者抬到一般工作視窗之上即可看見；使用者點回工作視窗時自然退下。
+ *   這樣可避免把透明 layered window 塞進 screen-saver band 造成 DWM 重排，
+ *   也省掉發言結束時 topmost→normal 的 flip-flop，消除提醒觸發時的卡頓。
+ */
+function raiseBubbleAndCharacterForShow(characterId: string, bw: BrowserWindow): void {
+  const cw = characterWindows.get(characterId)
+  if (charactersAlwaysOnTop) {
+    if (cw && !cw.isDestroyed()) {
+      cw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+      cw.moveTop()
+    }
+    bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    bw.moveTop()
+  } else {
+    if (cw && !cw.isDestroyed()) cw.moveTop()
+    bw.moveTop()
+  }
+}
+
 export function showSpeechBubble(
   characterId: string,
   speakerName: string,
@@ -1133,14 +1157,8 @@ export function showSpeechBubble(
   if (bw.isDestroyed()) return
   bubbleLastActiveAt.set(characterId, Date.now())
   pruneSpeechBubbleWindows(characterId)
-  bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
 
   const anchor = resolveBubbleAnchorBounds(characterId, anchorFallback)
-  const cw = characterWindows.get(characterId)
-  if (cw && !cw.isDestroyed()) {
-    cw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
-    cw.moveTop()
-  }
   applyBubbleBounds(bw, lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }, anchor, characterId)
 
   const payload = {
@@ -1161,14 +1179,9 @@ export function showSpeechBubble(
 
   const dispatchShow = () => {
     if (bw.isDestroyed()) return
-    bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
     bw.setOpacity(1)
     bw.showInactive()
-    if (cw && !cw.isDestroyed()) {
-      cw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
-      cw.moveTop()
-    }
-    bw.moveTop()
+    raiseBubbleAndCharacterForShow(characterId, bw)
     bw.webContents.send('bubble:show', payload)
   }
   if (bw.webContents.isLoadingMainFrame()) {
@@ -1181,12 +1194,7 @@ export function showSpeechBubble(
         if (bw.isDestroyed()) return
         const anchor2 = resolveBubbleAnchorBounds(characterId, anchorFallback)
         applyBubbleBounds(bw, lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }, anchor2, characterId)
-        if (charactersAlwaysOnTop) {
-          bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
-          const cw2 = characterWindows.get(characterId)
-          if (cw2 && !cw2.isDestroyed()) cw2.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
-        }
-        bw.moveTop()
+        raiseBubbleAndCharacterForShow(characterId, bw)
       }, 180)
     }
   }
