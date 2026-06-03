@@ -1590,11 +1590,22 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
         if (noteBlock) ctxParts.push(noteBlock.text)
       } else {
         const it = newsInjection?.item ?? null
-        if (newsInjection) {
+        if (noteBlock) ctxParts.push(noteBlock.text)
+
+        // 指令：新聞＋便利貼→讓角色挑一個；只有新聞→新聞指令；只有便利貼→便利貼指令
+        if (newsInjection && noteBlock) {
+          // Survey 模式：角色自選，不知道他選了哪個。
+          // → 新聞素材放 system context 讓角色看，但泡泡不貼按鈕（按鈕指向未必講到的新聞），也不設待結算信用。
           ctxParts.push(newsInjection.text)
           newsUsedUtilityModel = true
+          newsDirective = buildSurveyDirective({ newsTitle: it?.title, noteTitles: noteBlock.titles })
+          setPendingNewsCredit(null)
+        } else if (newsInjection) {
+          // 只有新聞：確定角色在聊它，貼按鈕、設信用。
+          ctxParts.push(newsInjection.text)
+          newsUsedUtilityModel = true
+          newsDirective = newsInjection.directive
           if (it) {
-            // 新抽的一則才在泡泡顯示按鈕，並記下來源供回話加分
             newsBubbleMeta = {
               id: it.id, sourceId: it.sourceId, title: it.title,
               url: it.url, summary: it.summary, source: it.source, keyword: it.keyword
@@ -1603,18 +1614,12 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
           } else {
             setPendingNewsCredit(null)
           }
+        } else if (noteBlock) {
+          // 只有便利貼：無新聞按鈕。
+          newsDirective = buildNotesDirective(noteBlock.titles)
+          setPendingNewsCredit(null)
         } else {
           setPendingNewsCredit(null)
-        }
-        if (noteBlock) ctxParts.push(noteBlock.text)
-
-        // 指令：新聞＋便利貼→讓角色挑一個；只有新聞→新聞指令；只有便利貼→便利貼指令
-        if (newsInjection && noteBlock) {
-          newsDirective = buildSurveyDirective({ newsTitle: it?.title, noteTitles: noteBlock.titles })
-        } else if (newsInjection) {
-          newsDirective = newsInjection.directive
-        } else if (noteBlock) {
-          newsDirective = buildNotesDirective(noteBlock.titles)
         }
       }
     } catch (e) {
