@@ -7,6 +7,13 @@ const rssParser = new Parser({
   headers: { 'User-Agent': 'DesktopST-News/1.0 (+https://nori.tw/DeST)' }
 })
 
+/** Google Trends RSS 含 ht: 命名空間的相關新聞，需自訂欄位才抓得到 */
+const trendsParser = new Parser({
+  timeout: 8000,
+  headers: { 'User-Agent': 'DesktopST-News/1.0 (+https://nori.tw/DeST)' },
+  customFields: { item: [['ht:news_item', 'newsItems', { keepArray: true }]] }
+})
+
 /** 固定來源快取（design §11：6–24h），key = 抓取 URL */
 interface CacheEntry {
   items: NewsItem[]
@@ -194,19 +201,53 @@ export async function fetchSource(source: NewsSource, options: { useCache?: bool
   }
 }
 
-/** 抓取破圈來源（Google Trends 台灣熱搜），標記 breakout。 */
-export async function fetchBreakoutItems(weight: NewsSource['weight'], options: { useCache?: boolean } = {}): Promise<NewsItem[]> {
-  const pseudoSource: NewsSource = {
-    id: '__breakout__',
-    type: 'rss',
-    label: '熱門話題',
-    url: buildTrendsRssUrl(),
-    weight,
-    enabled: true,
-    origin: 'builtin'
+/** 從 ht:news_item 子元素取欄位（xml2js 給的多半是 [字串] 陣列，也可能是字串/物件） */
+function htField(obj: Record<string, unknown> | undefined, key: string): string {
+  let v = obj?.[key]
+  if (Array.isArray(v)) v = v[0]
+  if (typeof v === 'string') return stripHtml(v)
+  if (v && typeof v === 'object') return stripHtml((v as { _?: string })._ ?? '')
+  return ''
+}
+
+/**
+ * 抓取破圈來源（Google Trends 台灣熱搜）。
+ * 每個熱搜詞用它底下的相關新聞當實際標題/來源（純熱搜詞無法聊），
+ * 並用熱搜詞當穩定 id（每次更新同詞 id 一致，供 seenIds 去重）。
+ */
+export async function fetchBreakoutItems(weight: NewsSource['weight']): Promise<NewsItem[]> {
+  try {
+    const feed = await trendsParser.parseURL(buildTrendsRssUrl())
+    const items: NewsItem[] = []
+    for (const entry of feed.items ?? []) {
+      const trend = stripHtml(entry.title)
+      if (!trend) continue
+      const raw = (entry as { newsItems?: unknown }).newsItems
+      const newsList = (Array.isArray(raw) ? raw : raw ? [raw] : []) as Record<string, unknown>[]
+      const top = newsList[0]
+      const headline = top ? htField(top, 'ht:news_item_title') : ''
+      const newsUrl = top ? htField(top, 'ht:news_item_url') : ''
+      const src = top ? htField(top, 'ht:news_item_source') : ''
+      const others = newsList.slice(1, 4).map(n => htField(n, 'ht:news_item_title')).filter(Boolean)
+      items.push({
+        id: stableId('trend', trend),
+        title: headline || trend,
+        summary: others.join('／'),
+        source: src || 'Google 熱搜',
+        tags: [trend],
+        url: newsUrl || `https://www.google.com/search?q=${encodeURIComponent(trend)}`,
+        publishedAt: entry.pubDate ?? '',
+        sourceId: '__breakout__',
+        sourceType: 'rss',
+        sourceWeight: weight,
+        breakout: true
+      })
+    }
+    return items
+  } catch (e) {
+    console.warn('[news] fetch breakout (trends) failed:', (e as Error).message)
+    return []
   }
-  const items = await fetchSource(pseudoSource, options)
-  return items.map(item => ({ ...item, breakout: true }))
 }
 
 /** 抓取所有啟用來源（含地方新聞、破圈）。並行抓取，個別失敗不影響其他。 */
@@ -237,7 +278,7 @@ export async function fetchAllSources(
 
   // 破圈
   if (settings.breakout.enabled) {
-    tasks.push(fetchBreakoutItems(settings.breakout.weight, options))
+    tasks.push(fetchBreakoutItems(settings.breakout.weight))
   }
 
   const results = await Promise.all(tasks)
