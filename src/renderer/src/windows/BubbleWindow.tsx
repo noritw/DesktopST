@@ -374,6 +374,16 @@ export default function BubbleWindow({ characterId }: Props) {
             >
               🙅 跟我無關
             </button>
+            {news.url && (
+              <button
+                type="button"
+                className="ml-auto self-center text-[11px] text-secondary underline decoration-dotted underline-offset-2 transition-colors hover:text-primary"
+                title="開啟這則新聞的原文（不會變成聊天主題）"
+                onClick={() => void window.api.invoke('shell:open-external', news.url)}
+              >
+                原文 ↗
+              </button>
+            )}
           </div>
         )}
         {news && dontWantMenu && (
