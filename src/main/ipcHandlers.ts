@@ -24,7 +24,11 @@ import {
   buildAuthUrl, handleAuthCallback, clearAuthFile, isAuthenticated, getSpotifyContextString
 } from './spotifyService'
 import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
-import { getNewsInjectionForSpeak, getActiveNewsTopic, setActiveNewsTopic, type NewsTopic } from './modules/news'
+import {
+  getNewsInjectionForSpeak, getActiveNewsTopic, setActiveNewsTopic,
+  setPendingNewsCredit, consumePendingNewsCredit, applyNewsFeedbackDelta,
+  type NewsTopic
+} from './modules/news'
 import { pushRemoteControlState, pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
@@ -1549,6 +1553,10 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
             source: it.source,
             keyword: it.keyword
           }
+          // 記住這則的來源；若使用者接著回話視為有興趣 → 加分
+          setPendingNewsCredit(it.sourceId)
+        } else {
+          setPendingNewsCredit(null)
         }
       }
     } catch (e) {
@@ -2374,7 +2382,7 @@ export function registerIpcHandlers() {
   })
 
   // 後續聊天主題：釘住一則新聞，桌面浮出主題泡泡；主動發話圍繞它聊
-  ipcMain.handle('news:set-topic', (_, topic: NewsTopic) => {
+  ipcMain.handle('news:set-topic', (_, topic: NewsTopic & { sourceId?: string }) => {
     if (!topic || typeof topic.title !== 'string' || !topic.title) return { ok: false }
     setActiveNewsTopic({
       id: String(topic.id ?? ''),
@@ -2383,6 +2391,9 @@ export function registerIpcHandlers() {
       url: typeof topic.url === 'string' ? topic.url : '',
       source: typeof topic.source === 'string' ? topic.source : ''
     })
+    // 設為聊天主題＝有興趣，加一點分（比回話少）；並清掉待結算避免重複計分
+    consumePendingNewsCredit()
+    if (topic.sourceId) applyNewsFeedbackDelta(topic.sourceId, 0.2)
     showTopicBubbleWindow()
     return { ok: true }
   })
@@ -2698,6 +2709,9 @@ export function registerIpcHandlers() {
       timestamp: Date.now()
     }
     conv.messages.push(userMsg)
+    // 使用者回了話 → 把剛才角色聊的那則新聞來源加分（隱性正向回饋，design §9）
+    const creditSourceId = consumePendingNewsCredit()
+    if (creditSourceId) applyNewsFeedbackDelta(creditSourceId, 0.5)
     deferBroadcastConversationUpdate(conv)
     const shownUserText = String(payload.content ?? '').trim()
     const shownUserBubbleText = payload.randomResult

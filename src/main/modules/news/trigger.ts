@@ -4,6 +4,23 @@ import { loadNewsModuleSettings, saveNewsModuleSettings } from './settings'
 import { getActiveNewsTopic, type NewsTopic } from './topicState'
 import type { NewsItem, NewsModuleSettings, SpeakMode } from './types'
 
+/**
+ * 待結算的正向回饋：角色剛講完一則新聞後，記住它的來源；
+ * 若使用者接著回了話（送出訊息），就視為對該來源有興趣 → 加分（design §9）。
+ */
+let pendingNewsCreditSourceId: string | null = null
+
+export function setPendingNewsCredit(sourceId: string | null): void {
+  pendingNewsCreditSourceId = sourceId
+}
+
+/** 取出並清掉待結算的正向回饋來源（沒有則回 null） */
+export function consumePendingNewsCredit(): string | null {
+  const v = pendingNewsCreditSourceId
+  pendingNewsCreditSourceId = null
+  return v
+}
+
 /** 「說點什麼」依 speakButton 決定這次是否抓新聞（design §8） */
 export function shouldGrabNews(mode: SpeakMode, rng: () => number = Math.random): boolean {
   if (mode === 'always') return true

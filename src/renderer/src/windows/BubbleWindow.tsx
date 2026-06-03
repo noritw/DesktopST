@@ -372,7 +372,7 @@ export default function BubbleWindow({ characterId }: Props) {
               title="略過這則；也可以選擇封鎖關鍵字或來源"
               onClick={openDontWant}
             >
-              🙅 跟我無關
+              🙅 沒興趣
             </button>
             {news.url && (
               <button

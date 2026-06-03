@@ -125,3 +125,16 @@ export function saveNewsModuleSettings(settings: Partial<NewsModuleSettings>): N
   writeModuleSettings(NEWS_MODULE_ID, normalized)
   return normalized
 }
+
+/** 學習回饋微調：把某來源權重加上 delta（夾在 -1.5 ~ +3）。回話加分 / 設為主題加一點 / 跟我無關扣分共用。 */
+export function applyNewsFeedbackDelta(sourceId: string, delta: number): void {
+  if (!sourceId) return
+  const s = loadNewsModuleSettings()
+  if (!s.enabled) return
+  const cur = s.feedback.adjustments[sourceId] ?? 0
+  const next = Math.max(-1.5, Math.min(3, cur + delta))
+  saveNewsModuleSettings({
+    ...s,
+    feedback: { adjustments: { ...s.feedback.adjustments, [sourceId]: next } }
+  })
+}
