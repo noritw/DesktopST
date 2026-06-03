@@ -9,6 +9,8 @@ import { useAppStore } from '../stores/useAppStore'
 import type { AppSettings, PersonaPreset, RemoteCapability, ScenePreset, WorldPreset } from '../types'
 import MonoIcon from '../components/MonoIcon'
 import { RemoteControlSettingsPanel } from '../modules/remote-control'
+import { NewsSettingsPanel } from '../modules/news'
+import type { NewsModuleSettings } from '../modules/news'
 
 const OPENAI_MODEL_LIST_HELP =
   'https://help.openai.com/en/articles/10306912-sharing-feedback-evaluation-and-fine-tuning-data-and-api-inputs-and-outputs-with-openai'
@@ -109,7 +111,7 @@ const SCENE_TABS = ['情境'] as const
 const ROLEPLAY_TABS = ['世界觀', '使用者'] as const
 const APP_TABS = ['介面', '擴充'] as const
 const ABOUT_TABS = ['關於'] as const
-const HIDDEN_TABS = ['遙控'] as const
+const HIDDEN_TABS = ['遙控', '新聞'] as const
 const VISIBLE_TAB_GROUPS = [CORE_TABS, SCENE_TABS, ROLEPLAY_TABS, APP_TABS, ABOUT_TABS] as const
 const TABS = [...CORE_TABS, ...SCENE_TABS, ...ROLEPLAY_TABS, ...APP_TABS, ...ABOUT_TABS, ...HIDDEN_TABS] as const
 type Tab = typeof TABS[number]
@@ -145,6 +147,7 @@ const TAB_PARAM_ALIASES: Record<string, Tab> = {
   modules: '擴充',
   remote: '遙控',
   mobile: '遙控',
+  news: '新聞',
   data: '記憶',
   about: '關於',
   scene: '情境',
@@ -221,6 +224,7 @@ export default function SettingsWindow() {
   const [sceneLoading, setSceneLoading] = useState<string | null>(null)
   const [convTitles, setConvTitles] = useState<Record<string, string>>({})
   const [showRestartSuggestion, setShowRestartSuggestion] = useState(false)
+  const [newsEnabled, setNewsEnabled] = useState(false)
 
   const changeTab = (nextTab: Tab) => {
     setTab(nextTab)
@@ -309,6 +313,13 @@ export default function SettingsWindow() {
   useEffect(() => {
     persistLastSettingsTab(tab)
   }, [tab])
+
+  useEffect(() => {
+    void (async () => {
+      const news = await window.api.invoke('news:get-settings') as NewsModuleSettings
+      setNewsEnabled(!!news?.enabled)
+    })()
+  }, [])
 
   useEffect(() => {
     if (tab !== '情境') return
@@ -2189,6 +2200,18 @@ export default function SettingsWindow() {
               onSettings={() => window.api.invoke('spotify:open-settings')}
             />
             <ExtensionRow
+              title="新聞陪聊"
+              description="讓角色像朋友一樣，按「說點什麼」時偶爾抽一則新聞跟你聊聊（不照念、不簡報）。"
+              enabled={newsEnabled}
+              onToggle={async enabled => {
+                setNewsEnabled(enabled)
+                await window.api.invoke('news:set-enabled', enabled)
+              }}
+              statusText={newsEnabled ? '已啟用' : '已停用'}
+              settingsLabel="設定"
+              onSettings={newsEnabled ? () => changeTab('新聞') : undefined}
+            />
+            <ExtensionRow
               title="天氣資訊"
               description="讓角色取得所在地天氣、氣溫與濕度。"
               enabled={!!draft.weather?.enabled}
@@ -2327,6 +2350,19 @@ export default function SettingsWindow() {
 
         {tab === '遙控' && (
           <RemoteControlSettingsPanel draft={draft} set={set} setDraft={setDraft} setDirty={setDirty} />
+        )}
+
+        {tab === '新聞' && (
+          <div className="space-y-3">
+            <button
+              type="button"
+              className="text-xs text-teal"
+              onClick={() => changeTab('擴充')}
+            >
+              ← 返回擴充
+            </button>
+            <NewsSettingsPanel />
+          </div>
         )}
 
         {tab === '記憶' && (

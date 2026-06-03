@@ -201,6 +201,15 @@ npm run typecheck # 型別檢查
   - 泡泡同時顯示上限 = 桌上角色數；超過時 LRU 淘汰最舊泡泡 renderer，避免連點崩潰
   - 泡泡定位錨點 fallback、還原輔助視窗時重播 `bubble:show`、`bubble:hide` 狀態同步
 
+**規劃中（設計定案，待實作）：**
+- [ ] 新聞陪聊模組
+  - 掛在共用 **module host** 下的**可選模組**（中風險，可停用）；架構見 `docs/module-system-roadmap.md`
+  - 朋友閒聊口吻、**不簡報不評分**；觸發以「說點什麼」按鈕為主力、提醒排程選配（預設關）
+  - 純手動興趣標籤 + 黑名單 + 加權隨機抽一則，**不蒐集任何身份/人口屬性 profile**
+  - 三種來源 `keyword` / `rss` / `json`；破圈話題（可選+可設頻率，Google Trends 台灣熱搜）；地方新聞（多縣市，沿用天氣定位）
+  - 新聞 LLM 一律走**輔助模型**；隱性回饋（回話=正向、點掉=負向、「不想聽這個」按鈕）
+  - **詳細設計：`docs/news-module-design.md`（唯一來源）**；規格摘要 §15；實作交接 `docs/news-module-impl-kickoff.md`；JSON 契約 `docs/news-feed-spec.md`（站方已驗收）
+
 **尚未實作（第一版排除）：**
 - Lorebook
 - TTS（文字轉語音）

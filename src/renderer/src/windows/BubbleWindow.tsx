@@ -7,6 +7,16 @@ interface Props {
   characterId: string
 }
 
+interface BubbleNewsMeta {
+  id: string
+  sourceId: string
+  title: string
+  url: string
+  summary: string
+  source: string
+  keyword?: string
+}
+
 interface BubbleSourceRect {
   x: number
   y: number
@@ -38,6 +48,10 @@ export default function BubbleWindow({ characterId }: Props) {
   const [confirmPin, setConfirmPin] = useState(false)
   const [outlineMode, setOutlineMode] = useState(false)
   const [isLatestSpeaker, setIsLatestSpeaker] = useState(false)
+  const [news, setNews] = useState<BubbleNewsMeta | null>(null)
+  const [dontWantMenu, setDontWantMenu] = useState(false)
+  const [blockKeyword, setBlockKeyword] = useState(false)
+  const [blockSource, setBlockSource] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingPinArgsRef = useRef<{ title: string; pos: { x: number; y: number }; content: string } | null>(null)
 
@@ -69,6 +83,33 @@ export default function BubbleWindow({ characterId }: Props) {
         console.error('[Lower character layer] Error:', e)
       })
     }
+  }
+
+  const setAsTopic = () => {
+    if (!news) return
+    void window.api.invoke('news:set-topic', news)
+    closeBubble()
+  }
+
+  const openDontWant = () => {
+    setBlockKeyword(false)
+    setBlockSource(false)
+    setDontWantMenu(true)
+  }
+
+  const confirmDontWant = () => {
+    if (news) {
+      void window.api.invoke('news:dont-want', {
+        id: news.id,
+        sourceId: news.sourceId,
+        keyword: news.keyword,
+        source: news.source,
+        blockKeyword,
+        blockSource
+      })
+    }
+    setDontWantMenu(false)
+    closeBubble()
   }
 
   const confirmLimitWarning = (level?: string, count?: number) => {
@@ -130,13 +171,16 @@ export default function BubbleWindow({ characterId }: Props) {
         autoCloseMs?: number
         persistUntilClosed?: boolean
         isLatestSpeaker?: boolean
+        news?: BubbleNewsMeta | null
       }
       if (p.characterId !== characterId) return
 
       clearTimer()
       setConfirmPin(false)
+      setDontWantMenu(false)
       setSpeakerName(p.speakerName ?? '')
       setText(p.text ?? '')
+      setNews(p.news ?? null)
       setIsLatestSpeaker(p.isLatestSpeaker !== false)
       setVisible(true)
 
@@ -312,6 +356,55 @@ export default function BubbleWindow({ characterId }: Props) {
             </button>
           </div>
         </div>
+        {news && !confirmPin && !dontWantMenu && (
+          <div className="no-drag flex flex-wrap gap-1.5 px-3 pb-1.5">
+            <button
+              type="button"
+              className="rounded-full bg-mint px-2.5 py-0.5 text-xs font-medium text-primary transition-colors hover:bg-teal"
+              title="把這則新聞釘成後續聊天主題，角色之後會圍繞它聊"
+              onClick={setAsTopic}
+            >
+              📌 作為後續聊天主題
+            </button>
+            <button
+              type="button"
+              className="rounded-full border border-border bg-surface-80 px-2.5 py-0.5 text-xs font-medium text-secondary transition-colors hover:bg-blush hover:text-primary"
+              title="略過這則；也可以選擇封鎖關鍵字或來源"
+              onClick={openDontWant}
+            >
+              🙅 跟我無關
+            </button>
+          </div>
+        )}
+        {news && dontWantMenu && (
+          <div className="no-drag mx-3 mb-2 mt-1 rounded-xl border border-border bg-surface px-3 py-2 text-xs text-primary">
+            <p className="mb-1.5 leading-snug">這則略過就好，還是要順便封鎖？</p>
+            {news.keyword && (
+              <label className="mb-1 flex items-center gap-2">
+                <input type="checkbox" checked={blockKeyword} onChange={e => setBlockKeyword(e.target.checked)} className="accent-teal" />
+                <span>封鎖關鍵字「{news.keyword}」</span>
+              </label>
+            )}
+            {news.source && (
+              <label className="mb-2 flex items-center gap-2">
+                <input type="checkbox" checked={blockSource} onChange={e => setBlockSource(e.target.checked)} className="accent-teal" />
+                <span>封鎖來源「{news.source}」</span>
+              </label>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-full border border-border bg-surface-80 px-3 py-0.5 text-secondary transition-colors hover:bg-surface"
+                onClick={() => setDontWantMenu(false)}
+              >取消</button>
+              <button
+                type="button"
+                className="rounded-full bg-mint px-3 py-0.5 font-medium text-primary transition-colors hover:bg-teal"
+                onClick={confirmDontWant}
+              >確認</button>
+            </div>
+          </div>
+        )}
         {confirmPin ? (
           <div className="no-drag mx-3 mb-2 mt-1 rounded-xl border border-mint bg-mint-20 px-3 py-2 text-xs text-primary">
             <p className="mb-2 leading-snug">此角色的便利貼已達上限（10 張）。<br />確定釘選後，將清理最舊的幾張。</p>

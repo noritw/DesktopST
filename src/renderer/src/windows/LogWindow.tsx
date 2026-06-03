@@ -660,14 +660,14 @@ export default function LogWindow() {
                   className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${promptTab === 'main' ? 'border-primary text-primary' : 'border-transparent text-secondary hover:text-primary'}`}
                   onClick={() => setPromptTab('main')}
                 >
-                  扮演模型
+                  主要 LLM
                 </button>
                 <button
                   type="button"
                   className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${promptTab === 'utility' ? 'border-teal text-teal' : 'border-transparent text-secondary hover:text-primary'}`}
                   onClick={() => setPromptTab('utility')}
                 >
-                  輔助模型（情緒分類）
+                  輔助 LLM
                 </button>
               </div>
             )}

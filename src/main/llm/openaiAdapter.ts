@@ -74,7 +74,7 @@ export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResu
 
   // Trigger injected after conversation history (not for reminders)
   if (!params.isReminder) {
-    input.push({ role: 'user', content: buildTriggerMessage(character.name) })
+    input.push({ role: 'user', content: buildTriggerMessage(character.name, params.triggerDirective) })
   }
 
   if (images && images.length > 0 && input.length > 0) {

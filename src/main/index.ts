@@ -54,6 +54,7 @@ import type { AppSettings, DesktopCharacterState } from './types'
 import { activateModules, registerBuiltInModule } from './modules/moduleHost'
 import { moduleSettingsBridge } from './modules/moduleSettings'
 import { remoteControlModule, setRemoteControlModuleEnabled } from './modules/remote-control'
+import { newsModule } from './modules/news'
 
 function isOffscreen(pos: { x: number; y: number }, win: { width: number; height: number }): boolean {
   const px = Number.isFinite(pos.x) ? pos.x : 0
@@ -305,6 +306,7 @@ app.on('ready', async () => {
   }
 
   registerBuiltInModule(remoteControlModule)
+  registerBuiltInModule(newsModule)
   await activateModules({
     ipc: {
       handle: (channel, handler) => ipcMain.handle(channel, handler)

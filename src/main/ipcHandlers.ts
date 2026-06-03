@@ -24,6 +24,7 @@ import {
   buildAuthUrl, handleAuthCallback, clearAuthFile, isAuthenticated, getSpotifyContextString
 } from './spotifyService'
 import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
+import { getNewsInjectionForSpeak, getActiveNewsTopic, setActiveNewsTopic, type NewsTopic } from './modules/news'
 import { pushRemoteControlState, pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
@@ -59,7 +60,10 @@ import {
   raiseCharacterAbovePinnedNotes,
   sendCharacterContextUpdate,
   showSpeechBubble,
+  showTopicBubbleWindow,
+  closeTopicBubbleWindow,
   type BubbleAnchorFallback,
+  type BubbleNewsMeta,
   type VisibleAuxWindowSnapshotEntry
 } from './windowManager'
 
@@ -1506,6 +1510,10 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
     const activePersona = getActivePersona()
     const activeWorld = getActiveWorld()
 
+    // 先亮思考氣泡再做網路抓取（天氣 / Spotify / 新聞），避免使用者看到約 1 秒的無回饋停頓。
+    setCharacterThinking(characterId, true)
+    deferRaiseCharacterAbovePinnedNotes(characterId)
+
     const ctxParts: string[] = []
     if (conv.messages.length === 0 && char.firstMessage?.trim()) {
       ctxParts.push(`[角色開場白]\n${char.firstMessage.trim()}\n\n請基於這個開場白的人格和語氣，自由發揮回應。`)
@@ -1518,17 +1526,45 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
       const spotifyStr = await getSpotifyContextString(settings)
       if (spotifyStr) ctxParts.push(spotifyStr)
     }
+    // 新聞模組：依 speakButton（關 / 偶爾 / 每次）決定是否抓一則塞進背景知識。
+    // 模組停用時 getNewsInjectionForSpeak 直接回 null（不發網路請求）。
+    let newsUsedUtilityModel = false
+    let newsDirective: string | undefined
+    let newsBubbleMeta: BubbleNewsMeta | null = null
+    try {
+      const newsInjection = await getNewsInjectionForSpeak()
+      if (newsInjection) {
+        ctxParts.push(newsInjection.text)
+        newsDirective = newsInjection.directive
+        newsUsedUtilityModel = true
+        // 只有「新抽的一則」才在泡泡顯示按鈕；主題模式（已釘住）不再顯示。
+        if (!newsInjection.fromTopic && newsInjection.item) {
+          const it = newsInjection.item
+          newsBubbleMeta = {
+            id: it.id,
+            sourceId: it.sourceId,
+            title: it.title,
+            url: it.url,
+            summary: it.summary,
+            source: it.source,
+            keyword: it.keyword
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[news] inject failed:', (e as Error).message)
+    }
     const extraSystemContext = ctxParts.join('\n\n') || undefined
+    // design §11：新聞陪聊的角色化輸出一律走輔助模型（未啟用分流時 applyUtilitySettings 原樣回傳主模型）。
+    const chatSettings = newsUsedUtilityModel ? applyUtilitySettings(settings) : settings
 
-    setCharacterThinking(characterId, true)
-    deferRaiseCharacterAbovePinnedNotes(characterId)
     try {
       let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
       const desktopCharNamesForce = settings.ui.desktopCharacters.map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
       const forceHasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
       const doSplitEmotionForce = !!(settings.llm.utilityEnabled && forceHasCustomSprites)
       const { content, emotion: rawEmotionForce, debugPrompt, inputTokens: forceInputTk, outputTokens: forceOutputTk } = await chatWithLLM({
-        settings,
+        settings: chatSettings,
         character: char,
         messages: recentMessages,
         speakerNameById: getSpeakerNameById(),
@@ -1536,6 +1572,7 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
         world: activeWorld,
         desktopCharacterNames: desktopCharNamesForce,
         extraSystemContext,
+        triggerDirective: newsDirective,
         splitEmotion: doSplitEmotionForce
       })
       const forcedReply = stripOtherCharacterSpeakerLines(
@@ -1579,7 +1616,7 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
       scheduleConversationBroadcast(conv)
       flushConversationBroadcast()
       setImmediate(() => {
-        showSpeechBubble(characterId, char.name, forcedReply, msg.emotion, bubbleAnchorForCharacter(characterId))
+        showSpeechBubble(characterId, char.name, forcedReply, msg.emotion, bubbleAnchorForCharacter(characterId), newsBubbleMeta)
         sendCharacterContextUpdate(characterId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
       })
       return { ok: true }
@@ -2335,6 +2372,28 @@ export function registerIpcHandlers() {
   ipcMain.handle('bubble:close', (_, characterId: string) => {
     return hideSpeechBubble(characterId)
   })
+
+  // 後續聊天主題：釘住一則新聞，桌面浮出主題泡泡；主動發話圍繞它聊
+  ipcMain.handle('news:set-topic', (_, topic: NewsTopic) => {
+    if (!topic || typeof topic.title !== 'string' || !topic.title) return { ok: false }
+    setActiveNewsTopic({
+      id: String(topic.id ?? ''),
+      title: topic.title,
+      summary: typeof topic.summary === 'string' ? topic.summary : '',
+      url: typeof topic.url === 'string' ? topic.url : '',
+      source: typeof topic.source === 'string' ? topic.source : ''
+    })
+    showTopicBubbleWindow()
+    return { ok: true }
+  })
+
+  ipcMain.handle('news:clear-topic', () => {
+    setActiveNewsTopic(null)
+    closeTopicBubbleWindow()
+    return { ok: true }
+  })
+
+  ipcMain.handle('news:get-topic', () => getActiveNewsTopic())
 
   ipcMain.handle('bubble:debug-show', (_, payload: { characterId: string; speakerName: string; text: string; emotion?: string }) => {
     const { characterId, speakerName, text, emotion } = payload ?? { characterId: '', speakerName: '', text: '' }

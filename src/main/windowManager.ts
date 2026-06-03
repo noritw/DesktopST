@@ -1025,6 +1025,57 @@ export function createBubbleWindow(characterId: string): BrowserWindow {
   return win
 }
 
+// ── 後續聊天主題泡泡（單例） ────────────────────────────────────────────────
+let topicBubbleWindow: BrowserWindow | null = null
+
+/** 顯示／刷新主題泡泡（內容由 renderer 透過 news:get-topic 取得） */
+export function showTopicBubbleWindow(): void {
+  if (topicBubbleWindow && !topicBubbleWindow.isDestroyed()) {
+    topicBubbleWindow.webContents.send('topic-bubble:refresh')
+    topicBubbleWindow.showInactive()
+    return
+  }
+  const wa = screen.getPrimaryDisplay().workArea
+  const width = 360
+  const height = 116
+  const win = new BrowserWindow({
+    x: wa.x + Math.round((wa.width - width) / 2),
+    y: wa.y + 24,
+    width,
+    height,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: false,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  win.setIgnoreMouseEvents(false)
+  win.setAlwaysOnTop(true, 'screen-saver')
+  if (VITE_DEV_SERVER_URL) {
+    win.loadURL(makeURL({ w: 'topic-bubble' }))
+  } else {
+    win.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { w: 'topic-bubble' } })
+  }
+  win.once('ready-to-show', () => {
+    if (!win.isDestroyed()) win.showInactive()
+  })
+  win.on('closed', () => { topicBubbleWindow = null })
+  topicBubbleWindow = win
+}
+
+export function closeTopicBubbleWindow(): void {
+  if (topicBubbleWindow && !topicBubbleWindow.isDestroyed()) topicBubbleWindow.close()
+  topicBubbleWindow = null
+}
+
 function suppressBubbleOffsetWrite(characterId: string, ms = 240): void {
   bubbleOffsetWriteSuppressedUntil.set(characterId, Date.now() + ms)
 }
@@ -1135,12 +1186,23 @@ function raiseBubbleAndCharacterForShow(characterId: string, bw: BrowserWindow):
   }
 }
 
+export interface BubbleNewsMeta {
+  id: string
+  sourceId: string
+  title: string
+  url: string
+  summary: string
+  source: string
+  keyword?: string
+}
+
 export function showSpeechBubble(
   characterId: string,
   speakerName: string,
   text: string,
   emotion?: string,
-  anchorFallback?: BubbleAnchorFallback | null
+  anchorFallback?: BubbleAnchorFallback | null,
+  newsMeta?: BubbleNewsMeta | null
 ): void {
   if (lastShownBubbleCharacterId && lastShownBubbleCharacterId !== characterId) {
     const previous = bubbleWindows.get(lastShownBubbleCharacterId)
@@ -1167,8 +1229,10 @@ export function showSpeechBubble(
     text,
     emotion: emotion ?? 'neutral',
     autoCloseMs: getBubbleAutoCloseMs(text),
-    persistUntilClosed: shouldKeepBubbleUntilClosed(text),
-    isLatestSpeaker: true
+    // 新聞泡泡帶有「作為後續聊天主題」等按鈕，保持顯示直到使用者關閉，避免按鈕被自動關掉
+    persistUntilClosed: shouldKeepBubbleUntilClosed(text) || !!newsMeta,
+    isLatestSpeaker: true,
+    news: newsMeta ?? null
   }
   lastBubbleShowPayload.set(characterId, {
     speakerName,

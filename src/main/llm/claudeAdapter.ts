@@ -108,7 +108,7 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
   // Append trigger to last user message (Claude requires strict alternation, cannot add a new user turn)
   // Skip trigger for reminders (no instruction injection)
   if (!params.isReminder) {
-    const trigger = buildTriggerMessage(character.name)
+    const trigger = buildTriggerMessage(character.name, params.triggerDirective)
     const lastMsg = claudeMessages[claudeMessages.length - 1]
     if (lastMsg?.role === 'user') {
       if (typeof lastMsg.content === 'string') {
