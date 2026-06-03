@@ -98,6 +98,25 @@ export function buildTopicDirective(topic: NewsTopic): string {
     '完全用你這個角色的個性和語氣接話（回應別人剛說的、補一個你會在意的角度、或用你的方式吐槽 / 追問），別重複別人講過的點，別切換成中立或通用 AI 的口吻，也別照念或腦補標題沒提到的細節。'
 }
 
+/**
+ * 多個候選素材（新聞 / 便利貼）並存時，請角色看過一遍、挑一個來聊（design：survey & pick）。
+ * 保留角色個性，不強迫每個都提。
+ */
+export function buildSurveyDirective(opts: { newsTitle?: string; noteTitles?: string[] }): string {
+  const lines: string[] = ['你現在注意到幾件可以聊的事：']
+  if (opts.newsTitle) lines.push(`- 一則新聞：「${opts.newsTitle}」`)
+  for (const t of opts.noteTitles ?? []) lines.push(`- 你寫的便利貼：「${t}」`)
+  return lines.join('\n') + '\n' +
+    '挑「一個」你這個角色現在最想聊的開個話題，完全用你自己的個性和語氣，不必每個都提到。' +
+    '如果你選了新聞，要讓對方聽懂大概發生什麼事、別腦補標題沒提到的細節；任何情況都不要切換成中立或通用 AI 的口吻。'
+}
+
+/** 只有便利貼當候選時的開話題指令。 */
+export function buildNotesDirective(noteTitles: string[]): string {
+  const lines = ['你桌上有這些便利貼：', ...noteTitles.map(t => `- 「${t}」`)]
+  return lines.join('\n') + '\n挑一個你想聊、或想對對方說的，用你自己的個性和語氣自然開個話題，不必每張都提。'
+}
+
 export interface NewsInjection {
   /** 放 system context 的背景事實 + 約束 */
   text: string

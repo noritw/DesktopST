@@ -2034,6 +2034,19 @@ export default function SettingsWindow() {
             <p className="text-xs text-secondary ml-6">不勾選的話，對話泡泡會一直留在畫面上，直到手動關閉或下一句對話出現。</p>
 
             <div className="border-t border-border pt-3" />
+            <p className="text-xs font-medium text-secondary">說點什麼</p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draft.ui.speakUsePinnedNotes ?? false}
+                onChange={e => set('ui.speakUsePinnedNotes', e.target.checked)}
+                className="accent-teal w-4 h-4"
+              />
+              <span className="text-sm text-primary">「說點什麼」時參考桌面便利貼</span>
+            </label>
+            <p className="text-xs text-secondary ml-6">勾選後，按「說點什麼」時角色會看過桌面上可見的便利貼，挑一個（或新聞）當話題。等於用便利貼當「自訂聊天主題」。</p>
+
+            <div className="border-t border-border pt-3" />
             <p className="text-xs font-medium text-secondary">截圖</p>
             <label className="flex items-center gap-2 cursor-pointer">
               <input

@@ -177,6 +177,7 @@ export interface Reminder {
   injectPinnedNotes?: boolean
   injectConversationContext?: boolean
   injectWeather?: boolean
+  injectNews?: boolean
   lastTriggeredAt?: number
   createdAt: number
 }
@@ -296,6 +297,8 @@ export interface AppSettings {
     }
     /** 閒置超過幾分鐘時略過提醒（0 = 不略過）*/
     reminderIdleSkipMinutes?: number
+    /** 按「說點什麼」時是否把桌面可見便利貼當作可聊的話題素材 */
+    speakUsePinnedNotes?: boolean
     /** Include the input window when capturing screenshots with DesktopST windows visible. */
     screenshotIncludeInputWindow?: boolean
     randomToolsEnabled?: boolean

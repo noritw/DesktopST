@@ -284,6 +284,8 @@ export interface AppSettings {
     colorTheme?: ColorTheme
     /** 閒置超過幾分鐘時略過提醒（0 = 不略過）*/
     reminderIdleSkipMinutes?: number
+    /** 按「說點什麼」時是否把桌面可見便利貼當作可聊的話題素材 */
+    speakUsePinnedNotes?: boolean
     /** 截圖時是否保留對話輸入框 */
     screenshotIncludeInputWindow?: boolean
     randomToolsEnabled?: boolean
@@ -318,6 +320,8 @@ export interface Reminder {
   injectConversationContext?: boolean
   /** 觸發時附入天氣資訊（需先在設定設定地點） */
   injectWeather?: boolean
+  /** 觸發時抓一則新聞當話題素材（需先啟用新聞模組） */
+  injectNews?: boolean
   lastTriggeredAt?: number
   createdAt: number
 }
