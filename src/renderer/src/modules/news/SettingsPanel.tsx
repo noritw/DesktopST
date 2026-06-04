@@ -3,6 +3,7 @@ import {
   WEIGHT_LABELS, nextWeight,
   type LangMode, type NewsModuleSettings, type NewsPreviewResult, type NewsSource, type NewsWeight, type SpeakMode
 } from './types'
+import type { ReminderSchedule } from '../../types'
 
 const SPEAK_OPTIONS: { value: SpeakMode; label: string; hint: string }[] = [
   { value: 'off', label: '不抓新聞', hint: '按「說點什麼」只會閒聊' },
@@ -24,6 +25,98 @@ function weightChipClass(weight: NewsWeight): string {
     case 'rarely': return 'bg-surface text-secondary border border-border'
     default: return 'bg-mint text-primary'
   }
+}
+
+// ── 定時排程小元件 ──────────────────────────────────────────────────────────
+function NewsSchedulerSection() {
+  const [enabled, setEnabled] = useState(false)
+  const [schedType, setSchedType] = useState<'daily' | 'interval'>('daily')
+  const [hour, setHour] = useState(9)
+  const [minute, setMinute] = useState(0)
+  const [intervalHours, setIntervalHours] = useState(3)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    void (async () => {
+      const res = await window.api.invoke('news:get-scheduler') as { enabled: boolean; schedule?: ReminderSchedule }
+      if (res.enabled) {
+        setEnabled(true)
+        const s = res.schedule
+        if (s?.type === 'daily') { setSchedType('daily'); setHour(s.hour); setMinute(s.minute) }
+        else if (s?.type === 'interval') { setSchedType('interval'); setIntervalHours(Math.round(s.intervalMs / 3600000)) }
+      }
+    })()
+  }, [])
+
+  const handleSave = async (nextEnabled: boolean) => {
+    setSaving(true)
+    let schedule: ReminderSchedule | undefined
+    if (nextEnabled) {
+      schedule = schedType === 'daily'
+        ? { type: 'daily', hour, minute }
+        : { type: 'interval', intervalMs: intervalHours * 3600000 }
+    }
+    await window.api.invoke('news:sync-scheduler', { enabled: nextEnabled, schedule })
+    setEnabled(nextEnabled)
+    setSaving(false)
+  }
+
+  return (
+    <div className="space-y-2">
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={saving}
+          className="accent-teal w-4 h-4"
+          onChange={e => void handleSave(e.target.checked)}
+        />
+        <span className="text-sm text-primary">啟用定時新聞陪聊</span>
+      </label>
+      {enabled && (
+        <div className="ml-6 space-y-2">
+          <div className="flex gap-3">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="news-sched-type" className="accent-teal" checked={schedType === 'daily'} onChange={() => setSchedType('daily')} />
+              <span className="text-xs text-primary">每天固定時間</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input type="radio" name="news-sched-type" className="accent-teal" checked={schedType === 'interval'} onChange={() => setSchedType('interval')} />
+              <span className="text-xs text-primary">每隔幾小時</span>
+            </label>
+          </div>
+          {schedType === 'daily' ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-secondary">觸發時間</span>
+              <input type="number" min={0} max={23} value={hour}
+                className="input-field w-14 text-sm text-center"
+                onChange={e => setHour(Math.max(0, Math.min(23, Number(e.target.value))))} />
+              <span className="text-xs text-secondary">:</span>
+              <input type="number" min={0} max={59} value={minute}
+                className="input-field w-14 text-sm text-center"
+                onChange={e => setMinute(Math.max(0, Math.min(59, Number(e.target.value))))} />
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-secondary">每隔</span>
+              <input type="number" min={1} max={24} value={intervalHours}
+                className="input-field w-16 text-sm text-center"
+                onChange={e => setIntervalHours(Math.max(1, Math.min(24, Number(e.target.value))))} />
+              <span className="text-xs text-secondary">小時觸發一次</span>
+            </div>
+          )}
+          <button
+            type="button"
+            disabled={saving}
+            className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary hover:bg-teal transition-all disabled:opacity-50"
+            onClick={() => void handleSave(true)}
+          >
+            {saving ? '儲存中…' : '套用排程'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function NewsSettingsPanel() {
@@ -500,6 +593,47 @@ export function NewsSettingsPanel() {
                 重置學習權重
               </button>
               <p className="text-xs text-secondary mt-1">把回饋微調歸零，回到你手動設定的權重。</p>
+            </div>
+
+            {/* 封鎖來源管理 */}
+            {settings.excludedSources.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-sm font-semibold text-primary">封鎖的來源</p>
+                <div className="flex flex-wrap gap-2">
+                  {settings.excludedSources.map(src => (
+                    <span key={src} className="flex items-center gap-1 text-xs px-3 py-1 rounded-full bg-blush text-primary">
+                      {src}
+                      <button type="button" className="ml-0.5 opacity-60 hover:opacity-100" onClick={() =>
+                        update(prev => ({ ...prev, excludedSources: prev.excludedSources.filter(s => s !== src) }))
+                      }>×</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 排除類別管理 */}
+            {settings.excludedCategories.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-sm font-semibold text-primary">排除的類別</p>
+                <div className="flex flex-wrap gap-2">
+                  {settings.excludedCategories.map(cat => (
+                    <span key={cat} className="flex items-center gap-1 text-xs px-3 py-1 rounded-full bg-surface border border-border text-primary">
+                      {cat}
+                      <button type="button" className="ml-0.5 opacity-60 hover:opacity-100" onClick={() =>
+                        update(prev => ({ ...prev, excludedCategories: prev.excludedCategories.filter(c => c !== cat) }))
+                      }>×</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 定時排程 */}
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-primary">定時抽一則新聞聊</p>
+              <p className="text-xs text-secondary">啟用後角色會定時主動聊一則新聞（依新聞設定篩選），預設關閉。</p>
+              <NewsSchedulerSection />
             </div>
           </div>
         )}

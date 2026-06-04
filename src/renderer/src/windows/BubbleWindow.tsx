@@ -464,7 +464,11 @@ export default function BubbleWindow({ characterId }: Props) {
                     type="button"
                     className="rounded-full border border-border bg-surface-80 px-2.5 py-0.5 text-secondary transition-colors hover:bg-mint hover:text-primary"
                     title="在瀏覽器開啟原文"
-                    onClick={() => void window.api.invoke('shell:open-external', news.url)}
+                    onClick={() => {
+                      void window.api.invoke('shell:open-external', news.url)
+                      // 點開原文 = 有好奇感，微加分（+0.1，低於回話的 +0.5）
+                      if (news.sourceId) void window.api.invoke('news:mark-opened', news.sourceId)
+                    }}
                   >
                     原文 ↗
                   </button>

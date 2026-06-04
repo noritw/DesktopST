@@ -1,9 +1,15 @@
 import { ipcMain } from 'electron'
 import type { ModuleIpcRegistry } from '../moduleTypes'
-import { loadNewsModuleSettings, saveNewsModuleSettings } from './settings'
+import { loadNewsModuleSettings, saveNewsModuleSettings, applyNewsFeedbackDelta } from './settings'
 import { fetchAllSources } from './sources'
 import { filterAndPick } from './filter'
+import { loadReminders, saveReminders } from '../../fileStore'
+import { reloadReminders } from '../../reminderScheduler'
 import type { NewsModuleSettings } from './types'
+import type { ReminderSchedule } from '../../types'
+
+/** 新聞模組自動排程提醒的固定 ID，由模組設定驅動、不出現在「提醒管理員」 */
+const NEWS_SCHEDULER_REMINDER_ID = 'news-module-scheduler'
 
 export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): void {
   // 讀取目前模組設定（設定面板初始化用）
@@ -61,6 +67,12 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
     })
   })
 
+  // 使用者點開原文連結 → 微加分（+0.1，表示有好奇感興趣，比回話低）
+  registry.handle('news:mark-opened', (_, sourceId: string) => {
+    if (typeof sourceId === 'string' && sourceId) applyNewsFeedbackDelta(sourceId, 0.1)
+    return { ok: true }
+  })
+
   // 試抓一則（設定面板的「試抓」按鈕）：依目前設定抓+篩+抽，但不記入 seenIds，可重複測試
   registry.handle('news:preview', async () => {
     const settings = loadNewsModuleSettings()
@@ -76,5 +88,32 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
     } catch (e) {
       return { ok: false, error: (e as Error).message }
     }
+  })
+
+  // 新聞定時排程：在 reminders 檔維護一條固定的特殊 Reminder（排程器自動吃到）
+  registry.handle('news:sync-scheduler', (_, payload: { enabled: boolean; schedule?: ReminderSchedule }) => {
+    const reminders = loadReminders().filter(r => r.id !== NEWS_SCHEDULER_REMINDER_ID)
+    if (payload?.enabled && payload.schedule) {
+      reminders.push({
+        id: NEWS_SCHEDULER_REMINDER_ID,
+        label: '新聞陪聊（自動）',
+        prompt: '',
+        schedule: payload.schedule,
+        enabled: true,
+        injectNews: true,
+        createdAt: Date.now()
+      })
+    }
+    saveReminders(reminders)
+    reloadReminders()
+    const s = loadNewsModuleSettings()
+    saveNewsModuleSettings({ ...s, reminder: { enabled: !!payload?.enabled, schedule: payload?.schedule } })
+    return { ok: true }
+  })
+
+  registry.handle('news:get-scheduler', () => {
+    const s = loadNewsModuleSettings()
+    const active = loadReminders().find(r => r.id === NEWS_SCHEDULER_REMINDER_ID)
+    return { enabled: !!active?.enabled, schedule: s.reminder.schedule }
   })
 }
