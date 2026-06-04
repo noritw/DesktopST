@@ -1595,10 +1595,17 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
         // 指令：新聞＋便利貼→讓角色挑一個；只有新聞→新聞指令；只有便利貼→便利貼指令
         if (newsInjection && noteBlock) {
           // Survey 模式：角色自選，不知道他選了哪個。
-          // → 新聞素材放 system context 讓角色看，但泡泡不貼按鈕（按鈕指向未必講到的新聞），也不設待結算信用。
+          // → 新聞素材放 system context，泡泡顯示「↗新聞」連結（讓使用者可點開查看），
+          //   但不設 pendingCredit（無法確認角色是否聊了那則）。
           ctxParts.push(newsInjection.text)
           newsUsedUtilityModel = true
           newsDirective = buildSurveyDirective({ newsTitle: it?.title, noteTitles: noteBlock.titles })
+          if (it) {
+            newsBubbleMeta = {
+              id: it.id, sourceId: it.sourceId, title: it.title,
+              url: it.url, summary: it.summary, source: it.source, keyword: it.keyword
+            }
+          }
           setPendingNewsCredit(null)
         } else if (newsInjection) {
           // 只有新聞：確定角色在聊它，貼按鈕、設信用。
