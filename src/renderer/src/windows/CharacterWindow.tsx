@@ -4,8 +4,6 @@ import CharacterSprite, { type CharacterSpriteHandle } from '../components/Chara
 import HoverMenu, { HoverMenuIcon } from '../components/HoverMenu'
 import MonoIcon from '../components/MonoIcon'
 
-/** CharacterSprite 框高為 260×scale；object-fit:contain 時腳常在框內偏上，左右欄需上移才能與視覺腳底對齊 */
-const SIDE_TOOLBAR_FOOT_LIFT_RATIO = 0.072
 const DRAG_SEND_INTERVAL_MS = 33
 /** 事件驅動模式：游標在角色範圍內移動時，送出活動訊號的最小間隔（ms），避免 IPC 過於頻繁 */
 const ACTIVITY_PING_THROTTLE_MS = 150
@@ -76,9 +74,7 @@ export default function CharacterWindow({ characterId }: Props) {
     )
   )
 
-  const [spriteActualH, setSpriteActualH] = useState(Math.round(260 * size))
   const handleSpriteActualHChange = useCallback((h: number) => {
-    setSpriteActualH(h)
     window.api.send('desktop:update-sprite-height', characterId, h)
   }, [characterId])
 
@@ -483,7 +479,6 @@ export default function CharacterWindow({ characterId }: Props) {
 
   const renderedSize = scaleMode ? scaleDraft : Math.min(maxVisibleScale, Math.max(0.25, size))
   const renderedFlipped = scaleMode ? flipDraft : flipped
-  const sideToolbarLiftPx = Math.round(spriteActualH * SIDE_TOOLBAR_FOOT_LIFT_RATIO)
 
   return (
     <div
@@ -492,33 +487,33 @@ export default function CharacterWindow({ characterId }: Props) {
     >
       {/* Character sprite — lifts up in scale mode to leave room for the fixed control panel */}
       <div
-        className={`absolute left-0 flex items-end ${scaleMode ? 'bottom-24' : 'bottom-[52px]'}`}
+        className={`absolute left-0 flex items-center ${scaleMode ? 'bottom-24' : 'bottom-[52px]'}`}
         style={{ pointerEvents: 'auto' }}
         ref={interactiveRef}
       >
-        {/* 左側：加入角色（在垃圾桶上方）、從桌面移除 */}
+        {/* 左側：角色設定、開啟角色庫首頁、從桌面移除 */}
         {!scaleMode && (
           <div
             ref={leftStackRef}
-            className="flex flex-col items-center gap-2 pr-1 no-drag self-end"
+            className="flex flex-col items-center gap-2 pr-1 no-drag"
             style={{
               opacity: menuVisible ? 1 : 0,
               pointerEvents: menuVisible ? 'auto' : 'none',
-              transition: 'opacity 0.2s ease',
-              transform: `translateY(-${sideToolbarLiftPx}px)`
+              transition: 'opacity 0.2s ease'
             }}
           >
-            {availableChars.length > 0 && (
-              <button
-                type="button"
-                title={`加入角色：${availableChars[0].name}`}
-                aria-label={`加入角色：${availableChars[0].name}`}
-                onClick={() => addToDesktop(availableChars[0].id)}
-                className="btn-round text-primary"
-              >
-                <span className="text-2xl leading-none font-light">+</span>
-              </button>
-            )}
+            <button
+              type="button"
+              title="角色設定"
+              aria-label="角色設定"
+              onClick={() => window.api.invoke('character-library:open', { mode: 'edit', characterId })}
+              className="btn-round text-primary"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </button>
             <button
               type="button"
               title="開啟角色庫首頁"
@@ -527,7 +522,10 @@ export default function CharacterWindow({ characterId }: Props) {
               className="btn-round text-primary"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true" className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 4h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                <circle cx="9" cy="7" r="4" />
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                <path d="M16 3.13a4 4 0 0 1 0 7.75" />
               </svg>
             </button>
             {canRemove && (
@@ -683,10 +681,9 @@ export default function CharacterWindow({ characterId }: Props) {
         </div>
 
         {!scaleMode && (
-          <div className="self-end" style={{ transform: `translateY(-${sideToolbarLiftPx}px)` }}>
+          <div className="self-center">
             <HoverMenu
               visible={menuVisible}
-              onSettings={() => window.api.invoke('character-library:open', { mode: 'edit', characterId })}
               onScale={enterScaleMode}
               onButtonsEl={(el) => { hoverMenuButtonsRef.current = el }}
             />
