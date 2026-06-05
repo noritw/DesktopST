@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import {
-  WEIGHT_LABELS, nextWeight,
+  WEIGHT_LABELS, nextWeight, DEFAULT_KEYWORD_GROUP_ID, effectiveGroupId,
   type LangMode, type NewsModuleSettings, type NewsPreviewResult, type NewsReplyModel, type NewsSource, type NewsWeight, type SpeakMode
 } from './types'
 import type { ReminderSchedule } from '../../types'
@@ -136,6 +136,12 @@ export function NewsSettingsPanel() {
   const [showWeights, setShowWeights] = useState(false)
   const [cityInput, setCityInput] = useState('')
   const [detecting, setDetecting] = useState(false)
+  // 關鍵字分組：目前正在編輯哪一組、新增 / 重新命名暫存
+  const [activeGroupId, setActiveGroupId] = useState<string>(DEFAULT_KEYWORD_GROUP_ID)
+  const [addingGroup, setAddingGroup] = useState(false)
+  const [newGroupName, setNewGroupName] = useState('')
+  const [renamingGroup, setRenamingGroup] = useState(false)
+  const [groupRenameValue, setGroupRenameValue] = useState('')
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -162,14 +168,24 @@ export function NewsSettingsPanel() {
     return <p className="text-sm text-secondary">讀取中…</p>
   }
 
-  const keywordSources = settings.sources.filter(s => s.type === 'keyword' && s.origin !== 'location')
+  const groups = settings.keywordGroups.length > 0 ? settings.keywordGroups : [{ id: DEFAULT_KEYWORD_GROUP_ID, name: '預設組' }]
+  const activeGroup = groups.find(g => g.id === activeGroupId) ?? groups[0]
+  const isDefaultGroup = activeGroup.id === DEFAULT_KEYWORD_GROUP_ID
+  // 只顯示目前所選組的興趣標籤（取代式情境靠這個分組）
+  const keywordSources = settings.sources.filter(
+    s => s.type === 'keyword' && s.origin !== 'location' && effectiveGroupId(s.groupId) === activeGroup.id
+  )
   const feedSources = settings.sources.filter(s => s.type === 'rss' || s.type === 'json')
 
   function addInterest(raw: string) {
     const labels = raw.split(/[,，\n]/).map(s => s.trim()).filter(Boolean)
     if (labels.length === 0) return
+    const targetGroupId = activeGroup.id === DEFAULT_KEYWORD_GROUP_ID ? undefined : activeGroup.id
     update(prev => {
-      const existing = new Set(prev.sources.filter(s => s.type === 'keyword').map(s => s.label))
+      // 同名標籤在不同組可並存，去重僅限同組內
+      const existing = new Set(
+        prev.sources.filter(s => s.type === 'keyword' && effectiveGroupId(s.groupId) === activeGroup.id).map(s => s.label)
+      )
       const additions: NewsSource[] = labels
         .filter(l => !existing.has(l))
         .map(label => ({
@@ -178,11 +194,42 @@ export function NewsSettingsPanel() {
           label,
           weight: 'normal' as const,
           enabled: true,
-          origin: 'user' as const
+          origin: 'user' as const,
+          groupId: targetGroupId
         }))
       return { ...prev, sources: [...prev.sources, ...additions] }
     })
     setInterestInput('')
+  }
+
+  // ── 關鍵字分組管理 ────────────────────────────────────────
+  function addGroup(name: string) {
+    const n = name.trim()
+    if (!n) { setAddingGroup(false); setNewGroupName(''); return }
+    const id = crypto.randomUUID()
+    update(prev => ({ ...prev, keywordGroups: [...prev.keywordGroups, { id, name: n }] }))
+    setActiveGroupId(id)
+    setAddingGroup(false)
+    setNewGroupName('')
+  }
+
+  function renameGroup(id: string, name: string) {
+    const n = name.trim()
+    if (n) update(prev => ({ ...prev, keywordGroups: prev.keywordGroups.map(g => g.id === id ? { ...g, name: n } : g) }))
+    setRenamingGroup(false)
+  }
+
+  function deleteGroup(id: string) {
+    if (id === DEFAULT_KEYWORD_GROUP_ID) return
+    if (!window.confirm('刪除這個關鍵字組？組內的標籤會移回「預設組」。')) return
+    update(prev => ({
+      ...prev,
+      keywordGroups: prev.keywordGroups.filter(g => g.id !== id),
+      sources: prev.sources.map(s =>
+        s.type === 'keyword' && effectiveGroupId(s.groupId) === id ? { ...s, groupId: undefined } : s
+      )
+    }))
+    setActiveGroupId(DEFAULT_KEYWORD_GROUP_ID)
   }
 
   function cycleSourceWeight(id: string) {
@@ -293,7 +340,66 @@ export function NewsSettingsPanel() {
       {/* 興趣標籤 */}
       <section className="space-y-2">
         <p className="text-sm font-semibold text-primary">🗞️ 想聊哪方面的消息？</p>
-        <p className="text-xs text-secondary">打字後按 Enter 或逗號變成一顆標籤。點標籤可切換「常聊／普通／偶爾」。</p>
+
+        {/* 關鍵字組切換 */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-secondary">組：</span>
+          {groups.map(g => (
+            <button
+              key={g.id}
+              type="button"
+              className={`text-xs px-2.5 py-1 rounded-full transition-all ${g.id === activeGroup.id ? 'bg-teal text-primary font-semibold' : 'bg-surface text-secondary border border-border hover:bg-mint-40'}`}
+              onClick={() => { setActiveGroupId(g.id); setRenamingGroup(false) }}
+            >
+              {g.name}
+            </button>
+          ))}
+          {addingGroup ? (
+            <input
+              type="text"
+              autoFocus
+              value={newGroupName}
+              placeholder="組名"
+              className="input-field text-xs w-24"
+              onChange={e => setNewGroupName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); addGroup(newGroupName) }
+                if (e.key === 'Escape') { setAddingGroup(false); setNewGroupName('') }
+              }}
+              onBlur={() => addGroup(newGroupName)}
+            />
+          ) : (
+            <button
+              type="button"
+              className="text-xs px-2 py-1 rounded-full border border-dashed border-border text-secondary hover:bg-mint-40"
+              onClick={() => { setAddingGroup(true); setNewGroupName('') }}
+            >
+              ＋組
+            </button>
+          )}
+          {!isDefaultGroup && !renamingGroup && (
+            <>
+              <button type="button" className="text-xs px-1.5 opacity-60 hover:opacity-100" title="重新命名這個組" onClick={() => { setRenamingGroup(true); setGroupRenameValue(activeGroup.name) }}>✎</button>
+              <button type="button" className="text-xs px-1.5 opacity-60 hover:opacity-100 text-[#E85D3F]" title="刪除這個組" onClick={() => deleteGroup(activeGroup.id)}>✕</button>
+            </>
+          )}
+        </div>
+        {renamingGroup && !isDefaultGroup && (
+          <input
+            type="text"
+            autoFocus
+            value={groupRenameValue}
+            className="input-field text-xs w-40"
+            onChange={e => setGroupRenameValue(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); renameGroup(activeGroup.id, groupRenameValue) }
+              if (e.key === 'Escape') setRenamingGroup(false)
+            }}
+            onBlur={() => renameGroup(activeGroup.id, groupRenameValue)}
+          />
+        )}
+
+        <p className="text-xs text-secondary">打字後按 Enter 或逗號變成一顆標籤，會歸到目前選的「{activeGroup.name}」。點標籤可切換「常聊／普通／偶爾」。在「情境」分頁可指定每個情境要用哪一組。</p>
         <div className="flex flex-wrap gap-2 p-2 rounded-2xl bg-surface border border-border min-h-[44px]">
           {keywordSources.map(s => (
             <span key={s.id} className={`flex items-center gap-1 text-xs px-3 py-1 rounded-full ${weightChipClass(s.weight)} ${!s.enabled ? 'opacity-40' : ''}`}>

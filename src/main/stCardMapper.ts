@@ -98,6 +98,8 @@ function importDesktopCharacter(raw: AnyRecord, id: string): Character {
     scenario: toOptionalString(raw.scenario),
     systemPromptOverride: toOptionalString(raw.systemPromptOverride ?? raw.system_prompt),
     creatorNotes: toOptionalString(raw.creatorNotes ?? raw.creator_notes ?? raw.creatorcomment),
+    // DesktopST 原創欄位：角色自帶新聞關鍵字（ST 卡無對應欄位，僅在 native 卡保留）
+    newsKeywords: (() => { const a = toStringArray(raw.newsKeywords); return a.length > 0 ? a : undefined })(),
     lorebook: null,
     lastDesktopSize: toFiniteNumber(raw.lastDesktopSize),
     lastDesktopFlipped: typeof raw.lastDesktopFlipped === 'boolean' ? raw.lastDesktopFlipped : undefined,

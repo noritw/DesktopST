@@ -10,7 +10,8 @@ import type { AppSettings, PersonaPreset, RemoteCapability, ScenePreset, WorldPr
 import MonoIcon from '../components/MonoIcon'
 import { RemoteControlSettingsPanel } from '../modules/remote-control'
 import { NewsSettingsPanel } from '../modules/news'
-import type { NewsModuleSettings } from '../modules/news'
+import type { NewsModuleSettings, NewsKeywordGroup } from '../modules/news'
+import { DEFAULT_KEYWORD_GROUP_ID } from '../modules/news'
 
 const OPENAI_MODEL_LIST_HELP =
   'https://help.openai.com/en/articles/10306912-sharing-feedback-evaluation-and-fine-tuning-data-and-api-inputs-and-outputs-with-openai'
@@ -206,6 +207,7 @@ export default function SettingsWindow() {
   const deleteScene = useAppStore(s => s.deleteScene)
   const loadScene = useAppStore(s => s.loadScene)
   const renameScene = useAppStore(s => s.renameScene)
+  const updateScene = useAppStore(s => s.updateScene)
 
   const [tab, setTab] = useState<Tab>(() => tabFromLocation())
   const [draft, setDraft] = useState<AppSettings | null>(null)
@@ -225,6 +227,7 @@ export default function SettingsWindow() {
   const [convTitles, setConvTitles] = useState<Record<string, string>>({})
   const [showRestartSuggestion, setShowRestartSuggestion] = useState(false)
   const [newsEnabled, setNewsEnabled] = useState(false)
+  const [newsKeywordGroups, setNewsKeywordGroups] = useState<NewsKeywordGroup[]>([])
 
   const changeTab = (nextTab: Tab) => {
     setTab(nextTab)
@@ -318,6 +321,7 @@ export default function SettingsWindow() {
     void (async () => {
       const news = await window.api.invoke('news:get-settings') as NewsModuleSettings
       setNewsEnabled(!!news?.enabled)
+      setNewsKeywordGroups(news?.keywordGroups ?? [])
     })()
   }, [])
 
@@ -326,6 +330,9 @@ export default function SettingsWindow() {
     void (async () => {
       const list = await window.api.invoke('conversation:list') as Array<{ id: string; title: string }>
       setConvTitles(Object.fromEntries(list.map(c => [c.id, c.title])))
+      // 重新抓最新的關鍵字組（使用者可能剛在「新聞」分頁新增了組）
+      const news = await window.api.invoke('news:get-settings') as NewsModuleSettings
+      setNewsKeywordGroups(news?.keywordGroups ?? [])
     })()
   }, [tab])
 
@@ -1415,6 +1422,25 @@ export default function SettingsWindow() {
                               <span>{new Date(scene.updatedAt).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                             </div>
                           </div>
+
+                          {/* 新聞關鍵字組（取代式切換興趣池）；只有建立過自訂組時才顯示 */}
+                          {newsEnabled && newsKeywordGroups.length > 1 && (
+                            <label className="flex items-center gap-1.5 text-[11px] text-secondary">
+                              <span className="text-primary/60 shrink-0">新聞關鍵字組：</span>
+                              <select
+                                className="input-field text-xs py-1 flex-1 min-w-0"
+                                value={scene.newsKeywordGroupId ?? DEFAULT_KEYWORD_GROUP_ID}
+                                onChange={e => {
+                                  const v = e.target.value
+                                  void updateScene(scene.id, { newsKeywordGroupId: v === DEFAULT_KEYWORD_GROUP_ID ? undefined : v })
+                                }}
+                              >
+                                {newsKeywordGroups.map(g => (
+                                  <option key={g.id} value={g.id}>{g.name}</option>
+                                ))}
+                              </select>
+                            </label>
+                          )}
 
                           {/* Action buttons */}
                           <div className="flex gap-1.5 flex-wrap">

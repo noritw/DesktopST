@@ -25,8 +25,30 @@ export interface NewsSource {
   /** 預設 'normal' */
   weight: NewsWeight
   enabled: boolean
-  /** 來源出處：使用者新增 / 地方新聞帶入 / 內建 */
-  origin?: 'user' | 'location' | 'builtin'
+  /** 來源出處：使用者新增 / 地方新聞帶入 / 內建 / 角色卡帶入 */
+  origin?: 'user' | 'location' | 'builtin' | 'character'
+  /**
+   * 興趣關鍵字所屬的組（只作用在 type === 'keyword'）；未設視為預設組。
+   * rss / json 維持全域 always-on，不分組。
+   */
+  groupId?: string
+}
+
+/** 關鍵字分組（情境綁定用，取代式切換興趣池） */
+export interface NewsKeywordGroup {
+  id: string
+  /** 情境設定下拉只顯示這個名稱 */
+  name: string
+}
+
+/**
+ * 抽選一則新聞時的情境 / 角色脈絡：
+ * - sceneGroupId：當前 Scene 綁定的關鍵字組（取代式，undefined = 預設組）。
+ * - characterKeywords：當前發話角色的 newsKeywords（疊加，普通權重）。
+ */
+export interface NewsSelectionContext {
+  sceneGroupId?: string
+  characterKeywords?: string[]
 }
 
 /** 地方新聞的單一縣市 */
@@ -41,6 +63,8 @@ export interface NewsLocation {
 export interface NewsModuleSettings {
   enabled: boolean
   sources: NewsSource[]
+  /** 關鍵字分組（必含一個內建「預設組」，id = 'default'）。情境靠 groupId 取代式切換興趣池。 */
+  keywordGroups: NewsKeywordGroup[]
   /** 黑名單關鍵字（比對 title / summary / tags / category / source） */
   blacklist: string[]
   excludedCategories: string[]

@@ -2,7 +2,7 @@ import { fetchAllSources } from './sources'
 import { filterAndPick, isForeignLanguage } from './filter'
 import { loadNewsModuleSettings, saveNewsModuleSettings } from './settings'
 import { getActiveNewsTopic, type NewsTopic } from './topicState'
-import type { NewsItem, NewsModuleSettings, SpeakMode } from './types'
+import type { NewsItem, NewsModuleSettings, NewsSelectionContext, SpeakMode } from './types'
 
 /**
  * 待結算的正向回饋：角色剛講完一則新聞後，記住它的來源；
@@ -143,7 +143,7 @@ export interface NewsInjection {
  * 會把抽中的新聞記入 seenIds。
  */
 export async function getNewsInjectionForSpeak(
-  options: { force?: boolean; rng?: () => number } = {}
+  options: { force?: boolean; rng?: () => number; ctx?: NewsSelectionContext } = {}
 ): Promise<NewsInjection | null> {
   const settings = loadNewsModuleSettings()
   if (!settings.enabled) return null
@@ -162,8 +162,8 @@ export async function getNewsInjectionForSpeak(
   const rng = options.rng ?? Math.random
   if (!options.force && !shouldGrabNews(settings.speakButton, rng)) return null
 
-  const items = await fetchAllSources(settings)
-  const { picked } = filterAndPick(items, settings, { rng })
+  const items = await fetchAllSources(settings, {}, options.ctx)
+  const { picked } = filterAndPick(items, settings, { rng, ctx: options.ctx })
   if (!picked) return null
 
   markNewsSeen(settings, picked.id)

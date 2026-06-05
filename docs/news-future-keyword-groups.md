@@ -1,8 +1,18 @@
-# 新聞模組 — 關鍵字分組 / 角色卡關鍵字（定案待實作）
+# 新聞模組 — 關鍵字分組 / 角色卡關鍵字（已實作）
 
-> 狀態：**設計已定案，待開分支實作。** 規格外功能，MVP 之後的第一個新聞演進。
-> 提出日：2026-06-03（owner）；定案日：2026-06-05。相關：`docs/news-module-design.md`。
-> 實作時再把摘要併入 `DesktopST-Spec.md` §15。
+> 狀態：**已實作（分支 `feat/news-keyword-groups`）。** 規格外功能，MVP 之後的第一個新聞演進。
+> 提出日：2026-06-03（owner）；定案日：2026-06-05；實作日：2026-06-05。相關：`docs/news-module-design.md`。
+> 後續再把摘要併入 `DesktopST-Spec.md` §15。
+>
+> **實作備註：**
+> - 抽選脈絡用 `NewsSelectionContext`（`sceneGroupId` + `characterKeywords`）串接 `fetchAllSources` / `filterAndPick`，
+>   在 `ipcHandlers.resolveNewsSelectionContext()` 依當前發話角色與 `settings.activeSceneId` 解析後傳入。
+> - 「預設組」固定 id = `'default'`；關鍵字 `groupId` 為 `undefined` 或指向不存在的組 → 落回預設組。
+> - 角色卡關鍵字以 `origin: 'character'`、`id: 'char-<kw>'`、普通權重的暫時來源加入抓取，不存進 sources。
+> - 角色 `newsKeywords` 隨 `card.json` 進 DST 角色卡（自動）；ST PNG 匯出 / 匯入皆不帶（依設計）。
+> - **尚未實作**：DST「使用者」搬家包帶整批關鍵字組（目前 DST pack 的 global partial 不含任何新聞設定，
+>   屬另一條管線，先擱置；§4 表格此列待補）。
+> - `news:preview`（試抓）目前以預設組脈絡測試（不帶情境組 / 角色關鍵字），為刻意取捨。
 
 ## 目標
 

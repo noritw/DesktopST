@@ -28,7 +28,7 @@ import {
   getNewsInjectionForSpeak, getActiveNewsTopic, setActiveNewsTopic,
   setPendingNewsCredit, consumePendingNewsCredit, applyNewsFeedbackDelta,
   buildSurveyDirective, buildNotesDirective, loadNewsModuleSettings,
-  type NewsTopic
+  type NewsTopic, type NewsSelectionContext
 } from './modules/news'
 import { pushRemoteControlState, pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
 import {
@@ -1257,7 +1257,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   let reminderNewsTitle: string | undefined
   if (reminder.injectNews) {
     try {
-      const inj = await getNewsInjectionForSpeak({ force: true })
+      const inj = await getNewsInjectionForSpeak({ force: true, ctx: resolveNewsSelectionContext(char) })
       if (inj) {
         ctxParts.push(inj.text)
         if (!inj.fromTopic && inj.item) {
@@ -1531,6 +1531,15 @@ function buildVisiblePinnedNotesContext(): { text: string; titles: string[] } | 
   return { text: `[桌面便利貼]\n${lines.join('\n')}`, titles }
 }
 
+/** 解析當前發話角色的新聞抽選脈絡：情境組（取代式）＋角色卡關鍵字（疊加）。 */
+function resolveNewsSelectionContext(char: Character | null | undefined): NewsSelectionContext {
+  const activeScene = settings.activeSceneId ? fileStore.loadScenePreset(settings.activeSceneId) : null
+  return {
+    sceneGroupId: activeScene?.newsKeywordGroupId,
+    characterKeywords: char?.newsKeywords
+  }
+}
+
 export async function forceSpeakDirect(characterId: string): Promise<{ ok: true } | { error: string }> {
     const conv = getActiveConversation()
     const char = getCharacter(characterId)
@@ -1579,7 +1588,7 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
     let newsDirective: string | undefined
     let newsBubbleMeta: BubbleNewsMeta | null = null
     try {
-      const newsInjection = await getNewsInjectionForSpeak()
+      const newsInjection = await getNewsInjectionForSpeak({ ctx: resolveNewsSelectionContext(char) })
       const noteBlock = settings.ui.speakUsePinnedNotes ? buildVisiblePinnedNotesContext() : null
 
       if (newsInjection?.fromTopic) {
@@ -3469,6 +3478,7 @@ export function registerIpcHandlers() {
   // Capture current app state as a scene snapshot (create new or update existing)
   ipcMain.handle('scene:capture', (_, id: string | null, name: string) => {
     const now = Date.now()
+    const existing = id ? fileStore.loadScenePreset(id) : null
     const scene: ScenePreset = {
       id: id ?? uuidv4(),
       name,
@@ -3479,7 +3489,9 @@ export function registerIpcHandlers() {
       colorTheme: settings.ui.colorTheme,
       inputWindowBounds: settings.ui.inputWindowBounds,
       logWindowBounds: settings.ui.logWindowBounds,
-      createdAt: id ? (fileStore.loadScenePreset(id)?.createdAt ?? now) : now,
+      // 覆寫狀態時保留既有的新聞關鍵字組綁定（它不是桌面快照的一部分）
+      newsKeywordGroupId: existing?.newsKeywordGroupId,
+      createdAt: existing?.createdAt ?? now,
       updatedAt: now
     }
     fileStore.saveScenePreset(scene)

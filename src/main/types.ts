@@ -12,6 +12,8 @@ export interface Character {
   scenario?: string
   systemPromptOverride?: string
   creatorNotes?: string
+  /** 角色自帶新聞興趣關鍵字（疊加在當前興趣池上，普通權重）。純字串、不帶權重。 */
+  newsKeywords?: string[]
   lorebook?: null
   lastDesktopSize?: number
   lastDesktopFlipped?: boolean
@@ -114,6 +116,8 @@ export interface ScenePreset {
   colorTheme?: ColorTheme
   inputWindowBounds?: WindowBoundsState
   logWindowBounds?: WindowBoundsState
+  /** 綁定的新聞關鍵字組 id；未綁（undefined）= 用預設組（取代式切換興趣池） */
+  newsKeywordGroupId?: string
   createdAt: number
   updatedAt: number
 }
