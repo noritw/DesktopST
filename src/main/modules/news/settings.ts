@@ -1,11 +1,12 @@
 import { hasModuleSettings, readModuleSettings, writeModuleSettings } from '../moduleSettings'
-import type { LangMode, NewsLocation, NewsModuleSettings, NewsSource, NewsWeight, SpeakMode } from './types'
+import type { LangMode, NewsLocation, NewsModuleSettings, NewsReplyModel, NewsSource, NewsWeight, SpeakMode } from './types'
 
 export const NEWS_MODULE_ID = 'desktopst.news'
 
 const VALID_WEIGHTS: NewsWeight[] = ['often', 'normal', 'rarely']
 const VALID_LANG_MODES: LangMode[] = ['zh-only', 'translate', 'raw']
 const VALID_SPEAK_MODES: SpeakMode[] = ['off', 'sometimes', 'always']
+const VALID_REPLY_MODELS: NewsReplyModel[] = ['main', 'utility']
 
 /** design §5：常聊 / 普通 / 偶爾 ≈ 3 / 2 / 1 */
 export function weightToValue(weight: NewsWeight): number {
@@ -58,11 +59,13 @@ export function defaultNewsModuleSettings(): NewsModuleSettings {
     excludedSources: [],
     langMode: 'translate',
     speakButton: 'sometimes',
+    replyModel: 'main',
     reminder: { enabled: false },
     breakout: { enabled: false, weight: 'normal' },
     localNews: { enabled: false, locations: [] },
     feedback: { adjustments: {} },
-    seenIds: []
+    seenIds: [],
+    maxAgeDays: 30
   }
 }
 
@@ -93,6 +96,8 @@ export function normalizeNewsModuleSettings(raw: Partial<NewsModuleSettings> | u
     excludedSources: normalizeStringArray(raw.excludedSources),
     langMode: VALID_LANG_MODES.includes(raw.langMode as LangMode) ? (raw.langMode as LangMode) : 'translate',
     speakButton: VALID_SPEAK_MODES.includes(raw.speakButton as SpeakMode) ? (raw.speakButton as SpeakMode) : 'sometimes',
+    // 舊設定沒有 replyModel → 'main'（把預設行為由輔助改為主要，避免角色口吻被壓平）
+    replyModel: VALID_REPLY_MODELS.includes(raw.replyModel as NewsReplyModel) ? (raw.replyModel as NewsReplyModel) : 'main',
     reminder: {
       enabled: raw.reminder?.enabled === true,
       schedule: raw.reminder?.schedule
@@ -107,7 +112,8 @@ export function normalizeNewsModuleSettings(raw: Partial<NewsModuleSettings> | u
     },
     feedback: { adjustments },
     // seenIds 上限保護，避免無限增長
-    seenIds: normalizeStringArray(raw.seenIds).slice(-500)
+    seenIds: normalizeStringArray(raw.seenIds).slice(-500),
+    maxAgeDays: typeof raw.maxAgeDays === 'number' && raw.maxAgeDays >= 0 ? Math.floor(raw.maxAgeDays) : 30
   }
 }
 

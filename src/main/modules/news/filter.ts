@@ -107,6 +107,7 @@ export interface FilterResult {
   /** 各層淘汰統計，方便 log / debug */
   stats: {
     total: number
+    afterAge: number
     afterSourceExclude: number
     afterBlacklist: number
     afterCategoryExclude: number
@@ -134,6 +135,7 @@ export function filterAndPick(
 
   const stats: FilterResult['stats'] = {
     total: items.length,
+    afterAge: 0,
     afterSourceExclude: 0,
     afterBlacklist: 0,
     afterCategoryExclude: 0,
@@ -148,6 +150,17 @@ export function filterAndPick(
     if (!uniqueById.has(item.id)) uniqueById.set(item.id, item)
   }
   let pool = [...uniqueById.values()]
+
+  // 0. 日期截止（maxAgeDays > 0 時生效；publishedAt 空字串或解析失敗的放行）
+  if (settings.maxAgeDays > 0) {
+    const cutoff = Date.now() - settings.maxAgeDays * 24 * 60 * 60 * 1000
+    pool = pool.filter(item => {
+      if (!item.publishedAt) return true
+      const t = new Date(item.publishedAt).getTime()
+      return isNaN(t) || t >= cutoff
+    })
+  }
+  stats.afterAge = pool.length
 
   // 1. 來源排除（source 子字串比對）
   pool = pool.filter(item => !matchesAny(item.source.toLowerCase(), excludedSourcesLower))

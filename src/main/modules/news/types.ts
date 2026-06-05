@@ -9,6 +9,9 @@ export type LangMode = 'zh-only' | 'translate' | 'raw'
 /** 「說點什麼」抓新聞：關 / 偶爾 / 每次 */
 export type SpeakMode = 'off' | 'sometimes' | 'always'
 
+/** 新聞陪聊的角色化輸出要走哪個模型：主要（口吻優先）/ 輔助（成本優先） */
+export type NewsReplyModel = 'main' | 'utility'
+
 /** 來源類型：興趣關鍵字 / 任意 RSS / 自架聚合站 JSON */
 export type NewsSourceType = 'keyword' | 'rss' | 'json'
 
@@ -46,6 +49,8 @@ export interface NewsModuleSettings {
   langMode: LangMode
   /** 「說點什麼」抓新聞，預設 'sometimes' */
   speakButton: SpeakMode
+  /** 新聞陪聊走哪個模型，預設 'main'（口吻優先，避免便宜模型壓平角色語氣） */
+  replyModel: NewsReplyModel
   /** 選配的提醒觸發 */
   reminder: {
     enabled: boolean
@@ -67,6 +72,8 @@ export interface NewsModuleSettings {
   }
   /** 已聊過的新聞 id（去重） */
   seenIds: string[]
+  /** 幾天以前的文章排除，0 = 不限制，預設 30 */
+  maxAgeDays: number
 }
 
 /** 偵測到的文字主要語言（輕量字元判斷，非完整語言庫） */

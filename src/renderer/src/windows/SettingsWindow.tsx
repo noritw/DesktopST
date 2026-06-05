@@ -1846,6 +1846,14 @@ export default function SettingsWindow() {
                 className="w-full accent-teal"
               />
             </Field>
+            <Field label={`詳細 Prompt 保留數（最近 ${draft.memory.keepDebugPromptN ?? 5} 則）`}>
+              <input type="range" min={0} max={20} step={1}
+                value={draft.memory.keepDebugPromptN ?? 5}
+                onChange={e => set('memory.keepDebugPromptN', Number(e.target.value))}
+                className="w-full accent-teal"
+              />
+            </Field>
+            <p className="text-xs text-secondary">Log 的「查看完整 Prompt」只會出現在最近這個則數內的訊息；超過的會剪掉以減輕載入，不影響對話記憶。</p>
           </>
         )}
 

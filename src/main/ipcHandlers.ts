@@ -27,7 +27,7 @@ import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
 import {
   getNewsInjectionForSpeak, getActiveNewsTopic, setActiveNewsTopic,
   setPendingNewsCredit, consumePendingNewsCredit, applyNewsFeedbackDelta,
-  buildSurveyDirective, buildNotesDirective,
+  buildSurveyDirective, buildNotesDirective, loadNewsModuleSettings,
   type NewsTopic
 } from './modules/news'
 import { pushRemoteControlState, pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
@@ -1381,6 +1381,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       utilityInputTokens: reminderUtilityInputTk,
       utilityOutputTokens: reminderUtilityOutputTk,
       utilityDebugPrompt: reminderUtilityDebugPrompt,
+      hasDebugPrompt: !!((hasApiKey && debugPrompt) || reminderUtilityDebugPrompt),
       timestamp: Date.now()
     }
     conv.messages.push(msg)
@@ -1633,8 +1634,10 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
       console.warn('[news] inject failed:', (e as Error).message)
     }
     const extraSystemContext = ctxParts.join('\n\n') || undefined
-    // design §11：新聞陪聊的角色化輸出一律走輔助模型（未啟用分流時 applyUtilitySettings 原樣回傳主模型）。
-    const chatSettings = newsUsedUtilityModel ? applyUtilitySettings(settings) : settings
+    // 新聞陪聊走哪個模型由新聞設定 replyModel 決定（預設 main＝主要模型，口吻優先）。
+    // 只有使用者選擇 'utility' 時才套用 applyUtilitySettings（未啟用分流時它原樣回傳主模型）。
+    const useUtilityForNews = newsUsedUtilityModel && loadNewsModuleSettings().replyModel === 'utility'
+    const chatSettings = useUtilityForNews ? applyUtilitySettings(settings) : settings
 
     try {
       let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
@@ -1686,6 +1689,7 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
         utilityInputTokens: forceUtilityInputTk,
         utilityOutputTokens: forceUtilityOutputTk,
         utilityDebugPrompt: forceUtilityDebugPrompt,
+        hasDebugPrompt: !!(debugPrompt || forceUtilityDebugPrompt),
         timestamp: Date.now()
       }
       conv.messages.push(msg)
@@ -2657,6 +2661,7 @@ export function registerIpcHandlers() {
     if (!conv) return { error: 'Not found' }
     activeConversationId = id
     syncLastActiveConversationToSettings()
+    fileStore.pruneConversationDebugPrompts(conv, settings.memory.keepDebugPromptN)
     broadcastConversationUpdate(conv)
     syncCharacterContextsFromConversation(conv)
     return stripConversationForLog(conv)
@@ -2909,6 +2914,7 @@ export function registerIpcHandlers() {
         utilityDebugPrompt = classifyResult.debugPrompt
       }
       userMsg.debugPrompt = debugPrompt
+      userMsg.hasDebugPrompt = !!debugPrompt
       lastReplyText = primaryReply
       const primaryLlm = messageLlmMeta(debugPrompt, settings)
       const charMsg: Message = {
@@ -2925,6 +2931,7 @@ export function registerIpcHandlers() {
         utilityInputTokens,
         utilityOutputTokens,
         utilityDebugPrompt,
+        hasDebugPrompt: !!(debugPrompt || utilityDebugPrompt),
         timestamp: Date.now()
       }
       conv.messages.push(charMsg)
@@ -3054,6 +3061,7 @@ export function registerIpcHandlers() {
           utilityInputTokens: secUtilityInputTk,
           utilityOutputTokens: secUtilityOutputTk,
           utilityDebugPrompt: secUtilityDebugPrompt,
+          hasDebugPrompt: !!(debugPrompt || secUtilityDebugPrompt),
           timestamp: Date.now()
         }
         lastReplyText = cleanReply
@@ -3174,6 +3182,7 @@ export function registerIpcHandlers() {
           utilityInputTokens,
           utilityOutputTokens,
           utilityDebugPrompt,
+          hasDebugPrompt: !!(debugPrompt || utilityDebugPrompt),
           timestamp: Date.now()
         }
         conv.messages.push(msg)

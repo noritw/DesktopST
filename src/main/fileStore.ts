@@ -264,6 +264,8 @@ export function loadSettings(): AppSettings {
       }
     }
 
+    _keepDebugPromptN = settings.memory.keepDebugPromptN
+
     if (needsMigration || hasLegacyPinnedNotesField || needsKeyMigration) {
       saveSettings(settings)
     }
@@ -333,6 +335,7 @@ export function saveReminders(reminders: Reminder[]): void {
 
 export function saveSettings(settings: AppSettings): void {
   ensureDirs()
+  _keepDebugPromptN = settings.memory.keepDebugPromptN
   savePinnedNotes(settings.ui.pinnedNotes ?? [])
   if (settings.remoteControl) {
     settings.remoteControl = saveRemoteControlModuleSettings(settings.remoteControl)
@@ -594,8 +597,12 @@ export function listConversationIds(): string[] {
 const _pendingConvJson = new Map<string, string>()
 const _saveConvTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
+/** 由 loadSettings / saveSettings 同步；saveConversation 用它決定 debug prompt 保留則數。 */
+let _keepDebugPromptN = DEFAULT_SETTINGS.memory.keepDebugPromptN
+
 export function saveConversation(conv: Conversation): void {
   ensureDirs()
+  pruneConversationDebugPrompts(conv, _keepDebugPromptN)
   _pendingConvJson.set(conv.id, JSON.stringify(conv, null, 2))
   const existing = _saveConvTimers.get(conv.id)
   if (existing) clearTimeout(existing)
@@ -607,6 +614,27 @@ export function saveConversation(conv: Conversation): void {
       if (err) console.error('[fileStore] saveConversation failed:', err)
     })
   }, 200))
+}
+
+/**
+ * 只保留最近 keepN 則訊息的完整 debug prompt，較舊的剪掉以減輕 Log 載入負擔。
+ * 就地修改 conv.messages：視窗內有 debug 的標 hasDebugPrompt=true，視窗外的刪 debug 並標 false。
+ * keepN <= 0 代表全部剪掉。
+ */
+export function pruneConversationDebugPrompts(conv: Conversation, keepN: number): void {
+  const msgs = conv.messages
+  const threshold = msgs.length - Math.max(0, keepN)
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i]
+    const hasDebug = !!(m.debugPrompt || m.utilityDebugPrompt)
+    if (i >= threshold && hasDebug) {
+      m.hasDebugPrompt = true
+    } else if (m.debugPrompt || m.utilityDebugPrompt || m.hasDebugPrompt) {
+      delete m.debugPrompt
+      delete m.utilityDebugPrompt
+      m.hasDebugPrompt = false
+    }
+  }
 }
 
 export function deleteConversation(id: string): void {

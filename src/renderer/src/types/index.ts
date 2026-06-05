@@ -36,6 +36,8 @@ export interface Message {
   utilityInputTokens?: number
   utilityOutputTokens?: number
   utilityDebugPrompt?: string
+  /** 此訊息是否保有完整 debug prompt（決定是否顯示「查看完整 Prompt」按鈕） */
+  hasDebugPrompt?: boolean
 }
 
 export interface Conversation {
@@ -252,6 +254,7 @@ export interface AppSettings {
   memory: {
     keepRecentN: number
     autoSummarizeAfter: number
+    keepDebugPromptN: number
   }
   updates?: {
     checkOnStartup?: boolean

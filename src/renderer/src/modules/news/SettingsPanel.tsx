@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import {
   WEIGHT_LABELS, nextWeight,
-  type LangMode, type NewsModuleSettings, type NewsPreviewResult, type NewsSource, type NewsWeight, type SpeakMode
+  type LangMode, type NewsModuleSettings, type NewsPreviewResult, type NewsReplyModel, type NewsSource, type NewsWeight, type SpeakMode
 } from './types'
 import type { ReminderSchedule } from '../../types'
 
@@ -9,6 +9,11 @@ const SPEAK_OPTIONS: { value: SpeakMode; label: string; hint: string }[] = [
   { value: 'off', label: '不抓新聞', hint: '按「說點什麼」只會閒聊' },
   { value: 'sometimes', label: '偶爾（推薦）', hint: '有時閒聊、有時帶一則新聞' },
   { value: 'always', label: '每次', hint: '每次都會挑一則新聞來聊' }
+]
+
+const REPLY_MODEL_OPTIONS: { value: NewsReplyModel; label: string; hint: string }[] = [
+  { value: 'main', label: '主要 LLM（口吻優先・推薦）', hint: '角色講新聞時口吻更自然，但 Token 消耗較高' },
+  { value: 'utility', label: '輔助 LLM（成本優先）', hint: '用便宜模型講新聞、省 Token，但口吻可能較平' }
 ]
 
 const LANG_OPTIONS: { value: LangMode; label: string; hint: string }[] = [
@@ -350,6 +355,28 @@ export function NewsSettingsPanel() {
                 className="accent-teal mt-0.5"
                 checked={settings.speakButton === opt.value}
                 onChange={() => update(prev => ({ ...prev, speakButton: opt.value }))}
+              />
+              <span>
+                <span className="block text-sm text-primary">{opt.label}</span>
+                <span className="block text-xs text-secondary">{opt.hint}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      {/* 聊新聞用的模型 */}
+      <section className="space-y-2">
+        <p className="text-sm font-semibold text-primary">聊新聞時用的模型</p>
+        <div className="space-y-1.5">
+          {REPLY_MODEL_OPTIONS.map(opt => (
+            <label key={opt.value} className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="news-reply-model"
+                className="accent-teal mt-0.5"
+                checked={settings.replyModel === opt.value}
+                onChange={() => update(prev => ({ ...prev, replyModel: opt.value }))}
               />
               <span>
                 <span className="block text-sm text-primary">{opt.label}</span>

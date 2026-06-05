@@ -3,6 +3,7 @@
 export type NewsWeight = 'often' | 'normal' | 'rarely'
 export type LangMode = 'zh-only' | 'translate' | 'raw'
 export type SpeakMode = 'off' | 'sometimes' | 'always'
+export type NewsReplyModel = 'main' | 'utility'
 export type NewsSourceType = 'keyword' | 'rss' | 'json'
 
 export interface NewsSource {
@@ -29,6 +30,7 @@ export interface NewsModuleSettings {
   excludedSources: string[]
   langMode: LangMode
   speakButton: SpeakMode
+  replyModel: NewsReplyModel
   reminder: { enabled: boolean }
   breakout: { enabled: boolean; weight: NewsWeight }
   localNews: { enabled: boolean; locations: NewsLocation[] }

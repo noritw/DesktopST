@@ -138,7 +138,7 @@ export default function HoverMenu({ visible, onScale, onButtonsEl }: Props) {
         ))}
       </div>
       <p
-        className="absolute left-1 right-0 text-center text-[9px] leading-tight text-text-secondary select-none pointer-events-none rounded-full bg-white/75 px-1.5 py-0.5"
+        className="absolute left-1 right-0 text-center text-[9px] leading-tight text-white select-none pointer-events-none rounded-full bg-black/50 px-1.5 py-0.5"
         style={{
           top: '100%',
           marginTop: 6,

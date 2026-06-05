@@ -37,6 +37,8 @@ export interface Message {
   utilityInputTokens?: number
   utilityOutputTokens?: number
   utilityDebugPrompt?: string
+  /** 輕量旗標：此訊息是否保有完整 debug prompt（廣播時不剝除，供 renderer 決定是否顯示「查看完整 Prompt」）。 */
+  hasDebugPrompt?: boolean
 }
 
 export interface Conversation {
@@ -238,6 +240,8 @@ export interface AppSettings {
   memory: {
     keepRecentN: number
     autoSummarizeAfter: number
+    /** 只有最近 N 則訊息保留完整 debug prompt（供 Log「查看完整 Prompt」）；超過的剪掉以減輕載入。 */
+    keepDebugPromptN: number
   }
   updates?: {
     checkOnStartup?: boolean
@@ -355,7 +359,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   memory: {
     keepRecentN: 20,
-    autoSummarizeAfter: 50
+    autoSummarizeAfter: 50,
+    keepDebugPromptN: 5
   },
   remoteControl: {
     enabled: false,
