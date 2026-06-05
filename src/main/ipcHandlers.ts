@@ -18,8 +18,9 @@ import {
 import { reloadReminders, setIdleSkipMinutes } from './reminderScheduler'
 import {
   geocodeCity, detectLocationByIP, fetchWeather, getCachedWeatherData,
-  getWeatherContextString, invalidateWeatherCache
+  getWeatherContextString, invalidateWeatherCache, getRealtimeQueryContextString
 } from './weatherService'
+import { testCwaApiKey } from './cwaService'
 import {
   buildAuthUrl, handleAuthCallback, clearAuthFile, isAuthenticated, getSpotifyContextString
 } from './spotifyService'
@@ -1887,9 +1888,22 @@ export function registerIpcHandlers() {
         fileStore.encryptedApiKeyFallbacks.delete(k)
       }
     }
+    // Protect CWA API Key (same fallback pattern as LLM keys)
+    let protectedWeather = s.weather
+    if (protectedWeather?.realtimeQuery !== undefined) {
+      const fallbackCwa = fileStore.encryptedApiKeyFallbacks.get('cwaApiKey')
+      if (fallbackCwa && !protectedWeather.realtimeQuery.cwaApiKey) {
+        protectedWeather = {
+          ...protectedWeather,
+          realtimeQuery: { ...protectedWeather.realtimeQuery, cwaApiKey: fallbackCwa }
+        }
+      } else if (protectedWeather.realtimeQuery.cwaApiKey) {
+        fileStore.encryptedApiKeyFallbacks.delete('cwaApiKey')
+      }
+    }
     const previousSettings = settings
     const prevLocationName = settings.weather?.locationName
-    settings = { ...s, llm: { ...s.llm, apiKeys: protectedApiKeys }, ui }
+    settings = { ...s, llm: { ...s.llm, apiKeys: protectedApiKeys }, weather: protectedWeather, ui }
     if (settings.weather?.locationName !== prevLocationName) invalidateWeatherCache()
     fileStore.saveSettings(settings)
     _applyMobileRuntimeSettingsFn?.(previousSettings, settings)
@@ -1940,6 +1954,10 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('weather:get-cache', () => getCachedWeatherData())
+
+  ipcMain.handle('weather:test-cwa-key', async (_, apiKey: string) => {
+    return testCwaApiKey(apiKey)
+  })
 
   // Spotify
   ipcMain.handle('spotify:open-settings', () => {
@@ -2943,10 +2961,11 @@ export function registerIpcHandlers() {
     const recentMessagesBase = [...conv.messages.slice(0, -1), userMsgForPrompt].slice(-(settings.memory.keepRecentN))
     let lastReplyText = ''
 
-    // Pre-fetch weather + spotify context once for this message (shared across all responders)
+    // Pre-fetch weather + spotify + realtime query context once for this message (shared across all responders)
     const weatherContext = settings.weather?.enabled ? await getWeatherContextString(settings) : null
     const spotifyContext = settings.spotify?.enabled ? await getSpotifyContextString(settings) : null
-    const extraContextParts = [weatherContext, spotifyContext].filter(Boolean) as string[]
+    const realtimeQueryContext = await getRealtimeQueryContextString(payload.content, settings)
+    const extraContextParts = [weatherContext, spotifyContext, realtimeQueryContext].filter(Boolean) as string[]
     const combinedExtraContext = extraContextParts.length > 0 ? extraContextParts.join('\n\n') : null
 
     // Emotion split: use utility model to classify if utilityEnabled + character has custom sprites

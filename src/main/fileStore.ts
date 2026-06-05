@@ -271,6 +271,19 @@ export function loadSettings(): AppSettings {
       }
     }
 
+    // Decrypt CWA API Key (same pattern as LLM keys)
+    const rq = settings.weather?.realtimeQuery
+    if (rq?.cwaApiKey) {
+      const decrypted = secureStore.decrypt(rq.cwaApiKey)
+      if (decrypted.startsWith('enc:v1:')) {
+        encryptedApiKeyFallbacks.set('cwaApiKey', decrypted)
+        rq.cwaApiKey = ''
+      } else {
+        encryptedApiKeyFallbacks.delete('cwaApiKey')
+        rq.cwaApiKey = decrypted
+      }
+    }
+
     _keepDebugPromptN = settings.memory.keepDebugPromptN
 
     if (needsMigration || hasLegacyPinnedNotesField || needsKeyMigration) {
@@ -355,6 +368,16 @@ export function saveSettings(settings: AppSettings): void {
     ...settings,
     llm: { ...settings.llm, apiKeys: encryptedApiKeys },
     ui: { ...settings.ui }
+  }
+  // Encrypt CWA API Key before persisting
+  if (persisted.weather?.realtimeQuery) {
+    persisted.weather = {
+      ...persisted.weather,
+      realtimeQuery: {
+        ...persisted.weather.realtimeQuery,
+        cwaApiKey: secureStore.encrypt(persisted.weather.realtimeQuery.cwaApiKey)
+      }
+    }
   }
   delete persisted.ui.pinnedNotes
   delete persisted.remoteControl

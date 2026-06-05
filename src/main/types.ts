@@ -148,6 +148,11 @@ export interface WeatherSettings {
   latitude: number
   longitude: number
   locationSource: 'ip' | 'manual' | ''
+  realtimeQuery?: {
+    enabled: boolean
+    cwaApiKey: string
+    forecastCounty: string
+  }
 }
 
 export interface SpotifySettings {

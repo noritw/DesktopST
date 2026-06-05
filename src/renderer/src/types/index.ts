@@ -166,6 +166,11 @@ export interface WeatherSettings {
   latitude: number
   longitude: number
   locationSource: 'ip' | 'manual' | ''
+  realtimeQuery?: {
+    enabled: boolean
+    cwaApiKey: string
+    forecastCounty: string
+  }
 }
 
 export type OmikujiTier = '大吉' | '中吉' | '小吉' | '吉' | '末吉' | '凶' | '大凶'

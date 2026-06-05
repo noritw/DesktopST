@@ -261,6 +261,9 @@ export default function SettingsWindow() {
   const [weatherCityInput, setWeatherCityInput] = useState('')
   const [weatherMsg, setWeatherMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const [weatherFetching, setWeatherFetching] = useState(false)
+  const [cwaRealtimeExpanded, setCwaRealtimeExpanded] = useState(false)
+  const [cwaTesting, setCwaTesting] = useState(false)
+  const [cwaTestMsg, setCwaTestMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const messagePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const messagePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -2391,6 +2394,114 @@ export default function SettingsWindow() {
                   <span className="text-[11px] text-secondary">（需先啟用輔助模型）</span>
                 )}
               </label>
+
+              {/* 即時氣象查詢（進階）*/}
+              <div className="border border-border rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between px-3 py-2 text-sm text-primary hover:bg-surface-hover transition-colors"
+                  onClick={() => setCwaRealtimeExpanded(v => !v)}
+                >
+                  <span className="font-medium">即時氣象查詢（進階）</span>
+                  <span className="text-secondary text-xs">{cwaRealtimeExpanded ? '▲' : '▼'}</span>
+                </button>
+                {cwaRealtimeExpanded && (
+                  <div className="px-3 pb-3 space-y-3 border-t border-border">
+                    <p className="text-[11px] text-secondary pt-2">
+                      偵測到「地震」「颱風」「明天天氣」等關鍵詞時，自動查詢中央氣象署取得即時資料。
+                    </p>
+
+                    {/* 啟用開關 */}
+                    <label className={`flex items-center gap-2 cursor-pointer ${!draft!.weather?.realtimeQuery?.cwaApiKey?.trim() ? 'opacity-40' : ''}`}>
+                      <input
+                        type="checkbox"
+                        checked={draft!.weather?.realtimeQuery?.enabled ?? false}
+                        disabled={!draft!.weather?.realtimeQuery?.cwaApiKey?.trim()}
+                        onChange={e => set('weather.realtimeQuery.enabled', e.target.checked)}
+                        className="accent-teal w-4 h-4"
+                      />
+                      <span className="text-sm text-primary">啟用即時氣象查詢</span>
+                    </label>
+
+                    {/* CWA API Key */}
+                    <div className="space-y-1">
+                      <label className="text-xs text-secondary">中央氣象署 API Key</label>
+                      <input
+                        type="text"
+                        className="w-full bg-bg border border-border rounded-lg px-3 py-1.5 text-sm text-primary placeholder-secondary focus:outline-none focus:border-teal font-mono"
+                        placeholder="CWA-XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+                        value={draft!.weather?.realtimeQuery?.cwaApiKey ?? ''}
+                        onChange={e => {
+                          const val = e.target.value
+                          set('weather.realtimeQuery.cwaApiKey', val)
+                          if (!val.trim()) set('weather.realtimeQuery.enabled', false)
+                          setCwaTestMsg(null)
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="text-xs text-teal hover:underline"
+                        onClick={() => window.api.invoke('shell:open-external', 'https://opendata.cwa.gov.tw/user/authkey')}
+                      >
+                        ↗ 申請免費 API Key
+                      </button>
+                    </div>
+
+                    {/* 預設縣市 */}
+                    <div className="space-y-1">
+                      <label className="text-xs text-secondary">預設縣市（天氣預報用）</label>
+                      <select
+                        className="w-full bg-bg border border-border rounded-lg px-3 py-1.5 text-sm text-primary focus:outline-none focus:border-teal"
+                        value={draft!.weather?.realtimeQuery?.forecastCounty ?? ''}
+                        onChange={e => set('weather.realtimeQuery.forecastCounty', e.target.value)}
+                      >
+                        <option value="">跟隨天氣設定的位置</option>
+                        {['臺北市','新北市','基隆市','桃園市','新竹市','新竹縣','苗栗縣',
+                          '臺中市','彰化縣','南投縣','雲林縣','嘉義市','嘉義縣',
+                          '臺南市','高雄市','屏東縣','臺東縣','花蓮縣','宜蘭縣',
+                          '澎湖縣','金門縣','連江縣'].map(county => (
+                          <option key={county} value={county}>{county}</option>
+                        ))}
+                      </select>
+                      {!draft!.weather?.realtimeQuery?.forecastCounty && draft!.weather?.locationName && (
+                        <p className="text-[11px] text-secondary">目前使用：{draft!.weather.locationName}</p>
+                      )}
+                    </div>
+
+                    {/* 測試連線 */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="btn-secondary text-xs px-3 py-1.5"
+                        disabled={cwaTesting || !draft!.weather?.realtimeQuery?.cwaApiKey?.trim()}
+                        onClick={async () => {
+                          const key = draft!.weather?.realtimeQuery?.cwaApiKey?.trim() ?? ''
+                          if (!key) return
+                          setCwaTesting(true)
+                          setCwaTestMsg(null)
+                          try {
+                            const result = await window.api.invoke('weather:test-cwa-key', key) as { ok: boolean; error?: string }
+                            if (result.ok) {
+                              setCwaTestMsg({ type: 'ok', text: '連線成功，API Key 有效' })
+                            } else {
+                              setCwaTestMsg({ type: 'err', text: result.error ?? '連線失敗' })
+                            }
+                          } finally {
+                            setCwaTesting(false)
+                          }
+                        }}
+                      >
+                        {cwaTesting ? '測試中…' : '測試連線'}
+                      </button>
+                      {cwaTestMsg && (
+                        <span className={`text-xs ${cwaTestMsg.type === 'ok' ? 'text-teal' : 'text-[#E85D3F]'}`}>
+                          {cwaTestMsg.text}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
