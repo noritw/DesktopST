@@ -235,8 +235,8 @@ export default function LogWindow() {
     setEditEmotion('neutral')
   }
 
-  const messageMayHaveDebug = (msg: Message) =>
-    msg.role === 'character' || msg.llmProvider != null || msg.inputTokens != null
+  // 只有實際保留 debug prompt 的訊息才顯示按鈕（超過保留則數的舊訊息會被剪掉 → 不顯示、也不會去抓 debug）。
+  const messageMayHaveDebug = (msg: Message) => msg.hasDebugPrompt === true
 
   const openPrompt = async (msg: Message) => {
     setEditingId(null)
@@ -660,17 +660,30 @@ export default function LogWindow() {
                   className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${promptTab === 'main' ? 'border-primary text-primary' : 'border-transparent text-secondary hover:text-primary'}`}
                   onClick={() => setPromptTab('main')}
                 >
-                  扮演模型
+                  主要 LLM
                 </button>
                 <button
                   type="button"
                   className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${promptTab === 'utility' ? 'border-teal text-teal' : 'border-transparent text-secondary hover:text-primary'}`}
                   onClick={() => setPromptTab('utility')}
                 >
-                  輔助模型（情緒分類）
+                  輔助 LLM
                 </button>
               </div>
             )}
+            <div className="px-4 pt-3 bg-surface">
+              {promptTab === 'utility' && promptMessage.utilityDebugPrompt ? (
+                <div className="rounded-lg border border-teal/40 bg-teal/10 px-3 py-2 text-[11px] leading-relaxed text-secondary">
+                  <span className="font-semibold text-teal">輔助 LLM 負責的指令</span>：表情判斷、群組次要角色、提醒發話、新聞陪聊（新聞設定選「輔助」時）、未來的對話摘要。
+                  <span className="block mt-0.5">輸入＝各任務專用 prompt（如表情分類），輸出＝分類 ID 或角色台詞。</span>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-border bg-bg px-3 py-2 text-[11px] leading-relaxed text-secondary">
+                  <span className="font-semibold text-primary">主要 LLM 負責的指令</span>：玩家直接對話的主回覆；新聞陪聊（新聞設定選「主要」時，預設）；未啟用模型分流時的所有發話。
+                  <span className="block mt-0.5">輸入＝四層 system prompt＋最近對話歷史，輸出＝角色台詞。</span>
+                </div>
+              )}
+            </div>
             <pre className="m-0 p-4 overflow-auto text-xs leading-relaxed text-primary whitespace-pre-wrap bg-surface">
               {promptTab === 'utility' && promptMessage.utilityDebugPrompt
                 ? renderDebugPrompt(promptMessage.utilityDebugPrompt)

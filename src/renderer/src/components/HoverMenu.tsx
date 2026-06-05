@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 
 interface Props {
   visible: boolean
-  onSettings?: () => void
   onScale?: () => void
   onButtonsEl?: (el: HTMLDivElement | null) => void
 }
@@ -84,7 +83,7 @@ export function HoverMenuIcon({ name }: { name: HoverMenuIconName }) {
   )
 }
 
-export default function HoverMenu({ visible, onSettings, onScale, onButtonsEl }: Props) {
+export default function HoverMenu({ visible, onScale, onButtonsEl }: Props) {
   const buttons: Array<{
     icon: ReactNode
     title: string
@@ -93,11 +92,6 @@ export default function HoverMenu({ visible, onSettings, onScale, onButtonsEl }:
     danger?: boolean
     disabled?: boolean
   }> = [
-    {
-      icon: <HoverMenuIcon name="person" />,
-      title: '角色設定',
-      onClick: () => (onSettings ? onSettings() : window.api.invoke('character-library:open'))
-    },
     {
       icon: <HoverMenuIcon name="scale" />,
       title: '縮放角色',
@@ -116,32 +110,42 @@ export default function HoverMenu({ visible, onSettings, onScale, onButtonsEl }:
   ]
 
   return (
-    <div
-      ref={onButtonsEl}
-      className="flex flex-col gap-2 no-drag pt-2 pl-1"
-      style={{
-        opacity: visible ? 1 : 0,
-        width: visible ? undefined : 0,
-        overflow: 'hidden',
-        transition: 'opacity 0.2s ease',
-        pointerEvents: visible ? 'auto' : 'none'
-      }}
-    >
-      {buttons.map((btn, i) => (
-        <button
-          key={i}
-          type="button"
-          title={btn.title}
-          aria-label={btn.title}
-          aria-pressed={btn.pressed}
-          disabled={btn.disabled}
-          onClick={btn.onClick}
-          className={`btn-round ${btn.danger ? 'btn-danger' : 'text-primary'} ${btn.pressed ? 'opacity-85 ring-1 ring-[#FFB59F]' : ''} ${btn.disabled ? 'opacity-45 cursor-not-allowed pointer-events-none' : ''}`}
-        >
-          {btn.icon}
-        </button>
-      ))}
-      <p className="text-center text-[9px] leading-tight text-text-secondary select-none pointer-events-none pt-1 rounded-full bg-white/75 px-1.5 py-0.5">
+    <div className="relative no-drag pl-1">
+      <div
+        ref={onButtonsEl}
+        className="flex flex-col gap-2"
+        style={{
+          opacity: visible ? 1 : 0,
+          width: visible ? undefined : 0,
+          overflow: 'hidden',
+          transition: 'opacity 0.2s ease',
+          pointerEvents: visible ? 'auto' : 'none'
+        }}
+      >
+        {buttons.map((btn, i) => (
+          <button
+            key={i}
+            type="button"
+            title={btn.title}
+            aria-label={btn.title}
+            aria-pressed={btn.pressed}
+            disabled={btn.disabled}
+            onClick={btn.onClick}
+            className={`btn-round ${btn.danger ? 'btn-danger' : 'text-primary'} ${btn.pressed ? 'opacity-85 ring-1 ring-[#FFB59F]' : ''} ${btn.disabled ? 'opacity-45 cursor-not-allowed pointer-events-none' : ''}`}
+          >
+            {btn.icon}
+          </button>
+        ))}
+      </div>
+      <p
+        className="absolute left-1 right-0 text-center text-[9px] leading-tight text-white select-none pointer-events-none rounded-full bg-black/50 px-1.5 py-0.5"
+        style={{
+          top: '100%',
+          marginTop: 6,
+          opacity: visible ? 1 : 0,
+          transition: 'opacity 0.2s ease'
+        }}
+      >
         右鍵<br />關閉
       </p>
     </div>

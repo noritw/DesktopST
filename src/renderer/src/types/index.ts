@@ -36,6 +36,8 @@ export interface Message {
   utilityInputTokens?: number
   utilityOutputTokens?: number
   utilityDebugPrompt?: string
+  /** 此訊息是否保有完整 debug prompt（決定是否顯示「查看完整 Prompt」按鈕） */
+  hasDebugPrompt?: boolean
 }
 
 export interface Conversation {
@@ -177,6 +179,7 @@ export interface Reminder {
   injectPinnedNotes?: boolean
   injectConversationContext?: boolean
   injectWeather?: boolean
+  injectNews?: boolean
   lastTriggeredAt?: number
   createdAt: number
 }
@@ -251,6 +254,7 @@ export interface AppSettings {
   memory: {
     keepRecentN: number
     autoSummarizeAfter: number
+    keepDebugPromptN: number
   }
   updates?: {
     checkOnStartup?: boolean
@@ -296,6 +300,8 @@ export interface AppSettings {
     }
     /** 閒置超過幾分鐘時略過提醒（0 = 不略過）*/
     reminderIdleSkipMinutes?: number
+    /** 按「說點什麼」時是否把桌面可見便利貼當作可聊的話題素材 */
+    speakUsePinnedNotes?: boolean
     /** Include the input window when capturing screenshots with DesktopST windows visible. */
     screenshotIncludeInputWindow?: boolean
     randomToolsEnabled?: boolean

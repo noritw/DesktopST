@@ -7,6 +7,16 @@ interface Props {
   characterId: string
 }
 
+interface BubbleNewsMeta {
+  id: string
+  sourceId: string
+  title: string
+  url: string
+  summary: string
+  source: string
+  keyword?: string
+}
+
 interface BubbleSourceRect {
   x: number
   y: number
@@ -38,6 +48,11 @@ export default function BubbleWindow({ characterId }: Props) {
   const [confirmPin, setConfirmPin] = useState(false)
   const [outlineMode, setOutlineMode] = useState(false)
   const [isLatestSpeaker, setIsLatestSpeaker] = useState(false)
+  const [news, setNews] = useState<BubbleNewsMeta | null>(null)
+  const [showNewsCard, setShowNewsCard] = useState(false)
+  const [dontWantMenu, setDontWantMenu] = useState(false)
+  const [blockKeyword, setBlockKeyword] = useState(false)
+  const [blockSource, setBlockSource] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingPinArgsRef = useRef<{ title: string; pos: { x: number; y: number }; content: string } | null>(null)
 
@@ -69,6 +84,33 @@ export default function BubbleWindow({ characterId }: Props) {
         console.error('[Lower character layer] Error:', e)
       })
     }
+  }
+
+  const setAsTopic = () => {
+    if (!news) return
+    void window.api.invoke('news:set-topic', news)
+    closeBubble()
+  }
+
+  const openDontWant = () => {
+    setBlockKeyword(false)
+    setBlockSource(false)
+    setDontWantMenu(true)
+  }
+
+  const confirmDontWant = () => {
+    if (news) {
+      void window.api.invoke('news:dont-want', {
+        id: news.id,
+        sourceId: news.sourceId,
+        keyword: news.keyword,
+        source: news.source,
+        blockKeyword,
+        blockSource
+      })
+    }
+    setDontWantMenu(false)
+    closeBubble()
   }
 
   const confirmLimitWarning = (level?: string, count?: number) => {
@@ -130,13 +172,17 @@ export default function BubbleWindow({ characterId }: Props) {
         autoCloseMs?: number
         persistUntilClosed?: boolean
         isLatestSpeaker?: boolean
+        news?: BubbleNewsMeta | null
       }
       if (p.characterId !== characterId) return
 
       clearTimer()
       setConfirmPin(false)
+      setShowNewsCard(false)
+      setDontWantMenu(false)
       setSpeakerName(p.speakerName ?? '')
       setText(p.text ?? '')
+      setNews(p.news ?? null)
       setIsLatestSpeaker(p.isLatestSpeaker !== false)
       setVisible(true)
 
@@ -331,6 +377,104 @@ export default function BubbleWindow({ characterId }: Props) {
         ) : (
           <div ref={contentRef} className="no-drag min-h-0 flex-1 overflow-y-auto break-words px-3 pb-2 pt-1">
             <MessageText text={displayText} />
+            {/* 有新聞素材時，右下角顯示低調的「↗ 新聞」連結 */}
+            {news && !showNewsCard && (
+              <div className="flex justify-end mt-1">
+                <button
+                  type="button"
+                  className="text-[11px] text-secondary decoration-dotted underline underline-offset-2 transition-colors hover:text-primary"
+                  title="點開查看這則新聞的詳情與選項"
+                  onClick={() => setShowNewsCard(true)}
+                >
+                  ↗ 新聞
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        {/* 新聞小卡：點「↗ 新聞」後展開，含標題、摘要、行動按鈕 */}
+        {news && showNewsCard && (
+          <div className="no-drag mx-3 mb-2 mt-0.5 rounded-xl border border-border bg-surface px-3 py-2 text-xs text-primary space-y-2">
+            {/* 標題列 */}
+            <div className="flex items-start gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold leading-snug break-words">{news.title}</p>
+                {news.summary && news.summary !== news.title && (
+                  <p className="mt-0.5 text-secondary leading-snug break-words line-clamp-3">{news.summary}</p>
+                )}
+                {news.source && <p className="mt-0.5 text-secondary opacity-70">來源：{news.source}</p>}
+              </div>
+              <button
+                type="button"
+                className="shrink-0 mt-0.5 text-secondary opacity-60 hover:opacity-100 transition-opacity"
+                title="收起"
+                onClick={() => { setShowNewsCard(false); setDontWantMenu(false) }}
+              >
+                ✕
+              </button>
+            </div>
+            {/* 沒興趣選單（展開後）*/}
+            {dontWantMenu ? (
+              <div className="space-y-1.5">
+                <p className="leading-snug">這則略過就好，還是要順便封鎖？</p>
+                {news.keyword && (
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={blockKeyword} onChange={e => setBlockKeyword(e.target.checked)} className="accent-teal" />
+                    <span>封鎖關鍵字「{news.keyword}」</span>
+                  </label>
+                )}
+                {news.source && (
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={blockSource} onChange={e => setBlockSource(e.target.checked)} className="accent-teal" />
+                    <span>封鎖來源「{news.source}」</span>
+                  </label>
+                )}
+                <div className="flex justify-end gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    className="rounded-full border border-border bg-surface-80 px-3 py-0.5 text-secondary transition-colors hover:bg-surface"
+                    onClick={() => setDontWantMenu(false)}
+                  >取消</button>
+                  <button
+                    type="button"
+                    className="rounded-full bg-mint px-3 py-0.5 font-medium text-primary transition-colors hover:bg-teal"
+                    onClick={confirmDontWant}
+                  >確認</button>
+                </div>
+              </div>
+            ) : (
+              /* 行動按鈕列 */
+              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                <button
+                  type="button"
+                  className="rounded-full bg-mint px-2.5 py-0.5 font-medium text-primary transition-colors hover:bg-teal"
+                  onClick={setAsTopic}
+                >
+                  📌 作為聊天主題
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full border border-border bg-surface-80 px-2.5 py-0.5 text-secondary transition-colors hover:bg-blush hover:text-primary"
+                  onClick={openDontWant}
+                >
+                  🙅 沒興趣
+                </button>
+                {news.url && (
+                  <button
+                    type="button"
+                    className="rounded-full border border-border bg-surface-80 px-2.5 py-0.5 text-secondary transition-colors hover:bg-mint hover:text-primary"
+                    title="在瀏覽器開啟原文"
+                    onClick={() => {
+                      void window.api.invoke('shell:open-external', news.url)
+                      // 點開原文 = 有好奇感，微加分（+0.1，低於回話的 +0.5）
+                      if (news.sourceId) void window.api.invoke('news:mark-opened', news.sourceId)
+                    }}
+                  >
+                    原文 ↗
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
         {isLatestSpeaker && !lowPerformanceMode && (

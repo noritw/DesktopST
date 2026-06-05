@@ -1385,6 +1385,181 @@ src/styles/global.css     ← 全域字型載入
 
 ---
 
+## 15. 新聞模組（規劃中 — 尚未實作）
+
+> **詳細設計以 `docs/news-module-design.md`（統一定案版）為準**，本節為規格摘要。
+> 共用模組架構見 `docs/module-system-roadmap.md`；JSON 來源契約見 `docs/news-feed-spec.md`。
+
+讓桌面角色像朋友一樣，偶爾抽一則新聞跟使用者聊聊（不是播報、**不是每日簡報**）。
+
+- **可選模組**：掛在共用 **module host** 下（中風險：會連外抓資料）。整個模組可停用，停用時對其他功能零影響。
+- **不做使用者畫像**：只收集**手動設定的興趣關鍵字**，不問身份 / 年齡 / 職業 / 產業等人口屬性（刻意的隱私設計）。
+- 觸發以**手動按「說點什麼」為主力**、提醒排程為選配（見 §15.8）；新聞素材注入沿用 Spotify 那套（當背景知識餵 LLM）。
+- 新聞相關 LLM 工作**一律走輔助模型**（`utilityModel`，見 `PLAN-prompt-and-routing.md` Part B），成本最低。
+
+> 設計核心：**使用者以為自己在「填興趣標籤」，不是在「設定新聞來源」。** 技術詞全藏在後面。
+
+### 15.1 角色口吻（成敗關鍵）
+
+注入時**不要叫角色照念新聞**，而是當背景知識，指示它用自己的人格挑一個在意的點起話頭。
+
+- Prompt 框架示意：
+  > 「你剛剛滑手機看到一則新聞：〔標題 + 摘要〕。用你平常跟朋友聊天的語氣自然地起個話題或吐槽，**不要照念內容**，可以只講你的反應或感想。」
+- 同一則新聞，不同人格角色反應不同（傲嬌會酸、好奇會問看法）——延伸既有角色系統，不另造輪子。
+
+### 15.2 來源類型
+
+從第一天就支援三種 `type`，使用者可自由新增 / 刪除：
+
+| type | 說明 | 對象 |
+|---|---|---|
+| `keyword` | 使用者輸入興趣關鍵字 → 程式自動組 Google News RSS | 一般使用者主力 |
+| `rss` | 使用者貼任意 RSS / Atom 網址 | 進階使用者 |
+| `json` | 自架聚合站的 JSON 契約（見 `docs/news-feed-spec.md`） | 作者本人 / 自架者 |
+
+- `keyword` 自動組成：`https://news.google.com/rss/search?q={關鍵字}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`
+- `json` 範例來源：`https://news.nori.idv.tw/news.json`（作者新聞站，**屬可選來源、非核心**，一般使用者預設可不啟用，避免把流量綁在作者伺服器）。
+- **熱門話題**：首版只接 **Google Trends 台灣每日熱搜 RSS**（公開、免登入）當一種來源。
+  X / Threads **不做**（API 鎖死或無公開熱門 feed）；噗浪待議；Reddit 不做。
+
+### 15.3 興趣標籤 UI（極簡，流程越短越好）
+
+新聞設定分頁主體只有一句「想聊哪方面的消息？」+ 一個標籤輸入框：
+
+```
+🗞️ 想聊哪方面的消息？
+┌──────────────────────────────┐
+│ 獨立遊戲  AI  貓咪  ＋        │   打字 → Enter/逗號 → 變一顆標籤
+└──────────────────────────────┘
+🚫 不想看到（黑名單）
+┌──────────────────────────────┐
+│ 政治  選舉  ＋                │
+└──────────────────────────────┘
+```
+
+- 每顆興趣標籤 = 一條 `keyword` 來源，背後自動組 RSS，使用者**不需知道** RSS / 來源類型 / 地區。
+- **聰明預設不問人**：語言地區讀系統語系（台灣→`zh-TW`/`TW`）、type 一律 keyword、用關鍵字當來源名、頻率給合理預設。
+- **進階區（預設收合）**：貼 RSS 網址、訂閱 json 來源、調頻率等收進這裡，一般人不會展開。
+- **批次匯入**：多行輸入框，一行一個興趣 → 一次建立多條來源（用於使用者把 Google News 關注的主題名稱貼過來；**無法**直接同步 Google 個人化版面，那綁帳號且無公開 API）。
+
+### 15.4 權重（常聊 / 普通 / 偶爾）
+
+- 每顆興趣標籤點一下循環切換三段：**常聊 / 普通 / 偶爾**（對應約 `3 / 2 / 1`），挑新聞時做**加權隨機**。
+- 預設全「普通」。**不用百分比數字**（太煩）。
+
+### 15.5 篩選層（抓回來後，由先到後）
+
+1. **來源排除**：(a) 已知 `source` 勾選清單排除；(b) 黑名單比對範圍含 `source`，讓「中天」「中國」這類即使透過 Google News 混入也能擋。
+2. **黑名單關鍵字**：比對 `title` + `summary` + `tags` + `category` + `source` 的**子字串（不分大小寫）**，**黑名單優先**，命中即丟（即使也符合興趣）。抓回來、挑選前就先濾掉。
+3. **整類排除**：`category` 列成可勾選清單，整類關掉比打關鍵字省事。
+4. **語言處理（三選一開關）**：
+   - **只要繁中**（硬過濾）：非繁中直接丟。
+   - **外語也收、角色翻成繁中再講（推薦預設）**：保留外語/簡中新聞，注入 prompt 時加註「這則是外語/簡中，請用繁體中文（台灣用語）轉述重點，別貼原文」。利用角色本來就強制繁中、不照念的特性，翻譯零額外成本、不需翻譯引擎。
+   - 原文照收。
+   - 語言需輕量偵測（字元範圍 + 假名 / 簡繁差異字，不上完整語言庫）。
+5. **正向比對**興趣關鍵字 / 分類 → 留符合的 → **加權隨機**挑一則 → 注入角色 prompt。
+
+### 15.6 回饋機制（隱性、不對稱）
+
+社群互動直覺：**會回應就代表有興趣，不想看就直接按掉。** 因此正向不用按鈕，只給一顆負向按鈕。
+
+| 訊號 | 來源 | 效果 |
+|---|---|---|
+| 正向 | 使用者**回應了該新聞話題**（有對話） | 該則的關鍵字 / 分類 / 來源權重微微 **+** |
+| 弱負向 | 泡泡沒理它就關掉 / 飄走 | 微微 **−** |
+| 強負向 | 「🙅 不想聽這個」按鈕 | 明確 **−** |
+
+- **「不想聽這個」按鈕互動**（**不做長按，不直覺**）：點下去彈出小選單，內含兩個**預設不勾**的核取方塊：
+  - `☑ 封鎖關鍵字（後面顯示該則關鍵字）`
+  - `☑ 封鎖來源（後面顯示該則來源）`
+  - 直接確認 = 只「不想聽這個」（降權 / 略過該則）；勾了才把對應關鍵字 / 來源加進黑名單，可兩個都勾一起封。
+- **手設權重 vs 學習權重的衝突**：手設權重為「基準」，學習只在基準上**微調**，且**可一鍵重置**，避免變黑箱（使用者設「常聊」卻越來越少出現會困惑）。
+
+### 15.7 地方新聞（沿用天氣定位，支援多地點）
+
+- 沿用 **`WeatherSettings` 已有的定位 / 縣市**（不重複要權限、不重新定位），把縣市名當查詢字串自動組 Google News RSS。
+- 開關「📍 也聊地方新聞」**預設關**（隱私）。
+- **支援多個縣市清單**：首次開啟自動帶入定位偵測到的縣市；使用者可再**新增多個**（例如住桃園、加台北 / 新北同生活圈，偶爾加台南），**每個縣市各自有常聊 / 普通 / 偶爾權重**、各自可刪。
+  - 理由：地點不該塞進一般興趣關鍵字（會混在一起、失去地方語意、無法整組開關）；獨立清單才能整組管理、各自調權重。
+- 偵測到的縣市那筆標記 `fromDetection`，定位變更時可提示更新；使用者手動加的不受定位影響。
+- 小工：經緯度轉縣市名，天氣模組（§14.4 V）應已有，直接借用。
+
+### 15.7b 破圈話題（可選，防同溫層）
+
+純興趣 + 黑名單會讓接收面越來越窄。破圈功能偶爾跳出同溫層。
+
+- **可選開關**「💡 偶爾也丟我沒設過的熱門話題」，**預設關**。
+- **可設頻率**：跟興趣標籤一樣用**常聊 / 普通 / 偶爾**權重，決定它在加權隨機池的比重。
+- **來源**：從 **Google Trends 台灣每日熱搜**抽，不受興趣關鍵字限制，但**仍受黑名單 / 來源排除過濾**。
+
+### 15.8 觸發方式
+
+| 路徑 | 優先序 | 行為 |
+|---|---|---|
+| **按「說點什麼」按鈕** | ⭐ **主力** | 抽一則來聊；沒興趣 → 點掉（記弱負向）→ 再按一次抽下一則 |
+| **提醒排程** | 🔶 選配，**預設關** | 沿用 `reminderScheduler` 的 `news` 觸發類型定時抽。預設關，因提醒可能干擾工作 |
+
+- 「說點什麼」在 `CharacterWindow` hover menu（`forceSpeak` → `forceSpeakDirect`）；新聞素材與天氣 / Spotify 一樣注入 `ctxParts`（`ipcHandlers.ts` 既有位置）。
+- 「說點什麼」抓新聞設定（三選一）：**關 / 偶爾（隨機混入，推薦）/ 每次**。
+- 新聞不綁提醒：排程與手動觸發是兩條獨立路徑，不設提醒也能用按鈕隨手抽。
+
+### 15.9 資料結構（草案，存模組設定信封）
+
+> 不放 `AppSettings` 頂層；存模組設定 `%APPDATA%\DesktopST\modules\desktopst.news\settings.json`
+> 的 `ModuleSettingsEnvelope.data`（見 `module-system-roadmap.md` §3）。`enabled` 由信封層管理。
+
+```typescript
+type NewsWeight = 'often' | 'normal' | 'rarely';   // 常聊 / 普通 / 偶爾
+type LangMode = 'zh-only' | 'translate' | 'raw';   // 只要繁中 / 翻成繁中 / 原文
+type SpeakMode = 'off' | 'sometimes' | 'always';   // 「說點什麼」抓新聞：關 / 偶爾 / 每次
+
+interface NewsSource {
+  id: string;
+  type: 'keyword' | 'rss' | 'json';
+  label: string;            // keyword 時 = 關鍵字本身
+  url?: string;             // rss / json；keyword 自動組成不存
+  weight: NewsWeight;       // 預設 'normal'
+  enabled: boolean;
+  origin?: 'user' | 'location' | 'builtin';
+}
+
+interface NewsModuleSettings {
+  sources: NewsSource[];
+  blacklist: string[];          // 黑名單關鍵字（比對 title/summary/tags/category/source）
+  excludedCategories: string[];
+  excludedSources: string[];
+  langMode: LangMode;           // 預設 'translate'
+  speakButton: SpeakMode;       // 「說點什麼」抓新聞，預設 'sometimes'
+  reminder: { enabled: boolean; schedule?: ReminderSchedule };  // 選配，預設 enabled:false
+  breakout: { enabled: boolean; weight: NewsWeight };           // 破圈，預設 enabled:false
+  localNews: {
+    enabled: boolean;           // 預設 false
+    locations: { name: string; weight: NewsWeight; fromDetection?: boolean }[];
+  };
+  feedback: { adjustments: Record<string, number> };  // 學習微調，可一鍵重置
+  seenIds: string[];            // 已聊過的新聞 id 去重
+}
+```
+
+> 不再使用舊版 `NewsImpactProfile` / `NewsEvent`（impactLevel/urgency/confidence）/ `proactiveMode` digest 欄位。
+
+### 15.10 相關檔案（預定，module host 結構）
+
+- 主程序：`src/main/modules/news/`（`index.ts` 接入 host、`sources.ts` 抓取、`filter.ts` 篩選+挑選、`trigger.ts`、`settings.ts`、`types.ts`）；擴充 `reminderScheduler.ts`（`news` 類型）、`forceSpeakDirect`（注入素材）
+- 渲染程序：`src/renderer/src/modules/news/SettingsPanel.tsx`；泡泡上的「不想聽這個」按鈕（`BubbleWindow.tsx`）
+- 資料：`%APPDATA%\DesktopST\modules\desktopst.news\settings.json`（模組設定，與站方的 news.json 不同檔）
+- 契約：`docs/news-feed-spec.md`（json 類來源規格，已交付站方並驗收通過）
+- 套件：RSS 解析用 `rss-parser`
+
+### 15.11 範圍備註
+
+- 無法直接同步 Google News 個人化版面（綁帳號、無公開 API，2011 起個人化 RSS 已停）；折衷為「批次貼關鍵字」。
+- 社群熱門僅 Google Trends 台灣熱搜；X / Threads / 噗浪 / Reddit / PTT 不做。
+- 不蒐集任何人口屬性 / 身份 profile。
+- **不做每日 / 每週簡報、不做影響半徑評分**（舊 Codex 版設計已廢棄，見 `news-module-design.md` §13）。
+
+---
+
 ## 附錄 A：部署與執行說明
 
 ### 本機執行（無需 Server）

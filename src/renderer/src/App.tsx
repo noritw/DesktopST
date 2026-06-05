@@ -9,6 +9,7 @@ import LogWindow from './windows/LogWindow'
 import BubbleWindow from './windows/BubbleWindow'
 import PreviewWindow from './windows/PreviewWindow'
 import UserBubbleWindow from './windows/UserBubbleWindow'
+import TopicBubbleWindow from './windows/TopicBubbleWindow'
 import PinnedNoteWindow from './windows/PinnedNoteWindow'
 import PinnedNoteColorMenuWindow from './windows/PinnedNoteColorMenuWindow'
 import PinnedNotesManagerWindow from './windows/PinnedNotesManagerWindow'
@@ -147,6 +148,7 @@ export default function App() {
     const id = window.windowParams?.get('id') ?? new URLSearchParams(window.location.search).get('id')
     return <ErrorBoundary><BubbleWindow characterId={id ?? ''} /></ErrorBoundary>
   }
+  if (w === 'topic-bubble') return <ErrorBoundary><TopicBubbleWindow /></ErrorBoundary>
   if (w === 'pinned-note') return <ErrorBoundary><PinnedNoteWindow /></ErrorBoundary>
   if (w === 'pinned-note-color-menu') return <ErrorBoundary><PinnedNoteColorMenuWindow /></ErrorBoundary>
   if (w === 'pinned-notes-manager') return <ErrorBoundary><PinnedNotesManagerWindow /></ErrorBoundary>

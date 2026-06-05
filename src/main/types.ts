@@ -37,6 +37,8 @@ export interface Message {
   utilityInputTokens?: number
   utilityOutputTokens?: number
   utilityDebugPrompt?: string
+  /** 輕量旗標：此訊息是否保有完整 debug prompt（廣播時不剝除，供 renderer 決定是否顯示「查看完整 Prompt」）。 */
+  hasDebugPrompt?: boolean
 }
 
 export interface Conversation {
@@ -238,6 +240,8 @@ export interface AppSettings {
   memory: {
     keepRecentN: number
     autoSummarizeAfter: number
+    /** 只有最近 N 則訊息保留完整 debug prompt（供 Log「查看完整 Prompt」）；超過的剪掉以減輕載入。 */
+    keepDebugPromptN: number
   }
   updates?: {
     checkOnStartup?: boolean
@@ -284,6 +288,8 @@ export interface AppSettings {
     colorTheme?: ColorTheme
     /** 閒置超過幾分鐘時略過提醒（0 = 不略過）*/
     reminderIdleSkipMinutes?: number
+    /** 按「說點什麼」時是否把桌面可見便利貼當作可聊的話題素材 */
+    speakUsePinnedNotes?: boolean
     /** 截圖時是否保留對話輸入框 */
     screenshotIncludeInputWindow?: boolean
     randomToolsEnabled?: boolean
@@ -318,6 +324,8 @@ export interface Reminder {
   injectConversationContext?: boolean
   /** 觸發時附入天氣資訊（需先在設定設定地點） */
   injectWeather?: boolean
+  /** 觸發時抓一則新聞當話題素材（需先啟用新聞模組） */
+  injectNews?: boolean
   lastTriggeredAt?: number
   createdAt: number
 }
@@ -351,7 +359,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   memory: {
     keepRecentN: 20,
-    autoSummarizeAfter: 50
+    autoSummarizeAfter: 50,
+    keepDebugPromptN: 5
   },
   remoteControl: {
     enabled: false,

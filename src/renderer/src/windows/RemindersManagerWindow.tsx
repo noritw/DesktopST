@@ -106,6 +106,7 @@ function ReminderForm({
   const [injectNotes, setInjectNotes] = useState(initial.injectPinnedNotes ?? false)
   const [injectContext, setInjectContext] = useState(initial.injectConversationContext ?? false)
   const [injectWeather, setInjectWeather] = useState(initial.injectWeather ?? false)
+  const [injectNews, setInjectNews] = useState(initial.injectNews ?? false)
   const [error, setError] = useState('')
 
   const handleSchedTypeChange = (next: ReminderSchedule['type']) => {
@@ -176,7 +177,8 @@ function ReminderForm({
       prompt,
       injectPinnedNotes: injectNotes,
       injectConversationContext: injectContext,
-      injectWeather
+      injectWeather,
+      injectNews
     })
   }
 
@@ -362,6 +364,22 @@ function ReminderForm({
         )
       })()}
 
+      <label className="flex items-center gap-2 select-none cursor-pointer">
+        <input
+          type="checkbox"
+          checked={injectNews}
+          onChange={e => setInjectNews(e.target.checked)}
+          className="w-4 h-4 accent-teal"
+        />
+        <span className="text-sm text-primary">抓一則新聞當話題</span>
+        <span className="text-[11px] text-secondary">（需先啟用新聞模組）</span>
+      </label>
+      {injectNews && (
+        <p className="text-[11px] text-secondary -mt-1 ml-6">
+          觸發時依新聞設定抓一則來聊。沒填提醒內容時，角色會從新聞／便利貼裡挑一個聊；填了提醒內容則以提醒為主、新聞只是順帶。
+        </p>
+      )}
+
       <div className="flex gap-2 pt-1">
         <button
           type="button"
@@ -417,11 +435,12 @@ function ReminderCard({
           <div className="text-sm font-semibold text-primary truncate">{reminder.label}</div>
           <div className="text-xs text-secondary mt-0.5">{scheduleLabel(reminder.schedule)}</div>
           <div className="text-xs text-secondary">角色：{charName}</div>
-          {(reminder.injectPinnedNotes || reminder.injectConversationContext || reminder.injectWeather) && (
+          {(reminder.injectPinnedNotes || reminder.injectConversationContext || reminder.injectWeather || reminder.injectNews) && (
             <div className="text-[11px] text-teal mt-0.5 space-x-2">
               {reminder.injectPinnedNotes && <span>✦ 便利貼</span>}
               {reminder.injectConversationContext && <span>✦ 對話上下文</span>}
               {reminder.injectWeather && <span>✦ 天氣</span>}
+              {reminder.injectNews && <span>✦ 新聞</span>}
             </div>
           )}
         </div>

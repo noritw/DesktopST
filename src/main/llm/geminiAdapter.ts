@@ -91,7 +91,7 @@ export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResu
 
   // Trigger injected after conversation history (not for reminders)
   if (!params.isReminder) {
-    currentParts.push({ text: '\n\n' + buildTriggerMessage(character.name) })
+    currentParts.push({ text: '\n\n' + buildTriggerMessage(character.name, params.triggerDirective) })
   }
 
   // History must start with 'user' for Gemini

@@ -24,6 +24,12 @@ import {
   buildAuthUrl, handleAuthCallback, clearAuthFile, isAuthenticated, getSpotifyContextString
 } from './spotifyService'
 import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
+import {
+  getNewsInjectionForSpeak, getActiveNewsTopic, setActiveNewsTopic,
+  setPendingNewsCredit, consumePendingNewsCredit, applyNewsFeedbackDelta,
+  buildSurveyDirective, buildNotesDirective, loadNewsModuleSettings,
+  type NewsTopic
+} from './modules/news'
 import { pushRemoteControlState, pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
@@ -59,7 +65,10 @@ import {
   raiseCharacterAbovePinnedNotes,
   sendCharacterContextUpdate,
   showSpeechBubble,
+  showTopicBubbleWindow,
+  closeTopicBubbleWindow,
   type BubbleAnchorFallback,
+  type BubbleNewsMeta,
   type VisibleAuxWindowSnapshotEntry
 } from './windowManager'
 
@@ -1221,6 +1230,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   const activeWorld = getActiveWorld()
 
   const ctxParts: string[] = []
+  let reminderNewsMeta: BubbleNewsMeta | null = null
 
   if (characterWasDeleted && requestedCharacterName) {
     const reminderText = reminder.prompt?.trim() || '提醒你的事情'
@@ -1235,28 +1245,55 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   if (reminder.prompt?.trim()) {
     ctxParts.push(`[提醒指令]\n${reminder.prompt.trim()}`)
   }
-  if (reminder.injectPinnedNotes) {
-    const visible = (settings.ui.pinnedNotes ?? []).filter(n => n.visible)
-    if (visible.length > 0) {
-      const lines = visible.map(n => {
-        const title = n.title?.trim() || '便利貼'
-        const body = n.content?.trim()
-        return body ? `- 《${title}》${body}` : `- 《${title}》（空白）`
-      })
-      ctxParts.push(`[桌面便利貼]\n${lines.join('\n')}`)
-    }
-  }
+  // 候選素材：便利貼 + 新聞（提醒內容＝優先素材，其餘只是順帶）
+  const reminderNoteBlock = reminder.injectPinnedNotes ? buildVisiblePinnedNotesContext() : null
+  if (reminderNoteBlock) ctxParts.push(reminderNoteBlock.text)
 
   if (reminder.injectWeather) {
     const weatherStr = await getWeatherContextString(settings)
     if (weatherStr) ctxParts.push(weatherStr)
   }
 
+  let reminderNewsTitle: string | undefined
+  if (reminder.injectNews) {
+    try {
+      const inj = await getNewsInjectionForSpeak({ force: true })
+      if (inj) {
+        ctxParts.push(inj.text)
+        if (!inj.fromTopic && inj.item) {
+          const it = inj.item
+          reminderNewsTitle = it.title
+          reminderNewsMeta = {
+            id: it.id, sourceId: it.sourceId, title: it.title,
+            url: it.url, summary: it.summary, source: it.source, keyword: it.keyword
+          }
+        } else if (inj.fromTopic) {
+          reminderNewsTitle = undefined
+        }
+      }
+    } catch (e) {
+      console.warn('[news] reminder inject failed:', (e as Error).message)
+    }
+  }
+
   const reminderMessages = reminder.injectConversationContext
     ? conv.messages.slice(-(settings.memory.keepRecentN))
     : []
   if (reminder.injectConversationContext && reminderMessages.length > 0) {
-    ctxParts.push('[近期對話紀錄]\n以下僅供參考語境；請以提醒指令為主，用角色口吻簡短開口，不要長篇接續聊天。')
+    ctxParts.push('[近期對話紀錄]\n以下僅供參考語境；不要長篇接續聊天。')
+  }
+
+  // 發話重點：有提醒內容＝優先；沒有＝從候選素材挑一個聊（design：優先/候選）
+  if (reminder.prompt?.trim()) {
+    ctxParts.push('[發話重點]\n這次主要是要把上面的「提醒指令」用你自己的個性講出來；天氣／便利貼／新聞如果有，只是順帶提及、別喧賓奪主。換個新鮮的開場，別跟你最近說過的雷同。')
+  } else {
+    const candidates = [
+      ...(reminderNewsTitle ? [`新聞：「${reminderNewsTitle}」`] : []),
+      ...((reminderNoteBlock?.titles ?? []).map(t => `便利貼：「${t}」`))
+    ]
+    if (candidates.length > 0) {
+      ctxParts.push(`[發話重點]\n沒有特定提醒。從這些你注意到的事裡挑「一個」現在最想聊的開個話題（${candidates.join('、')}），完全用你的個性，不必每個都提到。`)
+    }
   }
 
   // Desktop character list (after other context, before system time)
@@ -1344,6 +1381,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       utilityInputTokens: reminderUtilityInputTk,
       utilityOutputTokens: reminderUtilityOutputTk,
       utilityDebugPrompt: reminderUtilityDebugPrompt,
+      hasDebugPrompt: !!((hasApiKey && debugPrompt) || reminderUtilityDebugPrompt),
       timestamp: Date.now()
     }
     conv.messages.push(msg)
@@ -1362,7 +1400,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     }
 
     setImmediate(() => {
-      showSpeechBubble(charId, char.name, cleanReply, msg.emotion, bubbleAnchorForCharacter(charId))
+      showSpeechBubble(charId, char.name, cleanReply, msg.emotion, bubbleAnchorForCharacter(charId), reminderNewsMeta)
       sendCharacterContextUpdate(charId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
     })
   } catch (e) {
@@ -1479,6 +1517,20 @@ export async function handleSpotifyProtocolUrl(url: string): Promise<void> {
 }
 
 
+/** 收集桌面可見便利貼，組成上下文區塊 + 標題清單（說點什麼 / 提醒共用） */
+function buildVisiblePinnedNotesContext(): { text: string; titles: string[] } | null {
+  const visible = (settings.ui.pinnedNotes ?? []).filter(n => n.visible)
+  if (visible.length === 0) return null
+  const titles: string[] = []
+  const lines = visible.map(n => {
+    const title = n.title?.trim() || '便利貼'
+    titles.push(title)
+    const body = n.content?.trim()
+    return body ? `- 《${title}》${body}` : `- 《${title}》（空白）`
+  })
+  return { text: `[桌面便利貼]\n${lines.join('\n')}`, titles }
+}
+
 export async function forceSpeakDirect(characterId: string): Promise<{ ok: true } | { error: string }> {
     const conv = getActiveConversation()
     const char = getCharacter(characterId)
@@ -1506,6 +1558,10 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
     const activePersona = getActivePersona()
     const activeWorld = getActiveWorld()
 
+    // 先亮思考氣泡再做網路抓取（天氣 / Spotify / 新聞），避免使用者看到約 1 秒的無回饋停頓。
+    setCharacterThinking(characterId, true)
+    deferRaiseCharacterAbovePinnedNotes(characterId)
+
     const ctxParts: string[] = []
     if (conv.messages.length === 0 && char.firstMessage?.trim()) {
       ctxParts.push(`[角色開場白]\n${char.firstMessage.trim()}\n\n請基於這個開場白的人格和語氣，自由發揮回應。`)
@@ -1518,17 +1574,78 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
       const spotifyStr = await getSpotifyContextString(settings)
       if (spotifyStr) ctxParts.push(spotifyStr)
     }
-    const extraSystemContext = ctxParts.join('\n\n') || undefined
+    // 候選素材：主題泡泡（優先素材，主導）／新聞 ＋ 便利貼（候選，讓角色挑一個）／天氣 Spotify（背景）。
+    let newsUsedUtilityModel = false
+    let newsDirective: string | undefined
+    let newsBubbleMeta: BubbleNewsMeta | null = null
+    try {
+      const newsInjection = await getNewsInjectionForSpeak()
+      const noteBlock = settings.ui.speakUsePinnedNotes ? buildVisiblePinnedNotesContext() : null
 
-    setCharacterThinking(characterId, true)
-    deferRaiseCharacterAbovePinnedNotes(characterId)
+      if (newsInjection?.fromTopic) {
+        // 主題泡泡＝優先素材，主導；便利貼只當背景帶過
+        ctxParts.push(newsInjection.text)
+        newsDirective = newsInjection.directive
+        newsUsedUtilityModel = true
+        setPendingNewsCredit(null)
+        if (noteBlock) ctxParts.push(noteBlock.text)
+      } else {
+        const it = newsInjection?.item ?? null
+        if (noteBlock) ctxParts.push(noteBlock.text)
+
+        // 指令：新聞＋便利貼→讓角色挑一個；只有新聞→新聞指令；只有便利貼→便利貼指令
+        if (newsInjection && noteBlock) {
+          // Survey 模式：角色自選，不知道他選了哪個。
+          // → 新聞素材放 system context，泡泡顯示「↗新聞」連結（讓使用者可點開查看），
+          //   但不設 pendingCredit（無法確認角色是否聊了那則）。
+          ctxParts.push(newsInjection.text)
+          newsUsedUtilityModel = true
+          newsDirective = buildSurveyDirective({ newsTitle: it?.title, noteTitles: noteBlock.titles })
+          if (it) {
+            newsBubbleMeta = {
+              id: it.id, sourceId: it.sourceId, title: it.title,
+              url: it.url, summary: it.summary, source: it.source, keyword: it.keyword
+            }
+          }
+          setPendingNewsCredit(null)
+        } else if (newsInjection) {
+          // 只有新聞：確定角色在聊它，貼按鈕、設信用。
+          ctxParts.push(newsInjection.text)
+          newsUsedUtilityModel = true
+          newsDirective = newsInjection.directive
+          if (it) {
+            newsBubbleMeta = {
+              id: it.id, sourceId: it.sourceId, title: it.title,
+              url: it.url, summary: it.summary, source: it.source, keyword: it.keyword
+            }
+            setPendingNewsCredit(it.sourceId)
+          } else {
+            setPendingNewsCredit(null)
+          }
+        } else if (noteBlock) {
+          // 只有便利貼：無新聞按鈕。
+          newsDirective = buildNotesDirective(noteBlock.titles)
+          setPendingNewsCredit(null)
+        } else {
+          setPendingNewsCredit(null)
+        }
+      }
+    } catch (e) {
+      console.warn('[news] inject failed:', (e as Error).message)
+    }
+    const extraSystemContext = ctxParts.join('\n\n') || undefined
+    // 新聞陪聊走哪個模型由新聞設定 replyModel 決定（預設 main＝主要模型，口吻優先）。
+    // 只有使用者選擇 'utility' 時才套用 applyUtilitySettings（未啟用分流時它原樣回傳主模型）。
+    const useUtilityForNews = newsUsedUtilityModel && loadNewsModuleSettings().replyModel === 'utility'
+    const chatSettings = useUtilityForNews ? applyUtilitySettings(settings) : settings
+
     try {
       let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
       const desktopCharNamesForce = settings.ui.desktopCharacters.map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
       const forceHasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
       const doSplitEmotionForce = !!(settings.llm.utilityEnabled && forceHasCustomSprites)
       const { content, emotion: rawEmotionForce, debugPrompt, inputTokens: forceInputTk, outputTokens: forceOutputTk } = await chatWithLLM({
-        settings,
+        settings: chatSettings,
         character: char,
         messages: recentMessages,
         speakerNameById: getSpeakerNameById(),
@@ -1536,6 +1653,7 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
         world: activeWorld,
         desktopCharacterNames: desktopCharNamesForce,
         extraSystemContext,
+        triggerDirective: newsDirective,
         splitEmotion: doSplitEmotionForce
       })
       const forcedReply = stripOtherCharacterSpeakerLines(
@@ -1571,6 +1689,7 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
         utilityInputTokens: forceUtilityInputTk,
         utilityOutputTokens: forceUtilityOutputTk,
         utilityDebugPrompt: forceUtilityDebugPrompt,
+        hasDebugPrompt: !!(debugPrompt || forceUtilityDebugPrompt),
         timestamp: Date.now()
       }
       conv.messages.push(msg)
@@ -1579,7 +1698,7 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
       scheduleConversationBroadcast(conv)
       flushConversationBroadcast()
       setImmediate(() => {
-        showSpeechBubble(characterId, char.name, forcedReply, msg.emotion, bubbleAnchorForCharacter(characterId))
+        showSpeechBubble(characterId, char.name, forcedReply, msg.emotion, bubbleAnchorForCharacter(characterId), newsBubbleMeta)
         sendCharacterContextUpdate(characterId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
       })
       return { ok: true }
@@ -2336,6 +2455,31 @@ export function registerIpcHandlers() {
     return hideSpeechBubble(characterId)
   })
 
+  // 後續聊天主題：釘住一則新聞，桌面浮出主題泡泡；主動發話圍繞它聊
+  ipcMain.handle('news:set-topic', (_, topic: NewsTopic & { sourceId?: string }) => {
+    if (!topic || typeof topic.title !== 'string' || !topic.title) return { ok: false }
+    setActiveNewsTopic({
+      id: String(topic.id ?? ''),
+      title: topic.title,
+      summary: typeof topic.summary === 'string' ? topic.summary : '',
+      url: typeof topic.url === 'string' ? topic.url : '',
+      source: typeof topic.source === 'string' ? topic.source : ''
+    })
+    // 設為聊天主題＝有興趣，加一點分（比回話少）；並清掉待結算避免重複計分
+    consumePendingNewsCredit()
+    if (topic.sourceId) applyNewsFeedbackDelta(topic.sourceId, 0.2)
+    showTopicBubbleWindow()
+    return { ok: true }
+  })
+
+  ipcMain.handle('news:clear-topic', () => {
+    setActiveNewsTopic(null)
+    closeTopicBubbleWindow()
+    return { ok: true }
+  })
+
+  ipcMain.handle('news:get-topic', () => getActiveNewsTopic())
+
   ipcMain.handle('bubble:debug-show', (_, payload: { characterId: string; speakerName: string; text: string; emotion?: string }) => {
     const { characterId, speakerName, text, emotion } = payload ?? { characterId: '', speakerName: '', text: '' }
     if (!characterId) return false
@@ -2517,6 +2661,7 @@ export function registerIpcHandlers() {
     if (!conv) return { error: 'Not found' }
     activeConversationId = id
     syncLastActiveConversationToSettings()
+    fileStore.pruneConversationDebugPrompts(conv, settings.memory.keepDebugPromptN)
     broadcastConversationUpdate(conv)
     syncCharacterContextsFromConversation(conv)
     return stripConversationForLog(conv)
@@ -2639,6 +2784,9 @@ export function registerIpcHandlers() {
       timestamp: Date.now()
     }
     conv.messages.push(userMsg)
+    // 使用者回了話 → 把剛才角色聊的那則新聞來源加分（隱性正向回饋，design §9）
+    const creditSourceId = consumePendingNewsCredit()
+    if (creditSourceId) applyNewsFeedbackDelta(creditSourceId, 0.5)
     deferBroadcastConversationUpdate(conv)
     const shownUserText = String(payload.content ?? '').trim()
     const shownUserBubbleText = payload.randomResult
@@ -2766,6 +2914,7 @@ export function registerIpcHandlers() {
         utilityDebugPrompt = classifyResult.debugPrompt
       }
       userMsg.debugPrompt = debugPrompt
+      userMsg.hasDebugPrompt = !!debugPrompt
       lastReplyText = primaryReply
       const primaryLlm = messageLlmMeta(debugPrompt, settings)
       const charMsg: Message = {
@@ -2782,6 +2931,7 @@ export function registerIpcHandlers() {
         utilityInputTokens,
         utilityOutputTokens,
         utilityDebugPrompt,
+        hasDebugPrompt: !!(debugPrompt || utilityDebugPrompt),
         timestamp: Date.now()
       }
       conv.messages.push(charMsg)
@@ -2911,6 +3061,7 @@ export function registerIpcHandlers() {
           utilityInputTokens: secUtilityInputTk,
           utilityOutputTokens: secUtilityOutputTk,
           utilityDebugPrompt: secUtilityDebugPrompt,
+          hasDebugPrompt: !!(debugPrompt || secUtilityDebugPrompt),
           timestamp: Date.now()
         }
         lastReplyText = cleanReply
@@ -3031,6 +3182,7 @@ export function registerIpcHandlers() {
           utilityInputTokens,
           utilityOutputTokens,
           utilityDebugPrompt,
+          hasDebugPrompt: !!(debugPrompt || utilityDebugPrompt),
           timestamp: Date.now()
         }
         conv.messages.push(msg)

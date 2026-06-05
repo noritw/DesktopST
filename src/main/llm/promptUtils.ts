@@ -120,6 +120,8 @@ export type ChatLLMParams = {
   extraSystemContext?: string
   /** 是否為提醒模式（不注入 trigger message） */
   isReminder?: boolean
+  /** 附加在 trigger message 之後的指令（最末、緊鄰生成處；用於「主動聊新聞」這類需要高 recency 的指示） */
+  triggerDirective?: string
   /** 是否省略情緒輸出合約（由後續獨立情緒分類呼叫處理） */
   splitEmotion?: boolean
 }
@@ -457,6 +459,7 @@ export function buildSystemPrompt(
 }
 
 /** Trigger line injected as the final user message, after conversation history. */
-export function buildTriggerMessage(charName: string): string {
-  return `[Write the next in-character reply as "${charName}" only.]`
+export function buildTriggerMessage(charName: string, directive?: string): string {
+  const base = `[Write the next in-character reply as "${charName}" only.]`
+  return directive?.trim() ? `${base}\n${directive.trim()}` : base
 }
