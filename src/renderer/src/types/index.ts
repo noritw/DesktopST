@@ -48,6 +48,10 @@ export interface Message {
   utilityInputTokens?: number
   utilityOutputTokens?: number
   utilityDebugPrompt?: string
+  /** 對話新聞搜尋：意圖萃取 LLM call 的完整 prompt。 */
+  convSearchDebugPrompt?: string
+  convSearchInputTokens?: number
+  convSearchOutputTokens?: number
   /** 此訊息是否保有完整 debug prompt（決定是否顯示「查看完整 Prompt」按鈕） */
   hasDebugPrompt?: boolean
   /** 新聞陪聊 debug（保留最近一則）。 */
@@ -325,6 +329,8 @@ export interface AppSettings {
     reminderIdleSkipMinutes?: number
     /** 按「說點什麼」時是否把桌面可見便利貼當作可聊的話題素材 */
     speakUsePinnedNotes?: boolean
+    /** 一般回話時是否把桌面可見便利貼附入 system context */
+    chatUsePinnedNotes?: boolean
     /** Include the input window when capturing screenshots with DesktopST windows visible. */
     screenshotIncludeInputWindow?: boolean
     randomToolsEnabled?: boolean

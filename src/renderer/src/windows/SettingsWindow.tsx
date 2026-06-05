@@ -2071,7 +2071,7 @@ export default function SettingsWindow() {
             <p className="text-xs text-secondary ml-6">不勾選的話，對話泡泡會一直留在畫面上，直到手動關閉或下一句對話出現。</p>
 
             <div className="border-t border-border pt-3" />
-            <p className="text-xs font-medium text-secondary">說點什麼</p>
+            <p className="text-xs font-medium text-secondary">便利貼</p>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -2082,6 +2082,16 @@ export default function SettingsWindow() {
               <span className="text-sm text-primary">「說點什麼」時參考桌面便利貼</span>
             </label>
             <p className="text-xs text-secondary ml-6">勾選後，按「說點什麼」時角色會看過桌面上可見的便利貼，挑一個（或新聞）當話題。等於用便利貼當「自訂聊天主題」。</p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draft.ui.chatUsePinnedNotes ?? false}
+                onChange={e => set('ui.chatUsePinnedNotes', e.target.checked)}
+                className="accent-teal w-4 h-4"
+              />
+              <span className="text-sm text-primary">一般回話時參考桌面便利貼</span>
+            </label>
+            <p className="text-xs text-secondary ml-6">勾選後，每次角色回應你的訊息時，桌面上可見的便利貼內容會附加在 system context，讓角色能感知便利貼上的資訊。</p>
 
             <div className="border-t border-border pt-3" />
             <p className="text-xs font-medium text-secondary">截圖</p>

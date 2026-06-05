@@ -662,13 +662,16 @@ export function pruneConversationDebugPrompts(conv: Conversation, keepN: number)
   const newsThreshold = msgs.length - 1
   for (let i = 0; i < msgs.length; i++) {
     const m = msgs[i]
-    // ── 主要 / 輔助 LLM debug ──
-    const hasDebug = !!(m.debugPrompt || m.utilityDebugPrompt)
+    // ── 主要 / 輔助 / 對話搜尋 LLM debug ──
+    const hasDebug = !!(m.debugPrompt || m.utilityDebugPrompt || m.convSearchDebugPrompt)
     if (i >= threshold && hasDebug) {
       m.hasDebugPrompt = true
-    } else if (m.debugPrompt || m.utilityDebugPrompt || m.hasDebugPrompt) {
+    } else if (m.debugPrompt || m.utilityDebugPrompt || m.convSearchDebugPrompt || m.hasDebugPrompt) {
       delete m.debugPrompt
       delete m.utilityDebugPrompt
+      delete m.convSearchDebugPrompt
+      delete m.convSearchInputTokens
+      delete m.convSearchOutputTokens
       m.hasDebugPrompt = false
     }
     // ── 新聞 debug（最近 1 則）──

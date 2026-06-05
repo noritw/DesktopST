@@ -40,7 +40,7 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
   const model = resolveModel(settings)
 
   const client = new Anthropic({ apiKey: resolveApiKey(settings) })
-  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion })
+  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion, minimal: params.minimal })
 
   type ClaudeMessage = { role: 'user' | 'assistant'; content: string | ClaudeContentBlock[] }
   const claudeMessages: ClaudeMessage[] = []

@@ -52,6 +52,12 @@ export interface NewsModuleSettings {
   localNews: { enabled: boolean; locations: NewsLocation[] }
   feedback: { adjustments: Record<string, number> }
   seenIds: string[]
+  conversationSearch?: {
+    enabled: boolean
+    triggerWords: string[]
+    /** 只收幾小時內的文章；0 = 不限制 */
+    maxAgeHours: number
+  }
 }
 
 export interface NewsPreviewItem {

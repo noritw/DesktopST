@@ -99,7 +99,17 @@ export function defaultNewsModuleSettings(): NewsModuleSettings {
     localNews: { enabled: false, locations: [] },
     feedback: { adjustments: {} },
     seenIds: [],
-    maxAgeDays: 30
+    maxAgeDays: 30,
+    conversationSearch: {
+      enabled: false,
+      triggerWords: [
+        '最近', '今天', '昨天', '前天', '這幾天', '剛剛', '剛才',
+        '聽說', '看到', '看見', '有沒有', '你知道', '有看到',
+        '新聞', '事件', '事情', '消息', '報導',
+        '怎麼了', '出事', '發生什麼'
+      ],
+      maxAgeHours: 48
+    }
   }
 }
 
@@ -153,7 +163,21 @@ export function normalizeNewsModuleSettings(raw: Partial<NewsModuleSettings> | u
     feedback: { adjustments },
     // seenIds 上限保護，避免無限增長
     seenIds: normalizeStringArray(raw.seenIds).slice(-500),
-    maxAgeDays: typeof raw.maxAgeDays === 'number' && raw.maxAgeDays >= 0 ? Math.floor(raw.maxAgeDays) : 30
+    maxAgeDays: typeof raw.maxAgeDays === 'number' && raw.maxAgeDays >= 0 ? Math.floor(raw.maxAgeDays) : 30,
+    conversationSearch: {
+      enabled: raw.conversationSearch?.enabled === true,
+      triggerWords: normalizeStringArray(raw.conversationSearch?.triggerWords).length > 0
+        ? normalizeStringArray(raw.conversationSearch!.triggerWords)
+        : base.conversationSearch!.triggerWords,
+      // 舊設定有 filterOldArticles: false → maxAgeHours: 0；其餘維持數值或預設 48
+      maxAgeHours: (() => {
+        const cs = raw.conversationSearch as Record<string, unknown> | undefined
+        if (!cs) return 48
+        if (typeof cs.maxAgeHours === 'number' && cs.maxAgeHours >= 0) return Math.floor(cs.maxAgeHours)
+        if (cs.filterOldArticles === false) return 0
+        return 48
+      })()
+    }
   }
 }
 

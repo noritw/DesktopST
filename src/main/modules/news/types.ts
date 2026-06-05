@@ -98,6 +98,14 @@ export interface NewsModuleSettings {
   seenIds: string[]
   /** 幾天以前的文章排除，0 = 不限制，預設 30 */
   maxAgeDays: number
+  /** 對話新聞搜尋（被動、對話觸發的即時 Google News 查詢） */
+  conversationSearch?: {
+    enabled: boolean
+    /** 前置過濾觸發詞；空陣列 = 不過濾（每則都送 LLM） */
+    triggerWords: string[]
+    /** 只收幾小時內的文章；0 = 不限制 */
+    maxAgeHours: number
+  }
 }
 
 /** 偵測到的文字主要語言（輕量字元判斷，非完整語言庫） */

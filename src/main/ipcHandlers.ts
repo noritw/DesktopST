@@ -29,9 +29,10 @@ import {
   getNewsInjectionForSpeak, getActiveNewsTopic, setActiveNewsTopic,
   setPendingNewsCredit, consumePendingNewsCredit, applyNewsFeedbackDelta,
   buildSurveyDirective, buildNotesDirective, loadNewsModuleSettings,
-  collectInterestTerms,
-  type NewsTopic, type NewsSelectionContext
+  collectInterestTerms, fetchAllSources,
+  type NewsTopic, type NewsSelectionContext, type NewsModuleSettings
 } from './modules/news'
+import { getConversationSearchContext } from './modules/news/conversationSearch'
 import { pushRemoteControlState, pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
@@ -354,6 +355,27 @@ function shuffleIds(ids: string[]): string[] {
     ;[out[i], out[j]] = [out[j], out[i]]
   }
   return out
+}
+
+/**
+ * 將回應者排序：有 newsKeywords 且與訊息內容有交叉的角色排在前面（內部再 shuffle），
+ * 其餘角色 shuffle 後接在後面。無交叉或角色無關鍵字時等同純 shuffleIds。
+ */
+function sortRespondersByKeywordMatch(ids: string[], message: string): string[] {
+  if (ids.length <= 1) return [...ids]
+  const msgLower = message.toLowerCase()
+  const matched: string[] = []
+  const rest: string[] = []
+  for (const id of shuffleIds(ids)) {
+    const char = getCharacter(id)
+    const kws = (char?.newsKeywords ?? []).map(k => k.trim().toLowerCase()).filter(Boolean)
+    if (kws.length > 0 && kws.some(k => msgLower.includes(k))) {
+      matched.push(id)
+    } else {
+      rest.push(id)
+    }
+  }
+  return [...matched, ...rest]
 }
 
 function pickPrimaryResponderId(respondingIds: string[], mentionedIds: string[]): string | null {
@@ -1212,16 +1234,24 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       }
     } else {
       characterWasDeleted = true
-      const candidates = settings.ui.desktopCharacters.filter(d => !d.muted).map(d => d.characterId)
-      if (candidates.length === 0) return
-      charId = candidates[Math.floor(Math.random() * candidates.length)]
+      const candidateIds = settings.ui.desktopCharacters.filter(d => !d.muted).map(d => d.characterId)
+      if (candidateIds.length === 0) return
+      const candidateChars = candidateIds.map(id => getCharacter(id)).filter((c): c is Character => c != null)
+      const ns = loadNewsModuleSettings()
+      charId = reminder.injectNews && ns.enabled && candidateChars.length > 1
+        ? (await pickNewsAwareCharacter(candidateChars, ns)).id
+        : candidateIds[Math.floor(Math.random() * candidateIds.length)]
     }
   }
 
   if (!charId) {
-    const candidates = settings.ui.desktopCharacters.filter(d => !d.muted).map(d => d.characterId)
-    if (candidates.length === 0) return
-    charId = candidates[Math.floor(Math.random() * candidates.length)]
+    const candidateIds = settings.ui.desktopCharacters.filter(d => !d.muted).map(d => d.characterId)
+    if (candidateIds.length === 0) return
+    const candidateChars = candidateIds.map(id => getCharacter(id)).filter((c): c is Character => c != null)
+    const ns = loadNewsModuleSettings()
+    charId = reminder.injectNews && ns.enabled && candidateChars.length > 1
+      ? (await pickNewsAwareCharacter(candidateChars, ns)).id
+      : candidateIds[Math.floor(Math.random() * candidateIds.length)]
   }
 
   const char = getCharacter(charId)
@@ -1569,6 +1599,47 @@ function resolveNewsSelectionContext(char: Character | null | undefined): NewsSe
   }
 }
 
+/**
+ * 從候選角色中，依新聞池關鍵字匹配度加權抽選一位。
+ * 有 newsKeywords 且與當前可用新聞有交叉的角色，抽中機率是無關鍵字角色的數倍。
+ * 若新聞池為空或抓取失敗，退回純隨機。
+ */
+async function pickNewsAwareCharacter(
+  candidates: Character[],
+  newsSettings: NewsModuleSettings
+): Promise<Character> {
+  if (candidates.length === 1) return candidates[0]
+  const withKeywords = candidates.filter(c => c.newsKeywords?.length)
+  if (withKeywords.length === 0) {
+    return candidates[Math.floor(Math.random() * candidates.length)]
+  }
+  let pool: import('./modules/news/types').NewsItem[] = []
+  try {
+    pool = await fetchAllSources(newsSettings, { useCache: true }, {})
+  } catch { /* fallback to pure random */ }
+  if (pool.length === 0) {
+    return candidates[Math.floor(Math.random() * candidates.length)]
+  }
+  const weights = candidates.map(char => {
+    const kws = (char.newsKeywords ?? []).map(k => k.trim().toLowerCase()).filter(Boolean)
+    if (kws.length === 0) return 1
+    let matched = 0
+    for (const item of pool) {
+      const text = [item.title, item.summary ?? '', ...(item.tags ?? []), item.keyword ?? ''].join(' ').toLowerCase()
+      if (kws.some(k => text.includes(k))) matched++
+    }
+    // 每多一則匹配新聞，權重多 +1（最少為 2，無匹配仍為 1）
+    return matched > 0 ? 1 + matched : 1
+  })
+  const total = weights.reduce((a, b) => a + b, 0)
+  let r = Math.random() * total
+  for (let i = 0; i < candidates.length; i++) {
+    r -= weights[i]
+    if (r < 0) return candidates[i]
+  }
+  return candidates[candidates.length - 1]
+}
+
 export async function forceSpeakDirect(characterId: string): Promise<{ ok: true } | { error: string }> {
     const conv = getActiveConversation()
     const char = getCharacter(characterId)
@@ -1840,7 +1911,8 @@ export function registerIpcHandlers() {
     return {
       debugPrompt: msg.debugPrompt ?? null,
       utilityDebugPrompt: msg.utilityDebugPrompt ?? null,
-      newsDebug: msg.newsDebug ?? null
+      newsDebug: msg.newsDebug ?? null,
+      convSearchDebugPrompt: msg.convSearchDebugPrompt ?? null
     }
   })
 
@@ -2904,7 +2976,7 @@ export function registerIpcHandlers() {
         ...shuffleIds(mentionedIds),
         ...shuffleIds(desktopResponders.filter(id => !mentionedIds.includes(id)))
       ]
-      : shuffleIds(desktopResponders)
+      : sortRespondersByKeywordMatch(desktopResponders, payload.content)
 
     if (respondingIds.length === 0) {
       // If there are desktop characters but all are muted, surface a hint in conversation.
@@ -2965,7 +3037,15 @@ export function registerIpcHandlers() {
     const weatherContext = settings.weather?.enabled ? await getWeatherContextString(settings) : null
     const spotifyContext = settings.spotify?.enabled ? await getSpotifyContextString(settings) : null
     const realtimeQueryContext = await getRealtimeQueryContextString(payload.content, settings)
-    const extraContextParts = [weatherContext, spotifyContext, realtimeQueryContext].filter(Boolean) as string[]
+    const newsSearchResult = await getConversationSearchContext(payload.content, settings, loadNewsModuleSettings())
+    // convSearch debug は userMsg に保存（主 LLM call の前に確定するため）
+    if (newsSearchResult.debugPrompt) {
+      userMsg.convSearchDebugPrompt = newsSearchResult.debugPrompt
+      userMsg.convSearchInputTokens = newsSearchResult.inputTokens
+      userMsg.convSearchOutputTokens = newsSearchResult.outputTokens
+    }
+    const chatPinnedNotesBlock = settings.ui.chatUsePinnedNotes ? buildVisiblePinnedNotesContext()?.text ?? null : null
+    const extraContextParts = [weatherContext, spotifyContext, realtimeQueryContext, newsSearchResult.context, chatPinnedNotesBlock].filter(Boolean) as string[]
     const combinedExtraContext = extraContextParts.length > 0 ? extraContextParts.join('\n\n') : null
 
     // Emotion split: use utility model to classify if utilityEnabled + character has custom sprites
@@ -3006,7 +3086,7 @@ export function registerIpcHandlers() {
         utilityDebugPrompt = classifyResult.debugPrompt
       }
       userMsg.debugPrompt = debugPrompt
-      userMsg.hasDebugPrompt = !!debugPrompt
+      userMsg.hasDebugPrompt = !!(debugPrompt || userMsg.convSearchDebugPrompt)
       lastReplyText = primaryReply
       const primaryLlm = messageLlmMeta(debugPrompt, settings)
       const charMsg: Message = {
@@ -3023,7 +3103,10 @@ export function registerIpcHandlers() {
         utilityInputTokens,
         utilityOutputTokens,
         utilityDebugPrompt,
-        hasDebugPrompt: !!(debugPrompt || utilityDebugPrompt),
+        convSearchDebugPrompt: userMsg.convSearchDebugPrompt,
+        convSearchInputTokens: userMsg.convSearchInputTokens,
+        convSearchOutputTokens: userMsg.convSearchOutputTokens,
+        hasDebugPrompt: !!(debugPrompt || utilityDebugPrompt || userMsg.convSearchDebugPrompt),
         timestamp: Date.now()
       }
       conv.messages.push(charMsg)
@@ -3153,7 +3236,10 @@ export function registerIpcHandlers() {
           utilityInputTokens: secUtilityInputTk,
           utilityOutputTokens: secUtilityOutputTk,
           utilityDebugPrompt: secUtilityDebugPrompt,
-          hasDebugPrompt: !!(debugPrompt || secUtilityDebugPrompt),
+          convSearchDebugPrompt: userMsg.convSearchDebugPrompt,
+          convSearchInputTokens: userMsg.convSearchInputTokens,
+          convSearchOutputTokens: userMsg.convSearchOutputTokens,
+          hasDebugPrompt: !!(debugPrompt || secUtilityDebugPrompt || userMsg.convSearchDebugPrompt),
           timestamp: Date.now()
         }
         lastReplyText = cleanReply

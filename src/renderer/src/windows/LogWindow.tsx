@@ -232,7 +232,7 @@ export default function LogWindow() {
   const [editDraft, setEditDraft] = useState('')
   const [editEmotion, setEditEmotion] = useState<string>('neutral')
   const [promptMessage, setPromptMessage] = useState<Message | null>(null)
-  const [promptTab, setPromptTab] = useState<'main' | 'utility' | 'news'>('main')
+  const [promptTab, setPromptTab] = useState<'main' | 'utility' | 'conv-search' | 'news'>('main')
   const [previewImage, setPreviewImage] = useState<string | null>(null)
 
   const focusTitleInputTimer = useRef<number>(0)
@@ -336,13 +336,15 @@ export default function LogWindow() {
         debugPrompt?: string | null
         utilityDebugPrompt?: string | null
         newsDebug?: NewsDebugInfo | null
+        convSearchDebugPrompt?: string | null
       } | null
       if (debug) {
         setPromptMessage({
           ...msg,
           debugPrompt: debug.debugPrompt ?? undefined,
           utilityDebugPrompt: debug.utilityDebugPrompt ?? undefined,
-          newsDebug: debug.newsDebug ?? undefined
+          newsDebug: debug.newsDebug ?? undefined,
+          convSearchDebugPrompt: debug.convSearchDebugPrompt ?? undefined
         })
       }
     } catch (e) {
@@ -353,6 +355,7 @@ export default function LogWindow() {
   const [copied, setCopied] = useState(false)
   const copyPrompt = () => {
     const src = promptTab === 'utility' ? promptMessage?.utilityDebugPrompt
+      : promptTab === 'conv-search' ? promptMessage?.convSearchDebugPrompt
       : promptTab === 'news' ? (promptMessage?.newsDebug ? JSON.stringify(promptMessage.newsDebug, null, 2) : null)
       : promptMessage?.debugPrompt
     if (!src) return
@@ -729,6 +732,16 @@ export default function LogWindow() {
                         )}
                       </>
                     )}
+                    {(promptMessage.convSearchInputTokens != null || promptMessage.convSearchOutputTokens != null) && (
+                      <>
+                        {promptMessage.convSearchInputTokens != null && (
+                          <span className="text-[#AAEEFF]">對話搜尋 in: {promptMessage.convSearchInputTokens.toLocaleString()}</span>
+                        )}
+                        {promptMessage.convSearchOutputTokens != null && (
+                          <span className="text-[#AAEEFF]">out: {promptMessage.convSearchOutputTokens.toLocaleString()}</span>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -746,7 +759,7 @@ export default function LogWindow() {
                 </button>
               </div>
             </div>
-            {(promptMessage.utilityDebugPrompt || promptMessage.newsDebug) && (
+            {(promptMessage.utilityDebugPrompt || promptMessage.convSearchDebugPrompt || promptMessage.newsDebug) && (
               <div className="flex gap-0 border-b border-border bg-surface px-4">
                 <button
                   type="button"
@@ -762,6 +775,15 @@ export default function LogWindow() {
                     onClick={() => setPromptTab('utility')}
                   >
                     輔助 LLM
+                  </button>
+                )}
+                {promptMessage.convSearchDebugPrompt && (
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${promptTab === 'conv-search' ? 'border-[#AAEEFF] text-[#4499CC]' : 'border-transparent text-secondary hover:text-primary'}`}
+                    onClick={() => setPromptTab('conv-search')}
+                  >
+                    🔍 對話搜尋
                   </button>
                 )}
                 {promptMessage.newsDebug && (
@@ -780,6 +802,10 @@ export default function LogWindow() {
                 <div className="rounded-lg border border-[#AAEEDD]/60 bg-[#AAEEDD]/10 px-3 py-2 text-[11px] leading-relaxed text-secondary">
                   <span className="font-semibold text-teal">新聞陪聊 debug</span>：抽選時用了哪些關鍵字、選中哪則新聞。只保留最近一則發話的記錄。
                 </div>
+              ) : promptTab === 'conv-search' ? (
+                <div className="rounded-lg border border-[#AAEEFF]/60 bg-[#AAEEFF]/10 px-3 py-2 text-[11px] leading-relaxed text-secondary">
+                  <span className="font-semibold text-[#4499CC]">對話新聞搜尋</span>：使用者訊息觸發關鍵詞後，送輔助（或主要）模型判斷是否為時事查詢、萃取搜尋詞的完整 prompt。輸出＝搜尋詞或 null。
+                </div>
               ) : promptTab === 'utility' && promptMessage.utilityDebugPrompt ? (
                 <div className="rounded-lg border border-teal/40 bg-teal/10 px-3 py-2 text-[11px] leading-relaxed text-secondary">
                   <span className="font-semibold text-teal">輔助 LLM 負責的指令</span>：表情判斷、群組次要角色、提醒發話、新聞陪聊（新聞設定選「輔助」時）、未來的對話摘要。
@@ -796,7 +822,9 @@ export default function LogWindow() {
               <NewsDebugPanel info={promptMessage.newsDebug} />
             ) : (
               <pre className="m-0 p-4 overflow-auto text-xs leading-relaxed text-primary whitespace-pre-wrap bg-surface">
-                {promptTab === 'utility' && promptMessage.utilityDebugPrompt
+                {promptTab === 'conv-search' && promptMessage.convSearchDebugPrompt
+                  ? renderDebugPrompt(promptMessage.convSearchDebugPrompt)
+                  : promptTab === 'utility' && promptMessage.utilityDebugPrompt
                   ? renderDebugPrompt(promptMessage.utilityDebugPrompt)
                   : promptMessage.debugPrompt
                     ? renderDebugPrompt(promptMessage.debugPrompt)

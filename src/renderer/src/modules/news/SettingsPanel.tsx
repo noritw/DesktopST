@@ -124,11 +124,20 @@ function NewsSchedulerSection() {
   )
 }
 
+const DEFAULT_TRIGGER_WORDS = [
+  '最近', '今天', '昨天', '前天', '這幾天', '剛剛', '剛才',
+  '聽說', '看到', '看見', '有沒有', '你知道', '有看到',
+  '新聞', '事件', '事情', '消息', '報導',
+  '怎麼了', '出事', '發生什麼'
+]
+
 export function NewsSettingsPanel() {
   const [settings, setSettings] = useState<NewsModuleSettings | null>(null)
   const [interestInput, setInterestInput] = useState('')
   const [blacklistInput, setBlacklistInput] = useState('')
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [convSearchOpen, setConvSearchOpen] = useState(false)
+  const [triggerInput, setTriggerInput] = useState('')
   const [rssInput, setRssInput] = useState('')
   const [jsonInput, setJsonInput] = useState('')
   const [preview, setPreview] = useState<NewsPreviewResult | null>(null)
@@ -770,6 +779,105 @@ export function NewsSettingsPanel() {
             </div>
           </div>
         )}
+      </section>
+
+      {/* 對話新聞搜尋 */}
+      <section className="border-t border-border pt-3">
+        <button type="button" className="text-xs text-teal" onClick={() => setConvSearchOpen(o => !o)}>
+          {convSearchOpen ? '▾ 收合對話新聞搜尋（進階）' : '▸ 對話新聞搜尋（進階）'}
+        </button>
+        {convSearchOpen && (() => {
+          const cs = settings.conversationSearch ?? { enabled: false, triggerWords: DEFAULT_TRIGGER_WORDS, maxAgeHours: 48 }
+          function updateCs(patch: Partial<NonNullable<NewsModuleSettings['conversationSearch']>>) {
+            update(prev => ({ ...prev, conversationSearch: { ...cs, ...patch } }))
+          }
+          function addTriggerWord(raw: string) {
+            const words = raw.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean)
+            if (words.length === 0) return
+            const next = [...new Set([...cs.triggerWords, ...words])]
+            updateCs({ triggerWords: next })
+            setTriggerInput('')
+          }
+          function removeTriggerWord(word: string) {
+            updateCs({ triggerWords: cs.triggerWords.filter(w => w !== word) })
+          }
+          return (
+            <div className="mt-3 space-y-3">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cs.enabled}
+                  className="accent-teal w-4 h-4 mt-0.5"
+                  onChange={e => updateCs({ enabled: e.target.checked })}
+                />
+                <span>
+                  <span className="block text-sm text-primary">啟用對話新聞搜尋</span>
+                  <span className="block text-xs text-secondary">使用者提到時事時，自動搜尋 Google 新聞並提供角色參考。每次搜尋會額外呼叫一次 LLM 判斷意圖。</span>
+                </span>
+              </label>
+
+              {cs.enabled && (
+                <>
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-primary">觸發詞（含任一詞才送 LLM 判斷）</p>
+                    <p className="text-xs text-secondary">清單清空後，每則訊息都會送 LLM 判斷（成本較高）。</p>
+                    <div className="flex flex-wrap gap-1.5 p-2 rounded-2xl bg-surface border border-border min-h-[40px]">
+                      {cs.triggerWords.map(word => (
+                        <span key={word} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-mint text-primary">
+                          {word}
+                          <button type="button" className="ml-0.5 opacity-60 hover:opacity-100" onClick={() => removeTriggerWord(word)}>×</button>
+                        </span>
+                      ))}
+                      <input
+                        type="text"
+                        value={triggerInput}
+                        placeholder="＋ 新增觸發詞"
+                        className="flex-1 min-w-[80px] bg-transparent outline-none text-xs text-primary"
+                        onChange={e => setTriggerInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTriggerWord(triggerInput) }
+                        }}
+                        onBlur={() => triggerInput.trim() && addTriggerWord(triggerInput)}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="text-xs px-2.5 py-1 rounded-full border border-dashed border-border text-secondary hover:bg-mint-40"
+                      onClick={() => updateCs({ triggerWords: DEFAULT_TRIGGER_WORDS })}
+                    >
+                      還原預設觸發詞
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={cs.maxAgeHours > 0}
+                        className="accent-teal w-4 h-4"
+                        onChange={e => updateCs({ maxAgeHours: e.target.checked ? 48 : 0 })}
+                      />
+                      <span className="text-sm text-primary">只收</span>
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={720}
+                      disabled={cs.maxAgeHours === 0}
+                      value={cs.maxAgeHours || 48}
+                      className="input-field w-16 text-sm text-center disabled:opacity-40"
+                      onChange={e => {
+                        const v = Math.max(1, Math.min(720, Number(e.target.value)))
+                        if (Number.isFinite(v)) updateCs({ maxAgeHours: v })
+                      }}
+                    />
+                    <span className={`text-sm ${cs.maxAgeHours === 0 ? 'text-secondary opacity-40' : 'text-primary'}`}>小時內的文章（0 = 不限）</span>
+                  </div>
+                </>
+              )}
+            </div>
+          )
+        })()}
       </section>
     </div>
   )

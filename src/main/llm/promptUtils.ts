@@ -124,6 +124,8 @@ export type ChatLLMParams = {
   triggerDirective?: string
   /** 是否省略情緒輸出合約（由後續獨立情緒分類呼叫處理） */
   splitEmotion?: boolean
+  /** 輕量工具 call（意圖萃取等）：跳過角色扮演規則、輸出格式、系統時間、輸入來源等與角色扮演相關的段落 */
+  minimal?: boolean
 }
 
 export type ChatLLMResult = {
@@ -334,7 +336,7 @@ export function buildSystemPrompt(
   world?: WorldPreset | null,
   desktopCharacterNames?: string[],
   extraSystemContext?: string,
-  opts?: { splitEmotion?: boolean }
+  opts?: { splitEmotion?: boolean; minimal?: boolean }
 ): string {
   const now = new Date()
   const hours = now.getHours()
@@ -404,13 +406,15 @@ export function buildSystemPrompt(
       `Conversation uses "Name: content" format — ${nickname}: = user`
     )
     if (creatorNotes) ctx.push(`[Author Notes]\n${creatorNotes}`)
-    if (settings.injectSystemTime) ctx.push(`[System Time]\n${timeStr}`)
-    if (settings.mobile?.enabled) {
+    if (!opts?.minimal && settings.injectSystemTime) ctx.push(`[System Time]\n${timeStr}`)
+    if (!opts?.minimal && settings.mobile?.enabled) {
       ctx.push('[Input Source]\n[from: device] marks the device the user sent from. Treat it as context, not spoken text.')
     }
     if (extraSystemContext?.trim()) ctx.push(extraSystemContext.trim())
     if (ctx.length > 0) parts.push(ctx.join('\n\n'))
   }
+
+  if (opts?.minimal) return parts.join('\n\n')
 
   // ── [3] BEHAVIOR ─────────────────────────────────────────────────────────
   {
