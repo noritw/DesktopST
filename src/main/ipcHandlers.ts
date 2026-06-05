@@ -3,7 +3,7 @@ import { checkForUpdates } from './updateChecker'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult } from './types'
+import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM } from './llm/index'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
@@ -18,8 +18,9 @@ import {
 import { reloadReminders, setIdleSkipMinutes } from './reminderScheduler'
 import {
   geocodeCity, detectLocationByIP, fetchWeather, getCachedWeatherData,
-  getWeatherContextString, invalidateWeatherCache
+  getWeatherContextString, invalidateWeatherCache, getRealtimeQueryContextString
 } from './weatherService'
+import { testCwaApiKey } from './cwaService'
 import {
   buildAuthUrl, handleAuthCallback, clearAuthFile, isAuthenticated, getSpotifyContextString
 } from './spotifyService'
@@ -28,7 +29,8 @@ import {
   getNewsInjectionForSpeak, getActiveNewsTopic, setActiveNewsTopic,
   setPendingNewsCredit, consumePendingNewsCredit, applyNewsFeedbackDelta,
   buildSurveyDirective, buildNotesDirective, loadNewsModuleSettings,
-  type NewsTopic
+  collectInterestTerms,
+  type NewsTopic, type NewsSelectionContext
 } from './modules/news'
 import { pushRemoteControlState, pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
 import {
@@ -1231,6 +1233,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
 
   const ctxParts: string[] = []
   let reminderNewsMeta: BubbleNewsMeta | null = null
+  let reminderNewsDebugData: NewsDebugInfo | null = null
 
   if (characterWasDeleted && requestedCharacterName) {
     const reminderText = reminder.prompt?.trim() || '提醒你的事情'
@@ -1257,7 +1260,8 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   let reminderNewsTitle: string | undefined
   if (reminder.injectNews) {
     try {
-      const inj = await getNewsInjectionForSpeak({ force: true })
+      const reminderNewsCtx = resolveNewsSelectionContext(char)
+      const inj = await getNewsInjectionForSpeak({ force: true, ctx: reminderNewsCtx })
       if (inj) {
         ctxParts.push(inj.text)
         if (!inj.fromTopic && inj.item) {
@@ -1269,6 +1273,29 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
           }
         } else if (inj.fromTopic) {
           reminderNewsTitle = undefined
+        }
+      }
+      // 提醒路線的新聞 debug
+      const newsSettings = loadNewsModuleSettings()
+      if (newsSettings.enabled) {
+        const terms = collectInterestTerms(newsSettings, reminderNewsCtx)
+        const groupName = reminderNewsCtx.sceneGroupId
+          ? (newsSettings.keywordGroups.find(g => g.id === reminderNewsCtx.sceneGroupId)?.name ?? reminderNewsCtx.sceneGroupId)
+          : '預設組'
+        const mode: NewsDebugInfo['mode'] = inj?.fromTopic ? 'topic' : inj?.item ? 'news' : 'none'
+        reminderNewsDebugData = {
+          groupName,
+          characterKeywords: reminderNewsCtx.characterKeywords ?? [],
+          interestTerms: terms,
+          item: inj?.item ? {
+            title: inj.item.title,
+            source: inj.item.source,
+            keyword: inj.item.keyword,
+            url: inj.item.url,
+            summary: inj.item.summary
+          } : null,
+          fromTopic: mode === 'topic',
+          mode
         }
       }
     } catch (e) {
@@ -1382,6 +1409,8 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       utilityOutputTokens: reminderUtilityOutputTk,
       utilityDebugPrompt: reminderUtilityDebugPrompt,
       hasDebugPrompt: !!((hasApiKey && debugPrompt) || reminderUtilityDebugPrompt),
+      newsDebug: reminderNewsDebugData ?? undefined,
+      hasNewsDebug: !!reminderNewsDebugData,
       timestamp: Date.now()
     }
     conv.messages.push(msg)
@@ -1531,6 +1560,15 @@ function buildVisiblePinnedNotesContext(): { text: string; titles: string[] } | 
   return { text: `[桌面便利貼]\n${lines.join('\n')}`, titles }
 }
 
+/** 解析當前發話角色的新聞抽選脈絡：情境組（取代式）＋角色卡關鍵字（疊加）。 */
+function resolveNewsSelectionContext(char: Character | null | undefined): NewsSelectionContext {
+  const activeScene = settings.activeSceneId ? fileStore.loadScenePreset(settings.activeSceneId) : null
+  return {
+    sceneGroupId: activeScene?.newsKeywordGroupId,
+    characterKeywords: char?.newsKeywords
+  }
+}
+
 export async function forceSpeakDirect(characterId: string): Promise<{ ok: true } | { error: string }> {
     const conv = getActiveConversation()
     const char = getCharacter(characterId)
@@ -1578,9 +1616,19 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
     let newsUsedUtilityModel = false
     let newsDirective: string | undefined
     let newsBubbleMeta: BubbleNewsMeta | null = null
+    let newsDebugData: NewsDebugInfo | null = null
     try {
-      const newsInjection = await getNewsInjectionForSpeak()
+      const newsCtx = resolveNewsSelectionContext(char)
+      const newsInjection = await getNewsInjectionForSpeak({ ctx: newsCtx })
       const noteBlock = settings.ui.speakUsePinnedNotes ? buildVisiblePinnedNotesContext() : null
+
+      // 先算發話模式（供 debug 用，邏輯和下方 branch 一致）
+      const newsMode: NewsDebugInfo['mode'] =
+        newsInjection?.fromTopic ? 'topic'
+        : newsInjection && noteBlock ? 'survey'
+        : newsInjection ? 'news'
+        : noteBlock ? 'notes'
+        : 'none'
 
       if (newsInjection?.fromTopic) {
         // 主題泡泡＝優先素材，主導；便利貼只當背景帶過
@@ -1628,6 +1676,29 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
           setPendingNewsCredit(null)
         } else {
           setPendingNewsCredit(null)
+        }
+      }
+
+      // ── 新聞 debug 資訊（只在模組啟用時收集）──
+      const newsSettings = loadNewsModuleSettings()
+      if (newsSettings.enabled) {
+        const terms = collectInterestTerms(newsSettings, newsCtx)
+        const groupName = newsCtx.sceneGroupId
+          ? (newsSettings.keywordGroups.find(g => g.id === newsCtx.sceneGroupId)?.name ?? newsCtx.sceneGroupId)
+          : '預設組'
+        newsDebugData = {
+          groupName,
+          characterKeywords: newsCtx.characterKeywords ?? [],
+          interestTerms: terms,
+          item: newsInjection?.item ? {
+            title: newsInjection.item.title,
+            source: newsInjection.item.source,
+            keyword: newsInjection.item.keyword,
+            url: newsInjection.item.url,
+            summary: newsInjection.item.summary
+          } : null,
+          fromTopic: newsMode === 'topic',
+          mode: newsMode
         }
       }
     } catch (e) {
@@ -1690,6 +1761,8 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
         utilityOutputTokens: forceUtilityOutputTk,
         utilityDebugPrompt: forceUtilityDebugPrompt,
         hasDebugPrompt: !!(debugPrompt || forceUtilityDebugPrompt),
+        newsDebug: newsDebugData ?? undefined,
+        hasNewsDebug: !!newsDebugData,
         timestamp: Date.now()
       }
       conv.messages.push(msg)
@@ -1766,7 +1839,8 @@ export function registerIpcHandlers() {
     if (!msg) return null
     return {
       debugPrompt: msg.debugPrompt ?? null,
-      utilityDebugPrompt: msg.utilityDebugPrompt ?? null
+      utilityDebugPrompt: msg.utilityDebugPrompt ?? null,
+      newsDebug: msg.newsDebug ?? null
     }
   })
 
@@ -1814,9 +1888,22 @@ export function registerIpcHandlers() {
         fileStore.encryptedApiKeyFallbacks.delete(k)
       }
     }
+    // Protect CWA API Key (same fallback pattern as LLM keys)
+    let protectedWeather = s.weather
+    if (protectedWeather?.realtimeQuery !== undefined) {
+      const fallbackCwa = fileStore.encryptedApiKeyFallbacks.get('cwaApiKey')
+      if (fallbackCwa && !protectedWeather.realtimeQuery.cwaApiKey) {
+        protectedWeather = {
+          ...protectedWeather,
+          realtimeQuery: { ...protectedWeather.realtimeQuery, cwaApiKey: fallbackCwa }
+        }
+      } else if (protectedWeather.realtimeQuery.cwaApiKey) {
+        fileStore.encryptedApiKeyFallbacks.delete('cwaApiKey')
+      }
+    }
     const previousSettings = settings
     const prevLocationName = settings.weather?.locationName
-    settings = { ...s, llm: { ...s.llm, apiKeys: protectedApiKeys }, ui }
+    settings = { ...s, llm: { ...s.llm, apiKeys: protectedApiKeys }, weather: protectedWeather, ui }
     if (settings.weather?.locationName !== prevLocationName) invalidateWeatherCache()
     fileStore.saveSettings(settings)
     _applyMobileRuntimeSettingsFn?.(previousSettings, settings)
@@ -1867,6 +1954,10 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('weather:get-cache', () => getCachedWeatherData())
+
+  ipcMain.handle('weather:test-cwa-key', async (_, apiKey: string) => {
+    return testCwaApiKey(apiKey)
+  })
 
   // Spotify
   ipcMain.handle('spotify:open-settings', () => {
@@ -2870,10 +2961,11 @@ export function registerIpcHandlers() {
     const recentMessagesBase = [...conv.messages.slice(0, -1), userMsgForPrompt].slice(-(settings.memory.keepRecentN))
     let lastReplyText = ''
 
-    // Pre-fetch weather + spotify context once for this message (shared across all responders)
+    // Pre-fetch weather + spotify + realtime query context once for this message (shared across all responders)
     const weatherContext = settings.weather?.enabled ? await getWeatherContextString(settings) : null
     const spotifyContext = settings.spotify?.enabled ? await getSpotifyContextString(settings) : null
-    const extraContextParts = [weatherContext, spotifyContext].filter(Boolean) as string[]
+    const realtimeQueryContext = await getRealtimeQueryContextString(payload.content, settings)
+    const extraContextParts = [weatherContext, spotifyContext, realtimeQueryContext].filter(Boolean) as string[]
     const combinedExtraContext = extraContextParts.length > 0 ? extraContextParts.join('\n\n') : null
 
     // Emotion split: use utility model to classify if utilityEnabled + character has custom sprites
@@ -3469,6 +3561,7 @@ export function registerIpcHandlers() {
   // Capture current app state as a scene snapshot (create new or update existing)
   ipcMain.handle('scene:capture', (_, id: string | null, name: string) => {
     const now = Date.now()
+    const existing = id ? fileStore.loadScenePreset(id) : null
     const scene: ScenePreset = {
       id: id ?? uuidv4(),
       name,
@@ -3479,7 +3572,9 @@ export function registerIpcHandlers() {
       colorTheme: settings.ui.colorTheme,
       inputWindowBounds: settings.ui.inputWindowBounds,
       logWindowBounds: settings.ui.logWindowBounds,
-      createdAt: id ? (fileStore.loadScenePreset(id)?.createdAt ?? now) : now,
+      // 覆寫狀態時保留既有的新聞關鍵字組綁定（它不是桌面快照的一部分）
+      newsKeywordGroupId: existing?.newsKeywordGroupId,
+      createdAt: existing?.createdAt ?? now,
       updatedAt: now
     }
     fileStore.saveScenePreset(scene)

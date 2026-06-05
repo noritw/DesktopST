@@ -8,6 +8,25 @@ interface Props {
 
 export default function AdvancedTab({ draft, setDraft }: Props) {
   const [showExtra, setShowExtra] = useState(!!(draft.systemPromptOverride?.trim()))
+  const [newsKwInput, setNewsKwInput] = useState('')
+
+  const newsKeywords = draft.newsKeywords ?? []
+
+  function addNewsKeywords(raw: string) {
+    const labels = raw.split(/[,，\n]/).map(s => s.trim()).filter(Boolean)
+    if (labels.length === 0) return
+    setDraft(prev => {
+      const existing = new Set(prev.newsKeywords ?? [])
+      const additions = labels.filter(l => !existing.has(l))
+      if (additions.length === 0) return prev
+      return { ...prev, newsKeywords: [...(prev.newsKeywords ?? []), ...additions] }
+    })
+    setNewsKwInput('')
+  }
+
+  function removeNewsKeyword(kw: string) {
+    setDraft(prev => ({ ...prev, newsKeywords: (prev.newsKeywords ?? []).filter(k => k !== kw) }))
+  }
 
   return (
     <div className="space-y-4">
@@ -34,6 +53,33 @@ export default function AdvancedTab({ draft, setDraft }: Props) {
           value={draft.creatorNotes ?? ''}
           onChange={e => setDraft(prev => ({ ...prev, creatorNotes: e.target.value }))}
         />
+      </label>
+
+      <label className="block">
+        <span className="text-xs font-semibold text-primary">新聞關鍵字</span>
+        <p className="text-[11px] text-secondary mt-0.5">
+          這個角色額外感興趣的新聞主題（需啟用「新聞陪聊」模組）。會疊加在當前情境的興趣池上，
+          當這個角色主動聊新聞時也會抓這些主題。打字後按 Enter 或逗號變成一顆標籤。
+        </p>
+        <div className="flex flex-wrap gap-2 p-2 mt-1 rounded-2xl bg-surface border border-border min-h-[44px]">
+          {newsKeywords.map(kw => (
+            <span key={kw} className="flex items-center gap-1 text-xs px-3 py-1 rounded-full bg-mint text-primary">
+              {kw}
+              <button type="button" className="ml-0.5 opacity-60 hover:opacity-100" title="移除" onClick={() => removeNewsKeyword(kw)}>×</button>
+            </span>
+          ))}
+          <input
+            type="text"
+            value={newsKwInput}
+            placeholder={newsKeywords.length === 0 ? '例如：太空、考古、貓咪' : '＋ 新增'}
+            className="flex-1 min-w-[100px] bg-transparent outline-none text-sm text-primary"
+            onChange={e => setNewsKwInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addNewsKeywords(newsKwInput) }
+            }}
+            onBlur={() => newsKwInput.trim() && addNewsKeywords(newsKwInput)}
+          />
+        </div>
       </label>
 
       <div className="pt-1 border-t border-border">

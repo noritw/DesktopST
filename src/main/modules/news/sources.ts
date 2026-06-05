@@ -1,6 +1,7 @@
 import { createHash } from 'crypto'
 import Parser from 'rss-parser'
-import type { NewsFeedJson, NewsItem, NewsModuleSettings, NewsSource } from './types'
+import type { NewsFeedJson, NewsItem, NewsModuleSettings, NewsSelectionContext, NewsSource } from './types'
+import { keywordSourceInGroup } from './settings'
 
 const rssParser = new Parser({
   timeout: 8000,
@@ -250,15 +251,44 @@ export async function fetchBreakoutItems(weight: NewsSource['weight']): Promise<
   }
 }
 
-/** 抓取所有啟用來源（含地方新聞、破圈）。並行抓取，個別失敗不影響其他。 */
+/**
+ * 抓取所有啟用來源（含地方新聞、破圈）。並行抓取，個別失敗不影響其他。
+ * ctx 決定興趣關鍵字的取捨：
+ * - keyword 來源依當前情境組取代式收斂（rss/json 維持全域 always-on）。
+ * - 當前發話角色的 newsKeywords 以普通權重疊加抓取（去重既有啟用關鍵字）。
+ */
 export async function fetchAllSources(
   settings: NewsModuleSettings,
-  options: { useCache?: boolean } = {}
+  options: { useCache?: boolean } = {},
+  ctx: NewsSelectionContext = {}
 ): Promise<NewsItem[]> {
   const tasks: Promise<NewsItem[]>[] = []
+  const activeKeywordLabels = new Set<string>()
 
   for (const source of settings.sources) {
-    if (source.enabled) tasks.push(fetchSource(source, options))
+    if (!source.enabled) continue
+    // keyword 來源依情境組過濾；rss/json 全域 always-on
+    if (source.type === 'keyword') {
+      if (!keywordSourceInGroup(source, ctx.sceneGroupId)) continue
+      activeKeywordLabels.add(source.label)
+    }
+    tasks.push(fetchSource(source, options))
+  }
+
+  // 角色卡關鍵字（疊加，普通權重）；與現有啟用關鍵字重複者略過避免重抓
+  for (const kwRaw of ctx.characterKeywords ?? []) {
+    const kw = kwRaw.trim()
+    if (!kw || activeKeywordLabels.has(kw)) continue
+    activeKeywordLabels.add(kw)
+    const charSource: NewsSource = {
+      id: `char-${kw}`,
+      type: 'keyword',
+      label: kw,
+      weight: 'normal',
+      enabled: true,
+      origin: 'character'
+    }
+    tasks.push(fetchSource(charSource, options))
   }
 
   // 地方新聞：每個縣市組 keyword RSS

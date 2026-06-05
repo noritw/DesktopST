@@ -1,7 +1,20 @@
 import { hasModuleSettings, readModuleSettings, writeModuleSettings } from '../moduleSettings'
-import type { LangMode, NewsLocation, NewsModuleSettings, NewsReplyModel, NewsSource, NewsWeight, SpeakMode } from './types'
+import type { LangMode, NewsKeywordGroup, NewsLocation, NewsModuleSettings, NewsReplyModel, NewsSource, NewsWeight, SpeakMode } from './types'
 
 export const NEWS_MODULE_ID = 'desktopst.news'
+
+/** 內建「預設組」id；未綁組的情境與沒有 groupId 的關鍵字都落在這裡。 */
+export const DEFAULT_KEYWORD_GROUP_ID = 'default'
+
+/** undefined / 空字串視為預設組。 */
+export function effectiveGroupId(groupId: string | undefined): string {
+  return groupId && groupId.length > 0 ? groupId : DEFAULT_KEYWORD_GROUP_ID
+}
+
+/** 該 keyword 來源是否屬於指定情境組（rss/json 不分組，由呼叫端判斷）。 */
+export function keywordSourceInGroup(source: NewsSource, sceneGroupId: string | undefined): boolean {
+  return effectiveGroupId(source.groupId) === effectiveGroupId(sceneGroupId)
+}
 
 const VALID_WEIGHTS: NewsWeight[] = ['often', 'normal', 'rarely']
 const VALID_LANG_MODES: LangMode[] = ['zh-only', 'translate', 'raw']
@@ -37,8 +50,28 @@ function normalizeSource(raw: Partial<NewsSource> | undefined): NewsSource | nul
     url: typeof raw.url === 'string' && raw.url ? raw.url : undefined,
     weight: normalizeWeight(raw.weight),
     enabled: raw.enabled !== false,
-    origin: raw.origin === 'location' || raw.origin === 'builtin' ? raw.origin : 'user'
+    origin: raw.origin === 'location' || raw.origin === 'builtin' || raw.origin === 'character' ? raw.origin : 'user',
+    // groupId 只對 keyword 有意義；rss/json 一律不分組
+    groupId: type === 'keyword' && typeof raw.groupId === 'string' && raw.groupId ? raw.groupId : undefined
   }
+}
+
+/** 正規化關鍵字分組清單：必含內建預設組（置頂）、id 去重、name 非空。 */
+function normalizeKeywordGroups(value: unknown): NewsKeywordGroup[] {
+  const out: NewsKeywordGroup[] = [{ id: DEFAULT_KEYWORD_GROUP_ID, name: '預設組' }]
+  const seen = new Set<string>([DEFAULT_KEYWORD_GROUP_ID])
+  if (Array.isArray(value)) {
+    for (const raw of value) {
+      if (!raw || typeof raw !== 'object') continue
+      const g = raw as Partial<NewsKeywordGroup>
+      const id = typeof g.id === 'string' ? g.id : ''
+      const name = typeof g.name === 'string' ? g.name.trim() : ''
+      if (!id || !name || seen.has(id)) continue
+      seen.add(id)
+      out.push({ id, name })
+    }
+  }
+  return out
 }
 
 function normalizeLocation(raw: Partial<NewsLocation> | undefined): NewsLocation | null {
@@ -54,6 +87,7 @@ export function defaultNewsModuleSettings(): NewsModuleSettings {
   return {
     enabled: false,
     sources: [],
+    keywordGroups: [{ id: DEFAULT_KEYWORD_GROUP_ID, name: '預設組' }],
     blacklist: [],
     excludedCategories: [],
     excludedSources: [],
@@ -73,9 +107,14 @@ export function normalizeNewsModuleSettings(raw: Partial<NewsModuleSettings> | u
   const base = defaultNewsModuleSettings()
   if (!raw) return base
 
-  const sources = Array.isArray(raw.sources)
+  const keywordGroups = normalizeKeywordGroups(raw.keywordGroups)
+  const groupIds = new Set(keywordGroups.map(g => g.id))
+
+  const sources = (Array.isArray(raw.sources)
     ? raw.sources.map(normalizeSource).filter((s): s is NewsSource => s !== null)
     : []
+  // groupId 指向已不存在的組（組被刪除）→ 落回預設組
+  ).map(s => (s.groupId && !groupIds.has(s.groupId) ? { ...s, groupId: undefined } : s))
 
   const locations = Array.isArray(raw.localNews?.locations)
     ? raw.localNews!.locations.map(normalizeLocation).filter((l): l is NewsLocation => l !== null)
@@ -91,6 +130,7 @@ export function normalizeNewsModuleSettings(raw: Partial<NewsModuleSettings> | u
   return {
     enabled: raw.enabled === true,
     sources,
+    keywordGroups,
     blacklist: normalizeStringArray(raw.blacklist),
     excludedCategories: normalizeStringArray(raw.excludedCategories),
     excludedSources: normalizeStringArray(raw.excludedSources),

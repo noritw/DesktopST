@@ -12,11 +12,23 @@ export interface Character {
   scenario?: string
   systemPromptOverride?: string
   creatorNotes?: string
+  /** 角色自帶新聞興趣關鍵字（疊加，普通權重）。 */
+  newsKeywords?: string[]
   lastDesktopSize?: number
   lastDesktopFlipped?: boolean
   lastDesktopPosition?: { x: number; y: number }
   createdAt: number
   updatedAt: number
+}
+
+/** 新聞陪聊 debug 資訊（保留最近一則，供 Log 視窗「新聞」分頁顯示）。 */
+export interface NewsDebugInfo {
+  groupName: string
+  characterKeywords: string[]
+  interestTerms: string[]
+  item: { title: string; source: string; keyword?: string; url: string; summary?: string } | null
+  fromTopic: boolean
+  mode: 'news' | 'topic' | 'survey' | 'notes' | 'none'
 }
 
 export interface Message {
@@ -38,6 +50,10 @@ export interface Message {
   utilityDebugPrompt?: string
   /** 此訊息是否保有完整 debug prompt（決定是否顯示「查看完整 Prompt」按鈕） */
   hasDebugPrompt?: boolean
+  /** 新聞陪聊 debug（保留最近一則）。 */
+  newsDebug?: NewsDebugInfo
+  /** 輕量旗標：此訊息是否保有 newsDebug。 */
+  hasNewsDebug?: boolean
 }
 
 export interface Conversation {
@@ -150,6 +166,11 @@ export interface WeatherSettings {
   latitude: number
   longitude: number
   locationSource: 'ip' | 'manual' | ''
+  realtimeQuery?: {
+    enabled: boolean
+    cwaApiKey: string
+    forecastCounty: string
+  }
 }
 
 export type OmikujiTier = '大吉' | '中吉' | '小吉' | '吉' | '末吉' | '凶' | '大凶'
@@ -218,6 +239,8 @@ export interface ScenePreset {
   colorTheme?: ColorTheme
   inputWindowBounds?: WindowBoundsState
   logWindowBounds?: WindowBoundsState
+  /** 綁定的新聞關鍵字組 id；未綁 = 用預設組。 */
+  newsKeywordGroupId?: string
   createdAt: number
   updatedAt: number
 }

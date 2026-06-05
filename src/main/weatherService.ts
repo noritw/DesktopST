@@ -1,6 +1,8 @@
 import type { AppSettings } from './types'
 import { applyUtilitySettings } from './llm/index'
 import { chatWithLLM } from './llm/index'
+import { detectQueryType, fetchCwaData, fetchCwaBackgroundWeather } from './cwaService'
+import { decrypt } from './secureStore'
 
 // WMO weather interpretation codes → 中文描述
 const WMO_DESC: Record<number, string> = {
@@ -181,6 +183,27 @@ export async function getWeatherContextString(settings: AppSettings): Promise<st
 
   const now = Date.now()
 
+  // 若 CWA Key 已設定且啟用即時查詢，改用中央氣象署預報資料取代 Open-Meteo
+  const rq = w.realtimeQuery
+  if (rq?.enabled && rq.cwaApiKey) {
+    const apiKey = decrypt(rq.cwaApiKey)
+    if (apiKey && !apiKey.startsWith('enc:v1:')) {
+      const county = rq.forecastCounty || w.locationName
+
+      // 沿用快取（30 分鐘）
+      if (cache && cache.locationName === county && now - cache.fetchedAt < CACHE_TTL) {
+        return cache.template
+      }
+
+      const cwaStr = await fetchCwaBackgroundWeather(apiKey, county)
+      if (cwaStr) {
+        cache = { locationName: county, data: cache?.data ?? { description: '', temperatureC: 0, humidity: 0, windSpeed: 0 }, template: cwaStr, fetchedAt: now }
+        return cwaStr
+      }
+      // CWA 失敗時 fallthrough 到 Open-Meteo
+    }
+  }
+
   // 天氣資料快取仍有效 → 直接回傳（polish 也一起快取）
   if (cache && cache.locationName === w.locationName && now - cache.fetchedAt < CACHE_TTL) {
     if (w.polish && settings.llm.utilityEnabled && cache.polished) return cache.polished
@@ -215,4 +238,32 @@ export async function getWeatherContextString(settings: AppSettings): Promise<st
 export function getCachedWeatherData(): { data: WeatherData; fetchedAt: number } | null {
   if (!cache) return null
   return { data: cache.data, fetchedAt: cache.fetchedAt }
+}
+
+/**
+ * 即時氣象查詢：偵測使用者訊息中的氣象關鍵詞，命中時向中央氣象署查詢並回傳注入字串。
+ * 功能未啟用、無 Key、或查詢失敗時靜默回傳 null。
+ */
+export async function getRealtimeQueryContextString(
+  userMessage: string,
+  settings: AppSettings
+): Promise<string | null> {
+  const rq = settings.weather?.realtimeQuery
+  if (!rq?.enabled || !rq.cwaApiKey) return null
+
+  const type = detectQueryType(userMessage)
+  if (!type) return null
+
+  const apiKey = decrypt(rq.cwaApiKey)
+  if (!apiKey || apiKey.startsWith('enc:v1:')) return null
+
+  const county = rq.forecastCounty || settings.weather?.locationName || ''
+
+  try {
+    const result = await fetchCwaData(type, apiKey, county)
+    return result.injectionText
+  } catch (e) {
+    console.warn('[cwa] realtime query failed:', (e as Error).message)
+    return null
+  }
 }

@@ -56,6 +56,7 @@ interface AppStore {
   deleteScene: (id: string) => Promise<void>
   loadScene: (id: string) => Promise<{ ok: true } | { error: string }>
   renameScene: (id: string, name: string) => Promise<void>
+  updateScene: (id: string, patch: Partial<ScenePreset>) => Promise<void>
 }
 
 export const useAppStore = create<AppStore>((set, get) => ({
@@ -312,6 +313,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
     const scene = scenes.find(s => s.id === id)
     if (!scene) return
     await window.api.invoke('scene:save', { ...scene, name, updatedAt: Date.now() })
+    await get().loadScenes()
+  },
+
+  updateScene: async (id, patch) => {
+    const scene = get().scenePresets.find(s => s.id === id)
+    if (!scene) return
+    await window.api.invoke('scene:save', { ...scene, ...patch, updatedAt: Date.now() })
     await get().loadScenes()
   }
 }))

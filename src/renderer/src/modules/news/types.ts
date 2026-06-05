@@ -13,7 +13,22 @@ export interface NewsSource {
   url?: string
   weight: NewsWeight
   enabled: boolean
-  origin?: 'user' | 'location' | 'builtin'
+  origin?: 'user' | 'location' | 'builtin' | 'character'
+  /** 興趣關鍵字所屬的組（只作用在 keyword）；未設視為預設組。 */
+  groupId?: string
+}
+
+export interface NewsKeywordGroup {
+  id: string
+  name: string
+}
+
+/** 內建「預設組」id。 */
+export const DEFAULT_KEYWORD_GROUP_ID = 'default'
+
+/** undefined / 空字串視為預設組。 */
+export function effectiveGroupId(groupId: string | undefined): string {
+  return groupId && groupId.length > 0 ? groupId : DEFAULT_KEYWORD_GROUP_ID
 }
 
 export interface NewsLocation {
@@ -25,6 +40,7 @@ export interface NewsLocation {
 export interface NewsModuleSettings {
   enabled: boolean
   sources: NewsSource[]
+  keywordGroups: NewsKeywordGroup[]
   blacklist: string[]
   excludedCategories: string[]
   excludedSources: string[]

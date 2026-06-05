@@ -1,5 +1,5 @@
-import type { DetectedLang, NewsItem, NewsModuleSettings } from './types'
-import { weightToValue } from './settings'
+import type { DetectedLang, NewsItem, NewsModuleSettings, NewsSelectionContext } from './types'
+import { weightToValue, keywordSourceInGroup } from './settings'
 
 // ---------------------------------------------------------------------------
 // 語言偵測（輕量字元判斷，不引入完整語言庫，design §6.4）
@@ -52,11 +52,16 @@ function matchesAny(haystack: string, needles: string[]): boolean {
 // 興趣正向比對
 // ---------------------------------------------------------------------------
 
-/** 收集使用者興趣關鍵字（啟用的 keyword 來源 label） */
-export function collectInterestTerms(settings: NewsModuleSettings): string[] {
-  return settings.sources
-    .filter(s => s.enabled && s.type === 'keyword')
+/**
+ * 收集使用者興趣關鍵字（啟用的 keyword 來源 label）。
+ * 依情境組取代式收斂（ctx.sceneGroupId），再疊加當前發話角色的關鍵字（ctx.characterKeywords）。
+ */
+export function collectInterestTerms(settings: NewsModuleSettings, ctx: NewsSelectionContext = {}): string[] {
+  const sceneTerms = settings.sources
+    .filter(s => s.enabled && s.type === 'keyword' && keywordSourceInGroup(s, ctx.sceneGroupId))
     .map(s => s.label)
+  const charTerms = (ctx.characterKeywords ?? []).map(k => k.trim()).filter(Boolean)
+  return [...new Set([...sceneTerms, ...charTerms])]
 }
 
 /**
@@ -120,6 +125,8 @@ export interface FilterResult {
 export interface FilterOptions {
   /** 可注入的亂數產生器（測試用），預設 Math.random */
   rng?: () => number
+  /** 情境組 / 角色關鍵字脈絡（決定 json 正向比對用的興趣詞） */
+  ctx?: NewsSelectionContext
 }
 
 export function filterAndPick(
@@ -128,7 +135,7 @@ export function filterAndPick(
   options: FilterOptions = {}
 ): FilterResult {
   const rng = options.rng ?? Math.random
-  const interestTerms = collectInterestTerms(settings)
+  const interestTerms = collectInterestTerms(settings, options.ctx)
   const seen = new Set(settings.seenIds)
   const excludedSourcesLower = settings.excludedSources.map(s => s.toLowerCase())
   const excludedCategoriesLower = settings.excludedCategories.map(s => s.toLowerCase())

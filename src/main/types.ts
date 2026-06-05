@@ -12,12 +12,29 @@ export interface Character {
   scenario?: string
   systemPromptOverride?: string
   creatorNotes?: string
+  /** 角色自帶新聞興趣關鍵字（疊加在當前興趣池上，普通權重）。純字串、不帶權重。 */
+  newsKeywords?: string[]
   lorebook?: null
   lastDesktopSize?: number
   lastDesktopFlipped?: boolean
   lastDesktopPosition?: { x: number; y: number }
   createdAt: number
   updatedAt: number
+}
+
+/** 新聞陪聊 debug 資訊（保留最近一則，供 Log 視窗「新聞」分頁顯示）。 */
+export interface NewsDebugInfo {
+  /** 當前情境綁定的關鍵字組名稱（未綁則為「預設組」）。 */
+  groupName: string
+  /** 當前發話角色的 newsKeywords（疊加來源）。 */
+  characterKeywords: string[]
+  /** collectInterestTerms 解析出的有效興趣詞池（組 + 角色合並、去重）。 */
+  interestTerms: string[]
+  /** 本次選中的新聞；未選到 / 主題模式時為 null。 */
+  item: { title: string; source: string; keyword?: string; url: string; summary?: string } | null
+  fromTopic: boolean
+  /** news=純新聞 / topic=釘住話題 / survey=新聞+便利貼讓角色選 / notes=只有便利貼 / none=沒有候選素材 */
+  mode: 'news' | 'topic' | 'survey' | 'notes' | 'none'
 }
 
 export interface Message {
@@ -39,6 +56,10 @@ export interface Message {
   utilityDebugPrompt?: string
   /** 輕量旗標：此訊息是否保有完整 debug prompt（廣播時不剝除，供 renderer 決定是否顯示「查看完整 Prompt」）。 */
   hasDebugPrompt?: boolean
+  /** 新聞陪聊 debug（保留最近一則）。 */
+  newsDebug?: NewsDebugInfo
+  /** 輕量旗標：此訊息是否保有 newsDebug。 */
+  hasNewsDebug?: boolean
 }
 
 export interface Conversation {
@@ -114,6 +135,8 @@ export interface ScenePreset {
   colorTheme?: ColorTheme
   inputWindowBounds?: WindowBoundsState
   logWindowBounds?: WindowBoundsState
+  /** 綁定的新聞關鍵字組 id；未綁（undefined）= 用預設組（取代式切換興趣池） */
+  newsKeywordGroupId?: string
   createdAt: number
   updatedAt: number
 }
@@ -125,6 +148,11 @@ export interface WeatherSettings {
   latitude: number
   longitude: number
   locationSource: 'ip' | 'manual' | ''
+  realtimeQuery?: {
+    enabled: boolean
+    cwaApiKey: string
+    forecastCounty: string
+  }
 }
 
 export interface SpotifySettings {
