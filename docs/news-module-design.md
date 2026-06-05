@@ -163,10 +163,14 @@
 
 ---
 
-## 11. LLM 使用（一律走輔助模型）
+## 11. LLM 使用（可選主要 / 輔助，預設主要）
 
-- 新聞相關的 LLM 工作（語言轉述、角色化表達）**一律使用輔助模型**（`AppSettings.llm.utilityModel`，見 `PLAN-prompt-and-routing.md` Part B）。理由：新聞陪聊是輔助任務，不需動用昂貴的扮演模型，成本最低。
-- 若使用者未啟用模型分流（`utilityEnabled: false`），則自動沿用主模型（行為等同現況）。
+> **更新（2026-06-05，實作後修正）：** 原設計「一律走輔助模型」已調整。實測發現輔助模型常把角色口吻壓平成通用 AI，違反「聊新聞要保留角色個性」原則，故改為**使用者可選**。
+
+- 新聞模組設定 `replyModel`（`NewsReplyModel`，見 `src/main/modules/news/types.ts`）：**主要 / 輔助，預設「主要」**（口吻優先）。舊設定遷移為主要。
+  - **主要**：用扮演模型輸出，角色個性最完整（預設、推薦）。
+  - **輔助**：用 `AppSettings.llm.utilityModel` 省成本，適合不在意口吻、只要轉述的人；未啟用模型分流（`utilityEnabled: false`）時自動沿用主模型。
+- 語言轉述（translate 模式）由所選模型順手完成,不另外呼叫。
 - **無額外評分呼叫**：整個流程只有「角色把抽中的那則講出來」這一次 LLM 呼叫；篩選 / 挑選全用規則完成。
 - Token 控制：預設只抓標題 / 摘要 / 時間 / 來源 / URL；對固定來源建 6–24h cache；`json` 來源已是結構化資料，再省。
 
@@ -234,19 +238,23 @@ interface NewsModuleSettings {
 
 ---
 
-## 14. 程式檔案（預定）
+## 14. 程式檔案（已實作）
 
 ```text
 src/main/modules/news/
   index.ts        # 模組定義、接入 module host
+  ipc.ts          # news:* IPC handler 註冊
   settings.ts     # NewsModuleSettings 讀寫
   sources.ts      # keyword/rss/json 抓取（rss-parser）
   filter.ts       # 六層篩選 + 加權隨機挑選 + seenIds 去重
-  trigger.ts      # 說點什麼 / 提醒 觸發接線
-  types.ts
+  topicState.ts   # 後續聊天主題 / 展開小卡狀態
+  trigger.ts      # 說點什麼 / 提醒 觸發接線（builder 指令英文化）
+  types.ts        # 含 NewsReplyModel（主要/輔助）
 
 src/renderer/src/modules/news/
-  SettingsPanel.tsx   # 興趣標籤 / 黑名單 / 進階 / 地方 / 破圈
+  index.ts
+  types.ts
+  SettingsPanel.tsx   # 興趣標籤 / 黑名單 / 進階 / 地方 / 破圈 / replyModel
   # 「不想聽這個」按鈕加在既有 BubbleWindow.tsx
 ```
 
