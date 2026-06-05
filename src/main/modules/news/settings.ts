@@ -138,7 +138,7 @@ export function applyNewsFeedbackDelta(sourceId: string, delta: number): void {
   const s = loadNewsModuleSettings()
   if (!s.enabled) return
   const cur = s.feedback.adjustments[sourceId] ?? 0
-  const next = Math.max(-1.5, Math.min(3, cur + delta))
+  const next = Math.round(Math.max(-1.5, Math.min(3, cur + delta)) * 100) / 100
   saveNewsModuleSettings({
     ...s,
     feedback: { adjustments: { ...s.feedback.adjustments, [sourceId]: next } }
