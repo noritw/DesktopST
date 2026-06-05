@@ -3,7 +3,7 @@ import { checkForUpdates } from './updateChecker'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult } from './types'
+import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM } from './llm/index'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
@@ -28,6 +28,7 @@ import {
   getNewsInjectionForSpeak, getActiveNewsTopic, setActiveNewsTopic,
   setPendingNewsCredit, consumePendingNewsCredit, applyNewsFeedbackDelta,
   buildSurveyDirective, buildNotesDirective, loadNewsModuleSettings,
+  collectInterestTerms,
   type NewsTopic, type NewsSelectionContext
 } from './modules/news'
 import { pushRemoteControlState, pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
@@ -1231,6 +1232,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
 
   const ctxParts: string[] = []
   let reminderNewsMeta: BubbleNewsMeta | null = null
+  let reminderNewsDebugData: NewsDebugInfo | null = null
 
   if (characterWasDeleted && requestedCharacterName) {
     const reminderText = reminder.prompt?.trim() || '提醒你的事情'
@@ -1257,7 +1259,8 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   let reminderNewsTitle: string | undefined
   if (reminder.injectNews) {
     try {
-      const inj = await getNewsInjectionForSpeak({ force: true, ctx: resolveNewsSelectionContext(char) })
+      const reminderNewsCtx = resolveNewsSelectionContext(char)
+      const inj = await getNewsInjectionForSpeak({ force: true, ctx: reminderNewsCtx })
       if (inj) {
         ctxParts.push(inj.text)
         if (!inj.fromTopic && inj.item) {
@@ -1269,6 +1272,29 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
           }
         } else if (inj.fromTopic) {
           reminderNewsTitle = undefined
+        }
+      }
+      // 提醒路線的新聞 debug
+      const newsSettings = loadNewsModuleSettings()
+      if (newsSettings.enabled) {
+        const terms = collectInterestTerms(newsSettings, reminderNewsCtx)
+        const groupName = reminderNewsCtx.sceneGroupId
+          ? (newsSettings.keywordGroups.find(g => g.id === reminderNewsCtx.sceneGroupId)?.name ?? reminderNewsCtx.sceneGroupId)
+          : '預設組'
+        const mode: NewsDebugInfo['mode'] = inj?.fromTopic ? 'topic' : inj?.item ? 'news' : 'none'
+        reminderNewsDebugData = {
+          groupName,
+          characterKeywords: reminderNewsCtx.characterKeywords ?? [],
+          interestTerms: terms,
+          item: inj?.item ? {
+            title: inj.item.title,
+            source: inj.item.source,
+            keyword: inj.item.keyword,
+            url: inj.item.url,
+            summary: inj.item.summary
+          } : null,
+          fromTopic: mode === 'topic',
+          mode
         }
       }
     } catch (e) {
@@ -1382,6 +1408,8 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       utilityOutputTokens: reminderUtilityOutputTk,
       utilityDebugPrompt: reminderUtilityDebugPrompt,
       hasDebugPrompt: !!((hasApiKey && debugPrompt) || reminderUtilityDebugPrompt),
+      newsDebug: reminderNewsDebugData ?? undefined,
+      hasNewsDebug: !!reminderNewsDebugData,
       timestamp: Date.now()
     }
     conv.messages.push(msg)
@@ -1587,9 +1615,19 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
     let newsUsedUtilityModel = false
     let newsDirective: string | undefined
     let newsBubbleMeta: BubbleNewsMeta | null = null
+    let newsDebugData: NewsDebugInfo | null = null
     try {
-      const newsInjection = await getNewsInjectionForSpeak({ ctx: resolveNewsSelectionContext(char) })
+      const newsCtx = resolveNewsSelectionContext(char)
+      const newsInjection = await getNewsInjectionForSpeak({ ctx: newsCtx })
       const noteBlock = settings.ui.speakUsePinnedNotes ? buildVisiblePinnedNotesContext() : null
+
+      // 先算發話模式（供 debug 用，邏輯和下方 branch 一致）
+      const newsMode: NewsDebugInfo['mode'] =
+        newsInjection?.fromTopic ? 'topic'
+        : newsInjection && noteBlock ? 'survey'
+        : newsInjection ? 'news'
+        : noteBlock ? 'notes'
+        : 'none'
 
       if (newsInjection?.fromTopic) {
         // 主題泡泡＝優先素材，主導；便利貼只當背景帶過
@@ -1637,6 +1675,29 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
           setPendingNewsCredit(null)
         } else {
           setPendingNewsCredit(null)
+        }
+      }
+
+      // ── 新聞 debug 資訊（只在模組啟用時收集）──
+      const newsSettings = loadNewsModuleSettings()
+      if (newsSettings.enabled) {
+        const terms = collectInterestTerms(newsSettings, newsCtx)
+        const groupName = newsCtx.sceneGroupId
+          ? (newsSettings.keywordGroups.find(g => g.id === newsCtx.sceneGroupId)?.name ?? newsCtx.sceneGroupId)
+          : '預設組'
+        newsDebugData = {
+          groupName,
+          characterKeywords: newsCtx.characterKeywords ?? [],
+          interestTerms: terms,
+          item: newsInjection?.item ? {
+            title: newsInjection.item.title,
+            source: newsInjection.item.source,
+            keyword: newsInjection.item.keyword,
+            url: newsInjection.item.url,
+            summary: newsInjection.item.summary
+          } : null,
+          fromTopic: newsMode === 'topic',
+          mode: newsMode
         }
       }
     } catch (e) {
@@ -1699,6 +1760,8 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
         utilityOutputTokens: forceUtilityOutputTk,
         utilityDebugPrompt: forceUtilityDebugPrompt,
         hasDebugPrompt: !!(debugPrompt || forceUtilityDebugPrompt),
+        newsDebug: newsDebugData ?? undefined,
+        hasNewsDebug: !!newsDebugData,
         timestamp: Date.now()
       }
       conv.messages.push(msg)
@@ -1775,7 +1838,8 @@ export function registerIpcHandlers() {
     if (!msg) return null
     return {
       debugPrompt: msg.debugPrompt ?? null,
-      utilityDebugPrompt: msg.utilityDebugPrompt ?? null
+      utilityDebugPrompt: msg.utilityDebugPrompt ?? null,
+      newsDebug: msg.newsDebug ?? null
     }
   })
 

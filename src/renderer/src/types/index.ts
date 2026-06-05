@@ -21,6 +21,16 @@ export interface Character {
   updatedAt: number
 }
 
+/** 新聞陪聊 debug 資訊（保留最近一則，供 Log 視窗「新聞」分頁顯示）。 */
+export interface NewsDebugInfo {
+  groupName: string
+  characterKeywords: string[]
+  interestTerms: string[]
+  item: { title: string; source: string; keyword?: string; url: string; summary?: string } | null
+  fromTopic: boolean
+  mode: 'news' | 'topic' | 'survey' | 'notes' | 'none'
+}
+
 export interface Message {
   id: string
   role: 'user' | 'character' | 'system'
@@ -40,6 +50,10 @@ export interface Message {
   utilityDebugPrompt?: string
   /** 此訊息是否保有完整 debug prompt（決定是否顯示「查看完整 Prompt」按鈕） */
   hasDebugPrompt?: boolean
+  /** 新聞陪聊 debug（保留最近一則）。 */
+  newsDebug?: NewsDebugInfo
+  /** 輕量旗標：此訊息是否保有 newsDebug。 */
+  hasNewsDebug?: boolean
 }
 
 export interface Conversation {

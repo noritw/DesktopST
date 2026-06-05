@@ -624,8 +624,11 @@ export function saveConversation(conv: Conversation): void {
 export function pruneConversationDebugPrompts(conv: Conversation, keepN: number): void {
   const msgs = conv.messages
   const threshold = msgs.length - Math.max(0, keepN)
+  // 新聞 debug 只保留最近 1 則（避免對話檔膨脹）
+  const newsThreshold = msgs.length - 1
   for (let i = 0; i < msgs.length; i++) {
     const m = msgs[i]
+    // ── 主要 / 輔助 LLM debug ──
     const hasDebug = !!(m.debugPrompt || m.utilityDebugPrompt)
     if (i >= threshold && hasDebug) {
       m.hasDebugPrompt = true
@@ -633,6 +636,13 @@ export function pruneConversationDebugPrompts(conv: Conversation, keepN: number)
       delete m.debugPrompt
       delete m.utilityDebugPrompt
       m.hasDebugPrompt = false
+    }
+    // ── 新聞 debug（最近 1 則）──
+    if (i >= newsThreshold && m.newsDebug) {
+      m.hasNewsDebug = true
+    } else if (m.newsDebug || m.hasNewsDebug) {
+      delete m.newsDebug
+      m.hasNewsDebug = false
     }
   }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore, selectMessages } from '../stores/useAppStore'
-import type { Message } from '../types'
+import type { Message, NewsDebugInfo } from '../types'
 import MessageText from '../components/MessageText'
 import MonoIcon, { type MonoIconName } from '../components/MonoIcon'
 import { buildSpriteEntries, EMOTION_OPTIONS, stemFromFilename } from '../utils/emotionUtils'
@@ -121,6 +121,95 @@ function stripLeadingEmotionTag(content: string): string {
     .trim()
 }
 
+// ── 新聞 debug パネル ─────────────────────────────────────────────────────────
+
+const MODE_LABEL: Record<NewsDebugInfo['mode'], { label: string; color: string }> = {
+  news:   { label: '純新聞', color: 'bg-mint text-primary' },
+  topic:  { label: '釘住話題', color: 'bg-aqua text-primary' },
+  survey: { label: '新聞＋便利貼（角色選）', color: 'bg-butter text-primary' },
+  notes:  { label: '只有便利貼', color: 'bg-lavender text-primary' },
+  none:   { label: '沒有素材', color: 'bg-surface text-secondary border border-border' }
+}
+
+function NewsDebugPanel({ info }: { info: NewsDebugInfo }) {
+  const mode = MODE_LABEL[info.mode] ?? MODE_LABEL.none
+  return (
+    <div className="p-4 space-y-4 overflow-auto bg-surface text-xs text-primary">
+      {/* 發話模式 */}
+      <div className="flex items-center gap-2">
+        <span className="text-secondary shrink-0">發話模式</span>
+        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${mode.color}`}>{mode.label}</span>
+        {info.fromTopic && <span className="text-[10px] text-secondary">（主題泡泡優先）</span>}
+      </div>
+
+      {/* 情境組 */}
+      <div className="flex items-start gap-2">
+        <span className="text-secondary shrink-0 w-16">情境組</span>
+        <span className="font-medium">{info.groupName}</span>
+      </div>
+
+      {/* 角色卡關鍵字 */}
+      <div className="flex items-start gap-2">
+        <span className="text-secondary shrink-0 w-16">角色關鍵字</span>
+        {info.characterKeywords.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {info.characterKeywords.map(kw => (
+              <span key={kw} className="px-2 py-0.5 rounded-full bg-[#F0BBFF]/60 text-primary border border-[#F0BBFF]">{kw}</span>
+            ))}
+          </div>
+        ) : (
+          <span className="text-secondary">（角色沒有設定）</span>
+        )}
+      </div>
+
+      {/* 有效興趣詞池 */}
+      <div className="flex items-start gap-2">
+        <span className="text-secondary shrink-0 w-16">興趣詞池</span>
+        {info.interestTerms.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {info.interestTerms.map(kw => {
+              const isCharKw = info.characterKeywords.includes(kw)
+              return (
+                <span
+                  key={kw}
+                  title={isCharKw ? '來自角色卡' : '來自情境組'}
+                  className={`px-2 py-0.5 rounded-full ${isCharKw ? 'bg-[#F0BBFF]/50 border border-[#F0BBFF] text-primary' : 'bg-mint text-primary'}`}
+                >
+                  {kw}
+                  {isCharKw && <span className="ml-1 text-[10px] opacity-60">角</span>}
+                </span>
+              )
+            })}
+          </div>
+        ) : (
+          <span className="text-secondary">（沒有可用的興趣詞）</span>
+        )}
+      </div>
+
+      {/* 選中的新聞 */}
+      <div className="flex items-start gap-2">
+        <span className="text-secondary shrink-0 w-16">選中新聞</span>
+        {info.item ? (
+          <div className="flex-1 rounded-xl border border-border bg-bg p-3 space-y-1 min-w-0">
+            <p className="font-semibold leading-snug">{info.item.title}</p>
+            {info.item.summary && (
+              <p className="text-secondary leading-snug">{info.item.summary}</p>
+            )}
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-secondary pt-1">
+              <span>來源：{info.item.source}</span>
+              {info.item.keyword && <span>關鍵字：<span className="text-teal">{info.item.keyword}</span></span>}
+            </div>
+          </div>
+        ) : (
+          <span className="text-secondary">{info.fromTopic ? '（主題模式，沿用釘住話題）' : '（未抓到符合條件的新聞）'}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function LogWindow() {
   const messages = useAppStore(selectMessages)
   const characters = useAppStore(s => s.characters)
@@ -143,7 +232,7 @@ export default function LogWindow() {
   const [editDraft, setEditDraft] = useState('')
   const [editEmotion, setEditEmotion] = useState<string>('neutral')
   const [promptMessage, setPromptMessage] = useState<Message | null>(null)
-  const [promptTab, setPromptTab] = useState<'main' | 'utility'>('main')
+  const [promptTab, setPromptTab] = useState<'main' | 'utility' | 'news'>('main')
   const [previewImage, setPreviewImage] = useState<string | null>(null)
 
   const focusTitleInputTimer = useRef<number>(0)
@@ -236,7 +325,7 @@ export default function LogWindow() {
   }
 
   // 只有實際保留 debug prompt 的訊息才顯示按鈕（超過保留則數的舊訊息會被剪掉 → 不顯示、也不會去抓 debug）。
-  const messageMayHaveDebug = (msg: Message) => msg.hasDebugPrompt === true
+  const messageMayHaveDebug = (msg: Message) => msg.hasDebugPrompt === true || msg.hasNewsDebug === true
 
   const openPrompt = async (msg: Message) => {
     setEditingId(null)
@@ -246,12 +335,14 @@ export default function LogWindow() {
       const debug = await window.api.invoke('conversation:get-message-debug', msg.id) as {
         debugPrompt?: string | null
         utilityDebugPrompt?: string | null
+        newsDebug?: NewsDebugInfo | null
       } | null
       if (debug) {
         setPromptMessage({
           ...msg,
           debugPrompt: debug.debugPrompt ?? undefined,
-          utilityDebugPrompt: debug.utilityDebugPrompt ?? undefined
+          utilityDebugPrompt: debug.utilityDebugPrompt ?? undefined,
+          newsDebug: debug.newsDebug ?? undefined
         })
       }
     } catch (e) {
@@ -261,7 +352,9 @@ export default function LogWindow() {
 
   const [copied, setCopied] = useState(false)
   const copyPrompt = () => {
-    const src = promptTab === 'utility' ? promptMessage?.utilityDebugPrompt : promptMessage?.debugPrompt
+    const src = promptTab === 'utility' ? promptMessage?.utilityDebugPrompt
+      : promptTab === 'news' ? (promptMessage?.newsDebug ? JSON.stringify(promptMessage.newsDebug, null, 2) : null)
+      : promptMessage?.debugPrompt
     if (!src) return
     const stripped = stripImageData(src)
     navigator.clipboard.writeText(stripped).then(() => {
@@ -653,7 +746,7 @@ export default function LogWindow() {
                 </button>
               </div>
             </div>
-            {promptMessage.utilityDebugPrompt && (
+            {(promptMessage.utilityDebugPrompt || promptMessage.newsDebug) && (
               <div className="flex gap-0 border-b border-border bg-surface px-4">
                 <button
                   type="button"
@@ -662,17 +755,32 @@ export default function LogWindow() {
                 >
                   主要 LLM
                 </button>
-                <button
-                  type="button"
-                  className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${promptTab === 'utility' ? 'border-teal text-teal' : 'border-transparent text-secondary hover:text-primary'}`}
-                  onClick={() => setPromptTab('utility')}
-                >
-                  輔助 LLM
-                </button>
+                {promptMessage.utilityDebugPrompt && (
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${promptTab === 'utility' ? 'border-teal text-teal' : 'border-transparent text-secondary hover:text-primary'}`}
+                    onClick={() => setPromptTab('utility')}
+                  >
+                    輔助 LLM
+                  </button>
+                )}
+                {promptMessage.newsDebug && (
+                  <button
+                    type="button"
+                    className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${promptTab === 'news' ? 'border-[#AAEEDD] text-teal' : 'border-transparent text-secondary hover:text-primary'}`}
+                    onClick={() => setPromptTab('news')}
+                  >
+                    🗞️ 新聞
+                  </button>
+                )}
               </div>
             )}
             <div className="px-4 pt-3 bg-surface">
-              {promptTab === 'utility' && promptMessage.utilityDebugPrompt ? (
+              {promptTab === 'news' ? (
+                <div className="rounded-lg border border-[#AAEEDD]/60 bg-[#AAEEDD]/10 px-3 py-2 text-[11px] leading-relaxed text-secondary">
+                  <span className="font-semibold text-teal">新聞陪聊 debug</span>：抽選時用了哪些關鍵字、選中哪則新聞。只保留最近一則發話的記錄。
+                </div>
+              ) : promptTab === 'utility' && promptMessage.utilityDebugPrompt ? (
                 <div className="rounded-lg border border-teal/40 bg-teal/10 px-3 py-2 text-[11px] leading-relaxed text-secondary">
                   <span className="font-semibold text-teal">輔助 LLM 負責的指令</span>：表情判斷、群組次要角色、提醒發話、新聞陪聊（新聞設定選「輔助」時）、未來的對話摘要。
                   <span className="block mt-0.5">輸入＝各任務專用 prompt（如表情分類），輸出＝分類 ID 或角色台詞。</span>
@@ -684,13 +792,17 @@ export default function LogWindow() {
                 </div>
               )}
             </div>
-            <pre className="m-0 p-4 overflow-auto text-xs leading-relaxed text-primary whitespace-pre-wrap bg-surface">
-              {promptTab === 'utility' && promptMessage.utilityDebugPrompt
-                ? renderDebugPrompt(promptMessage.utilityDebugPrompt)
-                : promptMessage.debugPrompt
-                  ? renderDebugPrompt(promptMessage.debugPrompt)
-                  : '這則訊息沒有保存 Prompt。只有新的 LLM 回應會記錄完整 Prompt。'}
-            </pre>
+            {promptTab === 'news' && promptMessage.newsDebug ? (
+              <NewsDebugPanel info={promptMessage.newsDebug} />
+            ) : (
+              <pre className="m-0 p-4 overflow-auto text-xs leading-relaxed text-primary whitespace-pre-wrap bg-surface">
+                {promptTab === 'utility' && promptMessage.utilityDebugPrompt
+                  ? renderDebugPrompt(promptMessage.utilityDebugPrompt)
+                  : promptMessage.debugPrompt
+                    ? renderDebugPrompt(promptMessage.debugPrompt)
+                    : '這則訊息沒有保存 Prompt。只有新的 LLM 回應會記錄完整 Prompt。'}
+              </pre>
+            )}
           </div>
         </div>
       )}
