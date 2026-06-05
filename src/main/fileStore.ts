@@ -46,6 +46,8 @@ function refreshPaths(nextDir: string): void {
   PERSONAS_DIR = path.join(DATA_DIR, 'personas')
   WORLDS_DIR = path.join(DATA_DIR, 'worlds')
   SCENES_DIR = path.join(DATA_DIR, 'scenes')
+  _dirsEnsured = false
+  _scenesCache = null
 }
 
 function loadDataDirFromMeta(): string {
@@ -71,9 +73,14 @@ function saveDataDirMeta(targetDir: string): void {
   }
 }
 
+let _dirsEnsured = false
+let _scenesCache: ScenePreset[] | null = null
+
 refreshPaths(loadDataDirFromMeta())
 
 function ensureDirs() {
+  if (_dirsEnsured) return
+  _dirsEnsured = true
   for (const dir of [DATA_DIR, path.join(DATA_DIR, 'modules'), CHARS_DIR, CONVS_DIR, PERSONAS_DIR, WORLDS_DIR, SCENES_DIR]) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   }
@@ -452,9 +459,10 @@ export function loadWorldPreset(id: string): WorldPreset | null {
 // ── Scene Presets ────────────────────────────────────────
 
 export function loadScenePresets(): ScenePreset[] {
+  if (_scenesCache) return _scenesCache
   ensureDirs()
   if (!fs.existsSync(SCENES_DIR)) return []
-  return fs.readdirSync(SCENES_DIR)
+  _scenesCache = fs.readdirSync(SCENES_DIR)
     .filter(f => f.endsWith('.json'))
     .map(f => {
       try {
@@ -462,16 +470,19 @@ export function loadScenePresets(): ScenePreset[] {
       } catch { return null }
     })
     .filter(Boolean) as ScenePreset[]
+  return _scenesCache
 }
 
 export function saveScenePreset(preset: ScenePreset): void {
   ensureDirs()
   fs.writeFileSync(path.join(SCENES_DIR, `${preset.id}.json`), JSON.stringify(preset, null, 2), 'utf-8')
+  _scenesCache = null
 }
 
 export function deleteScenePreset(id: string): void {
   const file = path.join(SCENES_DIR, `${id}.json`)
   if (fs.existsSync(file)) fs.unlinkSync(file)
+  _scenesCache = null
 }
 
 export function loadScenePreset(id: string): ScenePreset | null {
