@@ -1288,6 +1288,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   }
 
   let reminderNewsTitle: string | undefined
+  let reminderNewsDirective: string | undefined
   if (reminder.injectNews) {
     try {
       const reminderNewsCtx = resolveNewsSelectionContext(char)
@@ -1297,12 +1298,25 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
         if (!inj.fromTopic && inj.item) {
           const it = inj.item
           reminderNewsTitle = it.title
+          reminderNewsDirective = inj.directive
           reminderNewsMeta = {
             id: it.id, sourceId: it.sourceId, title: it.title,
             url: it.url, summary: it.summary, source: it.source, keyword: it.keyword
           }
         } else if (inj.fromTopic) {
           reminderNewsTitle = undefined
+          // 話題泡泡模式：釘住話題本身也有原文連結，同樣顯示在泡泡上
+          const topic = getActiveNewsTopic()
+          if (topic?.url) {
+            reminderNewsMeta = {
+              id: topic.id,
+              sourceId: '',
+              title: topic.title,
+              url: topic.url,
+              summary: topic.summary,
+              source: topic.source
+            }
+          }
         }
       }
       // 提醒路線的新聞 debug
@@ -1344,12 +1358,18 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   if (reminder.prompt?.trim()) {
     ctxParts.push('[發話重點]\n這次主要是要把上面的「提醒指令」用你自己的個性講出來；天氣／便利貼／新聞如果有，只是順帶提及、別喧賓奪主。換個新鮮的開場，別跟你最近說過的雷同。')
   } else {
-    const candidates = [
-      ...(reminderNewsTitle ? [`新聞：「${reminderNewsTitle}」`] : []),
-      ...((reminderNoteBlock?.titles ?? []).map(t => `便利貼：「${t}」`))
-    ]
-    if (candidates.length > 0) {
-      ctxParts.push(`[發話重點]\n沒有特定提醒。從這些你注意到的事裡挑「一個」現在最想聊的開個話題（${candidates.join('、')}），完全用你的個性，不必每個都提到。`)
+    const hasNotes = !!reminderNoteBlock?.titles?.length
+    if (reminderNewsDirective && !hasNotes) {
+      // 只有新聞、沒有便利貼候選：直接用新聞專屬指令（和「說點什麼」路徑一致，角色確定聊這則）
+      ctxParts.push(`[發話重點]\n${reminderNewsDirective}`)
+    } else {
+      const candidates = [
+        ...(reminderNewsTitle ? [`新聞：「${reminderNewsTitle}」`] : []),
+        ...((reminderNoteBlock?.titles ?? []).map(t => `便利貼：「${t}」`))
+      ]
+      if (candidates.length > 0) {
+        ctxParts.push(`[發話重點]\n沒有特定提醒。從這些你注意到的事裡挑「一個」現在最想聊的開個話題（${candidates.join('、')}），完全用你的個性，不必每個都提到。`)
+      }
     }
   }
 
@@ -1382,10 +1402,12 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     let reminderUtilityInputTk: number | undefined
     let reminderUtilityOutputTk: number | undefined
     let reminderUtilityDebugPrompt: string | undefined
-    const reminderChatSettings = applyUtilitySettings(settings)
+    // 提醒發話走主要模型（角色口吻優先）；情緒分類才走輔助模型
+    // 若使用者未啟用分流，applyUtilitySettings 回傳原始 settings，行為不變
+    const reminderChatSettings = settings
 
     if (hasApiKey) {
-      // 有 API Key：調用 LLM 生成角色化回應（提醒走輔助模型）
+      // 有 API Key：調用 LLM 生成角色化回應
       const reminderHasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
       const doSplitEmotionReminder = !!(settings.llm.utilityEnabled && reminderHasCustomSprites)
       const { content, emotion: llmEmotion, debugPrompt: llmDebugPrompt, inputTokens: rInputTk, outputTokens: rOutputTk } = await chatWithLLM({

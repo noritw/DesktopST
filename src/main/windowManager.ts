@@ -1104,6 +1104,7 @@ type CachedBubbleShowPayload = {
   text: string
   emotion: string
   anchorFallback?: BubbleAnchorFallback | null
+  news?: BubbleNewsMeta | null
 }
 
 const lastBubbleShowPayload = new Map<string, CachedBubbleShowPayload>()
@@ -1238,7 +1239,8 @@ export function showSpeechBubble(
     speakerName,
     text,
     emotion: emotion ?? 'neutral',
-    anchorFallback
+    anchorFallback,
+    news: newsMeta ?? null
   })
 
   const dispatchShow = () => {
@@ -2703,7 +2705,8 @@ export function restoreAuxWindowsFromSnapshot(entries: VisibleAuxWindowSnapshotE
             cached.speakerName,
             cached.text,
             cached.emotion,
-            cached.anchorFallback
+            cached.anchorFallback,
+            cached.news
           )
         } else {
           const win = bubbleWindows.get(entry.characterId)

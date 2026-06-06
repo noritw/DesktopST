@@ -124,7 +124,17 @@ async function fetchRssItems(url: string, source: NewsSource): Promise<NewsItem[
       const others = related.filter(h => h && h !== title).slice(0, 3)
       if (others.length) summary = others.join('／')
     } else {
-      summary = stripHtml(entry.contentSnippet ?? entry.content ?? '')
+      let descRaw = stripHtml(entry.contentSnippet ?? entry.content ?? '')
+      // Yahoo News 等聚合站 description 常以 [媒體名] 開頭標示原始來源；
+      // 在去重邏輯清空 summary 前先把媒體名補進 outlet，確保 source 欄位正確
+      if (!outlet && descRaw) {
+        const m = descRaw.match(/^\[([^\]]{1,30})\]/)
+        if (m) {
+          outlet = m[1]
+          descRaw = descRaw.slice(m[0].length).trim()
+        }
+      }
+      summary = descRaw
       if (summary && (summary === title || summary.includes(title) || title.includes(summary))) summary = ''
     }
 
