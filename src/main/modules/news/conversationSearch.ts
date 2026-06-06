@@ -15,9 +15,9 @@ export function shouldTriggerSearch(message: string, triggerWords: string[]): bo
 }
 
 const EXTRACTION_INSTRUCTIONS =
-  '你是一個助手，判斷使用者訊息是否在問一件現實世界的時事或新聞。\n' +
-  '若是，給出適合 Google 搜尋的繁體中文查詢詞：最多 3 個關鍵詞、以空格分隔、每詞 2–5 字，只取核心概念。\n' +
-  '若訊息不涉及可搜尋的時事，回覆「null」。只輸出查詢詞或 null，不要其他說明。'
+  'Determine whether the user message is asking about a real-world current event or news story.\n' +
+  'If yes, output a Traditional Chinese (Taiwan) Google search query: at most 3 keywords separated by spaces, 2–5 characters each, core concepts only.\n' +
+  'If the message is not about a searchable current event, output "null". Output the query or null only, no other explanation.'
 
 export interface ConversationSearchResult {
   context: string | null
@@ -92,10 +92,10 @@ function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
   if (isNaN(diff)) return ''
   const hours = diff / 3600000
-  if (hours < 1) return '剛剛'
-  if (hours < 24) return `${Math.floor(hours)} 小時前`
-  if (hours < 48) return '昨天'
-  return `${Math.floor(hours / 24)} 天前`
+  if (hours < 1) return 'just now'
+  if (hours < 24) return `${Math.floor(hours)}h ago`
+  if (hours < 48) return 'yesterday'
+  return `${Math.floor(hours / 24)}d ago`
 }
 
 /**
@@ -144,7 +144,7 @@ export async function searchGoogleNewsRss(
       const related = extractRelatedHeadlines(contentHtml).filter(h => h !== title).slice(0, 2)
       const summary = related.join('／')
       if (!title) continue
-      items.push({ title, summary, source: outlet || '未知媒體', publishedAt })
+      items.push({ title, summary, source: outlet || 'Unknown outlet', publishedAt })
     }
     return items
   } catch (e) {
@@ -159,10 +159,10 @@ export function buildConversationSearchInjection(
   items: SearchResultItem[]
 ): string | null {
   if (items.length === 0) return null
-  const lines: string[] = [`[對話搜尋：${query}]`]
+  const lines: string[] = [`[Conversation search: ${query}]`]
   items.forEach((item, i) => {
     const timeTag = relativeTime(item.publishedAt)
-    const meta = [item.source, timeTag].filter(Boolean).join('，')
+    const meta = [item.source, timeTag].filter(Boolean).join(', ')
     lines.push(`${i + 1}. ${item.title}（${meta}）`)
     if (item.summary) {
       const snip = item.summary.slice(0, 60) + (item.summary.length > 60 ? '…' : '')
