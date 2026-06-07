@@ -40,6 +40,7 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
     source?: string
     blockKeyword?: boolean
     blockSource?: boolean
+    reduceSource?: boolean
   }) => {
     const current = loadNewsModuleSettings()
     const adjustments = { ...current.feedback.adjustments }
@@ -55,6 +56,11 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
     if (payload?.blockSource && payload.source && !excludedSources.includes(payload.source)) {
       excludedSources.push(payload.source)
     }
+    // 降低顯示（非封鎖）：與封鎖互斥，封鎖已經完全不會抽到，沒必要重複降權
+    const reducedSources = [...current.reducedSources]
+    if (payload?.reduceSource && !payload?.blockSource && payload.source && !reducedSources.includes(payload.source)) {
+      reducedSources.push(payload.source)
+    }
     const seenIds = payload?.id && !current.seenIds.includes(payload.id)
       ? [...current.seenIds, payload.id].slice(-500)
       : current.seenIds
@@ -63,6 +69,7 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
       feedback: { adjustments },
       blacklist,
       excludedSources,
+      reducedSources,
       seenIds
     })
   })

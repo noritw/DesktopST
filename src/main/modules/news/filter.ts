@@ -79,8 +79,12 @@ function needsPositiveFilter(item: NewsItem): boolean {
 // 加權隨機
 // ---------------------------------------------------------------------------
 
+/** 「降低顯示來源」的固定倍率：不是封鎖，只是少抽到（design 延伸：一鍵降權） */
+const REDUCED_SOURCE_MULTIPLIER = 0.3
+
 function weightedPick(items: NewsItem[], settings: NewsModuleSettings, rng: () => number): NewsItem | null {
   if (items.length === 0) return null
+  const reducedSourcesLower = settings.reducedSources.map(s => s.toLowerCase())
   const weights = items.map(item => {
     let w = weightToValue(item.sourceWeight)
     // 學習微調（design §9）：以手設權重為基準微調，夾在合理範圍
@@ -88,6 +92,10 @@ function weightedPick(items: NewsItem[], settings: NewsModuleSettings, rng: () =
     if (typeof adj === 'number') w = Math.max(0.25, w + adj)
     // 有補充脈絡（摘要 / 相關標題）的較好懂，略為提高被抽中的機率，少抽到孤伶伶只有標題、難以聊清楚的
     if (item.summary && item.summary.trim()) w *= 1.6
+    // 使用者手動降低顯示的來源：不過濾掉，只是少抽到
+    if (reducedSourcesLower.length > 0 && matchesAny(item.source.toLowerCase(), reducedSourcesLower)) {
+      w *= REDUCED_SOURCE_MULTIPLIER
+    }
     return w
   })
   const total = weights.reduce((a, b) => a + b, 0)

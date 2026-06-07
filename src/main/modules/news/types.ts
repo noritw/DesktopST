@@ -69,6 +69,8 @@ export interface NewsModuleSettings {
   blacklist: string[]
   excludedCategories: string[]
   excludedSources: string[]
+  /** 降低顯示權重的來源（非封鎖，仍會抽到只是機率變低；比對方式同 excludedSources） */
+  reducedSources: string[]
   /** 語言處理，預設 'translate' */
   langMode: LangMode
   /** 「說點什麼」抓新聞，預設 'sometimes' */

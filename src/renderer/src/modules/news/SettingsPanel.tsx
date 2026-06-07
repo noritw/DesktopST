@@ -754,6 +754,24 @@ export function NewsSettingsPanel() {
               </div>
             )}
 
+            {/* 降低顯示來源管理 */}
+            {settings.reducedSources.length > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-sm font-semibold text-primary">降低顯示的來源</p>
+                <p className="text-xs text-secondary">不會完全消失，只是被抽到的機率變低。</p>
+                <div className="flex flex-wrap gap-2">
+                  {settings.reducedSources.map(src => (
+                    <span key={src} className="flex items-center gap-1 text-xs px-3 py-1 rounded-full bg-butter text-primary">
+                      {src}
+                      <button type="button" className="ml-0.5 opacity-60 hover:opacity-100" onClick={() =>
+                        update(prev => ({ ...prev, reducedSources: prev.reducedSources.filter(s => s !== src) }))
+                      }>×</button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* 排除類別管理 */}
             {settings.excludedCategories.length > 0 && (
               <div className="space-y-1.5">

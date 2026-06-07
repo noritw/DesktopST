@@ -91,6 +91,7 @@ export function defaultNewsModuleSettings(): NewsModuleSettings {
     blacklist: [],
     excludedCategories: [],
     excludedSources: [],
+    reducedSources: [],
     langMode: 'translate',
     speakButton: 'sometimes',
     replyModel: 'main',
@@ -144,6 +145,7 @@ export function normalizeNewsModuleSettings(raw: Partial<NewsModuleSettings> | u
     blacklist: normalizeStringArray(raw.blacklist),
     excludedCategories: normalizeStringArray(raw.excludedCategories),
     excludedSources: normalizeStringArray(raw.excludedSources),
+    reducedSources: normalizeStringArray(raw.reducedSources),
     langMode: VALID_LANG_MODES.includes(raw.langMode as LangMode) ? (raw.langMode as LangMode) : 'translate',
     speakButton: VALID_SPEAK_MODES.includes(raw.speakButton as SpeakMode) ? (raw.speakButton as SpeakMode) : 'sometimes',
     // 舊設定沒有 replyModel → 'main'（把預設行為由輔助改為主要，避免角色口吻被壓平）

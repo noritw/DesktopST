@@ -44,6 +44,7 @@ export interface NewsModuleSettings {
   blacklist: string[]
   excludedCategories: string[]
   excludedSources: string[]
+  reducedSources: string[]
   langMode: LangMode
   speakButton: SpeakMode
   replyModel: NewsReplyModel

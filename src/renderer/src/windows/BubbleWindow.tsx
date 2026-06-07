@@ -53,6 +53,7 @@ export default function BubbleWindow({ characterId }: Props) {
   const [dontWantMenu, setDontWantMenu] = useState(false)
   const [blockKeyword, setBlockKeyword] = useState(false)
   const [blockSource, setBlockSource] = useState(false)
+  const [reduceSource, setReduceSource] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingPinArgsRef = useRef<{ title: string; pos: { x: number; y: number }; content: string } | null>(null)
 
@@ -95,6 +96,7 @@ export default function BubbleWindow({ characterId }: Props) {
   const openDontWant = () => {
     setBlockKeyword(false)
     setBlockSource(false)
+    setReduceSource(false)
     setDontWantMenu(true)
   }
 
@@ -106,7 +108,8 @@ export default function BubbleWindow({ characterId }: Props) {
         keyword: news.keyword,
         source: news.source,
         blockKeyword,
-        blockSource
+        blockSource,
+        reduceSource
       })
     }
     setDontWantMenu(false)
@@ -425,8 +428,28 @@ export default function BubbleWindow({ characterId }: Props) {
                 )}
                 {news.source && (
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" checked={blockSource} onChange={e => setBlockSource(e.target.checked)} className="accent-teal" />
-                    <span>封鎖來源「{news.source}」</span>
+                    <input
+                      type="checkbox"
+                      checked={blockSource}
+                      onChange={e => {
+                        setBlockSource(e.target.checked)
+                        if (e.target.checked) setReduceSource(false)
+                      }}
+                      className="accent-teal"
+                    />
+                    <span>封鎖來源「{news.source}」（以後完全不顯示）</span>
+                  </label>
+                )}
+                {news.source && (
+                  <label className={`flex items-center gap-2 ${blockSource ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+                    <input
+                      type="checkbox"
+                      checked={reduceSource}
+                      disabled={blockSource}
+                      onChange={e => setReduceSource(e.target.checked)}
+                      className="accent-teal"
+                    />
+                    <span>降低顯示來源「{news.source}」（少抽到，不會完全消失）</span>
                   </label>
                 )}
                 <div className="flex justify-end gap-2 pt-0.5">
