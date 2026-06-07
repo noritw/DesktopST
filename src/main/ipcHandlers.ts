@@ -904,6 +904,29 @@ function deferRaiseCharacterAbovePinnedNotes(characterId: string): void {
   setImmediate(() => raiseCharacterAbovePinnedNotes(characterId))
 }
 
+/**
+ * 標題主觀／情緒評分是額外一次 LLM 往返請求（debug 用，見 docs/news-future-sensational-score.md）。
+ * 絕不能擋在角色回覆之前——背景執行，完成後才補回該則訊息的 newsDebug 欄位並重新存檔/廣播。
+ */
+function attachNewsSubjectivityInBackground(
+  conv: Conversation,
+  msgId: string,
+  item: { title: string; summary?: string }
+): void {
+  classifyNewsSubjectivityWithLLM({ settings, title: item.title, summary: item.summary })
+    .then(subjectivity => {
+      if (!subjectivity) return
+      const msg = conv.messages.find(m => m.id === msgId)
+      if (!msg?.newsDebug?.item) return
+      msg.newsDebug.item.subjectivityScore = subjectivity.score
+      msg.newsDebug.item.subjectivityReason = subjectivity.reason
+      fileStore.saveConversation(conv)
+      scheduleConversationBroadcast(conv)
+      flushConversationBroadcast()
+    })
+    .catch(() => {})
+}
+
 function bubbleAnchorForCharacter(characterId: string): BubbleAnchorFallback | null {
   const ds = settings.ui.desktopCharacters.find(d => d.characterId === characterId)
   if (ds) return { position: ds.position, size: ds.size }
@@ -1264,6 +1287,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   const ctxParts: string[] = []
   let reminderNewsMeta: BubbleNewsMeta | null = null
   let reminderNewsDebugData: NewsDebugInfo | null = null
+  let reminderNewsSubjectItem: { title: string; summary?: string } | null = null
 
   if (characterWasDeleted && requestedCharacterName) {
     const reminderText = reminder.prompt?.trim() || '提醒你的事情'
@@ -1303,6 +1327,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
             id: it.id, sourceId: it.sourceId, title: it.title,
             url: it.url, summary: it.summary, source: it.source, keyword: it.keyword
           }
+          reminderNewsSubjectItem = { title: it.title, summary: it.summary }
         } else if (inj.fromTopic) {
           reminderNewsTitle = undefined
           // 話題泡泡模式：釘住話題本身也有原文連結，同樣顯示在泡泡上
@@ -1327,10 +1352,6 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
           ? (newsSettings.keywordGroups.find(g => g.id === reminderNewsCtx.sceneGroupId)?.name ?? reminderNewsCtx.sceneGroupId)
           : '預設組'
         const mode: NewsDebugInfo['mode'] = inj?.fromTopic ? 'topic' : inj?.item ? 'news' : 'none'
-        // 標題主觀／情緒評分（debug 觀察用，不影響抽選與角色語氣，見 docs/news-future-sensational-score.md）
-        const subjectivity = (inj?.item && !inj.fromTopic)
-          ? await classifyNewsSubjectivityWithLLM({ settings, title: inj.item.title, summary: inj.item.summary })
-          : null
         reminderNewsDebugData = {
           groupName,
           characterKeywords: reminderNewsCtx.characterKeywords ?? [],
@@ -1340,9 +1361,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
             source: inj.item.source,
             keyword: inj.item.keyword,
             url: inj.item.url,
-            summary: inj.item.summary,
-            subjectivityScore: subjectivity?.score,
-            subjectivityReason: subjectivity?.reason
+            summary: inj.item.summary
           } : null,
           fromTopic: mode === 'topic',
           mode
@@ -1477,6 +1496,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     fileStore.saveConversation(conv)
     scheduleConversationBroadcast(conv)
     flushConversationBroadcast()
+    if (reminderNewsSubjectItem) attachNewsSubjectivityInBackground(conv, msg.id, reminderNewsSubjectItem)
 
     // 播放提醒音效（發給說話的角色的窗口，一個角色只響一次）
     if (settings.ui.reminderNotificationSound?.enabled !== false) {
@@ -1717,6 +1737,7 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
     let newsDirective: string | undefined
     let newsBubbleMeta: BubbleNewsMeta | null = null
     let newsDebugData: NewsDebugInfo | null = null
+    let newsSubjectItem: { title: string; summary?: string } | null = null
     try {
       const newsCtx = resolveNewsSelectionContext(char)
       const newsInjection = await getNewsInjectionForSpeak({ ctx: newsCtx })
@@ -1786,10 +1807,9 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
         const groupName = newsCtx.sceneGroupId
           ? (newsSettings.keywordGroups.find(g => g.id === newsCtx.sceneGroupId)?.name ?? newsCtx.sceneGroupId)
           : '預設組'
-        // 標題主觀／情緒評分（debug 觀察用，不影響抽選與角色語氣，見 docs/news-future-sensational-score.md）
-        const subjectivity = (newsInjection?.item && !newsInjection.fromTopic)
-          ? await classifyNewsSubjectivityWithLLM({ settings, title: newsInjection.item.title, summary: newsInjection.item.summary })
-          : null
+        if (newsInjection?.item && !newsInjection.fromTopic) {
+          newsSubjectItem = { title: newsInjection.item.title, summary: newsInjection.item.summary }
+        }
         newsDebugData = {
           groupName,
           characterKeywords: newsCtx.characterKeywords ?? [],
@@ -1799,9 +1819,7 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
             source: newsInjection.item.source,
             keyword: newsInjection.item.keyword,
             url: newsInjection.item.url,
-            summary: newsInjection.item.summary,
-            subjectivityScore: subjectivity?.score,
-            subjectivityReason: subjectivity?.reason
+            summary: newsInjection.item.summary
           } : null,
           fromTopic: newsMode === 'topic',
           mode: newsMode
@@ -1877,6 +1895,7 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
       fileStore.saveConversation(conv)
       scheduleConversationBroadcast(conv)
       flushConversationBroadcast()
+      if (newsSubjectItem) attachNewsSubjectivityInBackground(conv, msg.id, newsSubjectItem)
       setImmediate(() => {
         showSpeechBubble(characterId, char.name, forcedReply, msg.emotion, bubbleAnchorForCharacter(characterId), newsBubbleMeta)
         sendCharacterContextUpdate(characterId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
