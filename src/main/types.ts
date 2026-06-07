@@ -31,10 +31,30 @@ export interface NewsDebugInfo {
   /** collectInterestTerms 解析出的有效興趣詞池（組 + 角色合並、去重）。 */
   interestTerms: string[]
   /** 本次選中的新聞；未選到 / 主題模式時為 null。 */
-  item: { title: string; source: string; keyword?: string; url: string; summary?: string } | null
+  item: {
+    title: string; source: string; keyword?: string; url: string; summary?: string
+    /**
+     * 標題主觀／情緒程度評分（0~5，由輔助模型輕量分類；僅供觀察記錄，不參與篩選）。
+     * 分類失敗或未啟用時為 undefined。
+     */
+    subjectivityScore?: number
+    /** 評分理由（繁中、簡短）。 */
+    subjectivityReason?: string
+  } | null
   fromTopic: boolean
   /** news=純新聞 / topic=釘住話題 / survey=新聞+便利貼讓角色選 / notes=只有便利貼 / none=沒有候選素材 */
   mode: 'news' | 'topic' | 'survey' | 'notes' | 'none'
+}
+
+/** 新聞發話的原文連結中繼資料（保留最近數則，供事後從對話記錄重開泡泡時還原連結卡與互動按鈕）。 */
+export interface NewsLinkInfo {
+  id: string
+  sourceId: string
+  title: string
+  url: string
+  summary: string
+  source: string
+  keyword?: string
 }
 
 export interface Message {
@@ -64,6 +84,8 @@ export interface Message {
   newsDebug?: NewsDebugInfo
   /** 輕量旗標：此訊息是否保有 newsDebug。 */
   hasNewsDebug?: boolean
+  /** 新聞發話的原文連結資料（保留最近數則，供對話記錄重開泡泡時還原連結卡與互動按鈕）。 */
+  newsLink?: NewsLinkInfo
 }
 
 export interface Conversation {

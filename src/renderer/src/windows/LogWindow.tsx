@@ -198,6 +198,14 @@ function NewsDebugPanel({ info }: { info: NewsDebugInfo }) {
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-secondary pt-1">
               <span>來源：{info.item.source}</span>
               {info.item.keyword && <span>關鍵字：<span className="text-teal">{info.item.keyword}</span></span>}
+              {typeof info.item.subjectivityScore === 'number' && (
+                <span
+                  title="標題用詞主觀／情緒程度（輔助模型輕量評分，僅供觀察，不影響抽選與角色語氣）"
+                >
+                  主觀／情緒：<span className="text-teal font-medium">{info.item.subjectivityScore}/5</span>
+                  {info.item.subjectivityReason && <span>（{info.item.subjectivityReason}）</span>}
+                </span>
+              )}
             </div>
           </div>
         ) : (
@@ -520,7 +528,8 @@ export default function LogWindow() {
                 characterId: msg.characterId,
                 speakerName: getCharName(msg.characterId),
                 text: String(msg.content ?? ''),
-                emotion: msg.emotion ?? 'neutral'
+                emotion: msg.emotion ?? 'neutral',
+                newsLink: msg.newsLink ?? null
               })
               // 同時切換角色視窗的表情
               if (msg.emotion) {

@@ -2,7 +2,7 @@ import { chatWithOpenAI } from './openaiAdapter'
 import { chatWithClaude } from './claudeAdapter'
 import { chatWithGemini } from './geminiAdapter'
 import {
-  buildEmotionClassifierSystemPrompt, buildEmotionIdList, applyUtilitySettings,
+  buildEmotionClassifierSystemPrompt, buildEmotionIdList, buildNewsSubjectivityClassifierSystemPrompt, applyUtilitySettings,
   type ChatLLMParams, type ChatLLMResult, type PromptCharacter
 } from './promptUtils'
 import type { AppSettings } from '../types'
@@ -139,6 +139,114 @@ export async function classifyEmotionWithLLM(params: {
     return { emotion: resolveId(raw), inputTokens, outputTokens, debugPrompt: makeDebug(provider, model, inputTokens, outputTokens, raw) }
   } catch {
     return { emotion: fallback }
+  }
+}
+
+type NewsSubjectivityResult = {
+  score: number
+  reason?: string
+  inputTokens?: number
+  outputTokens?: number
+  debugPrompt?: string
+}
+
+/**
+ * Rate how subjective/emotionally loaded a news headline's wording reads, using the utility (cheap) model.
+ * Debug-only signal (LogWindow news panel) — result is never used to filter candidates or steer character tone.
+ * Returns null on parse/request failure (caller treats as "no score available").
+ */
+export async function classifyNewsSubjectivityWithLLM(params: {
+  settings: AppSettings
+  title: string
+  summary?: string
+}): Promise<NewsSubjectivityResult | null> {
+  const { settings, title, summary } = params
+  const utilitySettings = applyUtilitySettings(settings)
+  const systemPrompt = buildNewsSubjectivityClassifierSystemPrompt()
+  const userContent = summary && summary !== title ? `${title}\n${summary}` : title
+
+  const parse = (raw: string): { score: number; reason?: string } | null => {
+    const text = raw.trim()
+    // 寬容解析：理想格式是 "N|理由"，但有些模型會夾雜多餘文字（如 "<score 4>|..."），
+    // 所以改成「找出分隔線前最後一個 0~5 數字」+「分隔線後的文字」。
+    const m = text.match(/([0-5])[^|｜]*[|｜]\s*(.*)$/s)
+    if (!m) return null
+    const reason = m[2].trim().replace(/^["「『]|["」』]$/g, '')
+    return { score: Number(m[1]), reason: reason || undefined }
+  }
+
+  const makeDebug = (provider: string, model: string, inputTokens: number | undefined, outputTokens: number | undefined, response: string) =>
+    JSON.stringify({
+      purpose: 'news_subjectivity_classify',
+      provider,
+      model,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      input: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent }
+      ],
+      response
+    }, null, 2)
+
+  const provider = utilitySettings.llm.provider
+  try {
+    if (provider === 'claude') {
+      const { default: Anthropic } = await import('@anthropic-ai/sdk')
+      const client = new Anthropic({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey })
+      const model = utilitySettings.llm.models?.[provider] || utilitySettings.llm.model
+      const resp = await client.messages.create({
+        model,
+        max_tokens: 40,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userContent }]
+      })
+      const raw = resp.content.filter(b => b.type === 'text').map(b => (b as any).text).join('').trim()
+      const parsed = parse(raw)
+      if (!parsed) return null
+      const inputTokens = resp.usage?.input_tokens
+      const outputTokens = resp.usage?.output_tokens
+      return { ...parsed, inputTokens, outputTokens, debugPrompt: makeDebug(provider, model, inputTokens, outputTokens, raw) }
+    }
+
+    if (provider === 'gemini') {
+      const { GoogleGenerativeAI } = await import('@google/generative-ai')
+      const genAI = new GoogleGenerativeAI(utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey)
+      const gmodel = genAI.getGenerativeModel({
+        model: utilitySettings.llm.models?.[provider] || utilitySettings.llm.model,
+        systemInstruction: systemPrompt
+      })
+      const result = await gmodel.generateContent(userContent)
+      const raw = result.response.text().trim()
+      const parsed = parse(raw)
+      if (!parsed) return null
+      const inputTokens = result.response.usageMetadata?.promptTokenCount
+      const outputTokens = result.response.usageMetadata?.candidatesTokenCount
+      const model = utilitySettings.llm.models?.[provider] || utilitySettings.llm.model
+      return { ...parsed, inputTokens, outputTokens, debugPrompt: makeDebug(provider, model, inputTokens, outputTokens, raw) }
+    }
+
+    // OpenAI / Grok
+    const { default: OpenAI } = await import('openai')
+    const baseURL = endpointForProvider(provider, utilitySettings.llm.endpoint)
+    const client = new OpenAI({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey, baseURL })
+    const model = utilitySettings.llm.models?.[provider] || utilitySettings.llm.model
+    const resp = await client.responses.create({
+      model,
+      input: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent }
+      ],
+      max_output_tokens: 40
+    } as any)
+    const raw = (typeof (resp as any)?.output_text === 'string' ? (resp as any).output_text : '').trim()
+    const parsed = parse(raw)
+    if (!parsed) return null
+    const inputTokens = (resp as any).usage?.input_tokens as number | undefined
+    const outputTokens = (resp as any).usage?.output_tokens as number | undefined
+    return { ...parsed, inputTokens, outputTokens, debugPrompt: makeDebug(provider, model, inputTokens, outputTokens, raw) }
+  } catch {
+    return null
   }
 }
 

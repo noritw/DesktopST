@@ -634,6 +634,9 @@ const _saveConvTimers = new Map<string, ReturnType<typeof setTimeout>>()
 /** 由 loadSettings / saveSettings 同步；saveConversation 用它決定 debug prompt 保留則數。 */
 let _keepDebugPromptN = DEFAULT_SETTINGS.memory.keepDebugPromptN
 
+/** 新聞原文連結保留則數：只有最近幾則新聞發話訊息事後從對話記錄重開時還能看到連結卡與互動按鈕。 */
+const NEWS_LINK_KEEP_N = 5
+
 export function saveConversation(conv: Conversation): void {
   ensureDirs()
   pruneConversationDebugPrompts(conv, _keepDebugPromptN)
@@ -660,6 +663,8 @@ export function pruneConversationDebugPrompts(conv: Conversation, keepN: number)
   const threshold = msgs.length - Math.max(0, keepN)
   // 新聞 debug 只保留最近 1 則（避免對話檔膨脹）
   const newsThreshold = msgs.length - 1
+  // 新聞原文連結只保留最近幾則，供事後從對話記錄重開泡泡時使用（更早的訊息視同「已無視＝沒興趣」，不再保留可互動連結）
+  const newsLinkThreshold = msgs.length - NEWS_LINK_KEEP_N
   for (let i = 0; i < msgs.length; i++) {
     const m = msgs[i]
     // ── 主要 / 輔助 / 對話搜尋 LLM debug ──
@@ -680,6 +685,10 @@ export function pruneConversationDebugPrompts(conv: Conversation, keepN: number)
     } else if (m.newsDebug || m.hasNewsDebug) {
       delete m.newsDebug
       m.hasNewsDebug = false
+    }
+    // ── 新聞原文連結（最近 NEWS_LINK_KEEP_N 則）──
+    if (i < newsLinkThreshold && m.newsLink) {
+      delete m.newsLink
     }
   }
 }

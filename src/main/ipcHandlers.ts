@@ -5,7 +5,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo } from './types'
 import * as fileStore from './fileStore'
-import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM } from './llm/index'
+import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM } from './llm/index'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
 import { importStJson, exportToStJson } from './stCardMapper'
@@ -1327,6 +1327,10 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
           ? (newsSettings.keywordGroups.find(g => g.id === reminderNewsCtx.sceneGroupId)?.name ?? reminderNewsCtx.sceneGroupId)
           : '預設組'
         const mode: NewsDebugInfo['mode'] = inj?.fromTopic ? 'topic' : inj?.item ? 'news' : 'none'
+        // 標題主觀／情緒評分（debug 觀察用，不影響抽選與角色語氣，見 docs/news-future-sensational-score.md）
+        const subjectivity = (inj?.item && !inj.fromTopic)
+          ? await classifyNewsSubjectivityWithLLM({ settings, title: inj.item.title, summary: inj.item.summary })
+          : null
         reminderNewsDebugData = {
           groupName,
           characterKeywords: reminderNewsCtx.characterKeywords ?? [],
@@ -1336,7 +1340,9 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
             source: inj.item.source,
             keyword: inj.item.keyword,
             url: inj.item.url,
-            summary: inj.item.summary
+            summary: inj.item.summary,
+            subjectivityScore: subjectivity?.score,
+            subjectivityReason: subjectivity?.reason
           } : null,
           fromTopic: mode === 'topic',
           mode
@@ -1463,6 +1469,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       hasDebugPrompt: !!((hasApiKey && debugPrompt) || reminderUtilityDebugPrompt),
       newsDebug: reminderNewsDebugData ?? undefined,
       hasNewsDebug: !!reminderNewsDebugData,
+      newsLink: reminderNewsMeta ?? undefined,
       timestamp: Date.now()
     }
     conv.messages.push(msg)
@@ -1779,6 +1786,10 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
         const groupName = newsCtx.sceneGroupId
           ? (newsSettings.keywordGroups.find(g => g.id === newsCtx.sceneGroupId)?.name ?? newsCtx.sceneGroupId)
           : '預設組'
+        // 標題主觀／情緒評分（debug 觀察用，不影響抽選與角色語氣，見 docs/news-future-sensational-score.md）
+        const subjectivity = (newsInjection?.item && !newsInjection.fromTopic)
+          ? await classifyNewsSubjectivityWithLLM({ settings, title: newsInjection.item.title, summary: newsInjection.item.summary })
+          : null
         newsDebugData = {
           groupName,
           characterKeywords: newsCtx.characterKeywords ?? [],
@@ -1788,7 +1799,9 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
             source: newsInjection.item.source,
             keyword: newsInjection.item.keyword,
             url: newsInjection.item.url,
-            summary: newsInjection.item.summary
+            summary: newsInjection.item.summary,
+            subjectivityScore: subjectivity?.score,
+            subjectivityReason: subjectivity?.reason
           } : null,
           fromTopic: newsMode === 'topic',
           mode: newsMode
@@ -1856,6 +1869,7 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
         hasDebugPrompt: !!(debugPrompt || forceUtilityDebugPrompt),
         newsDebug: newsDebugData ?? undefined,
         hasNewsDebug: !!newsDebugData,
+        newsLink: newsBubbleMeta ?? undefined,
         timestamp: Date.now()
       }
       conv.messages.push(msg)
@@ -2665,15 +2679,16 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('news:get-topic', () => getActiveNewsTopic())
 
-  ipcMain.handle('bubble:debug-show', (_, payload: { characterId: string; speakerName: string; text: string; emotion?: string }) => {
-    const { characterId, speakerName, text, emotion } = payload ?? { characterId: '', speakerName: '', text: '' }
+  ipcMain.handle('bubble:debug-show', (_, payload: { characterId: string; speakerName: string; text: string; emotion?: string; newsLink?: BubbleNewsMeta | null }) => {
+    const { characterId, speakerName, text, emotion, newsLink } = payload ?? { characterId: '', speakerName: '', text: '' }
     if (!characterId) return false
     showSpeechBubble(
       characterId,
       speakerName || (getCharacter(characterId)?.name ?? '角色'),
       String(text ?? ''),
       emotion,
-      bubbleAnchorForCharacter(characterId)
+      bubbleAnchorForCharacter(characterId),
+      newsLink ?? null
     )
     return true
   })

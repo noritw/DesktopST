@@ -26,9 +26,24 @@ export interface NewsDebugInfo {
   groupName: string
   characterKeywords: string[]
   interestTerms: string[]
-  item: { title: string; source: string; keyword?: string; url: string; summary?: string } | null
+  item: {
+    title: string; source: string; keyword?: string; url: string; summary?: string
+    subjectivityScore?: number
+    subjectivityReason?: string
+  } | null
   fromTopic: boolean
   mode: 'news' | 'topic' | 'survey' | 'notes' | 'none'
+}
+
+/** 新聞發話的原文連結中繼資料（保留最近數則，供事後從對話記錄重開泡泡時還原連結卡與互動按鈕）。 */
+export interface NewsLinkInfo {
+  id: string
+  sourceId: string
+  title: string
+  url: string
+  summary: string
+  source: string
+  keyword?: string
 }
 
 export interface Message {
@@ -58,6 +73,8 @@ export interface Message {
   newsDebug?: NewsDebugInfo
   /** 輕量旗標：此訊息是否保有 newsDebug。 */
   hasNewsDebug?: boolean
+  /** 新聞發話的原文連結資料（保留最近數則，供對話記錄重開泡泡時還原連結卡與互動按鈕）。 */
+  newsLink?: NewsLinkInfo
 }
 
 export interface Conversation {

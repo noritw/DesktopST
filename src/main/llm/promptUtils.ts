@@ -329,6 +329,22 @@ export function buildEmotionClassifierSystemPrompt(char: PromptCharacter): strin
   return lines.join('\n')
 }
 
+/**
+ * Minimal system prompt for rating how subjective/emotionally loaded a news headline's WORDING reads
+ * (not whether the underlying claim is true). Debug-only signal — never used to filter or alter tone.
+ */
+export function buildNewsSubjectivityClassifierSystemPrompt(): string {
+  return [
+    'You are a news headline analyst.',
+    "Rate how subjective, emotionally loaded, or one-sided the WORDING of the given headline (and summary, if any) is — not whether the claim itself is true or important.",
+    '0 = purely factual, neutral wording. 5 = strongly opinionated, emotionally charged, or one-sided framing.',
+    'Reply with ONLY a single digit (0, 1, 2, 3, 4, or 5), then a "|" character, then a short reason written in Traditional Chinese (under 20 characters). Do not add any other words, labels, brackets, or punctuation.',
+    'Example output (copy this exact shape, but with your own digit and reason):',
+    '2|語氣中性，僅敘述事實',
+    '3|用詞稍帶評價意味'
+  ].join('\n')
+}
+
 export function buildSystemPrompt(
   settings: AppSettings,
   char: PromptCharacter,
