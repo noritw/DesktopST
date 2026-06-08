@@ -368,7 +368,21 @@ export default function CharacterLibraryWindow() {
               />
               包含世界觀與使用者資訊（不含 API Key）
             </label>
-            <p className="text-xs text-secondary mb-2 shrink-0">勾選要一併打包的角色：</p>
+            <div className="flex items-center justify-between gap-2 mb-2 shrink-0">
+              <p className="text-xs text-secondary">勾選要一併打包的角色：</p>
+              <button
+                type="button"
+                className="text-xs px-2.5 py-1 rounded-full border border-border text-primary hover:bg-mint-40"
+                onClick={() => {
+                  const allSelected = characters.every(c => exportSelected[c.id])
+                  const next: Record<string, boolean> = {}
+                  for (const c of characters) next[c.id] = !allSelected
+                  setExportSelected(next)
+                }}
+              >
+                {characters.every(c => exportSelected[c.id]) ? '取消全選' : '全選'}
+              </button>
+            </div>
             <div className="flex-1 min-h-0 overflow-y-auto space-y-1 mb-4 border border-border rounded-xl p-2">
               {characters.map(c => (
                 <label key={c.id} className="flex items-center gap-2 text-sm cursor-pointer">
