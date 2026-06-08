@@ -31,7 +31,6 @@
 
 - **作業系統**：Windows 10 / 11（64 位元）
 - **API Key**：需自備 OpenAI、Gemini、Claude 或 Grok 其中一家的 API Key
-  - 第一次測試建議使用 **Gemini**（有免費額度）
   - 申請方式請見 <a href="https://nori.tw/DeST/api-key-guide.html" target="_blank" rel="noopener noreferrer">docs/api-key-guide.html</a>
 
 ---
