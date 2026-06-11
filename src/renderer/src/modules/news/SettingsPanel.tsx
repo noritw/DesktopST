@@ -459,6 +459,36 @@ export function NewsSettingsPanel() {
         </div>
       </section>
 
+      {/* 新聞新鮮度 */}
+      <section className="space-y-2">
+        <p className="text-sm font-semibold text-primary">🕐 只聊多新的新聞？</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={settings.maxAgeDays > 0}
+              className="accent-teal w-4 h-4"
+              onChange={e => update(prev => ({ ...prev, maxAgeDays: e.target.checked ? 30 : 0 }))}
+            />
+            <span className="text-sm text-primary">只聊</span>
+          </label>
+          <input
+            type="number"
+            min={1}
+            max={365}
+            disabled={settings.maxAgeDays === 0}
+            value={settings.maxAgeDays || 30}
+            className="input-field w-16 text-sm text-center disabled:opacity-40"
+            onChange={e => {
+              const v = Math.max(1, Math.min(365, Math.floor(Number(e.target.value))))
+              if (Number.isFinite(v)) update(prev => ({ ...prev, maxAgeDays: v }))
+            }}
+          />
+          <span className={`text-sm ${settings.maxAgeDays === 0 ? 'text-secondary opacity-40' : 'text-primary'}`}>天內發布的新聞（0 = 不限）</span>
+        </div>
+        <p className="text-xs text-secondary">超過天數的舊文章不會被抽到，避免聊到已經結束的活動。沒標發布日期的文章不受此限制。</p>
+      </section>
+
       {/* 說點什麼抓新聞 */}
       <section className="space-y-2">
         <p className="text-sm font-semibold text-primary">按「說點什麼」時</p>
