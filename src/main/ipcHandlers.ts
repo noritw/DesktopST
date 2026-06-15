@@ -98,6 +98,8 @@ let settings: AppSettings
 let characters: Character[]
 let activeConversationId: string | null = null
 let conversations: Map<string, Conversation> = new Map()
+// 目前進行中的 message:send 流程的中止控制器；按下「停止」時 abort 並中斷該流程
+let activeSendAbort: AbortController | null = null
 
 function centerWindowInPrimary(winSize: { width: number; height: number }): { x: number; y: number } {
   const wa = screen.getPrimaryDisplay().workArea
@@ -3082,6 +3084,9 @@ export function registerIpcHandlers() {
       return { ok: true }
     }
 
+    const abortController = new AbortController()
+    activeSendAbort = abortController
+
     setCharacterThinking(primaryId, true)
     if (isMobileServerRunning()) mobilePushThinking(primaryId)
     deferRaiseCharacterAbovePinnedNotes(primaryId)
@@ -3120,7 +3125,8 @@ export function registerIpcHandlers() {
         world: activeWorld,
         desktopCharacterNames,
         extraSystemContext: combinedExtraContext ?? undefined,
-        splitEmotion: doSplitEmotion
+        splitEmotion: doSplitEmotion,
+        signal: abortController.signal
       })
       const primaryReply = stripOtherCharacterSpeakerLines(
         normalizeCharacterDialogue(content, primaryChar),
@@ -3135,7 +3141,7 @@ export function registerIpcHandlers() {
       let utilityOutputTokens: number | undefined
       let utilityDebugPrompt: string | undefined
       if (doSplitEmotion) {
-        const classifyResult = await classifyEmotionWithLLM({ settings, character: primaryChar, reply: primaryReply })
+        const classifyResult = await classifyEmotionWithLLM({ settings, character: primaryChar, reply: primaryReply, signal: abortController.signal })
         emotion = classifyResult.emotion
         utilityInputTokens = classifyResult.inputTokens
         utilityOutputTokens = classifyResult.outputTokens
@@ -3184,6 +3190,22 @@ export function registerIpcHandlers() {
         sendCharacterContextUpdate(primaryId, { lastMessage: { id: charMsg.id, emotion: charMsg.emotion } })
       })
     } catch (e: unknown) {
+      setCharacterThinking(primaryId, false)
+      if (abortController.signal.aborted) {
+        activeSendAbort = null
+        // 使用者按下停止：移除尚未獲得回覆的訊息，關閉使用者泡泡，並把內容還給輸入框讓使用者修改重發
+        conv.messages = conv.messages.filter(m => m.id !== userMsg.id)
+        conv.updatedAt = Date.now()
+        hideUserSpeechBubble()
+        broadcastConversationUpdate(conv)
+        syncCharacterContextsFromConversation(conv)
+        const iw = getInputWindow()
+        if (iw && !iw.isDestroyed()) {
+          iw.webContents.send('input:restore-draft', { text: payload.content, images: payload.images ?? [] })
+        }
+        fileStore.saveConversation(conv)
+        return { ok: true }
+      }
       const errMsg = e instanceof Error ? e.message : String(e)
       const errMsg2: Message = {
         id: uuidv4(),
@@ -3196,7 +3218,7 @@ export function registerIpcHandlers() {
       conv.messages.push(errMsg2)
       scheduleConversationBroadcast(conv)
       flushConversationBroadcast()
-      setCharacterThinking(primaryId, false)
+      activeSendAbort = null
       fileStore.saveConversation(conv)
       return { ok: true }
     }
@@ -3213,6 +3235,7 @@ export function registerIpcHandlers() {
       .filter(id => id !== primaryId)
       .slice(0, maxAdditionalReplies)
     for (const charId of others) {
+      if (abortController.signal.aborted) break
       const char = getCharacter(charId)
       if (!char) continue
 
@@ -3244,7 +3267,8 @@ export function registerIpcHandlers() {
           world: activeWorld,
           desktopCharacterNames,
           extraSystemContext: combinedExtraContext ?? undefined,
-          splitEmotion: doSplitEmotionSec
+          splitEmotion: doSplitEmotionSec,
+          signal: abortController.signal
         })
         const cleanReply = stripOtherCharacterSpeakerLines(
           normalizeCharacterDialogue(reply.trim(), char),
@@ -3268,7 +3292,7 @@ export function registerIpcHandlers() {
         let secUtilityOutputTk: number | undefined
         let secUtilityDebugPrompt: string | undefined
         if (doSplitEmotionSec) {
-          const cr = await classifyEmotionWithLLM({ settings, character: char, reply: cleanReply })
+          const cr = await classifyEmotionWithLLM({ settings, character: char, reply: cleanReply, signal: abortController.signal })
           emotionSec = cr.emotion
           secUtilityInputTk = cr.inputTokens
           secUtilityOutputTk = cr.outputTokens
@@ -3320,15 +3344,36 @@ export function registerIpcHandlers() {
       } catch (e: unknown) {
         // If a secondary decision fails, don't break the whole send flow.
         setCharacterThinking(charId, false)
+        if (abortController.signal.aborted) break
       }
     }
 
+    activeSendAbort = null
     flushConversationBroadcast()
     fileStore.saveConversation(conv)
     return { ok: true }
   }
   _mobileSendImpl = sendMsgBody
   ipcMain.handle('message:send', (_, payload) => sendMsgBody(payload))
+
+  // Stop the in-flight message:send LLM call(s), if any
+  ipcMain.handle('message:stop', () => {
+    activeSendAbort?.abort()
+    return { ok: true }
+  })
+
+  // Resend the last message if it's a user message with no reply yet
+  ipcMain.handle('message:resend-last', async () => {
+    const conv = getActiveConversation()
+    if (!conv) return { error: 'No active conversation' }
+    const last = conv.messages[conv.messages.length - 1]
+    if (!last || last.role !== 'user') return { error: 'Last message is not from user' }
+    conv.messages.pop()
+    conv.updatedAt = Date.now()
+    broadcastConversationUpdate(conv)
+    syncCharacterContextsFromConversation(conv)
+    return sendMsgBody({ content: last.content, images: last.images, randomResult: last.randomResult })
+  })
 
   // Force speak: one character speaks now
   ipcMain.handle('character:force-speak', async (_, characterId: string) => forceSpeakDirect(characterId))

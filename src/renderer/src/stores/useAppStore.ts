@@ -29,6 +29,7 @@ interface AppStore {
   subscribeCharacterEvents: () => () => void
 
   sendMessage: (content: string, images?: string[], randomResult?: RandomResult) => Promise<void>
+  stopSending: () => Promise<void>
   continueGroup: () => Promise<void>
   forceSpeak: (characterId: string) => Promise<void>
   toggleMute: (characterId: string) => Promise<void>
@@ -169,6 +170,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     } finally {
       set({ isSending: false })
     }
+  },
+
+  stopSending: async () => {
+    await window.api.invoke('message:stop')
   },
 
   continueGroup: async () => {

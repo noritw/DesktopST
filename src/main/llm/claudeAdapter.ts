@@ -127,7 +127,7 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
     temperature: settings.llm.temperature,
     system: systemPrompt,
     messages: claudeMessages as Anthropic.MessageParam[]
-  })
+  }, { signal: params.signal })
 
   const raw = response.content
     .filter(b => b.type === 'text')

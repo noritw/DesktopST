@@ -101,7 +101,7 @@ export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResu
   }
 
   const chat = model.startChat({ history })
-  const result = await chat.sendMessage(currentParts as any)
+  const result = await chat.sendMessage(currentParts as any, { signal: params.signal })
   const raw = result.response.text().trim()
 
   if (!raw) {

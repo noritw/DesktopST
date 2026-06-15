@@ -6,6 +6,7 @@ import { computeRandomResult, formatPendingLabel, getToolEmoji, diceNotation } f
 
 export default function InputWindow() {
   const sendMessage = useAppStore(s => s.sendMessage)
+  const stopSending = useAppStore(s => s.stopSending)
   const continueGroup = useAppStore(s => s.continueGroup)
   const isSending = useAppStore(s => s.isSending)
   const desktopCharacters = useAppStore(s => s.desktopCharacters)
@@ -64,6 +65,17 @@ export default function InputWindow() {
       el.setSelectionRange(pos, pos)
     })
   }
+
+  // 按下停止後，把未送出的內容還給輸入框讓使用者修改重發
+  useEffect(() => {
+    const unsub = window.api.on('input:restore-draft', (payload: unknown) => {
+      const p = payload as { text?: string; images?: string[] }
+      if (typeof p.text === 'string') setText(p.text)
+      if (Array.isArray(p.images) && p.images.length > 0) setImages(p.images)
+      requestAnimationFrame(() => textareaRef.current?.focus())
+    })
+    return unsub
+  }, [])
 
   // Receive selected emoji from the picker window
   useEffect(() => {
@@ -301,16 +313,16 @@ export default function InputWindow() {
                   <div className="flex flex-col gap-1 shrink-0 w-14">
                     <button
                       type="button"
-                      onClick={handleSend}
-                      disabled={isSending || (!text.trim() && images.length === 0)}
+                      onClick={isSending ? () => void stopSending() : handleSend}
+                      disabled={!isSending && !text.trim() && images.length === 0}
                       className="flex-1 min-h-[34px] rounded-2xl text-primary border border-border
                              bg-teal shadow-soft transition-colors
                              hover:bg-mint active:bg-teal-80
                              disabled:opacity-40 disabled:pointer-events-none
                              no-drag flex items-center justify-center"
-                      title={isSending ? '送出中...' : '送出訊息'}
+                      title={isSending ? '停止' : '送出訊息'}
                     >
-                      <MonoIcon name="send" className="w-5 h-5" />
+                      <MonoIcon name={isSending ? 'stop' : 'send'} className="w-5 h-5" />
                     </button>
                     <button
                       type="button"

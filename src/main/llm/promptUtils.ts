@@ -126,6 +126,8 @@ export type ChatLLMParams = {
   splitEmotion?: boolean
   /** 輕量工具 call（意圖萃取等）：跳過角色扮演規則、輸出格式、系統時間、輸入來源等與角色扮演相關的段落 */
   minimal?: boolean
+  /** 可用於中途取消本次 LLM 請求 */
+  signal?: AbortSignal
 }
 
 export type ChatLLMResult = {

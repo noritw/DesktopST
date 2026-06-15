@@ -310,6 +310,16 @@ export default function LogWindow() {
     return null
   }, [messages])
 
+  // 最後一則訊息是使用者發言且尚未收到角色回覆時，提供「重新發送」按鈕
+  const lastPendingUserMessageId = useMemo(() => {
+    const last = messages[messages.length - 1]
+    return last?.role === 'user' ? last.id : null
+  }, [messages])
+
+  const resendLastUserMessage = () => {
+    void window.api.invoke('message:resend-last')
+  }
+
   const startEdit = (msg: Message) => {
     setPromptMessage(null)
     setEditingId(msg.id)
@@ -450,6 +460,9 @@ export default function LogWindow() {
             <>
               {!isEditing && (
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {msg.id === lastPendingUserMessageId && (
+                    <ActionButton title="重新發送" icon="resend" onClick={resendLastUserMessage} />
+                  )}
                   {messageMayHaveDebug(msg) && <ActionButton title="查看完整 Prompt" icon="prompt" onClick={() => { void openPrompt(msg) }} />}
                   <ActionButton title="編輯訊息" icon="edit" onClick={() => startEdit(msg)} />
                   <ActionButton title="刪除訊息" icon="trash" danger onClick={() => confirmDeleteMessage(msg.id)} />

@@ -7,6 +7,8 @@ export type MonoIconName =
   | 'log'
   | 'image'
   | 'send'
+  | 'stop'
+  | 'resend'
   | 'save'
   | 'download'
   | 'folder'
@@ -84,6 +86,17 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
         <>
           <path {...common} d="M4 12l16-8-5 16-3-7-8-1Z" />
           <path {...common} d="M12 13l8-9" />
+        </>
+      )}
+      {name === 'stop' && (
+        <rect {...common} x="6" y="6" width="12" height="12" rx="2" />
+      )}
+      {name === 'resend' && (
+        <>
+          <path {...common} d="M4 12a8 8 0 0 1 13.66-5.66L20 8" />
+          <path {...common} d="M20 4v4h-4" />
+          <path {...common} d="M20 12a8 8 0 0 1-13.66 5.66L4 16" />
+          <path {...common} d="M4 20v-4h4" />
         </>
       )}
       {name === 'save' && (

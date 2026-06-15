@@ -61,8 +61,9 @@ export async function classifyEmotionWithLLM(params: {
   settings: AppSettings
   character: PromptCharacter
   reply: string
+  signal?: AbortSignal
 }): Promise<EmotionClassifyResult> {
-  const { settings, character, reply } = params
+  const { settings, character, reply, signal } = params
   const utilitySettings = applyUtilitySettings(settings)
   const systemPrompt = buildEmotionClassifierSystemPrompt(character)
   const knownIds = buildEmotionIdList(character)
@@ -98,7 +99,7 @@ export async function classifyEmotionWithLLM(params: {
         max_tokens: 20,
         system: systemPrompt,
         messages: [{ role: 'user', content: reply }]
-      })
+      }, { signal })
       const raw = resp.content.filter(b => b.type === 'text').map(b => (b as any).text).join('').trim()
       const inputTokens = resp.usage?.input_tokens
       const outputTokens = resp.usage?.output_tokens
@@ -112,7 +113,7 @@ export async function classifyEmotionWithLLM(params: {
         model: utilitySettings.llm.models?.[provider] || utilitySettings.llm.model,
         systemInstruction: systemPrompt
       })
-      const result = await gmodel.generateContent(reply)
+      const result = await gmodel.generateContent(reply, { signal })
       const raw = result.response.text().trim()
       const inputTokens = result.response.usageMetadata?.promptTokenCount
       const outputTokens = result.response.usageMetadata?.candidatesTokenCount
@@ -132,12 +133,13 @@ export async function classifyEmotionWithLLM(params: {
         { role: 'user', content: reply }
       ],
       max_output_tokens: 20
-    } as any)
+    } as any, { signal })
     const raw = (typeof (resp as any)?.output_text === 'string' ? (resp as any).output_text : '').trim()
     const inputTokens = (resp as any).usage?.input_tokens as number | undefined
     const outputTokens = (resp as any).usage?.output_tokens as number | undefined
     return { emotion: resolveId(raw), inputTokens, outputTokens, debugPrompt: makeDebug(provider, model, inputTokens, outputTokens, raw) }
-  } catch {
+  } catch (e: unknown) {
+    if (signal?.aborted) throw e
     return { emotion: fallback }
   }
 }

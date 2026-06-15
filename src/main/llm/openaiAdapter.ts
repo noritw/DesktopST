@@ -97,7 +97,7 @@ export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResu
     body.temperature = settings.llm.temperature
   }
 
-  const resp = await client.responses.create(body as any)
+  const resp = await client.responses.create(body as any, { signal: params.signal })
   const raw = extractResponseText(resp)
   if (!raw || raw.trim().length === 0) {
     throw new Error(`Empty response from model: ${model}`)
