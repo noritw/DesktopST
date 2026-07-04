@@ -1997,13 +1997,24 @@ export default function SettingsWindow() {
                 className="w-full accent-teal"
               />
             </Field>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={draft.memory.autoSummarizeEnabled ?? true}
+                onChange={e => set('memory.autoSummarizeEnabled', e.target.checked)}
+                className="accent-teal w-4 h-4"
+              />
+              <span className="text-sm text-primary">自動摘要舊對話（記憶摘要）</span>
+            </label>
             <Field label={`自動摘要閾值（${draft.memory.autoSummarizeAfter} 則）`}>
               <input type="range" min={20} max={200} step={10}
                 value={draft.memory.autoSummarizeAfter}
                 onChange={e => set('memory.autoSummarizeAfter', Number(e.target.value))}
-                className="w-full accent-teal"
+                disabled={!(draft.memory.autoSummarizeEnabled ?? true)}
+                className="w-full accent-teal disabled:opacity-40"
               />
             </Field>
+            <p className="text-xs text-secondary">未被摘要涵蓋的訊息累積達閾值時，自動用輔助模型把超出「保留最近對話數」的舊訊息濃縮成記憶摘要，附在之後每次對話裡。也可以隨時在記錄視窗手動「立即摘要」或直接編輯摘要內容。</p>
             <Field label={`詳細 Prompt 保留數（最近 ${draft.memory.keepDebugPromptN ?? 5} 則）`}>
               <input type="range" min={0} max={20} step={1}
                 value={draft.memory.keepDebugPromptN ?? 5}

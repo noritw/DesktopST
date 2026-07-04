@@ -245,6 +245,11 @@ export default function LogWindow() {
   const [promptTab, setPromptTab] = useState<'main' | 'utility' | 'conv-search' | 'news'>('main')
   const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [reactionPickerId, setReactionPickerId] = useState<string | null>(null)
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [summaryDraft, setSummaryDraft] = useState('')
+  const [summaryDirty, setSummaryDirty] = useState(false)
+  const [summarizing, setSummarizing] = useState(false)
+  const [summaryNotice, setSummaryNotice] = useState<string | null>(null)
 
   const focusTitleInputTimer = useRef<number>(0)
   const focusTitleInput = () => {
@@ -291,6 +296,57 @@ export default function LogWindow() {
   useEffect(() => {
     listConversations().then(setConvList).catch(() => setConvList([]))
   }, [conversation?.id, conversation?.title, listConversations])
+
+  // 記憶摘要草稿與對話同步；使用者編輯中（dirty）時不被自動摘要的廣播蓋掉
+  useEffect(() => {
+    setSummaryDirty(false)
+    setSummaryNotice(null)
+  }, [conversation?.id])
+  useEffect(() => {
+    if (!summaryDirty) setSummaryDraft(conversation?.summary ?? '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation?.id, conversation?.summary])
+
+  const keepRecentN = Math.max(1, settings?.memory.keepRecentN ?? 20)
+  // 近期記憶切點：這個 index 之前的訊息已不在角色的 prompt 上下文內
+  const memoryBoundaryIndex = useMemo(() => (
+    messages.length > keepRecentN ? messages.length - keepRecentN : 0
+  ), [messages.length, keepRecentN])
+  const summaryCoveredCount = useMemo(() => {
+    const ts = conversation?.summaryCoversTs ?? 0
+    if (!ts) return 0
+    return messages.filter(m => m.timestamp <= ts).length
+  }, [messages, conversation?.summaryCoversTs])
+
+  const runSummarizeNow = async () => {
+    setSummarizing(true)
+    setSummaryNotice(null)
+    try {
+      const r = await window.api.invoke('conversation:summarize-now') as { ok: boolean; noNew?: boolean; error?: string }
+      if (!r.ok) setSummaryNotice(r.error ?? '摘要失敗')
+      else if (r.noNew) setSummaryNotice('目前沒有需要摘要的舊訊息')
+      else {
+        setSummaryDirty(false)
+        setSummaryNotice('摘要已更新')
+      }
+    } catch {
+      setSummaryNotice('摘要失敗')
+    } finally {
+      setSummarizing(false)
+    }
+  }
+  const saveSummary = async () => {
+    await window.api.invoke('conversation:update-summary', summaryDraft)
+    setSummaryDirty(false)
+    setSummaryNotice('已儲存')
+  }
+  const clearSummary = async () => {
+    if (!window.confirm('確定要清除記憶摘要嗎？角色將不再記得已被濃縮的舊對話內容。')) return
+    await window.api.invoke('conversation:clear-summary')
+    setSummaryDraft('')
+    setSummaryDirty(false)
+    setSummaryNotice(null)
+  }
 
   const personaPresets = useAppStore(s => s.personaPresets)
   const activePersona = personaPresets.find(p => p.id === settings?.activePersonaId)
@@ -764,11 +820,85 @@ export default function LogWindow() {
         </div>
       </div>
 
+      <div className="px-4 pt-2 no-drag">
+        <div className="rounded-2xl border border-border overflow-hidden">
+          <button
+            type="button"
+            className="w-full flex items-center justify-between px-3 py-2 text-xs text-secondary hover:text-primary"
+            onClick={() => setSummaryOpen(o => !o)}
+            title="舊訊息的濃縮記憶，會附在每次對話的 prompt 裡；可手動編輯"
+          >
+            <span>
+              🧠 記憶摘要
+              {conversation?.summary?.trim()
+                ? summaryCoveredCount > 0 ? ` · 已涵蓋 ${summaryCoveredCount} 則舊訊息` : ' · 手動筆記'
+                : ' · 尚未建立'}
+            </span>
+            <span>{summaryOpen ? '▾' : '▸'}</span>
+          </button>
+          {summaryOpen && (
+            <div className="px-3 pb-3 space-y-2">
+              <textarea
+                className="input-field w-full !text-xs min-h-[96px] resize-y"
+                value={summaryDraft}
+                placeholder="還沒有摘要。按「立即摘要」讓 AI 整理超出近期記憶的舊訊息，或直接手寫想讓角色記住的事。"
+                onChange={e => {
+                  setSummaryDraft(e.target.value)
+                  setSummaryDirty(true)
+                }}
+              />
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  className="tab-btn text-xs"
+                  disabled={summarizing}
+                  onClick={() => void runSummarizeNow()}
+                  title="把超出近期記憶範圍、尚未涵蓋的舊訊息濃縮進摘要"
+                >
+                  {summarizing ? '摘要中…' : '立即摘要'}
+                </button>
+                <button
+                  type="button"
+                  className="tab-btn text-xs"
+                  disabled={!summaryDirty}
+                  onClick={() => void saveSummary()}
+                >
+                  儲存
+                </button>
+                <button
+                  type="button"
+                  className="tab-btn text-xs text-danger hover:text-danger hover:bg-danger-soft"
+                  onClick={() => void clearSummary()}
+                >
+                  清除
+                </button>
+                {summaryNotice && <span className="text-xs text-secondary">{summaryNotice}</span>}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {messages.length === 0 && (
           <p className="text-secondary text-sm text-center py-8">還沒有對話記錄</p>
         )}
-        {messages.map(renderMessage)}
+        {messages.map((msg, index) => (
+          <div key={msg.id} className="space-y-3">
+            {index === memoryBoundaryIndex && memoryBoundaryIndex > 0 && (
+              <div className="flex items-center gap-2 py-1 text-[11px] text-secondary select-none">
+                <div className="flex-1 border-t border-border" />
+                <span>
+                  {conversation?.summary?.trim()
+                    ? '以上訊息已超出近期記憶，由記憶摘要涵蓋'
+                    : '以上訊息已超出近期記憶（角色看不到）'}
+                </span>
+                <div className="flex-1 border-t border-border" />
+              </div>
+            )}
+            {renderMessage(msg)}
+          </div>
+        ))}
         <div ref={bottomRef} />
       </div>
 

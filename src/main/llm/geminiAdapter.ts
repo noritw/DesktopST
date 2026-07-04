@@ -110,14 +110,18 @@ export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResu
   const inputTokens = result.response.usageMetadata?.promptTokenCount
   const outputTokens = result.response.usageMetadata?.candidatesTokenCount
 
+  // 完整記錄實際送出的 prompt（systemInstruction 以 system role 呈現；圖片只留佔位，不存 base64）
+  const partText = (p: GeminiPart) => ('text' in p ? p.text : '[image]')
   const debugPrompt = JSON.stringify({
     provider: 'gemini',
     model: modelName,
     input_tokens: inputTokens,
     output_tokens: outputTokens,
-    systemInstruction: systemPrompt.slice(0, 200) + '...',
-    historyLength: history.length,
-    currentParts: currentParts.length
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...history.map(h => ({ role: h.role, content: h.parts.map(partText).join('') })),
+      { role: 'user', content: currentParts.map(partText).join('') }
+    ]
   }, null, 2)
 
   return { ...parseEmotion(raw, buildEmotionIdList(params.character)), debugPrompt, inputTokens, outputTokens }

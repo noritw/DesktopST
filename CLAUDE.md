@@ -160,7 +160,6 @@ npm run typecheck # 型別檢查
   - 每個供應商獨立 API Key（`AppSettings.llm.apiKeys`）與模型（`AppSettings.llm.models`）
   - 支援自訂 endpoint（`AppSettings.llm.endpoint`）
   - 自動注入系統時間（`AppSettings.injectSystemTime`）
-  - 對話自動摘要（`AppSettings.memory.autoSummarizeAfter`）
 - [x] 資料夾搬遷
   - 設定視窗「資料」分頁可更改資料儲存路徑，自動搬移所有資料
   - `data:change-dir`、`data:get-relocate-summary` IPC
@@ -225,6 +224,14 @@ npm run typecheck # 型別檢查
   - Log 視窗：角色訊息 hover 出現笑臉按鈕展開 picker；已按的在泡泡右下角顯示小徽章（點徽章可更換／取消）
   - IPC `conversation:set-reaction`；下一輪 prompt 由 `expandReactionAnnotations()`（`chatWithLLM` 單一入口）插入英文標註讓角色接住，輸出照舊繁中
   - 😒 + 新聞訊息（`Message.newsLink`）＝主題沒興趣：prompt 措辭改「對這則新聞主題沒興趣」，並觸發新聞來源 −0.5 弱負向回饋（取消或換掉時 +0.5 補回）
+
+- [x] 記憶摘要（自動＋手動）
+  - 上下文只送最近 `memory.keepRecentN` 則（預設 20）；超出的舊訊息濃縮成 `conv.summary`，由 `chatWithLLM` 單一入口注入 `[Memory Summary]` 區塊（一般聊天、群組、說點什麼、提醒皆生效）
+  - 自動摘要：未涵蓋訊息達 `memory.autoSummarizeAfter`（預設 50）時背景增量摘要（既有摘要＋新溢出訊息 → 新摘要，手動編輯內容會保留語意）；`memory.autoSummarizeEnabled` 可關（設定 → 記憶分頁）
+  - 增量涵蓋點 `conv.summaryCoversTs`（timestamp 為準，訊息刪除不受影響）；訊息不會被移除，Log 保留全部
+  - Log 視窗「記憶摘要」摺疊卡（對話名稱下方）：可編輯 textarea＋立即摘要／儲存／清除；訊息流在 keepRecentN 交界顯示「以上訊息已超出近期記憶」分隔線
+  - 摘要走輔助模型（`applyUtilitySettings`），指令英文、輸出繁中；`src/main/llm/summarizer.ts`
+  - IPC：`conversation:summarize-now` / `conversation:update-summary` / `conversation:clear-summary`
 
 **尚未實作（第一版排除）：**
 - Lorebook

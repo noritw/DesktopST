@@ -98,7 +98,10 @@ export interface Conversation {
   title: string
   participantIds: string[]
   messages: Message[]
+  /** 記憶摘要：超出 keepRecentN 的舊訊息濃縮結果（自動或手動產生，使用者可直接編輯） */
   summary: string
+  /** 摘要已涵蓋到哪個時間點（最後一則被濃縮訊息的 timestamp）；訊息被刪除也不受影響 */
+  summaryCoversTs?: number
   createdAt: number
   updatedAt: number
 }
@@ -300,7 +303,10 @@ export interface AppSettings {
   }
   memory: {
     keepRecentN: number
+    /** 未被摘要涵蓋的訊息累積達此數量時自動觸發摘要（需 autoSummarizeEnabled） */
     autoSummarizeAfter: number
+    /** 是否自動摘要（關閉時仍可在 Log 視窗手動摘要） */
+    autoSummarizeEnabled: boolean
     /** 只有最近 N 則訊息保留完整 debug prompt（供 Log「查看完整 Prompt」）；超過的剪掉以減輕載入。 */
     keepDebugPromptN: number
   }
@@ -423,6 +429,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   memory: {
     keepRecentN: 20,
     autoSummarizeAfter: 50,
+    autoSummarizeEnabled: true,
     keepDebugPromptN: 5
   },
   remoteControl: {

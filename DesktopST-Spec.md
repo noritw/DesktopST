@@ -127,7 +127,8 @@ interface Conversation {
   title: string;                 // 對話標題（使用者可改）
   participantIds: string[];      // 參與此對話的角色 ID
   messages: Message[];
-  summary: string;               // 自動摘要（context 壓縮用）
+  summary: string;               // 記憶摘要（自動或手動產生，使用者可直接編輯）
+  summaryCoversTs?: number;      // 摘要已涵蓋到的最後一則訊息 timestamp（增量摘要的起點）
   createdAt: number;
   updatedAt: number;
 }
@@ -219,8 +220,9 @@ interface AppSettings {
 
   // 對話記憶
   memory: {
-    keepRecentN: number;         // 保留最近 N 則對話，預設 20
-    autoSummarizeAfter: number;  // 超過 N 則時觸發自動摘要，預設 50
+    keepRecentN: number;           // 保留最近 N 則對話，預設 20
+    autoSummarizeAfter: number;    // 未被摘要涵蓋的訊息累積達 N 則時自動摘要，預設 50
+    autoSummarizeEnabled: boolean; // 自動摘要開關，預設 true（關閉時仍可手動摘要）
   };
 
   // 更新檢查
@@ -410,7 +412,7 @@ sadness, surprise, neutral
 
 #### 分頁：記憶
 - 保留最近 N 則對話（預設 20）
-- 自動摘要閾值（預設 50）
+- 自動摘要開關（預設開）＋自動摘要閾值（預設 50；關閉時閾值停用）
 - 「清除所有對話記錄」按鈕（需確認）
 
 #### 分頁：資料
@@ -778,20 +780,24 @@ interface PendingRandomTool {
 
 ## 6. 對話記憶策略
 
-### 6.1 流程
+### 6.1 流程（實作版：增量摘要，不刪除訊息）
 ```
-新訊息加入 conversation.messages
+新訊息加入 conversation.messages（完整保留，Log 永遠看得到全部）
   ↓
-檢查 messages 數量
+對話流程結束時檢查（autoSummarizeEnabled = true 才自動觸發）
   ↓
-若 > (keepRecentN + autoSummarizeAfter)
+「未被摘要涵蓋的訊息」（timestamp > summaryCoversTs）達 autoSummarizeAfter 則
   ↓
-取出「最舊的那批訊息」（超過 keepRecentN 的部分）
+取出其中已超出 keepRecentN 視窗的部分（仍在視窗內的訊息不摘要，prompt 有原文）
   ↓
-呼叫 LLM 摘要 → 更新 conversation.summary
+用輔助模型：既有 summary ＋ 這批舊訊息 → 濃縮成新 summary（增量式，
+使用者手動編輯過的內容會被當成輸入保留語意）
   ↓
-從 messages 移除已摘要的訊息
+更新 conversation.summary 與 summaryCoversTs（訊息本身不移除）
 ```
+- 手動觸發（Log 視窗「立即摘要」）走同一流程，只是忽略閾值。
+- 摘要指令為英文（省 Token），輸出強制繁體中文，比照新聞發話慣例。
+- 訊息被刪除不影響涵蓋判定（以 timestamp 為準，不以 index / id 為準）。
 
 ### 6.2 送給 LLM 的 prompt 結構
 ```
@@ -804,7 +810,7 @@ interface PendingRandomTool {
 名稱：{displayName}（稱呼：{nickname}）
 {persona.description}
 
-【先前對話摘要】
+[Memory Summary]（實作：chatWithLLM 單一入口注入，標頭為英文、內容為繁中摘要）
 {conversation.summary}
 
 【目前時間】（若 injectSystemTime = true）
@@ -824,10 +830,16 @@ interface PendingRandomTool {
 ```
 時段標籤：凌晨（0-5）、清晨（5-8）、上午（8-12）、中午（12-13）、下午（13-18）、傍晚（18-19）、晚上（19-23）、深夜（23-24）。
 
-### 6.4 使用者手動管理
+### 6.4 使用者手動管理（Log 視窗「記憶摘要」摺疊卡）
+- 對話名稱下方一條可摺疊窄列，顯示狀態（「已涵蓋 N 則舊訊息」／「手動筆記」／「尚未建立」）
+- 展開後：可編輯的摘要全文 textarea ＋「立即摘要」「儲存」「清除」三顆按鈕
+  - 立即摘要：忽略閾值，立刻把超出近期記憶的未涵蓋舊訊息濃縮進摘要
+  - 儲存：存手動編輯結果（不動 summaryCoversTs，下次增量摘要以此為基礎）
+  - 清除：summary 與 summaryCoversTs 一併重設（需確認）
+- 訊息流在 keepRecentN 交界處顯示分隔線「以上訊息已超出近期記憶…」，讓上下文切點可見
 - 在 Log 視窗可刪除單則訊息
-- 可手動編輯 summary
 - 可開新對話（清空當前記憶，舊對話保留為獨立 session）
+- IPC：`conversation:summarize-now` / `conversation:update-summary` / `conversation:clear-summary`
 
 ---
 
@@ -1027,7 +1039,7 @@ admiration, amusement, anger, ..., neutral
 **驗收**：能匯入 ST 角色卡，所有 LLM 都能用，截圖可附加。✅
 
 ### 階段 4：拋光（1 週）
-- [ ] 對話記憶自動摘要（欄位有，邏輯未寫）
+- [x] 對話記憶自動摘要＋手動摘要（記憶摘要卡，§6.1 / §6.4）
 - [x] 對話 session 管理（列出 / 載入 / 改名 / 刪除）
 - [x] API Key 加密（safeStorage，Windows DPAPI 自動加解密）
 - [x] 開啟資料夾按鈕

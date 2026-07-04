@@ -7,6 +7,7 @@ import type { AppSettings, Character, Conversation, Message, PersonaPreset, Worl
 import { MESSAGE_REACTION_EMOJIS } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM } from './llm/index'
+import { summarizeConversation, countUncoveredMessages, listSummarizableMessages } from './llm/summarizer'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
 import { importStJson, exportToStJson } from './stCardMapper'
@@ -1452,6 +1453,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
         world: activeWorld,
         desktopCharacterNames: [],
         extraSystemContext,
+        memorySummary: reminder.injectConversationContext ? conv.summary : undefined,
         isReminder: true,
         splitEmotion: doSplitEmotionReminder
       })
@@ -1901,6 +1903,7 @@ export async function forceSpeakDirect(
         world: activeWorld,
         desktopCharacterNames: desktopCharNamesForce,
         extraSystemContext,
+        memorySummary: conv.summary,
         triggerDirective: newsDirective,
         splitEmotion: doSplitEmotionForce
       })
@@ -1953,6 +1956,7 @@ export async function forceSpeakDirect(
         showSpeechBubble(characterId, char.name, forcedReply, msg.emotion, bubbleAnchorForCharacter(characterId), newsBubbleMeta, { messageId: msg.id })
         sendCharacterContextUpdate(characterId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
       })
+      maybeAutoSummarize(conv)
       return { ok: true }
     } catch (e: unknown) {
       return { error: e instanceof Error ? e.message : String(e) }
@@ -1969,6 +1973,49 @@ export function toggleMuteDirect(characterId: string): boolean {
   broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
   return d.muted
 }
+/** 摘要進行中的對話 id（防止重複觸發） */
+const summarizingConvIds = new Set<string>()
+
+/**
+ * 執行一次記憶摘要並寫回對話（自動與手動共用）。
+ * 成功時更新 conv.summary / summaryCoversTs、存檔並廣播；沒有可摘要訊息時回傳 noNew。
+ */
+async function runConversationSummarize(conv: Conversation): Promise<{ ok: boolean; noNew?: boolean; error?: string }> {
+  if (summarizingConvIds.has(conv.id)) return { ok: false, error: '摘要進行中' }
+  if (listSummarizableMessages(conv, settings.memory.keepRecentN).length === 0) return { ok: true, noNew: true }
+  summarizingConvIds.add(conv.id)
+  try {
+    const result = await summarizeConversation({
+      settings,
+      conv,
+      persona: getActivePersona(),
+      speakerNameById: getSpeakerNameById()
+    })
+    if (!result) return { ok: true, noNew: true }
+    conv.summary = result.summary
+    conv.summaryCoversTs = result.coversTs
+    conv.updatedAt = Date.now()
+    fileStore.saveConversation(conv)
+    broadcastConversationUpdate(conv)
+    return { ok: true }
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) }
+  } finally {
+    summarizingConvIds.delete(conv.id)
+  }
+}
+
+/** 自動摘要：未涵蓋訊息達閾值時在背景執行（fire-and-forget，失敗只留 console 警告） */
+function maybeAutoSummarize(conv: Conversation): void {
+  if (!settings.memory.autoSummarizeEnabled) return
+  if (!settings.llm.apiKeys[settings.llm.provider]?.trim()) return
+  const threshold = Math.max(1, Number(settings.memory.autoSummarizeAfter) || 50)
+  if (countUncoveredMessages(conv) < threshold) return
+  void runConversationSummarize(conv).then(r => {
+    if (!r.ok && r.error !== '摘要進行中') console.warn('[summary] auto summarize failed:', r.error)
+  })
+}
+
 export function registerIpcHandlers() {
   // Store: get initial snapshot for any renderer
   ipcMain.handle('store:get-all', (event) => {
@@ -2955,6 +3002,7 @@ export function registerIpcHandlers() {
     if (!conv) return false
     conv.messages = []
     conv.summary = ''
+    conv.summaryCoversTs = undefined
     conv.updatedAt = Date.now()
     fileStore.saveConversation(conv)
     hideAllCharacterSpeechBubbles()
@@ -2988,6 +3036,37 @@ export function registerIpcHandlers() {
     const fresh = createNewConversation()
     broadcastConversationUpdate(fresh)
     syncCharacterContextsFromConversation(fresh)
+    return true
+  })
+
+  // 記憶摘要：手動觸發（忽略自動閾值，立即把視窗外未涵蓋訊息濃縮進摘要）
+  ipcMain.handle('conversation:summarize-now', async () => {
+    const conv = getActiveConversation()
+    if (!conv) return { ok: false, error: '沒有進行中的對話' }
+    if (!settings.llm.apiKeys[settings.llm.provider]?.trim()) return { ok: false, error: '尚未設定 API Key' }
+    return runConversationSummarize(conv)
+  })
+
+  // 記憶摘要：儲存使用者手動編輯的內容（不動 summaryCoversTs，下次增量摘要以此為基礎）
+  ipcMain.handle('conversation:update-summary', (_, summary: string) => {
+    const conv = getActiveConversation()
+    if (!conv) return false
+    conv.summary = String(summary ?? '').trim()
+    conv.updatedAt = Date.now()
+    fileStore.saveConversation(conv)
+    broadcastConversationUpdate(conv)
+    return true
+  })
+
+  // 記憶摘要：清除（連涵蓋點一起重設，之後重新摘要會從頭讀舊訊息）
+  ipcMain.handle('conversation:clear-summary', () => {
+    const conv = getActiveConversation()
+    if (!conv) return false
+    conv.summary = ''
+    conv.summaryCoversTs = undefined
+    conv.updatedAt = Date.now()
+    fileStore.saveConversation(conv)
+    broadcastConversationUpdate(conv)
     return true
   })
 
@@ -3208,6 +3287,7 @@ export function registerIpcHandlers() {
         world: activeWorld,
         desktopCharacterNames,
         extraSystemContext: combinedExtraContext ?? undefined,
+        memorySummary: conv.summary,
         splitEmotion: doSplitEmotion,
         signal: abortController.signal
       })
@@ -3350,6 +3430,7 @@ export function registerIpcHandlers() {
           world: activeWorld,
           desktopCharacterNames,
           extraSystemContext: combinedExtraContext ?? undefined,
+          memorySummary: conv.summary,
           splitEmotion: doSplitEmotionSec,
           signal: abortController.signal
         })
@@ -3434,6 +3515,7 @@ export function registerIpcHandlers() {
     activeSendAbort = null
     flushConversationBroadcast()
     fileStore.saveConversation(conv)
+    maybeAutoSummarize(conv)
     return { ok: true }
   }
   _mobileSendImpl = sendMsgBody
@@ -3503,6 +3585,7 @@ export function registerIpcHandlers() {
           persona: activePersona,
           world: activeWorld,
           desktopCharacterNames,
+          memorySummary: conv.summary,
           splitEmotion: doSplitEmotion
         })
         const cleanReply = stripOtherCharacterSpeakerLines(
@@ -3583,6 +3666,7 @@ export function registerIpcHandlers() {
     }
     flushConversationBroadcast()
     fileStore.saveConversation(conv)
+    maybeAutoSummarize(conv)
     return { ok: true }
   })
 

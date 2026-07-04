@@ -141,16 +141,23 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
   const inputTokens = response.usage?.input_tokens
   const outputTokens = response.usage?.output_tokens
 
+  // 完整記錄實際送出的 prompt（system 以 system role 呈現；圖片只留佔位，不存 base64）
   const debugPrompt = JSON.stringify({
     provider: 'claude',
     model,
     input_tokens: inputTokens,
     output_tokens: outputTokens,
-    system: systemPrompt.slice(0, 200) + '...',
-    messages: claudeMessages.map(m => ({
-      role: m.role,
-      content: typeof m.content === 'string' ? m.content.slice(0, 100) : `[${(m.content as ClaudeContentBlock[]).length} parts]`
-    }))
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...claudeMessages.map(m => ({
+        role: m.role,
+        content: typeof m.content === 'string'
+          ? m.content
+          : (m.content as ClaudeContentBlock[]).map(p =>
+              p.type === 'text' ? { type: 'text', text: (p as { type: 'text'; text: string }).text } : { type: 'image' }
+            )
+      }))
+    ]
   }, null, 2)
 
   return { ...parseEmotion(raw, buildEmotionIdList(params.character)), debugPrompt, inputTokens, outputTokens }

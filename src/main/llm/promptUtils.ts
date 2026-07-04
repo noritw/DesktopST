@@ -118,6 +118,8 @@ export type ChatLLMParams = {
   desktopCharacterNames?: string[]
   /** 附加到 system prompt 末尾的額外上下文（提醒指令、便利貼等） */
   extraSystemContext?: string
+  /** 記憶摘要（conv.summary）；chatWithLLM 單一入口注入為 [Memory Summary] 區塊 */
+  memorySummary?: string
   /** 是否為提醒模式（不注入 trigger message） */
   isReminder?: boolean
   /** 附加在 trigger message 之後的指令（最末、緊鄰生成處；用於「主動聊新聞」這類需要高 recency 的指示） */

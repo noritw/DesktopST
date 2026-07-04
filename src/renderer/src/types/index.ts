@@ -87,7 +87,10 @@ export interface Conversation {
   title: string
   participantIds: string[]
   messages: Message[]
+  /** 記憶摘要：超出 keepRecentN 的舊訊息濃縮結果（自動或手動產生，使用者可直接編輯） */
   summary: string
+  /** 摘要已涵蓋到哪個時間點（最後一則被濃縮訊息的 timestamp） */
+  summaryCoversTs?: number
   createdAt: number
   updatedAt: number
 }
@@ -305,6 +308,7 @@ export interface AppSettings {
   memory: {
     keepRecentN: number
     autoSummarizeAfter: number
+    autoSummarizeEnabled: boolean
     keepDebugPromptN: number
   }
   updates?: {
