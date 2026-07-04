@@ -53,18 +53,18 @@ const MODELS = [
 ]
 
 const CLAUDE_MODELS = [
-  'claude-sonnet-4-6',
+  'claude-fable-5',
+  'claude-opus-4-8',
+  'claude-sonnet-5',
   'claude-opus-4-7',
-  'claude-haiku-4-5-20251001',
-  'claude-3-7-sonnet-20250219',
-  'claude-3-5-sonnet-20241022',
-  'claude-3-5-haiku-20241022',
-  'claude-3-opus-20240229'
+  'claude-sonnet-4-6',
+  'claude-opus-4-6',
+  'claude-haiku-4-5'
 ]
 
 const GEMINI_MODELS = [
+  'gemini-3.5-flash',
   'gemini-3.1-flash-lite',
-  'gemini-3.1-flash',
   'gemini-3.1-pro-preview',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
@@ -72,12 +72,73 @@ const GEMINI_MODELS = [
 ]
 
 const GROK_MODELS = [
-  'grok-4-1-fast-reasoning',
-  'grok-4-1-fast-non-reasoning',
   'grok-4.3',
   'grok-4.20-reasoning',
-  'grok-4.20-non-reasoning'
+  'grok-4.20-non-reasoning',
+  'grok-4-1-fast-reasoning',
+  'grok-4-1-fast-non-reasoning'
 ]
+
+/** 模型清單與價格的人工同步日期（依各家官方定價頁） */
+const MODEL_DATA_UPDATED = '2026-07-04'
+
+/** 每百萬 tokens 美金價（輸入, 輸出）；未列出的模型（如官方快照 ID、自訂 ID）不顯示價格 */
+const MODEL_PRICES: Record<string, [number, number]> = {
+  // OpenAI
+  'gpt-5.5': [5, 30],
+  'gpt-5.5-pro': [30, 180],
+  'gpt-5.4': [2.5, 15],
+  'gpt-5.4-pro': [30, 180],
+  'gpt-5.4-mini': [0.75, 4.5],
+  'gpt-5.4-nano': [0.2, 1.25],
+  'gpt-5.2': [1.75, 14],
+  'gpt-5.1': [1.25, 10],
+  'gpt-5': [1.25, 10],
+  'gpt-5-pro': [15, 120],
+  'gpt-5-mini': [0.25, 2],
+  'gpt-5-nano': [0.05, 0.4],
+  'gpt-4.1': [2, 8],
+  'gpt-4.1-mini': [0.4, 1.6],
+  'gpt-4.1-nano': [0.1, 0.4],
+  'gpt-4o': [2.5, 10],
+  'gpt-4o-mini': [0.15, 0.6],
+  'o3': [2, 8],
+  'o3-pro': [20, 80],
+  'o4-mini': [1.1, 4.4],
+  'o1': [15, 60],
+  'o1-mini': [1.1, 4.4],
+  // Anthropic Claude
+  'claude-fable-5': [10, 50],
+  'claude-opus-4-8': [5, 25],
+  'claude-sonnet-5': [3, 15],
+  'claude-opus-4-7': [5, 25],
+  'claude-sonnet-4-6': [3, 15],
+  'claude-opus-4-6': [5, 25],
+  'claude-haiku-4-5': [1, 5],
+  // Google Gemini（長 prompt 分級價以 ≤200K tokens 計）
+  'gemini-3.5-flash': [1.5, 9],
+  'gemini-3.1-flash-lite': [0.25, 1.5],
+  'gemini-3.1-pro-preview': [2, 12],
+  'gemini-2.5-flash': [0.3, 2.5],
+  'gemini-2.5-flash-lite': [0.1, 0.4],
+  'gemini-2.5-pro': [1.25, 10],
+  // xAI Grok
+  'grok-4.3': [1.25, 2.5],
+  'grok-4.20-reasoning': [1.25, 2.5],
+  'grok-4.20-non-reasoning': [1.25, 2.5],
+  'grok-4-1-fast-reasoning': [0.2, 0.5],
+  'grok-4-1-fast-non-reasoning': [0.2, 0.5]
+}
+
+function modelPriceText(m: string): string | null {
+  const p = MODEL_PRICES[m]
+  return p ? `$${p[0]} / $${p[1]}` : null
+}
+
+function modelOptionLabel(m: string): string {
+  const price = modelPriceText(m)
+  return price ? `${m}（${price}）` : m
+}
 
 const PROVIDER_MODELS: Record<string, string[]> = {
   openai: MODELS,
@@ -87,10 +148,10 @@ const PROVIDER_MODELS: Record<string, string[]> = {
 }
 
 const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
-  openai: 'gpt-4o',
-  claude: 'claude-sonnet-4-6',
+  openai: 'gpt-5.4-mini',
+  claude: 'claude-sonnet-5',
   gemini: 'gemini-3.1-flash-lite',
-  grok: 'grok-4-1-fast-reasoning'
+  grok: 'grok-4.3'
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -1066,7 +1127,7 @@ export default function SettingsWindow() {
                     ? openaiModelOptionsFor(openaiModelListMode)
                     : PROVIDER_MODELS[draft?.llm.provider ?? 'openai'] ?? MODELS
                   ).map(m => (
-                    <option key={m} value={m}>{m}</option>
+                    <option key={m} value={m}>{modelOptionLabel(m)}</option>
                   ))}
                 </select>
               </div>
@@ -1074,8 +1135,11 @@ export default function SettingsWindow() {
                 {(draft?.llm.provider === 'openai'
                   ? openaiModelOptionsFor(openaiModelListMode)
                   : PROVIDER_MODELS[draft?.llm.provider ?? 'openai'] ?? MODELS
-                ).map(m => <option key={m} value={m} />)}
+                ).map(m => <option key={m} value={m} label={modelPriceText(m) ?? undefined} />)}
               </datalist>
+              <p className="text-[11px] text-secondary leading-snug mt-1.5">
+                模型清單與價格更新於 {MODEL_DATA_UPDATED}。價格為美金 / 每百萬 tokens（輸入 / 輸出），實際以各家官方定價頁為準。
+              </p>
             </Field>
             <Field label={`API Key（${PROVIDER_LABELS[draft.llm.provider]}）`}>
               <input
@@ -1294,7 +1358,7 @@ export default function SettingsWindow() {
                           ? openaiModelOptionsFor(utilityOpenaiModelListMode)
                           : PROVIDER_MODELS[draft.llm.utilityProvider ?? draft.llm.provider] ?? MODELS
                         ).map(m => (
-                          <option key={m} value={m}>{m}</option>
+                          <option key={m} value={m}>{modelOptionLabel(m)}</option>
                         ))}
                       </select>
                     </div>
@@ -1303,9 +1367,12 @@ export default function SettingsWindow() {
                         ? openaiModelOptionsFor(utilityOpenaiModelListMode)
                         : PROVIDER_MODELS[draft.llm.utilityProvider ?? draft.llm.provider] ?? MODELS
                       ).map(m => (
-                        <option key={m} value={m} />
+                        <option key={m} value={m} label={modelPriceText(m) ?? undefined} />
                       ))}
                     </datalist>
+                    <p className="text-[11px] text-secondary leading-snug mt-1.5">
+                      模型清單與價格更新於 {MODEL_DATA_UPDATED}。價格為美金 / 每百萬 tokens（輸入 / 輸出）。
+                    </p>
                   </Field>
                 </div>
               )}
