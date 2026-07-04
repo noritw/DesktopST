@@ -149,6 +149,7 @@ interface Message {
   emotion?: string;              // 角色當下情緒（影響圖片切換）
   images?: string[];             // 附加圖片路徑（使用者上傳/截圖）
   randomResult?: RandomResult;   // 隨機工具結果（抽籤/擲茭/硬幣/骰子，詳見 §5.7）
+  excludeFromContext?: boolean;  // 排除於記憶外：不進 prompt 上下文（不佔 keepRecentN 名額）、不被摘要收錄
   timestamp: number;
 }
 ```
@@ -798,6 +799,8 @@ interface PendingRandomTool {
 - 手動觸發（Log 視窗「立即摘要」）走同一流程，只是忽略閾值。
 - 摘要指令為英文（省 Token），輸出強制繁體中文，比照新聞發話慣例。
 - 訊息被刪除不影響涵蓋判定（以 timestamp 為準，不以 index / id 為準）。
+- 標記 `excludeFromContext` 的訊息完全跳過：不進上下文（不佔 keepRecentN 名額）、不被摘要收錄、
+  也不計入自動觸發閾值；keepRecentN 視窗以「未排除的訊息」從尾端計算。
 
 ### 6.2 送給 LLM 的 prompt 結構
 ```
@@ -837,9 +840,11 @@ interface PendingRandomTool {
   - 儲存：存手動編輯結果（不動 summaryCoversTs，下次增量摘要以此為基礎）
   - 清除：summary 與 summaryCoversTs 一併重設（需確認）
 - 訊息流在 keepRecentN 交界處顯示分隔線「以上訊息已超出近期記憶…」，讓上下文切點可見
+- 訊息可「排除於記憶外」：hover 動作列眼睛按鈕切換（使用者與角色訊息皆可，系統訊息不行），
+  排除的訊息半透明＋「已排除」徽章；再按一次恢復。已被摘要涵蓋的內容要消失需清除摘要重摘或手動編輯摘要
 - 在 Log 視窗可刪除單則訊息
 - 可開新對話（清空當前記憶，舊對話保留為獨立 session）
-- IPC：`conversation:summarize-now` / `conversation:update-summary` / `conversation:clear-summary`
+- IPC：`conversation:summarize-now` / `conversation:update-summary` / `conversation:clear-summary` / `conversation:set-message-excluded`
 
 ---
 

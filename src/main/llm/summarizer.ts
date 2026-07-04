@@ -22,19 +22,25 @@ export interface SummarizeConversationResult {
   outputTokens?: number
 }
 
-/** 可被摘要的訊息：已超出 keepRecentN 視窗、尚未被既有摘要涵蓋、且是實際對話內容 */
+/** 記憶可見的實際對話訊息（排除「排除於記憶外」與系統訊息） */
+function memoryEligibleMessages(conv: Conversation): Message[] {
+  return conv.messages.filter(m =>
+    !m.excludeFromContext && (m.role === 'user' || m.role === 'character') && !!m.content?.trim()
+  )
+}
+
+/** 可被摘要的訊息：已超出 keepRecentN 視窗、尚未被既有摘要涵蓋（視窗以記憶可見訊息計算） */
 export function listSummarizableMessages(conv: Conversation, keepRecentN: number): Message[] {
-  const cutoffIndex = Math.max(0, conv.messages.length - Math.max(1, keepRecentN))
+  const eligible = memoryEligibleMessages(conv)
+  const cutoffIndex = Math.max(0, eligible.length - Math.max(1, keepRecentN))
   const coversTs = conv.summaryCoversTs ?? 0
-  return conv.messages
-    .slice(0, cutoffIndex)
-    .filter(m => m.timestamp > coversTs && (m.role === 'user' || m.role === 'character') && !!m.content?.trim())
+  return eligible.slice(0, cutoffIndex).filter(m => m.timestamp > coversTs)
 }
 
 /** 尚未被摘要涵蓋的訊息總數（含仍在 keepRecentN 視窗內的；自動觸發閾值用） */
 export function countUncoveredMessages(conv: Conversation): number {
   const coversTs = conv.summaryCoversTs ?? 0
-  return conv.messages.filter(m => m.timestamp > coversTs && (m.role === 'user' || m.role === 'character')).length
+  return memoryEligibleMessages(conv).filter(m => m.timestamp > coversTs).length
 }
 
 /**

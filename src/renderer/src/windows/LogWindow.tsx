@@ -309,9 +309,17 @@ export default function LogWindow() {
 
   const keepRecentN = Math.max(1, settings?.memory.keepRecentN ?? 20)
   // 近期記憶切點：這個 index 之前的訊息已不在角色的 prompt 上下文內
-  const memoryBoundaryIndex = useMemo(() => (
-    messages.length > keepRecentN ? messages.length - keepRecentN : 0
-  ), [messages.length, keepRecentN])
+  // （被排除的訊息不佔 keepRecentN 名額，從尾端只數未排除的）
+  const memoryBoundaryIndex = useMemo(() => {
+    let count = 0
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (!messages[i].excludeFromContext) {
+        count++
+        if (count >= keepRecentN) return i
+      }
+    }
+    return 0
+  }, [messages, keepRecentN])
   const summaryCoveredCount = useMemo(() => {
     const ts = conversation?.summaryCoversTs ?? 0
     if (!ts) return 0
@@ -377,6 +385,13 @@ export default function LogWindow() {
 
   const resendLastUserMessage = () => {
     void window.api.invoke('message:resend-last')
+  }
+
+  const toggleExcluded = (msg: Message) => {
+    void window.api.invoke('conversation:set-message-excluded', {
+      messageId: msg.id,
+      excluded: !msg.excludeFromContext
+    })
   }
 
   const startEdit = (msg: Message) => {
@@ -523,9 +538,17 @@ export default function LogWindow() {
                     <ActionButton title="重新發送" icon="resend" onClick={resendLastUserMessage} />
                   )}
                   {messageMayHaveDebug(msg) && <ActionButton title="查看完整 Prompt" icon="prompt" onClick={() => { void openPrompt(msg) }} />}
+                  <ActionButton
+                    title={msg.excludeFromContext ? '恢復進入記憶' : '排除於記憶外（不進上下文與摘要）'}
+                    icon={msg.excludeFromContext ? 'eye' : 'eye-off'}
+                    onClick={() => toggleExcluded(msg)}
+                  />
                   <ActionButton title="編輯訊息" icon="edit" onClick={() => startEdit(msg)} />
                   <ActionButton title="刪除訊息" icon="trash" danger onClick={() => confirmDeleteMessage(msg.id)} />
                 </div>
+              )}
+              {msg.excludeFromContext && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border text-secondary leading-none">已排除</span>
               )}
               <span className="text-xs text-secondary opacity-0 group-hover:opacity-100 transition-opacity">
                 {formatTime(msg.timestamp)}
@@ -549,6 +572,9 @@ export default function LogWindow() {
                 {isCharacter ? `【${getCharName(msg.characterId)}】` : '【系統】'}
                 <LlmBadge msg={msg} />
               </span>
+              {msg.excludeFromContext && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border text-secondary leading-none">已排除</span>
+              )}
               {isCharacter && msg.emotion && (
                 <span className="text-xs px-1.5 py-0.5 rounded-full bg-teal-20 text-teal font-medium">
                   {msg.emotion}
@@ -575,6 +601,13 @@ export default function LogWindow() {
                     />
                   )}
                   {messageMayHaveDebug(msg) && <ActionButton title="查看完整 Prompt" icon="prompt" onClick={() => { void openPrompt(msg) }} />}
+                  {isCharacter && (
+                    <ActionButton
+                      title={msg.excludeFromContext ? '恢復進入記憶' : '排除於記憶外（不進上下文與摘要）'}
+                      icon={msg.excludeFromContext ? 'eye' : 'eye-off'}
+                      onClick={() => toggleExcluded(msg)}
+                    />
+                  )}
                   <ActionButton title="編輯訊息" icon="edit" onClick={() => startEdit(msg)} />
                   <ActionButton title="刪除訊息" icon="trash" danger onClick={() => confirmDeleteMessage(msg.id)} />
                 </div>
@@ -608,6 +641,8 @@ export default function LogWindow() {
 
         <div
           className={`relative rounded-2xl px-3 py-2 text-sm leading-relaxed max-w-[85%] ${
+            msg.excludeFromContext ? 'opacity-45' : ''
+          } ${
             isUser
               ? 'bg-teal-20 text-primary self-end ml-auto cursor-pointer'
               : isCharacter

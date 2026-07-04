@@ -1382,7 +1382,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   }
 
   const reminderMessages = reminder.injectConversationContext
-    ? conv.messages.slice(-(settings.memory.keepRecentN))
+    ? contextMessages(conv.messages, settings.memory.keepRecentN)
     : []
   if (reminder.injectConversationContext && reminderMessages.length > 0) {
     ctxParts.push('[近期對話紀錄]\n以下僅供參考語境；不要長篇接續聊天。')
@@ -1890,7 +1890,7 @@ export async function forceSpeakDirect(
     const chatSettings = useUtilityForNews ? applyUtilitySettings(settings) : settings
 
     try {
-      let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
+      let recentMessages = contextMessages(conv.messages, settings.memory.keepRecentN)
       const desktopCharNamesForce = settings.ui.desktopCharacters.map(d => getCharacter(d.characterId)?.name ?? '').filter(Boolean)
       const forceHasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
       const doSplitEmotionForce = !!(settings.llm.utilityEnabled && forceHasCustomSprites)
@@ -1973,6 +1973,11 @@ export function toggleMuteDirect(characterId: string): boolean {
   broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
   return d.muted
 }
+/** 組 prompt 用的近期上下文：先濾掉「排除於記憶外」的訊息、再取最後 keepRecentN 則（排除的不佔名額） */
+function contextMessages(messages: Message[], keepRecentN: number): Message[] {
+  return messages.filter(m => !m.excludeFromContext).slice(-Math.max(1, keepRecentN))
+}
+
 /** 摘要進行中的對話 id（防止重複觸發） */
 const summarizingConvIds = new Set<string>()
 
@@ -3070,6 +3075,20 @@ export function registerIpcHandlers() {
     return true
   })
 
+  // 排除於記憶外：不進 prompt 上下文、也不被摘要收錄（可再次切換恢復）
+  ipcMain.handle('conversation:set-message-excluded', (_, payload: { messageId: string; excluded: boolean }) => {
+    const conv = getActiveConversation()
+    if (!conv) return false
+    const msg = conv.messages.find(m => m.id === payload?.messageId)
+    if (!msg || msg.role === 'system') return false
+    if (payload.excluded) msg.excludeFromContext = true
+    else delete msg.excludeFromContext
+    conv.updatedAt = Date.now()
+    fileStore.saveConversation(conv)
+    broadcastConversationUpdate(conv)
+    return true
+  })
+
   ipcMain.handle('conversation:delete-message', (_, messageId: string) => {
     const conv = getActiveConversation()
     if (!conv) return false
@@ -3246,7 +3265,7 @@ export function registerIpcHandlers() {
     if (isMobileServerRunning()) mobilePushThinking(primaryId)
     deferRaiseCharacterAbovePinnedNotes(primaryId)
 
-    const recentMessagesBase = [...conv.messages.slice(0, -1), userMsgForPrompt].slice(-(settings.memory.keepRecentN))
+    const recentMessagesBase = contextMessages([...conv.messages.slice(0, -1), userMsgForPrompt], settings.memory.keepRecentN)
     let lastReplyText = ''
 
     // Pre-fetch weather + spotify + realtime query context once for this message (shared across all responders)
@@ -3405,7 +3424,7 @@ export function registerIpcHandlers() {
       try {
         setCharacterThinking(charId, true)
         deferRaiseCharacterAbovePinnedNotes(charId)
-        let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN)).map(m =>
+        let recentMessages = contextMessages(conv.messages, settings.memory.keepRecentN).map(m =>
           // 若使用者訊息附有隨機工具結果，補回 prompt 用的注入內容（primary 已透過 userMsgForPrompt 注入，
           // secondary/tertiary 讀 conv.messages 時 content 是原始文字，需在此補上）
           m.id === userMsg.id ? userMsgForPrompt : m
@@ -3571,7 +3590,7 @@ export function registerIpcHandlers() {
       setCharacterThinking(char.id, true)
       deferRaiseCharacterAbovePinnedNotes(char.id)
       try {
-        let recentMessages = conv.messages.slice(-(settings.memory.keepRecentN))
+        let recentMessages = contextMessages(conv.messages, settings.memory.keepRecentN)
         if (recentMessages.length === 0) {
           recentMessages = [{ id: uuidv4(), role: 'user' as const, content: '……', timestamp: Date.now() }]
         }

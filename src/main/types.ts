@@ -88,6 +88,8 @@ export interface Message {
   newsLink?: NewsLinkInfo
   /** 使用者對這則角色訊息按的 emoji reaction（單選，限 MESSAGE_REACTION_EMOJIS）。 */
   reaction?: string
+  /** 排除於記憶外：不進 prompt 上下文（不佔 keepRecentN 名額）、也不被記憶摘要收錄 */
+  excludeFromContext?: boolean
 }
 
 /** 訊息 reaction 的固定 emoji 集（泡泡 / Log 視窗共用；😒 對新聞訊息兼作「主題沒興趣」回饋）。 */

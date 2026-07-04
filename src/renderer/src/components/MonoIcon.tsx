@@ -24,6 +24,8 @@ export type MonoIconName =
   | 'bell'
   | 'more-chat'
   | 'react'
+  | 'eye'
+  | 'eye-off'
 
 export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIconName; className?: string }) {
   const common = {
@@ -45,6 +47,20 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <path {...common} d="M8.5 13.5a4.5 4.5 0 0 0 7 0" />
           <path {...common} d="M9 9.5h.01" />
           <path {...common} d="M15 9.5h.01" />
+        </>
+      )}
+      {name === 'eye' && (
+        <>
+          <path {...common} d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+          <circle {...common} cx="12" cy="12" r="3" />
+        </>
+      )}
+      {name === 'eye-off' && (
+        <>
+          <path {...common} d="M4 4l16 16" />
+          <path {...common} d="M9.9 5.9A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17.6 17.6 0 0 1-3.2 3.9" />
+          <path {...common} d="M6.2 6.9A17 17 0 0 0 2.5 12S6 18.5 12 18.5a9 9 0 0 0 3.5-.7" />
+          <path {...common} d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
         </>
       )}
       {name === 'close' && (
