@@ -86,7 +86,12 @@ export interface Message {
   hasNewsDebug?: boolean
   /** 新聞發話的原文連結資料（保留最近數則，供對話記錄重開泡泡時還原連結卡與互動按鈕）。 */
   newsLink?: NewsLinkInfo
+  /** 使用者對這則角色訊息按的 emoji reaction（單選，限 MESSAGE_REACTION_EMOJIS）。 */
+  reaction?: string
 }
+
+/** 訊息 reaction 的固定 emoji 集（泡泡 / Log 視窗共用；😒 對新聞訊息兼作「主題沒興趣」回饋）。 */
+export const MESSAGE_REACTION_EMOJIS = ['❤️', '👍', '😂', '🥺', '😮', '😒'] as const
 
 export interface Conversation {
   id: string

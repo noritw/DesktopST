@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import MessageText from '../components/MessageText'
 import MonoIcon from '../components/MonoIcon'
 import { useAppStore } from '../stores/useAppStore'
+import { MESSAGE_REACTION_EMOJIS } from '../types'
 
 interface Props {
   characterId: string
@@ -50,6 +51,9 @@ export default function BubbleWindow({ characterId }: Props) {
   const [isLatestSpeaker, setIsLatestSpeaker] = useState(false)
   const [news, setNews] = useState<BubbleNewsMeta | null>(null)
   const [showNewsCard, setShowNewsCard] = useState(false)
+  const [messageId, setMessageId] = useState<string | null>(null)
+  const [reaction, setReaction] = useState<string | null>(null)
+  const [showReactionPicker, setShowReactionPicker] = useState(false)
   const [dontWantMenu, setDontWantMenu] = useState(false)
   const [blockKeyword, setBlockKeyword] = useState(false)
   const [blockSource, setBlockSource] = useState(false)
@@ -85,6 +89,14 @@ export default function BubbleWindow({ characterId }: Props) {
         console.error('[Lower character layer] Error:', e)
       })
     }
+  }
+
+  const toggleReaction = (emoji: string) => {
+    if (!messageId) return
+    const next = reaction === emoji ? null : emoji
+    setReaction(next)
+    setShowReactionPicker(false)
+    void window.api.invoke('conversation:set-reaction', { messageId, reaction: next })
   }
 
   const setAsTopic = () => {
@@ -176,6 +188,8 @@ export default function BubbleWindow({ characterId }: Props) {
         persistUntilClosed?: boolean
         isLatestSpeaker?: boolean
         news?: BubbleNewsMeta | null
+        messageId?: string
+        reaction?: string | null
       }
       if (p.characterId !== characterId) return
 
@@ -186,6 +200,9 @@ export default function BubbleWindow({ characterId }: Props) {
       setSpeakerName(p.speakerName ?? '')
       setText(p.text ?? '')
       setNews(p.news ?? null)
+      setMessageId(p.messageId ?? null)
+      setReaction(p.reaction ?? null)
+      setShowReactionPicker(false)
       setIsLatestSpeaker(p.isLatestSpeaker !== false)
       setVisible(true)
 
@@ -343,6 +360,20 @@ export default function BubbleWindow({ characterId }: Props) {
             {speakerName || '角色'}
           </div>
           <div className="flex gap-1">
+            {messageId && (
+              <button
+                type="button"
+                className={`no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-secondary transition-colors hover:bg-mint hover:text-primary ${
+                  reaction ? 'border-teal bg-mint-20' : `border-border ${lowPerformanceMode ? 'bg-surface' : 'bg-surface-80'}`
+                }`}
+                title={reaction ? `已按 ${reaction}，點擊更換或取消` : '按個表情'}
+                onClick={() => setShowReactionPicker(v => !v)}
+              >
+                {reaction
+                  ? <span className="text-[10px] leading-none">{reaction}</span>
+                  : <MonoIcon name="react" className="w-3 h-3" />}
+              </button>
+            )}
             <button
               type="button"
               className={`no-drag flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border text-secondary transition-colors hover:bg-mint hover:text-primary ${lowPerformanceMode ? 'bg-surface' : 'bg-surface-80'}`}
@@ -380,6 +411,26 @@ export default function BubbleWindow({ characterId }: Props) {
         ) : (
           <div ref={contentRef} className="no-drag min-h-0 flex-1 overflow-y-auto break-words px-3 pb-2 pt-1">
             <MessageText text={displayText} />
+            {/* emoji reaction 選單：點標題列的笑臉按鈕才展開，選完自動收合 */}
+            {messageId && showReactionPicker && (
+              <div className="flex gap-0.5 mt-1.5">
+                {MESSAGE_REACTION_EMOJIS.map(emoji => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    className={`flex h-6 w-6 items-center justify-center rounded-full text-[13px] leading-none transition-colors ${
+                      reaction === emoji
+                        ? 'bg-mint'
+                        : 'hover:bg-mint-20'
+                    }`}
+                    title={reaction === emoji ? '取消這個表情' : `對這句話按 ${emoji}`}
+                    onClick={() => toggleReaction(emoji)}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
             {/* 有新聞素材時，右下角顯示低調的「↗ 新聞」連結 */}
             {news && !showNewsCard && (
               <div className="flex justify-end mt-1">

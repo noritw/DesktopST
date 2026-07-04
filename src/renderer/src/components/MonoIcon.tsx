@@ -23,6 +23,7 @@ export type MonoIconName =
   | 'alarm'
   | 'bell'
   | 'more-chat'
+  | 'react'
 
 export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIconName; className?: string }) {
   const common = {
@@ -37,6 +38,14 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
     <svg viewBox="0 0 24 24" aria-hidden="true" className={`${className} pointer-events-none`.trim()}>
       {name === 'check' && (
         <path {...common} d="M4 13l5 5L20 7" />
+      )}
+      {name === 'react' && (
+        <>
+          <circle {...common} cx="12" cy="12" r="9" />
+          <path {...common} d="M8.5 13.5a4.5 4.5 0 0 0 7 0" />
+          <path {...common} d="M9 9.5h.01" />
+          <path {...common} d="M15 9.5h.01" />
+        </>
       )}
       {name === 'close' && (
         <>

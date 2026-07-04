@@ -1105,6 +1105,8 @@ type CachedBubbleShowPayload = {
   emotion: string
   anchorFallback?: BubbleAnchorFallback | null
   news?: BubbleNewsMeta | null
+  messageId?: string
+  reaction?: string | null
 }
 
 const lastBubbleShowPayload = new Map<string, CachedBubbleShowPayload>()
@@ -1203,7 +1205,8 @@ export function showSpeechBubble(
   text: string,
   emotion?: string,
   anchorFallback?: BubbleAnchorFallback | null,
-  newsMeta?: BubbleNewsMeta | null
+  newsMeta?: BubbleNewsMeta | null,
+  reactionOpts?: { messageId?: string; reaction?: string | null }
 ): void {
   if (lastShownBubbleCharacterId && lastShownBubbleCharacterId !== characterId) {
     const previous = bubbleWindows.get(lastShownBubbleCharacterId)
@@ -1233,14 +1236,18 @@ export function showSpeechBubble(
     // 新聞泡泡帶有「作為後續聊天主題」等按鈕，保持顯示直到使用者關閉，避免按鈕被自動關掉
     persistUntilClosed: shouldKeepBubbleUntilClosed(text) || !!newsMeta,
     isLatestSpeaker: true,
-    news: newsMeta ?? null
+    news: newsMeta ?? null,
+    messageId: reactionOpts?.messageId,
+    reaction: reactionOpts?.reaction ?? null
   }
   lastBubbleShowPayload.set(characterId, {
     speakerName,
     text,
     emotion: emotion ?? 'neutral',
     anchorFallback,
-    news: newsMeta ?? null
+    news: newsMeta ?? null,
+    messageId: reactionOpts?.messageId,
+    reaction: reactionOpts?.reaction ?? null
   })
 
   const dispatchShow = () => {
@@ -2706,7 +2713,8 @@ export function restoreAuxWindowsFromSnapshot(entries: VisibleAuxWindowSnapshotE
             cached.text,
             cached.emotion,
             cached.anchorFallback,
-            cached.news
+            cached.news,
+            { messageId: cached.messageId, reaction: cached.reaction }
           )
         } else {
           const win = bubbleWindows.get(entry.characterId)

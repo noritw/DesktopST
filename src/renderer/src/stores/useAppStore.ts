@@ -40,6 +40,7 @@ interface AppStore {
   addToDesktop: (characterId: string) => Promise<void>
   deleteMessage: (messageId: string) => Promise<void>
   editMessage: (messageId: string, content: string, emotion?: string) => Promise<void>
+  setMessageReaction: (messageId: string, reaction: string | null) => Promise<void>
   newConversation: () => Promise<void>
   listConversations: () => Promise<Array<{ id: string; title: string; updatedAt: number; createdAt: number }>>
   loadConversation: (id: string) => Promise<void>
@@ -227,6 +228,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
 
   editMessage: async (messageId, content, emotion) => {
     await window.api.invoke('conversation:edit-message', { messageId, content, emotion })
+  },
+
+  setMessageReaction: async (messageId, reaction) => {
+    await window.api.invoke('conversation:set-reaction', { messageId, reaction })
   },
 
   newConversation: async () => {

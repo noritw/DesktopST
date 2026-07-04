@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore, selectMessages } from '../stores/useAppStore'
 import type { Message, NewsDebugInfo } from '../types'
+import { MESSAGE_REACTION_EMOJIS } from '../types'
 import MessageText from '../components/MessageText'
 import MonoIcon, { type MonoIconName } from '../components/MonoIcon'
 import { buildSpriteEntries, EMOTION_OPTIONS, stemFromFilename } from '../utils/emotionUtils'
@@ -225,6 +226,7 @@ export default function LogWindow() {
   const conversation = useAppStore(s => s.conversation)
   const deleteMessage = useAppStore(s => s.deleteMessage)
   const editMessage = useAppStore(s => s.editMessage)
+  const setMessageReaction = useAppStore(s => s.setMessageReaction)
   const newConversation = useAppStore(s => s.newConversation)
   const listConversations = useAppStore(s => s.listConversations)
   const loadConversation = useAppStore(s => s.loadConversation)
@@ -242,6 +244,7 @@ export default function LogWindow() {
   const [promptMessage, setPromptMessage] = useState<Message | null>(null)
   const [promptTab, setPromptTab] = useState<'main' | 'utility' | 'conv-search' | 'news'>('main')
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const [reactionPickerId, setReactionPickerId] = useState<string | null>(null)
 
   const focusTitleInputTimer = useRef<number>(0)
   const focusTitleInput = () => {
@@ -508,6 +511,13 @@ export default function LogWindow() {
               </span>
               {!isEditing && (
                 <div className="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {isCharacter && (
+                    <ActionButton
+                      title="按個表情"
+                      icon="react"
+                      onClick={() => setReactionPickerId(prev => (prev === msg.id ? null : msg.id))}
+                    />
+                  )}
                   {messageMayHaveDebug(msg) && <ActionButton title="查看完整 Prompt" icon="prompt" onClick={() => { void openPrompt(msg) }} />}
                   <ActionButton title="編輯訊息" icon="edit" onClick={() => startEdit(msg)} />
                   <ActionButton title="刪除訊息" icon="trash" danger onClick={() => confirmDeleteMessage(msg.id)} />
@@ -517,8 +527,31 @@ export default function LogWindow() {
           )}
         </div>
 
+        {isCharacter && reactionPickerId === msg.id && !isEditing && (
+          <div className="flex gap-1">
+            {MESSAGE_REACTION_EMOJIS.map(emoji => (
+              <button
+                key={emoji}
+                type="button"
+                className={`flex h-7 w-7 items-center justify-center rounded-full border text-[14px] leading-none transition-colors ${
+                  msg.reaction === emoji
+                    ? 'border-teal bg-mint'
+                    : 'border-border bg-surface hover:bg-mint-20'
+                }`}
+                title={msg.reaction === emoji ? '取消這個表情' : `按 ${emoji}`}
+                onClick={() => {
+                  void setMessageReaction(msg.id, msg.reaction === emoji ? null : emoji)
+                  setReactionPickerId(null)
+                }}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div
-          className={`rounded-2xl px-3 py-2 text-sm leading-relaxed max-w-[85%] ${
+          className={`relative rounded-2xl px-3 py-2 text-sm leading-relaxed max-w-[85%] ${
             isUser
               ? 'bg-teal-20 text-primary self-end ml-auto cursor-pointer'
               : isCharacter
@@ -542,7 +575,9 @@ export default function LogWindow() {
                 speakerName: getCharName(msg.characterId),
                 text: String(msg.content ?? ''),
                 emotion: msg.emotion ?? 'neutral',
-                newsLink: msg.newsLink ?? null
+                newsLink: msg.newsLink ?? null,
+                messageId: msg.id,
+                reaction: msg.reaction ?? null
               })
               // 同時切換角色視窗的表情
               if (msg.emotion) {
@@ -629,6 +664,19 @@ export default function LogWindow() {
                     </button>
                   ))}
                 </div>
+              )}
+              {isCharacter && msg.reaction && (
+                <button
+                  type="button"
+                  className="absolute -bottom-2.5 right-2 rounded-full border border-border bg-surface px-1.5 py-0.5 text-[11px] leading-none transition-colors hover:bg-mint-20"
+                  title="點擊更換或取消表情"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setReactionPickerId(prev => (prev === msg.id ? null : msg.id))
+                  }}
+                >
+                  {msg.reaction}
+                </button>
               )}
             </>
           )}

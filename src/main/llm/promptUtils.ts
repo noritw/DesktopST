@@ -138,6 +138,36 @@ export type ChatLLMResult = {
   outputTokens?: number
 }
 
+/** 使用者對角色訊息按的 reaction → 注入 prompt 的英文語意標籤（省 token；不影響輸出語言）。 */
+const REACTION_PROMPT_LABELS: Record<string, string> = {
+  '❤️': 'loved it',
+  '👍': 'acknowledged / agrees',
+  '😂': 'found it funny',
+  '🥺': 'touched by it',
+  '😮': 'surprised',
+  '😒': 'unimpressed'
+}
+
+/**
+ * 把帶有 reaction 的角色訊息展開：在其後插入一則合成的使用者訊息，
+ * 讓角色知道使用者對哪句話按了什麼表情。沒有任何 reaction 時原陣列直接回傳。
+ * 😒 + 新聞訊息時改用「對這則新聞主題沒興趣」措辭，避免角色誤會是針對自己。
+ */
+export function expandReactionAnnotations(messages: Message[]): Message[] {
+  if (!messages.some(m => m.role === 'character' && m.reaction)) return messages
+  const result: Message[] = []
+  for (const m of messages) {
+    result.push(m)
+    if (m.role !== 'character' || !m.reaction) continue
+    const label = REACTION_PROMPT_LABELS[m.reaction] ?? ''
+    const note = m.reaction === '😒' && m.newsLink
+      ? `(reacted ${m.reaction} to the message above — not interested in this news topic, drop it naturally)`
+      : `(reacted ${m.reaction} to the message above${label ? ` — ${label}` : ''})`
+    result.push({ id: `${m.id}:reaction`, role: 'user', content: note, timestamp: m.timestamp })
+  }
+  return result
+}
+
 export function sanitizePromptText(text: string | undefined | null): string {
   return String(text ?? '')
     .replace(/\[object Object\]/g, '')

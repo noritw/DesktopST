@@ -3,6 +3,7 @@ import { chatWithClaude } from './claudeAdapter'
 import { chatWithGemini } from './geminiAdapter'
 import {
   buildEmotionClassifierSystemPrompt, buildEmotionIdList, buildNewsSubjectivityClassifierSystemPrompt, applyUtilitySettings,
+  expandReactionAnnotations,
   type ChatLLMParams, type ChatLLMResult, type PromptCharacter
 } from './promptUtils'
 import type { AppSettings } from '../types'
@@ -16,7 +17,9 @@ function endpointForProvider(provider: string, endpoint?: string): string | unde
   return trimmed || undefined
 }
 
-export async function chatWithLLM(params: ChatLLMParams): Promise<ChatLLMResult> {
+export async function chatWithLLM(rawParams: ChatLLMParams): Promise<ChatLLMResult> {
+  // 展開訊息 reaction 標註（單一入口處理，adapter 不需各自支援）
+  const params: ChatLLMParams = { ...rawParams, messages: expandReactionAnnotations(rawParams.messages) }
   const { provider } = params.settings.llm
   switch (provider) {
     case 'claude':

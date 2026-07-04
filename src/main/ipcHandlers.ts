@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo } from './types'
+import { MESSAGE_REACTION_EMOJIS } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM } from './llm/index'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
@@ -1515,7 +1516,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     }
 
     setImmediate(() => {
-      showSpeechBubble(charId, char.name, cleanReply, msg.emotion, bubbleAnchorForCharacter(charId), reminderNewsMeta)
+      showSpeechBubble(charId, char.name, cleanReply, msg.emotion, bubbleAnchorForCharacter(charId), reminderNewsMeta, { messageId: msg.id })
       sendCharacterContextUpdate(charId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
     })
   } catch (e) {
@@ -1753,7 +1754,7 @@ export async function forceSpeakDirect(
       conv.messages.push(msg)
       conv.updatedAt = Date.now()
       broadcastConversationUpdate(conv)
-      showSpeechBubble(characterId, char.name, noKeyText, undefined, bubbleAnchorForCharacter(characterId))
+      showSpeechBubble(characterId, char.name, noKeyText, undefined, bubbleAnchorForCharacter(characterId), null, { messageId: msg.id })
       fileStore.saveConversation(conv)
       return { ok: true }
     }
@@ -1949,7 +1950,7 @@ export async function forceSpeakDirect(
       flushConversationBroadcast()
       if (newsSubjectItem) attachNewsSubjectivityInBackground(conv, msg.id, newsSubjectItem)
       setImmediate(() => {
-        showSpeechBubble(characterId, char.name, forcedReply, msg.emotion, bubbleAnchorForCharacter(characterId), newsBubbleMeta)
+        showSpeechBubble(characterId, char.name, forcedReply, msg.emotion, bubbleAnchorForCharacter(characterId), newsBubbleMeta, { messageId: msg.id })
         sendCharacterContextUpdate(characterId, { lastMessage: { id: msg.id, emotion: msg.emotion } })
       })
       return { ok: true }
@@ -2750,8 +2751,8 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('news:get-topic', () => getActiveNewsTopic())
 
-  ipcMain.handle('bubble:debug-show', (_, payload: { characterId: string; speakerName: string; text: string; emotion?: string; newsLink?: BubbleNewsMeta | null }) => {
-    const { characterId, speakerName, text, emotion, newsLink } = payload ?? { characterId: '', speakerName: '', text: '' }
+  ipcMain.handle('bubble:debug-show', (_, payload: { characterId: string; speakerName: string; text: string; emotion?: string; newsLink?: BubbleNewsMeta | null; messageId?: string; reaction?: string | null }) => {
+    const { characterId, speakerName, text, emotion, newsLink, messageId, reaction } = payload ?? { characterId: '', speakerName: '', text: '' }
     if (!characterId) return false
     showSpeechBubble(
       characterId,
@@ -2759,7 +2760,8 @@ export function registerIpcHandlers() {
       String(text ?? ''),
       emotion,
       bubbleAnchorForCharacter(characterId),
-      newsLink ?? null
+      newsLink ?? null,
+      { messageId, reaction: reaction ?? null }
     )
     return true
   })
@@ -3023,6 +3025,30 @@ export function registerIpcHandlers() {
     return true
   })
 
+  // 訊息 emoji reaction（單選；再按同一顆 = 取消）。😒 對新聞訊息兼作「主題沒興趣」弱負向回饋。
+  ipcMain.handle('conversation:set-reaction', (_, payload: { messageId: string; reaction: string | null }) => {
+    const conv = getActiveConversation()
+    if (!conv) return false
+    const msg = conv.messages.find(m => m.id === payload?.messageId)
+    if (!msg || msg.role !== 'character') return false
+    const next = payload.reaction && (MESSAGE_REACTION_EMOJIS as readonly string[]).includes(payload.reaction)
+      ? payload.reaction
+      : null
+    const prev = msg.reaction ?? null
+    if (prev === next) return true
+    // 新聞來源回饋：設 😒 → −0.5；取消 / 換掉 😒 → +0.5 補回（applyNewsFeedbackDelta 內部有夾限）
+    if (msg.newsLink?.sourceId) {
+      if (next === '😒' && prev !== '😒') applyNewsFeedbackDelta(msg.newsLink.sourceId, -0.5)
+      else if (prev === '😒' && next !== '😒') applyNewsFeedbackDelta(msg.newsLink.sourceId, 0.5)
+    }
+    if (next) msg.reaction = next
+    else delete msg.reaction
+    conv.updatedAt = Date.now()
+    fileStore.saveConversation(conv)
+    broadcastConversationUpdate(conv)
+    return true
+  })
+
   // Messaging
   const sendMsgBody = async (payload: { content: string; images?: string[]; randomResult?: RandomResult; sourceDeviceName?: string }): Promise<{ ok: boolean } | { error: string }> => {
     const conv = getActiveConversation()
@@ -3128,7 +3154,7 @@ export function registerIpcHandlers() {
       conv.updatedAt = Date.now()
       scheduleConversationBroadcast(conv)
       flushConversationBroadcast()
-      showSpeechBubble(primaryId, primaryChar.name, noKeyText, noApiKeyMsg.emotion, bubbleAnchorForCharacter(primaryId))
+      showSpeechBubble(primaryId, primaryChar.name, noKeyText, noApiKeyMsg.emotion, bubbleAnchorForCharacter(primaryId), null, { messageId: noApiKeyMsg.id })
       sendCharacterContextUpdate(primaryId, { lastMessage: { id: noApiKeyMsg.id, emotion: noApiKeyMsg.emotion } })
       fileStore.saveConversation(conv)
       return { ok: true }
@@ -3243,7 +3269,7 @@ export function registerIpcHandlers() {
       }
 
       setImmediate(() => {
-        showSpeechBubble(primaryId, primaryChar.name, primaryReply, charMsg.emotion, bubbleAnchorForCharacter(primaryId))
+        showSpeechBubble(primaryId, primaryChar.name, primaryReply, charMsg.emotion, bubbleAnchorForCharacter(primaryId), null, { messageId: charMsg.id })
         sendCharacterContextUpdate(primaryId, { lastMessage: { id: charMsg.id, emotion: charMsg.emotion } })
       })
     } catch (e: unknown) {
@@ -3395,7 +3421,7 @@ export function registerIpcHandlers() {
         }
 
         setImmediate(() => {
-          showSpeechBubble(charId, char.name, cleanReply, charMsg.emotion, bubbleAnchorForCharacter(charId))
+          showSpeechBubble(charId, char.name, cleanReply, charMsg.emotion, bubbleAnchorForCharacter(charId), null, { messageId: charMsg.id })
           sendCharacterContextUpdate(charId, { lastMessage: { id: charMsg.id, emotion: charMsg.emotion } })
         })
       } catch (e: unknown) {
@@ -3533,7 +3559,7 @@ export function registerIpcHandlers() {
           }
         }
         await new Promise<void>(resolve => setImmediate(() => {
-          showSpeechBubble(char.id, char.name, cleanReply, msg.emotion, bubbleAnchorForCharacter(char.id))
+          showSpeechBubble(char.id, char.name, cleanReply, msg.emotion, bubbleAnchorForCharacter(char.id), null, { messageId: msg.id })
           sendCharacterContextUpdate(char.id, { lastMessage: { id: msg.id, emotion: msg.emotion } })
           resolve()
         }))
