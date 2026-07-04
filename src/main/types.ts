@@ -163,6 +163,8 @@ export interface ScenePreset {
   logWindowBounds?: WindowBoundsState
   /** 綁定的新聞關鍵字組 id；未綁（undefined）= 用預設組（取代式切換興趣池） */
   newsKeywordGroupId?: string
+  /** 各模組在此情境的開關覆蓋：'on' 強制開、'off' 強制關、無 key＝跟隨全域設定 */
+  moduleOverrides?: Record<string, 'on' | 'off'>
   createdAt: number
   updatedAt: number
 }

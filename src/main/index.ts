@@ -3,7 +3,7 @@ import { attachDevToolsShortcuts, isDevToolsAllowed } from './devTools'
 import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
-import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets } from './fileStore'
+import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets, getDataDir } from './fileStore'
 import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
@@ -51,7 +51,7 @@ import {
 } from './cloudflaredManager'
 import { registerTunnel, registerStarting, registerOffline, getRelayUrl, getAccessToken } from './relayService'
 import type { AppSettings, DesktopCharacterState } from './types'
-import { activateModules, registerBuiltInModule } from './modules/moduleHost'
+import { activateModules, registerBuiltInModule, loadExternalModules } from './modules/moduleHost'
 import { moduleSettingsBridge } from './modules/moduleSettings'
 import { remoteControlModule, setRemoteControlModuleEnabled } from './modules/remote-control'
 import { newsModule } from './modules/news'
@@ -307,6 +307,7 @@ app.on('ready', async () => {
 
   registerBuiltInModule(remoteControlModule)
   registerBuiltInModule(newsModule)
+  await loadExternalModules(path.join(getDataDir(), 'local-modules'))
   await activateModules({
     ipc: {
       handle: (channel, handler) => ipcMain.handle(channel, handler)
@@ -315,7 +316,19 @@ app.on('ready', async () => {
       registerRoute: registerMobileRoute
     },
     settings: moduleSettingsBridge,
-    host: {}
+    host: {
+      requestCharacterSpeak: forceSpeakDirect,
+      getDesktopCharacters: () => {
+        const chars = getCharacters()
+        return getSettings().ui.desktopCharacters
+          .map(d => {
+            const c = chars.find(c => c.id === d.characterId)
+            return c ? { id: c.id, name: c.name, muted: !!d.muted } : null
+          })
+          .filter((c): c is { id: string; name: string; muted: boolean } => c != null)
+      }
+      // registerContextProvider 由 activateModules per-module 綁定模組 id 後注入
+    }
   })
 
   // Register IPC handlers

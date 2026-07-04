@@ -107,6 +107,13 @@ const PROVIDER_KEY_PLACEHOLDER: Record<string, string> = {
   grok: 'xai-...'
 }
 
+/** 情境模組開關的固定項目（外部模組另外動態附加）；id 需與主程序一致 */
+const SCENE_MODULE_ROWS_BASE: Array<{ id: string; label: string }> = [
+  { id: 'desktopst.news', label: '新聞陪聊' },
+  { id: 'desktopst.weather', label: '天氣' },
+  { id: 'desktopst.spotify', label: 'Spotify 音樂' }
+]
+
 const CORE_TABS = ['LLM 設定', '記憶'] as const
 const SCENE_TABS = ['情境'] as const
 const ROLEPLAY_TABS = ['世界觀', '使用者'] as const
@@ -228,6 +235,7 @@ export default function SettingsWindow() {
   const [showRestartSuggestion, setShowRestartSuggestion] = useState(false)
   const [newsEnabled, setNewsEnabled] = useState(false)
   const [newsKeywordGroups, setNewsKeywordGroups] = useState<NewsKeywordGroup[]>([])
+  const [externalModules, setExternalModules] = useState<Array<{ id: string; name: string }>>([])
 
   const changeTab = (nextTab: Tab) => {
     setTab(nextTab)
@@ -325,6 +333,9 @@ export default function SettingsWindow() {
       const news = await window.api.invoke('news:get-settings') as NewsModuleSettings
       setNewsEnabled(!!news?.enabled)
       setNewsKeywordGroups(news?.keywordGroups ?? [])
+      // 外部模組（local-modules）也納入情境模組開關；遠端遙控等基礎設施不在此列
+      const mods = await window.api.invoke('modules:list') as Array<{ id: string; name: string; kind: string }>
+      setExternalModules(mods.filter(m => m.kind === 'external').map(m => ({ id: m.id, name: m.name })))
     })()
   }, [])
 
@@ -731,6 +742,25 @@ export default function SettingsWindow() {
 
   const handleUpdateScene = async (scene: ScenePreset) => {
     await captureScene(scene.id, scene.name)
+  }
+
+  const setSceneModuleOverride = async (scene: ScenePreset, moduleId: string, v: '' | 'on' | 'off') => {
+    const next = { ...(scene.moduleOverrides ?? {}) }
+    if (v === '') delete next[moduleId]
+    else next[moduleId] = v
+    await updateScene(scene.id, { moduleOverrides: Object.keys(next).length > 0 ? next : undefined })
+  }
+
+  // 目前情境對某模組有開關覆蓋時，在全域開關旁提示（避免使用者以為開關失效）
+  const activeSceneForOverrideHint = scenePresets.find(s => s.id === draft?.activeSceneId) ?? null
+  const SceneOverrideHint = ({ moduleId }: { moduleId: string }) => {
+    const ov = activeSceneForOverrideHint?.moduleOverrides?.[moduleId]
+    if (!ov) return null
+    return (
+      <p className="ml-7 -mt-2 mb-1 text-[11px] text-secondary leading-snug">
+        ⓘ 目前情境「{activeSceneForOverrideHint!.name}」將此模組{ov === 'on' ? '強制開啟' : '強制關閉'}，全域開關暫時不生效；可到「情境」分頁調整。
+      </p>
+    )
   }
 
   const startRename = (kind: 'world' | 'persona') => {
@@ -1444,6 +1474,38 @@ export default function SettingsWindow() {
                               </select>
                             </label>
                           )}
+
+                          {/* 模組開關覆蓋：此情境啟用時強制開／關指定模組，未設定＝跟隨全域 */}
+                          {(() => {
+                            const moduleRows = [...SCENE_MODULE_ROWS_BASE, ...externalModules.map(m => ({ id: m.id, label: m.name }))]
+                            const overrideCount = moduleRows.filter(r => scene.moduleOverrides?.[r.id]).length
+                            return (
+                              <details className="text-[11px] text-secondary">
+                                <summary className="cursor-pointer select-none text-primary/60 hover:text-primary transition-colors">
+                                  模組開關{overrideCount > 0 ? `（${overrideCount} 項覆蓋）` : '（跟隨全域）'}
+                                </summary>
+                                <div className="mt-1.5 space-y-1">
+                                  {moduleRows.map(r => (
+                                    <label key={r.id} className="flex items-center gap-1.5">
+                                      <span className="shrink-0 w-24 truncate text-primary/60">{r.label}</span>
+                                      <select
+                                        className="input-field text-xs py-1 flex-1 min-w-0"
+                                        value={scene.moduleOverrides?.[r.id] ?? ''}
+                                        onChange={e => void setSceneModuleOverride(scene, r.id, e.target.value as '' | 'on' | 'off')}
+                                      >
+                                        <option value="">跟隨全域</option>
+                                        <option value="on">此情境開啟</option>
+                                        <option value="off">此情境關閉</option>
+                                      </select>
+                                    </label>
+                                  ))}
+                                  <p className="text-[10px] text-secondary/80 leading-snug pt-0.5">
+                                    切換到此情境時生效，不會改動全域設定。例如 TRPG 情境可關閉新聞和天氣、保留 Spotify 當 BGM。
+                                  </p>
+                                </div>
+                              </details>
+                            )
+                          })()}
 
                           {/* Action buttons */}
                           <div className="flex gap-1.5 flex-wrap">
@@ -2259,6 +2321,7 @@ export default function SettingsWindow() {
               settingsLabel="設定"
               onSettings={() => window.api.invoke('spotify:open-settings')}
             />
+            <SceneOverrideHint moduleId="desktopst.spotify" />
             <ExtensionRow
               title="新聞陪聊"
               description="讓角色像朋友一樣，按「說點什麼」時偶爾抽一則新聞跟你聊聊（不照念、不簡報）。"
@@ -2271,6 +2334,7 @@ export default function SettingsWindow() {
               settingsLabel="設定"
               onSettings={newsEnabled ? () => changeTab('新聞') : undefined}
             />
+            <SceneOverrideHint moduleId="desktopst.news" />
             <ExtensionRow
               title="天氣資訊"
               description="讓角色取得所在地天氣、氣溫與濕度。"
@@ -2281,6 +2345,7 @@ export default function SettingsWindow() {
               settingsLabel="設定"
               onSettings={() => document.getElementById('weather-extension-settings')?.scrollIntoView({ block: 'nearest' })}
             />
+            <SceneOverrideHint moduleId="desktopst.weather" />
             <div id="weather-extension-settings" className="ml-7 -mt-2 pb-3 border-b border-border space-y-3">
               <p className="text-xs font-semibold text-primary">位置設定</p>
               <div className="flex gap-2 flex-wrap">
@@ -2529,6 +2594,7 @@ export default function SettingsWindow() {
             >
               ← 返回擴充
             </button>
+            <SceneOverrideHint moduleId="desktopst.news" />
             <NewsSettingsPanel />
           </div>
         )}

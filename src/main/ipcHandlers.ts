@@ -29,10 +29,11 @@ import {
   getNewsInjectionForSpeak, getActiveNewsTopic, setActiveNewsTopic,
   setPendingNewsCredit, consumePendingNewsCredit, applyNewsFeedbackDelta,
   buildSurveyDirective, buildNotesDirective, loadNewsModuleSettings,
-  collectInterestTerms, fetchAllSources,
+  collectInterestTerms, fetchAllSources, NEWS_MODULE_ID,
   type NewsTopic, type NewsSelectionContext, type NewsModuleSettings
 } from './modules/news'
 import { getConversationSearchContext } from './modules/news/conversationSearch'
+import { collectModuleContext, listRegisteredModules } from './modules/moduleHost'
 import { pushRemoteControlState, pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
@@ -1263,7 +1264,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       if (candidateIds.length === 0) return
       const candidateChars = candidateIds.map(id => getCharacter(id)).filter((c): c is Character => c != null)
       const ns = loadNewsModuleSettings()
-      charId = reminder.injectNews && ns.enabled && candidateChars.length > 1
+      charId = reminder.injectNews && isModuleEffectivelyEnabled(NEWS_MODULE_ID, ns.enabled) && candidateChars.length > 1
         ? (await pickNewsAwareCharacter(candidateChars, ns)).id
         : candidateIds[Math.floor(Math.random() * candidateIds.length)]
     }
@@ -1274,7 +1275,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     if (candidateIds.length === 0) return
     const candidateChars = candidateIds.map(id => getCharacter(id)).filter((c): c is Character => c != null)
     const ns = loadNewsModuleSettings()
-    charId = reminder.injectNews && ns.enabled && candidateChars.length > 1
+    charId = reminder.injectNews && isModuleEffectivelyEnabled(NEWS_MODULE_ID, ns.enabled) && candidateChars.length > 1
       ? (await pickNewsAwareCharacter(candidateChars, ns)).id
       : candidateIds[Math.floor(Math.random() * candidateIds.length)]
   }
@@ -1309,7 +1310,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   if (reminderNoteBlock) ctxParts.push(reminderNoteBlock.text)
 
   if (reminder.injectWeather) {
-    const weatherStr = await getWeatherContextString(settings)
+    const weatherStr = await getWeatherContextString(applySceneModuleOverrides(settings))
     if (weatherStr) ctxParts.push(weatherStr)
   }
 
@@ -1318,7 +1319,11 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   if (reminder.injectNews) {
     try {
       const reminderNewsCtx = resolveNewsSelectionContext(char)
-      const inj = await getNewsInjectionForSpeak({ force: true, ctx: reminderNewsCtx })
+      const inj = await getNewsInjectionForSpeak({
+        force: true,
+        ctx: reminderNewsCtx,
+        enabledOverride: isModuleEffectivelyEnabled(NEWS_MODULE_ID, loadNewsModuleSettings().enabled)
+      })
       if (inj) {
         ctxParts.push(inj.text)
         if (!inj.fromTopic && inj.item) {
@@ -1348,7 +1353,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       }
       // 提醒路線的新聞 debug
       const newsSettings = loadNewsModuleSettings()
-      if (newsSettings.enabled) {
+      if (isModuleEffectivelyEnabled(NEWS_MODULE_ID, newsSettings.enabled)) {
         const terms = collectInterestTerms(newsSettings, reminderNewsCtx)
         const groupName = reminderNewsCtx.sceneGroupId
           ? (newsSettings.keywordGroups.find(g => g.id === reminderNewsCtx.sceneGroupId)?.name ?? reminderNewsCtx.sceneGroupId)
@@ -1641,6 +1646,41 @@ function buildVisiblePinnedNotesContext(): { text: string; titles: string[] } | 
   return { text: `[桌面便利貼]\n${lines.join('\n')}`, titles }
 }
 
+// ── 情境模組開關覆蓋 ────────────────────────────────────────
+// 天氣 / Spotify 沒掛在 module host 下，用固定虛擬 id 一起納入情境覆蓋管理。
+export const WEATHER_MODULE_ID = 'desktopst.weather'
+export const SPOTIFY_MODULE_ID = 'desktopst.spotify'
+
+/** 讀取目前情境對某模組的開關覆蓋；無情境或未設定時回傳 undefined（跟隨全域）。 */
+function getActiveSceneModuleOverride(moduleId: string): 'on' | 'off' | undefined {
+  if (!settings.activeSceneId) return undefined
+  const scene = fileStore.loadScenePreset(settings.activeSceneId)
+  return scene?.moduleOverrides?.[moduleId]
+}
+
+/** 情境覆蓋優先的有效開關：'on' / 'off' 直接生效，未覆蓋時用全域開關。 */
+export function isModuleEffectivelyEnabled(moduleId: string, globalEnabled: boolean): boolean {
+  const ov = getActiveSceneModuleOverride(moduleId)
+  if (ov === 'on') return true
+  if (ov === 'off') return false
+  return globalEnabled
+}
+
+/**
+ * 依目前情境覆蓋回傳天氣 / Spotify 開關已調整的 settings 副本（無覆蓋時原樣回傳）。
+ * getWeatherContextString / getSpotifyContextString 內部會檢查 enabled，
+ * 所以「強制開／強制關」要在傳入前改寫。
+ */
+function applySceneModuleOverrides(s: AppSettings): AppSettings {
+  const wOv = getActiveSceneModuleOverride(WEATHER_MODULE_ID)
+  const sOv = getActiveSceneModuleOverride(SPOTIFY_MODULE_ID)
+  if (!wOv && !sOv) return s
+  const out = { ...s }
+  if (wOv && out.weather) out.weather = { ...out.weather, enabled: wOv === 'on' }
+  if (sOv && out.spotify) out.spotify = { ...out.spotify, enabled: sOv === 'on' }
+  return out
+}
+
 /** 解析當前發話角色的新聞抽選脈絡：情境組（取代式）＋角色卡關鍵字（疊加）。 */
 function resolveNewsSelectionContext(char: Character | null | undefined): NewsSelectionContext {
   const activeScene = settings.activeSceneId ? fileStore.loadScenePreset(settings.activeSceneId) : null
@@ -1691,7 +1731,10 @@ async function pickNewsAwareCharacter(
   return candidates[candidates.length - 1]
 }
 
-export async function forceSpeakDirect(characterId: string): Promise<{ ok: true } | { error: string }> {
+export async function forceSpeakDirect(
+  characterId: string,
+  extra?: { extraSystemContext?: string; triggerDirective?: string }
+): Promise<{ ok: true } | { error: string }> {
     const conv = getActiveConversation()
     const char = getCharacter(characterId)
     if (!conv || !char) return { error: 'Not found' }
@@ -1726,23 +1769,30 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
     if (conv.messages.length === 0 && char.firstMessage?.trim()) {
       ctxParts.push(`[角色開場白]\n${char.firstMessage.trim()}\n\n請基於這個開場白的人格和語氣，自由發揮回應。`)
     }
-    if (settings.weather?.enabled) {
-      const weatherStr = await getWeatherContextString(settings)
+    if (extra?.extraSystemContext) {
+      ctxParts.push(extra.extraSystemContext)
+    }
+    const moduleCtx = await collectModuleContext(id => isModuleEffectivelyEnabled(id, true))
+    for (const s of moduleCtx) ctxParts.push(s)
+    const effSettings = applySceneModuleOverrides(settings)
+    if (effSettings.weather?.enabled) {
+      const weatherStr = await getWeatherContextString(effSettings)
       if (weatherStr) ctxParts.push(weatherStr)
     }
-    if (settings.spotify?.enabled) {
-      const spotifyStr = await getSpotifyContextString(settings)
+    if (effSettings.spotify?.enabled) {
+      const spotifyStr = await getSpotifyContextString(effSettings)
       if (spotifyStr) ctxParts.push(spotifyStr)
     }
     // 候選素材：主題泡泡（優先素材，主導）／新聞 ＋ 便利貼（候選，讓角色挑一個）／天氣 Spotify（背景）。
     let newsUsedUtilityModel = false
-    let newsDirective: string | undefined
+    let newsDirective: string | undefined = extra?.triggerDirective
     let newsBubbleMeta: BubbleNewsMeta | null = null
     let newsDebugData: NewsDebugInfo | null = null
     let newsSubjectItem: { title: string; summary?: string } | null = null
+    const newsEffEnabled = isModuleEffectivelyEnabled(NEWS_MODULE_ID, loadNewsModuleSettings().enabled)
     try {
       const newsCtx = resolveNewsSelectionContext(char)
-      const newsInjection = await getNewsInjectionForSpeak({ ctx: newsCtx })
+      const newsInjection = await getNewsInjectionForSpeak({ ctx: newsCtx, enabledOverride: newsEffEnabled })
       const noteBlock = settings.ui.speakUsePinnedNotes ? buildVisiblePinnedNotesContext() : null
 
       // 先算發話模式（供 debug 用，邏輯和下方 branch 一致）
@@ -1802,9 +1852,9 @@ export async function forceSpeakDirect(characterId: string): Promise<{ ok: true 
         }
       }
 
-      // ── 新聞 debug 資訊（只在模組啟用時收集）──
+      // ── 新聞 debug 資訊（只在模組有效啟用時收集）──
       const newsSettings = loadNewsModuleSettings()
-      if (newsSettings.enabled) {
+      if (newsEffEnabled) {
         const terms = collectInterestTerms(newsSettings, newsCtx)
         const groupName = newsCtx.sceneGroupId
           ? (newsSettings.keywordGroups.find(g => g.id === newsCtx.sceneGroupId)?.name ?? newsCtx.sceneGroupId)
@@ -3095,10 +3145,16 @@ export function registerIpcHandlers() {
     let lastReplyText = ''
 
     // Pre-fetch weather + spotify + realtime query context once for this message (shared across all responders)
-    const weatherContext = settings.weather?.enabled ? await getWeatherContextString(settings) : null
-    const spotifyContext = settings.spotify?.enabled ? await getSpotifyContextString(settings) : null
-    const realtimeQueryContext = await getRealtimeQueryContextString(payload.content, settings)
-    const newsSearchResult = await getConversationSearchContext(payload.content, settings, loadNewsModuleSettings())
+    // 天氣 / Spotify / 新聞依情境模組覆蓋調整（'off' 時不抓、'on' 時強制啟用）
+    const effChatSettings = applySceneModuleOverrides(settings)
+    const weatherContext = effChatSettings.weather?.enabled ? await getWeatherContextString(effChatSettings) : null
+    const spotifyContext = effChatSettings.spotify?.enabled ? await getSpotifyContextString(effChatSettings) : null
+    const realtimeQueryContext = isModuleEffectivelyEnabled(WEATHER_MODULE_ID, true)
+      ? await getRealtimeQueryContextString(payload.content, settings)
+      : null
+    const newsSearchResult = isModuleEffectivelyEnabled(NEWS_MODULE_ID, true)
+      ? await getConversationSearchContext(payload.content, settings, loadNewsModuleSettings())
+      : { context: null, debugPrompt: null }
     // convSearch debug は userMsg に保存（主 LLM call の前に確定するため）
     if (newsSearchResult.debugPrompt) {
       userMsg.convSearchDebugPrompt = newsSearchResult.debugPrompt
@@ -3106,7 +3162,8 @@ export function registerIpcHandlers() {
       userMsg.convSearchOutputTokens = newsSearchResult.outputTokens
     }
     const chatPinnedNotesBlock = settings.ui.chatUsePinnedNotes ? buildVisiblePinnedNotesContext()?.text ?? null : null
-    const extraContextParts = [weatherContext, spotifyContext, realtimeQueryContext, newsSearchResult.context, chatPinnedNotesBlock].filter(Boolean) as string[]
+    const moduleContextParts = await collectModuleContext(id => isModuleEffectivelyEnabled(id, true))
+    const extraContextParts = [weatherContext, spotifyContext, realtimeQueryContext, newsSearchResult.context, chatPinnedNotesBlock, ...moduleContextParts].filter(Boolean) as string[]
     const combinedExtraContext = extraContextParts.length > 0 ? extraContextParts.join('\n\n') : null
 
     // Emotion split: use utility model to classify if utilityEnabled + character has custom sprites
@@ -3759,8 +3816,9 @@ export function registerIpcHandlers() {
       colorTheme: settings.ui.colorTheme,
       inputWindowBounds: settings.ui.inputWindowBounds,
       logWindowBounds: settings.ui.logWindowBounds,
-      // 覆寫狀態時保留既有的新聞關鍵字組綁定（它不是桌面快照的一部分）
+      // 覆寫狀態時保留既有的新聞關鍵字組綁定與模組開關覆蓋（它們不是桌面快照的一部分）
       newsKeywordGroupId: existing?.newsKeywordGroupId,
+      moduleOverrides: existing?.moduleOverrides,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     }
@@ -3770,6 +3828,9 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('scene:load', (_, id: string) => applySceneById(id))
+
+  // 已註冊模組清單（情境模組開關 UI 用；排除遠端遙控等基礎設施由 renderer 決定）
+  ipcMain.handle('modules:list', () => listRegisteredModules())
 
   // ── Reminders ────────────────────────────────────────────
 

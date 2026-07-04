@@ -143,10 +143,11 @@ export interface NewsInjection {
  * 會把抽中的新聞記入 seenIds。
  */
 export async function getNewsInjectionForSpeak(
-  options: { force?: boolean; rng?: () => number; ctx?: NewsSelectionContext } = {}
+  options: { force?: boolean; rng?: () => number; ctx?: NewsSelectionContext; enabledOverride?: boolean } = {}
 ): Promise<NewsInjection | null> {
   const settings = loadNewsModuleSettings()
-  if (!settings.enabled) return null
+  // enabledOverride：呼叫端算好的有效開關（情境覆蓋優先），未傳時用全域設定
+  if (!(options.enabledOverride ?? settings.enabled)) return null
 
   // 主題模式優先：有釘住的話題時，主動發話一律圍繞它聊（覆寫 speakButton、不抽新）。
   const topic = getActiveNewsTopic()
