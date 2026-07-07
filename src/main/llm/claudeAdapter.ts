@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import fs from 'fs'
 import path from 'path'
 import {
-  buildSystemPrompt, buildTriggerMessage, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
+  buildSystemPrompt, buildTriggerMessage, buildTriggerTimeStr, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
   resolveModel, type ChatLLMParams, type ChatLLMResult
 } from './promptUtils'
 
@@ -108,7 +108,7 @@ export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResu
   // Append trigger to last user message (Claude requires strict alternation, cannot add a new user turn)
   // Skip trigger for reminders (no instruction injection)
   if (!params.isReminder) {
-    const trigger = buildTriggerMessage(character.name, params.triggerDirective)
+    const trigger = buildTriggerMessage(character.name, params.triggerDirective, buildTriggerTimeStr(settings, messages, params.minimal))
     const lastMsg = claudeMessages[claudeMessages.length - 1]
     if (lastMsg?.role === 'user') {
       if (typeof lastMsg.content === 'string') {

@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai'
 import fs from 'fs'
 import path from 'path'
 import {
-  buildSystemPrompt, buildTriggerMessage, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
+  buildSystemPrompt, buildTriggerMessage, buildTriggerTimeStr, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
   resolveModel, type ChatLLMParams, type ChatLLMResult
 } from './promptUtils'
 
@@ -91,7 +91,7 @@ export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResu
 
   // Trigger injected after conversation history (not for reminders)
   if (!params.isReminder) {
-    currentParts.push({ text: '\n\n' + buildTriggerMessage(character.name, params.triggerDirective) })
+    currentParts.push({ text: '\n\n' + buildTriggerMessage(character.name, params.triggerDirective, buildTriggerTimeStr(settings, messages, params.minimal)) })
   }
 
   // History must start with 'user' for Gemini

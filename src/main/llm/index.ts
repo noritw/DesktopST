@@ -3,7 +3,7 @@ import { chatWithClaude } from './claudeAdapter'
 import { chatWithGemini } from './geminiAdapter'
 import {
   buildEmotionClassifierSystemPrompt, buildEmotionIdList, buildNewsSubjectivityClassifierSystemPrompt, applyUtilitySettings,
-  expandReactionAnnotations,
+  expandReactionAnnotations, annotateTimeGaps,
   type ChatLLMParams, type ChatLLMResult, type PromptCharacter
 } from './promptUtils'
 import type { AppSettings } from '../types'
@@ -18,14 +18,16 @@ function endpointForProvider(provider: string, endpoint?: string): string | unde
 }
 
 export async function chatWithLLM(rawParams: ChatLLMParams): Promise<ChatLLMResult> {
-  // 展開訊息 reaction 標註（單一入口處理，adapter 不需各自支援）
+  // 展開訊息 reaction 標註、插入時間斷層標註（單一入口處理，adapter 不需各自支援）
+  // 斷層標註跟隨 injectSystemTime：關閉時 prompt 完全不含現實時間（TRPG／故事接龍場合）
   // 記憶摘要也在此注入 system prompt，adapter 不需各自支援
   const memorySummaryBlock = rawParams.memorySummary?.trim()
     ? '[Memory Summary]\nCondensed record of earlier conversation (these events happened before the recent messages below). Treat as established shared memory:\n' + rawParams.memorySummary.trim()
     : null
+  const expandedMessages = expandReactionAnnotations(rawParams.messages)
   const params: ChatLLMParams = {
     ...rawParams,
-    messages: expandReactionAnnotations(rawParams.messages),
+    messages: rawParams.settings.injectSystemTime ? annotateTimeGaps(expandedMessages) : expandedMessages,
     extraSystemContext: [memorySummaryBlock, rawParams.extraSystemContext].filter(Boolean).join('\n\n') || undefined
   }
   const { provider } = params.settings.llm

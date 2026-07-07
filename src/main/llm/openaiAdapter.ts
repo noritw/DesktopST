@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import {
-  buildSystemPrompt, buildTriggerMessage, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
+  buildSystemPrompt, buildTriggerMessage, buildTriggerTimeStr, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
   resolveModel, type PromptCharacter, type ChatLLMParams, type ChatLLMResult
 } from './promptUtils'
 
@@ -74,7 +74,7 @@ export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResu
 
   // Trigger injected after conversation history (not for reminders)
   if (!params.isReminder) {
-    input.push({ role: 'user', content: buildTriggerMessage(character.name, params.triggerDirective) })
+    input.push({ role: 'user', content: buildTriggerMessage(character.name, params.triggerDirective, buildTriggerTimeStr(settings, messages, params.minimal)) })
   }
 
   if (images && images.length > 0 && input.length > 0) {

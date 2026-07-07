@@ -170,6 +170,35 @@ export function expandReactionAnnotations(messages: Message[]): Message[] {
   return result
 }
 
+/** 間隔超過這個值才標註時間斷層（訊息之間、以及最後一則到現在） */
+const TIME_GAP_ANNOTATE_MS = 60 * 60 * 1000
+
+/** 粗略時距字串（"6h" / "2d"）——模型只需要斷層感，不需要精確值 */
+function formatTimeGap(ms: number): string {
+  const hours = Math.round(ms / 3_600_000)
+  if (hours < 48) return `${hours}h`
+  return `${Math.round(ms / 86_400_000)}d`
+}
+
+/** 相鄰訊息間隔超過 1 小時時，插入 "(6h later)" 系統標註讓角色知道對話有時間斷層。 */
+export function annotateTimeGaps(messages: Message[]): Message[] {
+  const result: Message[] = []
+  let prevTs: number | undefined
+  for (const m of messages) {
+    if (prevTs !== undefined && m.timestamp - prevTs >= TIME_GAP_ANNOTATE_MS) {
+      result.push({
+        id: `${m.id}:timegap`,
+        role: 'system',
+        content: `(${formatTimeGap(m.timestamp - prevTs)} later)`,
+        timestamp: m.timestamp
+      })
+    }
+    result.push(m)
+    prevTs = m.timestamp
+  }
+  return result
+}
+
 export function sanitizePromptText(text: string | undefined | null): string {
   return String(text ?? '')
     .replace(/\[object Object\]/g, '')
@@ -379,6 +408,17 @@ export function buildNewsSubjectivityClassifierSystemPrompt(): string {
   ].join('\n')
 }
 
+/** Formats the current local time as "YYYY-MM-DD HH:mm 時段"（e.g. "2026-07-05 14:03 下午"）. */
+export function formatSystemTimeStr(): string {
+  const now = new Date()
+  const hours = now.getHours()
+  const timeLabel =
+    hours < 5 ? '深夜' : hours < 8 ? '清晨' : hours < 12 ? '上午' :
+    hours < 13 ? '中午' : hours < 18 ? '下午' : hours < 19 ? '傍晚' :
+    hours < 23 ? '晚上' : '深夜'
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(hours).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${timeLabel}`
+}
+
 export function buildSystemPrompt(
   settings: AppSettings,
   char: PromptCharacter,
@@ -388,13 +428,7 @@ export function buildSystemPrompt(
   extraSystemContext?: string,
   opts?: { splitEmotion?: boolean; minimal?: boolean }
 ): string {
-  const now = new Date()
-  const hours = now.getHours()
-  const timeLabel =
-    hours < 5 ? '深夜' : hours < 8 ? '清晨' : hours < 12 ? '上午' :
-    hours < 13 ? '中午' : hours < 18 ? '下午' : hours < 19 ? '傍晚' :
-    hours < 23 ? '晚上' : '深夜'
-  const timeStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(hours).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${timeLabel}`
+  const timeStr = formatSystemTimeStr()
 
   const displayName = sanitizePromptText(persona?.displayName) || '使用者'
   const nickname = sanitizePromptText(persona?.nickname) || displayName
@@ -512,8 +546,32 @@ export function buildSystemPrompt(
   return parts.join('\n\n')
 }
 
-/** Trigger line injected as the final user message, after conversation history. */
-export function buildTriggerMessage(charName: string, directive?: string): string {
-  const base = `[Write the next in-character reply as "${charName}" only.]`
-  return directive?.trim() ? `${base}\n${directive.trim()}` : base
+/**
+ * Trigger 用的時間字串：injectSystemTime 開啟時回傳現在時間；
+ * 距離最後一則訊息超過 1 小時再附註間隔（深夜聊到一半、隔天下午續聊的斷層就在這裡）。
+ */
+export function buildTriggerTimeStr(settings: AppSettings, messages: Message[], minimal?: boolean): string | undefined {
+  if (minimal || !settings.injectSystemTime) return undefined
+  let str = formatSystemTimeStr()
+  const lastTs = messages.length > 0 ? messages[messages.length - 1].timestamp : undefined
+  if (lastTs !== undefined) {
+    const gap = Date.now() - lastTs
+    if (gap >= TIME_GAP_ANNOTATE_MS) str += ` (last message ${formatTimeGap(gap)} ago)`
+  }
+  return str
+}
+
+/**
+ * Trigger line injected as the final user message, after conversation history.
+ * timeStr（injectSystemTime 開啟時傳入）放在這裡而不是只放 system prompt 中段：
+ * prompt 結尾的注意力最強，才能壓過舊訊息裡的時間語境（例如深夜聊到一半隔天下午續聊）。
+ */
+export function buildTriggerMessage(charName: string, directive?: string, timeStr?: string): string {
+  const lines: string[] = []
+  if (timeStr) {
+    lines.push(`[Current time: ${timeStr}]`)
+  }
+  lines.push(`[Write the next in-character reply as "${charName}" only.]`)
+  if (directive?.trim()) lines.push(directive.trim())
+  return lines.join('\n')
 }

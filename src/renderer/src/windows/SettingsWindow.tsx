@@ -172,7 +172,8 @@ const PROVIDER_KEY_PLACEHOLDER: Record<string, string> = {
 const SCENE_MODULE_ROWS_BASE: Array<{ id: string; label: string }> = [
   { id: 'desktopst.news', label: '新聞陪聊' },
   { id: 'desktopst.weather', label: '天氣' },
-  { id: 'desktopst.spotify', label: 'Spotify 音樂' }
+  { id: 'desktopst.spotify', label: 'Spotify 音樂' },
+  { id: 'desktopst.systemTime', label: '系統時間' }
 ]
 
 const CORE_TABS = ['LLM 設定', '記憶'] as const
@@ -1693,6 +1694,7 @@ export default function SettingsWindow() {
               />
               <span className="text-sm text-primary">對話中自動帶入當下系統時間</span>
             </label>
+            <SceneOverrideHint moduleId="desktopst.systemTime" />
 
             {draft && false && (
             <>

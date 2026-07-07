@@ -1438,7 +1438,8 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     let reminderUtilityDebugPrompt: string | undefined
     // 提醒發話走主要模型（角色口吻優先）；情緒分類才走輔助模型
     // 若使用者未啟用分流，applyUtilitySettings 回傳原始 settings，行為不變
-    const reminderChatSettings = settings
+    // 情境模組覆蓋（系統時間等）在此生效
+    const reminderChatSettings = applySceneModuleOverrides(settings)
 
     if (hasApiKey) {
       // 有 API Key：調用 LLM 生成角色化回應
@@ -1650,9 +1651,10 @@ function buildVisiblePinnedNotesContext(): { text: string; titles: string[] } | 
 }
 
 // ── 情境模組開關覆蓋 ────────────────────────────────────────
-// 天氣 / Spotify 沒掛在 module host 下，用固定虛擬 id 一起納入情境覆蓋管理。
+// 天氣 / Spotify / 系統時間沒掛在 module host 下，用固定虛擬 id 一起納入情境覆蓋管理。
 export const WEATHER_MODULE_ID = 'desktopst.weather'
 export const SPOTIFY_MODULE_ID = 'desktopst.spotify'
+export const SYSTEM_TIME_MODULE_ID = 'desktopst.systemTime'
 
 /** 讀取目前情境對某模組的開關覆蓋；無情境或未設定時回傳 undefined（跟隨全域）。 */
 function getActiveSceneModuleOverride(moduleId: string): 'on' | 'off' | undefined {
@@ -1670,17 +1672,19 @@ export function isModuleEffectivelyEnabled(moduleId: string, globalEnabled: bool
 }
 
 /**
- * 依目前情境覆蓋回傳天氣 / Spotify 開關已調整的 settings 副本（無覆蓋時原樣回傳）。
- * getWeatherContextString / getSpotifyContextString 內部會檢查 enabled，
- * 所以「強制開／強制關」要在傳入前改寫。
+ * 依目前情境覆蓋回傳天氣 / Spotify / 系統時間開關已調整的 settings 副本（無覆蓋時原樣回傳）。
+ * getWeatherContextString / getSpotifyContextString / chatWithLLM（injectSystemTime）
+ * 內部會檢查各自的 enabled 旗標，所以「強制開／強制關」要在傳入前改寫。
  */
 function applySceneModuleOverrides(s: AppSettings): AppSettings {
   const wOv = getActiveSceneModuleOverride(WEATHER_MODULE_ID)
   const sOv = getActiveSceneModuleOverride(SPOTIFY_MODULE_ID)
-  if (!wOv && !sOv) return s
+  const tOv = getActiveSceneModuleOverride(SYSTEM_TIME_MODULE_ID)
+  if (!wOv && !sOv && !tOv) return s
   const out = { ...s }
   if (wOv && out.weather) out.weather = { ...out.weather, enabled: wOv === 'on' }
   if (sOv && out.spotify) out.spotify = { ...out.spotify, enabled: sOv === 'on' }
+  if (tOv) out.injectSystemTime = tOv === 'on'
   return out
 }
 
@@ -1887,7 +1891,8 @@ export async function forceSpeakDirect(
     // 新聞陪聊走哪個模型由新聞設定 replyModel 決定（預設 main＝主要模型，口吻優先）。
     // 只有使用者選擇 'utility' 時才套用 applyUtilitySettings（未啟用分流時它原樣回傳主模型）。
     const useUtilityForNews = newsUsedUtilityModel && loadNewsModuleSettings().replyModel === 'utility'
-    const chatSettings = useUtilityForNews ? applyUtilitySettings(settings) : settings
+    // 以 effSettings 為底，讓情境模組覆蓋（系統時間等）帶進 chatWithLLM
+    const chatSettings = useUtilityForNews ? applyUtilitySettings(effSettings) : effSettings
 
     try {
       let recentMessages = contextMessages(conv.messages, settings.memory.keepRecentN)
@@ -3297,7 +3302,7 @@ export function registerIpcHandlers() {
     // 1) Primary responder always replies
     try {
       const { content, emotion: rawEmotion, debugPrompt, inputTokens, outputTokens } = await chatWithLLM({
-        settings,
+        settings: effChatSettings,
         character: primaryChar,
         messages: recentMessagesBase,
         images: payload.images,
@@ -3441,7 +3446,7 @@ export function registerIpcHandlers() {
         const secHasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
         const doSplitEmotionSec = !!(settings.llm.utilityEnabled && secHasCustomSprites)
         const { content: reply, emotion: rawEmotionSec, debugPrompt, inputTokens: secInputTk, outputTokens: secOutputTk } = await chatWithLLM({
-          settings,
+          settings: effChatSettings,
           character: char,
           messages: recentMessages,
           speakerNameById: getSpeakerNameById(),
@@ -3584,6 +3589,8 @@ export function registerIpcHandlers() {
       ? 1
       : Math.max(1, Math.floor(Number(settings.llm.maxGroupRounds) || 1))
 
+    // 情境模組覆蓋（系統時間等）在此生效
+    const effGroupSettings = applySceneModuleOverrides(settings)
     let lastReplyText = ''
     for (let i = 0; i < maxRounds; i++) {
       const char = nonMuted[i % nonMuted.length]
@@ -3597,7 +3604,7 @@ export function registerIpcHandlers() {
         const hasCustomSprites = Object.values(char.emotions ?? {}).some(p => p?.trim())
         const doSplitEmotion = !!(settings.llm.utilityEnabled && hasCustomSprites)
         const { content, emotion: rawEmotion, debugPrompt, inputTokens, outputTokens } = await chatWithLLM({
-          settings,
+          settings: effGroupSettings,
           character: char,
           messages: recentMessages,
           speakerNameById: getSpeakerNameById(),
