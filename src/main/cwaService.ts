@@ -12,6 +12,8 @@ export interface RealtimeQueryResult {
   type: RealtimeQueryType
   injectionText: string
   fetchedAt: Date
+  /** 若查詢到颱風，回傳中文颱風名 */
+  typhoonName?: string
 }
 
 // ─── 關鍵詞分組 ───────────────────────────────────────────────
@@ -200,45 +202,111 @@ async function fetchEarthquake(apiKey: string): Promise<string> {
 }
 
 // ─── 颱風 W-C0034-005 ─────────────────────────────────────────
+interface CwaTyphoonMovingPrediction {
+  value: string
+  lang: string
+}
+
+interface CwaTyphoonFix {
+  DateTime: string
+  CoordinateLongitude: string
+  CoordinateLatitude: string
+  MaxWindSpeed: string
+  MaxGustSpeed: string
+  Pressure: string
+  MovingSpeed: string
+  MovingDirection: string
+  MovingPrediction?: CwaTyphoonMovingPrediction[]
+}
+
 interface CwaTyphoonRecord {
+  Year?: string
   TyphoonName?: string
-  TyphoonNameEng?: string
-  TyphoonIntensity?: string
-  MovingDescription?: string
+  CwaTyphoonName?: string
+  CwaTdNo?: string
+  CwaTyNo?: string
+  AnalysisData?: { Fix?: CwaTyphoonFix[] }
+  ForecastData?: { Fix?: CwaTyphoonFix[] }
 }
 
 interface CwaTyphoonResponse {
   success: string
   records?: {
-    tropicalCyclones?: {
-      tropicalCyclone?: CwaTyphoonRecord[]
+    TropicalCyclones?: {
+      TropicalCyclone?: CwaTyphoonRecord[]
     }
   }
 }
 
-async function fetchTyphoon(apiKey: string): Promise<string> {
+/** 從最大風速（m/s）推算颱風強度等級 */
+function classifyTyphoonIntensity(maxWindSpeed: number): string {
+  if (maxWindSpeed >= 51) return '強烈'
+  if (maxWindSpeed >= 33) return '中度'
+  if (maxWindSpeed >= 17.2) return '輕度'
+  return '熱帶性低氣壓'  // < 17.2 m/s
+}
+
+interface FetchTyphoonResult {
+  injectionText: string
+  typhoonName?: string
+}
+
+async function fetchTyphoon(apiKey: string): Promise<FetchTyphoonResult> {
   const json = await cwaFetch('W-C0034-005', {}, apiKey) as CwaTyphoonResponse
   if (json.success !== 'true') throw new Error('CWA API error')
 
-  const cyclones = json.records?.tropicalCyclones?.tropicalCyclone
+  const cyclones = json.records?.TropicalCyclones?.TropicalCyclone
   if (!cyclones || cyclones.length === 0) {
-    return (
-      `[即時查詢：颱風消息]\n` +
-      `目前西太平洋無颱風或熱帶低氣壓影響台灣。\n` +
-      `（資料來源：中央氣象署）`
-    )
+    return {
+      injectionText:
+        `[即時查詢：颱風消息]\n` +
+        `目前西太平洋無颱風或熱帶低氣壓影響台灣。\n` +
+        `（資料來源：中央氣象署）`
+    }
   }
 
-  const tc = cyclones[0]
-  const name = tc.TyphoonName ?? tc.TyphoonNameEng ?? '未命名'
-  const intensity = tc.TyphoonIntensity ?? ''
-  const moving = tc.MovingDescription ?? ''
+  // 可能有多個颱風同時活動，全部列出
+  const parts: string[] = ['[即時查詢：颱風消息]']
+  let firstTyphoonName: string | undefined
 
-  return (
-    `[即時查詢：颱風消息]\n` +
-    `目前有${intensity}颱風「${name}」${moving ? `，${moving}` : ''}。\n` +
-    `（資料來源：中央氣象署）`
-  )
+  for (const tc of cyclones) {
+    const name = tc.CwaTyphoonName ?? tc.TyphoonName ?? '未命名'
+    const engName = tc.TyphoonName ?? ''
+    if (!firstTyphoonName) firstTyphoonName = name
+
+    // 取最新的分析資料
+    const fixes = tc.AnalysisData?.Fix
+    const latest = fixes && fixes.length > 0 ? fixes[fixes.length - 1] : null
+
+    if (!latest) {
+      parts.push(`目前有颱風「${name}」活動中（無詳細分析資料）。`)
+      continue
+    }
+
+    const windSpeed = parseFloat(latest.MaxWindSpeed) || 0
+    const intensity = classifyTyphoonIntensity(windSpeed)
+    const label = windSpeed >= 17.2 ? `${intensity}颱風` : '熱帶性低氣壓'
+
+    // 移動描述（中文優先）
+    const movingZh = latest.MovingPrediction?.find(p => p.lang === 'zh-hant')?.value ?? ''
+
+    let line = `目前有${label}「${name}」`
+    if (engName && engName !== name) line += `（${engName}）`
+
+    if (movingZh) {
+      line += `，${movingZh}`
+    } else {
+      const lat = latest.CoordinateLatitude
+      const lon = latest.CoordinateLongitude
+      if (lat && lon) line += `，位於北緯 ${lat} 度、東經 ${lon} 度附近`
+    }
+
+    line += `，近中心最大風速每秒 ${latest.MaxWindSpeed} 公尺，氣壓 ${latest.Pressure} 百帕。`
+    parts.push(line)
+  }
+
+  parts.push('（資料來源：中央氣象署）')
+  return { injectionText: parts.join('\n'), typhoonName: firstTyphoonName }
 }
 
 // ─── 主要對外函式 ─────────────────────────────────────────────
@@ -249,6 +317,7 @@ export async function fetchCwaData(
   forecastCounty: string
 ): Promise<RealtimeQueryResult> {
   let injectionText: string
+  let typhoonName: string | undefined
   switch (type) {
     case 'forecast':
       injectionText = await fetchForecast(apiKey, forecastCounty)
@@ -256,11 +325,14 @@ export async function fetchCwaData(
     case 'earthquake':
       injectionText = await fetchEarthquake(apiKey)
       break
-    case 'typhoon':
-      injectionText = await fetchTyphoon(apiKey)
+    case 'typhoon': {
+      const result = await fetchTyphoon(apiKey)
+      injectionText = result.injectionText
+      typhoonName = result.typhoonName
       break
+    }
   }
-  return { type, injectionText, fetchedAt: new Date() }
+  return { type, injectionText, fetchedAt: new Date(), typhoonName }
 }
 
 /**
