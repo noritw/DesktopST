@@ -240,6 +240,12 @@ export function getCachedWeatherData(): { data: WeatherData; fetchedAt: number }
   return { data: cache.data, fetchedAt: cache.fetchedAt }
 }
 
+export interface RealtimeQueryContextResult {
+  injectionText: string | null
+  /** 若查詢到颱風，回傳中文颱風名（供災害新聞補搜用） */
+  typhoonName?: string
+}
+
 /**
  * 即時氣象查詢：偵測使用者訊息中的氣象關鍵詞，命中時向中央氣象署查詢並回傳注入字串。
  * 功能未啟用、無 Key、或查詢失敗時靜默回傳 null。
@@ -247,23 +253,23 @@ export function getCachedWeatherData(): { data: WeatherData; fetchedAt: number }
 export async function getRealtimeQueryContextString(
   userMessage: string,
   settings: AppSettings
-): Promise<string | null> {
+): Promise<RealtimeQueryContextResult> {
   const rq = settings.weather?.realtimeQuery
-  if (!rq?.enabled || !rq.cwaApiKey) return null
+  if (!rq?.enabled || !rq.cwaApiKey) return { injectionText: null }
 
   const type = detectQueryType(userMessage)
-  if (!type) return null
+  if (!type) return { injectionText: null }
 
   const apiKey = decrypt(rq.cwaApiKey)
-  if (!apiKey || apiKey.startsWith('enc:v1:')) return null
+  if (!apiKey || apiKey.startsWith('enc:v1:')) return { injectionText: null }
 
   const county = rq.forecastCounty || settings.weather?.locationName || ''
 
   try {
     const result = await fetchCwaData(type, apiKey, county)
-    return result.injectionText
+    return { injectionText: result.injectionText, typhoonName: result.typhoonName }
   } catch (e) {
     console.warn('[cwa] realtime query failed:', (e as Error).message)
-    return null
+    return { injectionText: null }
   }
 }

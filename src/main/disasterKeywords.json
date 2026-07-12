@@ -1,0 +1,41 @@
+{
+  "_comment": "災害/極端天氣關鍵詞表。手動維護此檔案即可調整觸發行為。",
+  "_schema": {
+    "strong": "直接觸發 CWA + 新聞搜尋，不需 LLM 二次判斷",
+    "weak": "觸發 CWA 查詢，但新聞搜尋交由 LLM 判斷是否為即時狀況詢問",
+    "newsQuery": "搜尋 Google News RSS 時使用的 query（颱風會動態帶入颱風名）",
+    "newsMaxAgeHours": "新聞搜尋時效上限（小時），硬編碼，不讀使用者設定"
+  },
+  "categories": {
+    "typhoon": {
+      "strong": ["颱風", "颱風來了", "颱風警報", "颱風假", "有沒有颱風", "颱風幾級", "颱風路徑"],
+      "weak": [],
+      "newsQuery": "颱風 台灣",
+      "newsMaxAgeHours": 12
+    },
+    "earthquake": {
+      "strong": ["地震", "震了", "抖了", "搖晃", "地震幾級", "震央"],
+      "weak": [],
+      "newsQuery": "地震 台灣",
+      "newsMaxAgeHours": 6
+    },
+    "heavy-rain": {
+      "strong": ["豪雨", "淹水", "土石流", "水災", "大雨特報"],
+      "weak": ["大雨", "暴雨", "下大雨", "雨好大"],
+      "newsQuery": "大雨 台灣",
+      "newsMaxAgeHours": 12
+    },
+    "cold-wave": {
+      "strong": ["寒流", "冷氣團", "低溫特報", "霸王級寒流", "凍死"],
+      "weak": ["好冷", "冷死", "凍死了", "冷到爆"],
+      "newsQuery": "寒流 低溫",
+      "newsMaxAgeHours": 24
+    },
+    "heat-wave": {
+      "strong": ["高溫特報", "熱浪", "中暑"],
+      "weak": ["好熱", "熱死", "熱到爆", "快中暑"],
+      "newsQuery": "高溫 熱浪",
+      "newsMaxAgeHours": 24
+    }
+  }
+}

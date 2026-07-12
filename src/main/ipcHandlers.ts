@@ -23,6 +23,7 @@ import {
   getWeatherContextString, invalidateWeatherCache, getRealtimeQueryContextString
 } from './weatherService'
 import { testCwaApiKey } from './cwaService'
+import { getDisasterNewsSupplement } from './disasterNewsSupplement'
 import {
   buildAuthUrl, handleAuthCallback, clearAuthFile, isAuthenticated, getSpotifyContextString
 } from './spotifyService'
@@ -3161,6 +3162,13 @@ export function registerIpcHandlers() {
     const activeWorld = getActiveWorld()
 
     let userContentForPrompt = payload.content
+    // ─── 斜線指令解析 ──────────────────────────────────────────
+    // /news → 強制搜尋新聞；/weather → 強制查 CWA 天氣。指令文字從 prompt 中移除。
+    const slashNews = /\/news\b/i.test(payload.content)
+    const slashWeather = /\/weather\b/i.test(payload.content)
+    if (slashNews || slashWeather) {
+      userContentForPrompt = payload.content.replace(/\/news\b/gi, '').replace(/\/weather\b/gi, '').trim()
+    }
     const sourceDeviceName = String(
       settings.mobile?.enabled
         ? payload.sourceDeviceName?.trim() || 'Desktop'
@@ -3278,12 +3286,16 @@ export function registerIpcHandlers() {
     const effChatSettings = applySceneModuleOverrides(settings)
     const weatherContext = effChatSettings.weather?.enabled ? await getWeatherContextString(effChatSettings) : null
     const spotifyContext = effChatSettings.spotify?.enabled ? await getSpotifyContextString(effChatSettings) : null
-    const realtimeQueryContext = isModuleEffectivelyEnabled(WEATHER_MODULE_ID, true)
+    const realtimeQueryContext = (isModuleEffectivelyEnabled(WEATHER_MODULE_ID, true) || slashWeather)
       ? await getRealtimeQueryContextString(payload.content, settings)
-      : null
-    const newsSearchResult = isModuleEffectivelyEnabled(NEWS_MODULE_ID, true)
+      : { injectionText: null }
+    const newsSearchResult = (isModuleEffectivelyEnabled(NEWS_MODULE_ID, true) || slashNews)
       ? await getConversationSearchContext(payload.content, settings, loadNewsModuleSettings())
       : { context: null, debugPrompt: null }
+    // 災害新聞補搜：CWA 即時查詢命中時，自動從 Google News 補充社會面資訊
+    const disasterNews = (isModuleEffectivelyEnabled(NEWS_MODULE_ID, true) || slashNews)
+      ? await getDisasterNewsSupplement(payload.content, settings, realtimeQueryContext.typhoonName)
+      : { context: null, category: null, queryUsed: null }
     // convSearch debug は userMsg に保存（主 LLM call の前に確定するため）
     if (newsSearchResult.debugPrompt) {
       userMsg.convSearchDebugPrompt = newsSearchResult.debugPrompt
@@ -3292,7 +3304,7 @@ export function registerIpcHandlers() {
     }
     const chatPinnedNotesBlock = settings.ui.chatUsePinnedNotes ? buildVisiblePinnedNotesContext()?.text ?? null : null
     const moduleContextParts = await collectModuleContext(id => isModuleEffectivelyEnabled(id, true))
-    const extraContextParts = [weatherContext, spotifyContext, realtimeQueryContext, newsSearchResult.context, chatPinnedNotesBlock, ...moduleContextParts].filter(Boolean) as string[]
+    const extraContextParts = [weatherContext, spotifyContext, realtimeQueryContext.injectionText, newsSearchResult.context, disasterNews.context, chatPinnedNotesBlock, ...moduleContextParts].filter(Boolean) as string[]
     const combinedExtraContext = extraContextParts.length > 0 ? extraContextParts.join('\n\n') : null
 
     // Emotion split: use utility model to classify if utilityEnabled + character has custom sprites
