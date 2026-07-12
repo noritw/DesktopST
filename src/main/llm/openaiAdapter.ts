@@ -52,7 +52,7 @@ export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResu
     baseURL: settings.llm.endpoint || undefined
   })
 
-  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion, minimal: params.minimal })
+  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion, minimal: params.minimal, omitSystemTime: !params.isReminder })
 
   const input: Array<{
     role: 'system' | 'user' | 'assistant'

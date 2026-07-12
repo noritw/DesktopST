@@ -426,9 +426,8 @@ export function buildSystemPrompt(
   world?: WorldPreset | null,
   desktopCharacterNames?: string[],
   extraSystemContext?: string,
-  opts?: { splitEmotion?: boolean; minimal?: boolean }
+  opts?: { splitEmotion?: boolean; minimal?: boolean; omitSystemTime?: boolean }
 ): string {
-  const timeStr = formatSystemTimeStr()
 
   const displayName = sanitizePromptText(persona?.displayName) || '使用者'
   const nickname = sanitizePromptText(persona?.nickname) || displayName
@@ -490,7 +489,8 @@ export function buildSystemPrompt(
       `Conversation uses "Name: content" format — ${nickname}: = user`
     )
     if (creatorNotes) ctx.push(`[Author Notes]\n${creatorNotes}`)
-    if (!opts?.minimal && settings.injectSystemTime) ctx.push(`[System Time]\n${timeStr}`)
+    // 一般聊天時間改注入 trigger 結尾（omitSystemTime），只有提醒路徑（無 trigger）留在這裡
+    if (!opts?.minimal && !opts?.omitSystemTime && settings.injectSystemTime) ctx.push(`[System Time]\n${formatSystemTimeStr()}`)
     if (!opts?.minimal && settings.mobile?.enabled) {
       ctx.push('[Input Source]\n[from: device] marks the device the user sent from. Treat it as context, not spoken text.')
     }
