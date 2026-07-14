@@ -922,6 +922,7 @@ export function destroyAllCharacterWindows(): void {
 
   // Destroy tracked bubble windows
   for (const [id, win] of [...bubbleWindows]) {
+    cancelPendingBubbleReveal(id)
     bubbleWindows.delete(id)
     bubbleLastActiveAt.delete(id)
     bubbleUserOffset.delete(id)
@@ -975,7 +976,10 @@ export function createBubbleWindow(characterId: string): BrowserWindow {
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // 隱藏期間 renderer 仍要能繪製：關閉時才畫得出「清空」幀（消除舊對白殘影），
+      // 下次顯示前也能先把新對白畫好再現身
+      backgroundThrottling: false
     }
   })
 
@@ -994,6 +998,7 @@ export function createBubbleWindow(characterId: string): BrowserWindow {
   bubbleWindows.set(characterId, win)
   bubbleLastActiveAt.set(characterId, Date.now())
   win.on('closed', () => {
+    cancelPendingBubbleReveal(characterId)
     bubbleWindows.delete(characterId)
     bubbleLastActiveAt.delete(characterId)
     bubbleUserOffset.delete(characterId)
@@ -1110,6 +1115,26 @@ type CachedBubbleShowPayload = {
 }
 
 const lastBubbleShowPayload = new Map<string, CachedBubbleShowPayload>()
+/** 等 renderer 畫好新對白（bubble:reveal）才顯示的泡泡；value 為保底逾時 timer，避免 renderer 沒回應時永遠不顯示 */
+const pendingBubbleReveal = new Map<string, ReturnType<typeof setTimeout>>()
+
+function cancelPendingBubbleReveal(characterId: string): void {
+  const timer = pendingBubbleReveal.get(characterId)
+  if (timer) clearTimeout(timer)
+  pendingBubbleReveal.delete(characterId)
+}
+
+/** renderer 畫好新對白後回呼（IPC bubble:reveal），此時才真正顯示泡泡視窗；保底逾時也走這裡 */
+export function revealSpeechBubble(characterId: string): boolean {
+  if (!pendingBubbleReveal.has(characterId)) return false
+  cancelPendingBubbleReveal(characterId)
+  const bw = bubbleWindows.get(characterId)
+  if (!bw || bw.isDestroyed()) return false
+  bw.setOpacity(1)
+  bw.showInactive()
+  raiseBubbleAndCharacterForShow(characterId, bw)
+  return true
+}
 /** 已完成首次定位的角色泡泡，避免每次 show 都跑 180ms 重排 */
 const bubbleRepositionDone = new Set<string>()
 
@@ -1252,10 +1277,17 @@ export function showSpeechBubble(
 
   const dispatchShow = () => {
     if (bw.isDestroyed()) return
-    bw.setOpacity(1)
-    bw.showInactive()
-    raiseBubbleAndCharacterForShow(characterId, bw)
-    bw.webContents.send('bubble:show', payload)
+    cancelPendingBubbleReveal(characterId)
+    if (bw.isVisible()) {
+      bw.setOpacity(1)
+      raiseBubbleAndCharacterForShow(characterId, bw)
+      bw.webContents.send('bubble:show', payload)
+    } else {
+      // 隱藏中的視窗先送內容不現身：renderer 畫好新對白、量完尺寸後回 bubble:reveal 才顯示，
+      // 避免視窗帶著上一次對白的殘影先冒出來
+      pendingBubbleReveal.set(characterId, setTimeout(() => revealSpeechBubble(characterId), 500))
+      bw.webContents.send('bubble:show', payload)
+    }
   }
   if (bw.webContents.isLoadingMainFrame()) {
     bw.webContents.once('did-finish-load', dispatchShow)
@@ -1283,6 +1315,7 @@ export function persistSpeechBubble(characterId: string): void {
 export function hideSpeechBubble(characterId: string): boolean {
   const bw = bubbleWindows.get(characterId)
   if (!bw || bw.isDestroyed()) return false
+  cancelPendingBubbleReveal(characterId)
   bubbleLastActiveAt.set(characterId, Date.now())
   bw.webContents.send('bubble:latest-speaker', { characterId, isLatest: false })
   bw.webContents.send('bubble:hide', { characterId })
@@ -1296,6 +1329,7 @@ export function hideSpeechBubble(characterId: string): boolean {
 export function hideAllCharacterSpeechBubbles(): number {
   let hiddenCount = 0
   for (const [characterId, bw] of bubbleWindows.entries()) {
+    cancelPendingBubbleReveal(characterId)
     if (bw.isDestroyed() || !bw.isVisible()) continue
     bw.webContents.send('bubble:latest-speaker', { characterId, isLatest: false })
     bw.webContents.send('bubble:hide', { characterId })

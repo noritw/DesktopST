@@ -60,6 +60,8 @@ export default function BubbleWindow({ characterId }: Props) {
   const [reduceSource, setReduceSource] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingPinArgsRef = useRef<{ title: string; pos: { x: number; y: number }; content: string } | null>(null)
+  /** 收到 bubble:show 後，等新內容量完尺寸才通知主程序顯示視窗（先畫好再現身） */
+  const revealPendingRef = useRef(false)
 
   const outerRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -204,6 +206,7 @@ export default function BubbleWindow({ characterId }: Props) {
       setReaction(p.reaction ?? null)
       setShowReactionPicker(false)
       setIsLatestSpeaker(p.isLatestSpeaker !== false)
+      revealPendingRef.current = true
       setVisible(true)
 
       if (!p.persistUntilClosed) {
@@ -287,6 +290,10 @@ export default function BubbleWindow({ characterId }: Props) {
       if (w < 1 || h < 1) return
       lastSizeRef.current = { width: w, height: h }
       window.api.invoke('bubble:set-size', characterId, { width: w, height: h })
+      if (revealPendingRef.current) {
+        revealPendingRef.current = false
+        void window.api.invoke('bubble:reveal', characterId)
+      }
     }
 
     const raf1 = window.requestAnimationFrame(() => {

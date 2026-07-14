@@ -44,7 +44,7 @@ import {
   toggleInputWindow, toggleLogWindow, openLogWindow, openSettingsWindow,
   broadcastToAll, broadcastDesktopCharactersToCharacterWindows, getAllCharacterWindows, setCharacterWindowClickThrough,
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
-  hideSpeechBubble, persistSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition,
+  hideSpeechBubble, persistSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition, revealSpeechBubble,
   showUserSpeechBubble, hideUserSpeechBubble, updateUserSpeechBubbleSize,
   reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects, setCharacterInteractable, updateSpriteActualHeight,
   beginCharacterDrag, moveDraggedCharacter, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
@@ -2782,6 +2782,11 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('bubble:close', (_, characterId: string) => {
     return hideSpeechBubble(characterId)
+  })
+
+  // renderer 畫好新對白後才真正顯示泡泡視窗（先畫好再現身，避免舊對白殘影）
+  ipcMain.handle('bubble:reveal', (_, characterId: string) => {
+    return revealSpeechBubble(characterId)
   })
 
   // 後續聊天主題：釘住一則新聞，桌面浮出主題泡泡；主動發話圍繞它聊
