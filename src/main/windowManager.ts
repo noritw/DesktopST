@@ -779,6 +779,7 @@ export function beginCharacterDrag(
     const b = bubbleWindows.get(characterId)
     if (b && !b.isDestroyed()) {
       b.setIgnoreMouseEvents(false)
+      b.setOpacity(1)
       if (!b.isVisible()) b.showInactive()
       b.webContents.send('bubble:outline-mode', { characterId, enabled: false })
     }
@@ -1124,14 +1125,14 @@ function cancelPendingBubbleReveal(characterId: string): void {
   pendingBubbleReveal.delete(characterId)
 }
 
-/** renderer 畫好新對白後回呼（IPC bubble:reveal），此時才真正顯示泡泡視窗；保底逾時也走這裡 */
+/** renderer 畫好新對白後回呼（IPC bubble:reveal），把透明現身中的泡泡調回不透明；保底逾時也走這裡 */
 export function revealSpeechBubble(characterId: string): boolean {
   if (!pendingBubbleReveal.has(characterId)) return false
   cancelPendingBubbleReveal(characterId)
   const bw = bubbleWindows.get(characterId)
   if (!bw || bw.isDestroyed()) return false
+  if (!bw.isVisible()) bw.showInactive()
   bw.setOpacity(1)
-  bw.showInactive()
   raiseBubbleAndCharacterForShow(characterId, bw)
   return true
 }
@@ -1283,9 +1284,12 @@ export function showSpeechBubble(
       raiseBubbleAndCharacterForShow(characterId, bw)
       bw.webContents.send('bubble:show', payload)
     } else {
-      // 隱藏中的視窗先送內容不現身：renderer 畫好新對白、量完尺寸後回 bubble:reveal 才顯示，
-      // 避免視窗帶著上一次對白的殘影先冒出來
+      // 隱藏中的視窗改以「全透明」先現身：隱藏狀態下 compositor 不會產生新畫面，
+      // 直接 show 會殘留上一句的舊畫面。透明現身讓 renderer 能真正把新對白畫上去，
+      // 畫好、量完尺寸回 bubble:reveal 後才把透明度調回 1
       pendingBubbleReveal.set(characterId, setTimeout(() => revealSpeechBubble(characterId), 500))
+      bw.setOpacity(0)
+      bw.showInactive()
       bw.webContents.send('bubble:show', payload)
     }
   }
