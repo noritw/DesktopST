@@ -11,6 +11,7 @@ export default function RandomToolsWindow() {
   const [khFaces, setKhFaces] = useState(6)
   const [khKeep, setKhKeep] = useState(3)
   const [khIsHigh, setKhIsHigh] = useState(true)
+  const [sendToLlm, setSendToLlm] = useState(true)
 
   useEffect(() => {
     const onBlur = () => window.api.invoke('random-tools:close')
@@ -20,6 +21,12 @@ export default function RandomToolsWindow() {
 
   const select = (tool: string, extra?: object) => {
     window.api.invoke('random-tools:select', { tool, ...extra })
+    // Don't close — allow user to insert multiple tokens
+  }
+
+  const toggleSendToLlm = (checked: boolean) => {
+    setSendToLlm(checked)
+    window.api.invoke('random-tools:skip-llm', !checked)
   }
 
   const advNotation = (() => {
@@ -57,9 +64,9 @@ export default function RandomToolsWindow() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5 no-drag">
-        <Row emoji="🏮" label="抽籤" btnLabel="抽一籤" onClick={() => select('omikuji')} />
-        <Row emoji="🙏" label="擲茭" btnLabel="擲一次" onClick={() => select('jiao')} />
-        <Row emoji="🪙" label="硬幣" btnLabel="投一次" onClick={() => select('coin')} />
+        <Row emoji="🏮" label="抽籤" btnLabel="插入" onClick={() => select('omikuji')} />
+        <Row emoji="🙏" label="擲茭" btnLabel="插入" onClick={() => select('jiao')} />
+        <Row emoji="🪙" label="硬幣" btnLabel="插入" onClick={() => select('coin')} />
 
         <div className="border-t border-border" />
 
@@ -122,7 +129,7 @@ export default function RandomToolsWindow() {
                     className="rounded-lg px-2.5 py-1 bg-teal text-primary text-xs font-semibold hover:bg-mint transition-colors border border-border"
                     onClick={() => select('dice', { faces: advFaces, count: advCount, modifier: advModifier || undefined })}
                   >
-                    投擲
+                    插入
                   </button>
                 </div>
                 <span className="text-[10px] text-secondary">= {advNotation}</span>
@@ -194,7 +201,7 @@ export default function RandomToolsWindow() {
                       : { faces: khFaces, count: khCount, keepLowest: khKeep }
                     )}
                   >
-                    投擲
+                    插入
                   </button>
                 </div>
                 <span className="text-[10px] text-secondary">= {khNotation}</span>
@@ -205,8 +212,17 @@ export default function RandomToolsWindow() {
         </div>
       </div>
 
-      <div className="shrink-0 px-3 py-2 border-t border-border bg-surface rounded-b-2xl">
-        <p className="text-[10px] text-secondary text-center select-none">隨機函數僅供娛樂，請勿過於認真看待</p>
+      <div className="shrink-0 px-3 py-2 border-t border-border bg-surface rounded-b-2xl flex flex-col gap-1.5">
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={sendToLlm}
+            onChange={e => toggleSendToLlm(e.target.checked)}
+            className="rounded accent-teal"
+          />
+          <span className="text-[11px] text-primary font-medium">送出後讓角色回應</span>
+        </label>
+        <p className="text-[10px] text-secondary text-center select-none">點按鈕插入到訊息游標位置，可插入多個</p>
       </div>
     </div>
   )

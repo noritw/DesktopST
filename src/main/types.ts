@@ -68,6 +68,7 @@ export interface Message {
   emotion?: string
   images?: string[]
   randomResult?: RandomResult
+  randomResults?: RandomResult[]
   timestamp: number
   inputTokens?: number
   outputTokens?: number

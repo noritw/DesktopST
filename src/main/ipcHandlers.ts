@@ -3159,7 +3159,7 @@ export function registerIpcHandlers() {
   })
 
   // Messaging
-  const sendMsgBody = async (payload: { content: string; images?: string[]; randomResult?: RandomResult; sourceDeviceName?: string }): Promise<{ ok: boolean } | { error: string }> => {
+  const sendMsgBody = async (payload: { content: string; images?: string[]; randomResult?: RandomResult; randomResults?: RandomResult[]; skipLlm?: boolean; sourceDeviceName?: string }): Promise<{ ok: boolean } | { error: string }> => {
     const conv = getActiveConversation()
     if (!conv) return { error: 'No active conversation' }
 
@@ -3182,6 +3182,7 @@ export function registerIpcHandlers() {
     if (sourceDeviceName) {
       userContentForPrompt = `[from: ${sourceDeviceName}]\n${userContentForPrompt}`
     }
+    // Legacy single randomResult support (for mobile / old clients)
     if (payload.randomResult) {
       const label = formatRandomResultForPrompt(payload.randomResult)
       userContentForPrompt = `${userContentForPrompt}${userContentForPrompt ? '\n' : ''}（${label}）`
@@ -3194,6 +3195,7 @@ export function registerIpcHandlers() {
       content: payload.content,
       images: payload.images,
       randomResult: payload.randomResult,
+      randomResults: payload.randomResults,
       timestamp: Date.now()
     }
     conv.messages.push(userMsg)
@@ -3209,6 +3211,12 @@ export function registerIpcHandlers() {
       setImmediate(() => showUserSpeechBubble(getPersonaDisplayName(), shownUserBubbleText))
     }
     const userMsgForPrompt: Message = { ...userMsg, content: userContentForPrompt }
+
+    // ─── skipLlm：僅記錄訊息、不觸發角色回應 ──────────────────
+    if (payload.skipLlm) {
+      fileStore.saveConversation(conv)
+      return { ok: true }
+    }
 
     const desktopAll = settings.ui.desktopCharacters.map(d => d.characterId)
     const desktopResponders = settings.ui.desktopCharacters.filter(d => !d.muted).map(d => d.characterId)
@@ -3764,8 +3772,13 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('random-tools:select', (_, selection: { tool: string; faces?: number; count?: number; modifier?: number; keepHighest?: number; keepLowest?: number }) => {
-    closeRandomToolsWindow()
+    // Don't close — user can insert multiple tokens
     broadcastToAll('random-tools:selected', selection)
+    return true
+  })
+
+  ipcMain.handle('random-tools:skip-llm', (_, skip: boolean) => {
+    broadcastToAll('random-tools:skip-llm-changed', skip)
     return true
   })
 

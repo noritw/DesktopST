@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore, selectMessages } from '../stores/useAppStore'
 import MonoIcon from '../components/MonoIcon'
-import type { PendingRandomTool, RandomResult } from '../types'
-import { computeRandomResult, formatPendingLabel, getToolEmoji, diceNotation } from '../utils/randomTools'
+import type { PendingRandomTool } from '../types'
+import { makeTokenString, hasRandomTokens, expandRandomTokens } from '../utils/randomTools'
 
 export default function InputWindow() {
   const sendMessage = useAppStore(s => s.sendMessage)
@@ -19,7 +19,7 @@ export default function InputWindow() {
   const [isCapturing, setIsCapturing] = useState(false)
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
   const [randomToolsOpen, setRandomToolsOpen] = useState(false)
-  const [pendingTool, setPendingTool] = useState<PendingRandomTool | null>(null)
+  const [skipLlm, setSkipLlm] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const emojiButtonRef = useRef<HTMLButtonElement>(null)
@@ -47,7 +47,6 @@ export default function InputWindow() {
 
   useEffect(() => {
     if (randomToolsEnabled) return
-    setPendingTool(null)
     setRandomToolsOpen(false)
     window.api.invoke('random-tools:close')
   }, [randomToolsEnabled])
@@ -86,12 +85,31 @@ export default function InputWindow() {
     return unsub
   })
 
-  // Receive random tool selection from the panel window
+  // Receive random tool selection from the panel window — insert token at cursor
   useEffect(() => {
     const unsub = window.api.on('random-tools:selected', (sel: unknown) => {
       const s = sel as { tool: string; faces?: number; count?: number; modifier?: number; keepHighest?: number; keepLowest?: number }
-      setPendingTool({ tool: s.tool as PendingRandomTool['tool'], faces: s.faces, count: s.count, modifier: s.modifier, keepHighest: s.keepHighest, keepLowest: s.keepLowest })
-      setRandomToolsOpen(false)
+      const pending: PendingRandomTool = { tool: s.tool as PendingRandomTool['tool'], faces: s.faces, count: s.count, modifier: s.modifier, keepHighest: s.keepHighest, keepLowest: s.keepLowest }
+      const token = makeTokenString(pending)
+      const el = textareaRef.current
+      if (!el) { setText(t => t + token); return }
+      const start = el.selectionStart ?? text.length
+      const end = el.selectionEnd ?? text.length
+      const next = text.slice(0, start) + token + text.slice(end)
+      setText(next)
+      requestAnimationFrame(() => {
+        el.focus()
+        const pos = start + token.length
+        el.setSelectionRange(pos, pos)
+      })
+    })
+    return unsub
+  })
+
+  // Receive skipLlm toggle from the random tools panel
+  useEffect(() => {
+    const unsub = window.api.on('random-tools:skip-llm-changed', (val: unknown) => {
+      setSkipLlm(val === true)
     })
     return unsub
   })
@@ -110,15 +128,18 @@ export default function InputWindow() {
     const trimmed = text.trim()
     if ((!trimmed && images.length === 0) || isSending) return
 
-    let randomResult: RandomResult | undefined
-    if (pendingTool) {
-      randomResult = computeRandomResult(pendingTool)
-      setPendingTool(null)
+    // Expand any inline random tokens [抽籤] [擲茭] [硬幣] [1d6+2] etc.
+    let finalContent = trimmed || (images.length > 0 ? 'Image attached.' : '')
+    let randomResults: import('../types').RandomResult[] | undefined
+    if (hasRandomTokens(finalContent)) {
+      const expanded = expandRandomTokens(finalContent)
+      finalContent = expanded.expandedText
+      randomResults = expanded.results.length > 0 ? expanded.results : undefined
     }
 
     setText('')
     setImages([])
-    await sendMessage(trimmed || 'Image attached.', images.length > 0 ? images : undefined, randomResult)
+    await sendMessage(finalContent, images.length > 0 ? images : undefined, randomResults, skipLlm)
   }
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -261,19 +282,11 @@ export default function InputWindow() {
                   >
                     <span>{personaName}：</span>
                   </button>
-                  {pendingTool && (
-                    <div className="shrink-0 flex items-center gap-0.5 rounded-full border border-teal bg-teal-20 px-1.5 py-0.5">
-                      <span className="text-[10px] font-medium text-primary leading-none">
-                        {getToolEmoji(pendingTool.tool)} {formatPendingLabel(pendingTool)}
+                  {skipLlm && (
+                    <div className="shrink-0 flex items-center gap-0.5 rounded-full border border-border bg-surface px-1.5 py-0.5">
+                      <span className="text-[10px] font-medium text-secondary leading-none">
+                        🔇 不觸發回應
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => setPendingTool(null)}
-                        className="ml-0.5 w-3 h-3 rounded-full flex items-center justify-center text-secondary hover:text-primary transition-colors"
-                        title="取消隨機工具"
-                      >
-                        <MonoIcon name="close" className="w-2 h-2" />
-                      </button>
                     </div>
                   )}
                 </div>
@@ -416,7 +429,7 @@ export default function InputWindow() {
               <button
                 ref={randomBtnRef}
                 type="button"
-                className={`btn-round w-7 h-7 text-sm ${randomToolsOpen ? 'bg-mint' : ''} ${pendingTool ? 'ring-2 ring-teal ring-offset-1' : ''}`}
+                className={`btn-round w-7 h-7 text-sm ${randomToolsOpen ? 'bg-mint' : ''} ${skipLlm ? 'ring-2 ring-border ring-offset-1' : ''}`}
                 title="隨機工具"
                 onClick={() => {
                   if (randomToolsOpen) {

@@ -556,14 +556,15 @@ export default function LogWindow() {
               <span className="text-xs font-bold text-user">
                 {`【${userName}】`}
                 <LlmBadge msg={msg} />
-                {msg.randomResult && (
+                {(msg.randomResults ?? (msg.randomResult ? [msg.randomResult] : [])).map((r, i) => (
                   <span
-                    className="ml-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold bg-teal-20 text-teal border border-teal leading-none"
+                    key={i}
+                    className="ml-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none bg-surface border border-border text-secondary"
                     title="隨機工具結果"
                   >
-                    {getToolEmoji(msg.randomResult.tool)} {formatResultBadgeText(msg.randomResult)}
+                    {getToolEmoji(r.tool)} {formatResultBadgeText(r)}
                   </span>
-                )}
+                ))}
               </span>
             </>
           ) : (

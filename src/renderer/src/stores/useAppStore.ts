@@ -28,7 +28,7 @@ interface AppStore {
   subscribeBubbleEvents: () => () => void
   subscribeCharacterEvents: () => () => void
 
-  sendMessage: (content: string, images?: string[], randomResult?: RandomResult) => Promise<void>
+  sendMessage: (content: string, images?: string[], randomResults?: RandomResult[], skipLlm?: boolean) => Promise<void>
   stopSending: () => Promise<void>
   continueGroup: () => Promise<void>
   forceSpeak: (characterId: string) => Promise<void>
@@ -164,10 +164,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
     return () => unsubs.forEach(u => u())
   },
 
-  sendMessage: async (content, images, randomResult) => {
+  sendMessage: async (content, images, randomResults, skipLlm) => {
     set({ isSending: true })
     try {
-      await window.api.invoke('message:send', { content, images, randomResult })
+      await window.api.invoke('message:send', { content, images, randomResults, skipLlm })
     } finally {
       set({ isSending: false })
     }

@@ -1,8 +1,32 @@
 import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 
 interface Props {
   text: string
   visible: boolean
+}
+
+function renderBubbleText(text: string): ReactNode[] {
+  const nodes: ReactNode[] = []
+  const re = /｛([^｝]+)｝/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = re.exec(text)) !== null) {
+    if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index))
+    nodes.push(
+      <span
+        key={`r-${match.index}`}
+        className="italic text-secondary"
+      >
+        ｛{match[1]}｝
+      </span>
+    )
+    lastIndex = match.index + match[0].length
+  }
+
+  if (lastIndex < text.length) nodes.push(text.slice(lastIndex))
+  return nodes.length > 0 ? nodes : [text]
 }
 
 export default function SpeechBubble({ text, visible }: Props) {
@@ -27,7 +51,7 @@ export default function SpeechBubble({ text, visible }: Props) {
                  px-3 py-2 text-sm text-primary leading-snug
                  pointer-events-none select-none"
     >
-      {text}
+      {renderBubbleText(text)}
       {/* Tail */}
       <div
         className="absolute -bottom-2 left-4 w-3 h-3 overflow-hidden"

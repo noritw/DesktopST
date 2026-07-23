@@ -38,13 +38,27 @@ const KNOWN_EMOTION_MARKERS = new Set([
 
 function renderInline(text: string): ReactNode[] {
   const nodes: ReactNode[] = []
-  const re = /\*\*([^*]+)\*\*/g
+  // Combined regex: **bold** or ｛random result｝
+  const re = /\*\*([^*]+)\*\*|｛([^｝]+)｝/g
   let lastIndex = 0
   let match: RegExpExecArray | null
 
   while ((match = re.exec(text)) !== null) {
     if (match.index > lastIndex) nodes.push(text.slice(lastIndex, match.index))
-    nodes.push(<strong key={`${match.index}-${match[1]}`}>{match[1]}</strong>)
+    if (match[1] != null) {
+      // **bold**
+      nodes.push(<strong key={`b-${match.index}`}>{match[1]}</strong>)
+    } else if (match[2] != null) {
+      // ｛random result｝ — inline badge using theme-aware CSS variables
+      nodes.push(
+        <span
+          key={`r-${match.index}`}
+          className="inline-flex items-center rounded px-1 py-0.5 text-[0.85em] italic leading-tight bg-surface border border-border text-secondary"
+        >
+          {match[2]}
+        </span>
+      )
+    }
     lastIndex = match.index + match[0].length
   }
 
