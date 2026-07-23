@@ -85,12 +85,7 @@ export default function BubbleWindow({ characterId }: Props) {
     setIsLatestSpeaker(false)
     setVisible(false)
     window.api.invoke('bubble:close', characterId)
-    // 如果系統設定角色不在最上層，關閉對白時順便降層
-    if (settings && !settings.ui.alwaysOnTop) {
-      window.api.invoke('character:set-always-on-top', characterId, false).catch(e => {
-        console.error('[Lower character layer] Error:', e)
-      })
-    }
+    // demoteAfterSpeaking() 在 main process 的 hideSpeechBubble 裡處理降層
   }
 
   const toggleReaction = (emoji: string) => {

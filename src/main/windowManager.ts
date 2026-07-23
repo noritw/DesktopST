@@ -252,21 +252,40 @@ const activeDragLastPositions = new Map<string, { x: number; y: number }>()
 let charactersAlwaysOnTop = true
 const MAX_ELECTRON_WINDOW_COORD = 1_000_000
 
+/**
+ * 角色分層狀態機：追蹤每個角色目前是否處於「發話置頂」狀態。
+ * - true = SPEAKING（角色和泡泡都被推到 screen-saver band）
+ * - false/undefined = IDLE（角色在正常 band）
+ */
+const characterSpeakingPromoted = new Map<string, boolean>()
+
 function isSafeWindowCoordinate(n: number): boolean {
   return Number.isSafeInteger(n) && Math.abs(n) <= MAX_ELECTRON_WINDOW_COORD
 }
 
 export function setCharactersAlwaysOnTop(enabled: boolean): void {
   charactersAlwaysOnTop = enabled
-  for (const w of characterWindows.values()) {
+  for (const [id, w] of characterWindows.entries()) {
     if (w.isDestroyed()) continue
-    if (enabled) w.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
-    else w.setAlwaysOnTop(false)
+    // 正在發話中的角色保持在 screen-saver band
+    if (characterSpeakingPromoted.get(id)) {
+      w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    } else if (enabled) {
+      w.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+    } else {
+      w.setAlwaysOnTop(false)
+    }
   }
-  for (const w of bubbleWindows.values()) {
+  for (const [id, w] of bubbleWindows.entries()) {
     if (w.isDestroyed()) continue
-    if (enabled) w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
-    else w.setAlwaysOnTop(false)
+    // 正在發話中的泡泡保持在 screen-saver band
+    if (characterSpeakingPromoted.get(id)) {
+      w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    } else if (enabled) {
+      w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    } else {
+      w.setAlwaysOnTop(false)
+    }
   }
   for (const w of pinnedNoteWindows.values()) {
     if (w.isDestroyed()) continue
@@ -278,13 +297,23 @@ export function setCharactersAlwaysOnTop(enabled: boolean): void {
 export function setCharacterAlwaysOnTop(characterId: string, enabled: boolean): void {
   const cw = characterWindows.get(characterId)
   if (cw && !cw.isDestroyed()) {
-    if (enabled) cw.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
-    else cw.setAlwaysOnTop(false)
+    if (characterSpeakingPromoted.get(characterId)) {
+      cw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    } else if (enabled) {
+      cw.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+    } else {
+      cw.setAlwaysOnTop(false)
+    }
   }
   const bw = bubbleWindows.get(characterId)
   if (bw && !bw.isDestroyed()) {
-    if (enabled) bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
-    else bw.setAlwaysOnTop(false)
+    if (characterSpeakingPromoted.get(characterId)) {
+      bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    } else if (enabled) {
+      bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    } else {
+      bw.setAlwaysOnTop(false)
+    }
   }
 }
 
@@ -604,6 +633,7 @@ export function createCharacterWindow(
     hitRects.delete(characterId)
     characterInteractableState.delete(characterId)
     lastIgnoreMouseState.delete(characterId)
+    characterSpeakingPromoted.delete(characterId)
     maybeStopHitTestLoop()
   })
   ensureHitTestLoop()
@@ -789,6 +819,8 @@ export function beginCharacterDrag(
   endCharacterDrag(characterId)
   setCharacterDragging(characterId, true)
   bringCharacterToFront(characterId)
+  // 使用者開始拖曳 → SPEAKING → IDLE（角色降回正常 band）
+  demoteAfterSpeaking(characterId)
   suppressOtherBubblesDuringDrag(characterId)
 
   if (eventDrivenHitTestEnabled) {
@@ -918,6 +950,7 @@ export function destroyAllCharacterWindows(): void {
     activeDragCallbacks.delete(id)
     activeDragLastPositions.delete(id)
     draggingCharacters.delete(id)
+    characterSpeakingPromoted.delete(id)
     if (!win.isDestroyed()) win.destroy()
   }
 
@@ -1179,39 +1212,78 @@ function pruneSpeechBubbleWindows(activeCharacterId: string): void {
   candidates.sort((a, b) => a.at - b.at)
   for (let i = 0; i < overflow && i < candidates.length; i += 1) {
     const victim = candidates[i]
-    restoreCharacterAlwaysOnTopAfterBubbleHide(victim.id)
+    demoteAfterSpeaking(victim.id)
     victim.bw.destroy()
   }
 }
 
-function restoreCharacterAlwaysOnTopAfterBubbleHide(characterId: string): void {
+// ── 角色分層狀態機 ─────────────────────────────────────────────────────
+//
+// 狀態：IDLE / SPEAKING
+//   IDLE     → cw = 原始 band（floating 或 false）、bw = hidden 或 false
+//   SPEAKING → cw = screen-saver、bw = screen-saver（角色跟泡泡一起置頂）
+//
+// 轉換：
+//   promoteForSpeaking()  — IDLE → SPEAKING（呼叫 setAlwaysOnTop + moveTop）
+//   demoteAfterSpeaking() — SPEAKING → IDLE（恢復原始 band）
+//   keepSpeakingFront()   — SPEAKING → SPEAKING（只 moveTop，不碰 setAlwaysOnTop）
+
+/**
+ * IDLE → SPEAKING：把角色＋泡泡推到最高 band (screen-saver)。
+ * 只在泡泡從 hidden 首次出現時呼叫。
+ */
+function promoteForSpeaking(characterId: string, bw: BrowserWindow): void {
   const cw = characterWindows.get(characterId)
-  if (!cw || cw.isDestroyed()) return
-  if (charactersAlwaysOnTop) cw.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
-  else cw.setAlwaysOnTop(false)
+  if (cw && !cw.isDestroyed()) {
+    cw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    cw.moveTop()
+  }
+  bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+  bw.moveTop()
+  characterSpeakingPromoted.set(characterId, true)
 }
 
 /**
- * 發言時把角色＋泡泡抬到前面，順序 cw → bw（讓泡泡疊在角色之上）。
- *
- * - 勾了「最上層」：維持原本行為，用高等級的 `screen-saver` band 置頂。
- * - 沒勾「最上層」：不進 topmost band（不呼叫 setAlwaysOnTop），只用 moveTop()
- *   把兩者抬到一般工作視窗之上即可看見；使用者點回工作視窗時自然退下。
- *   這樣可避免把透明 layered window 塞進 screen-saver band 造成 DWM 重排，
- *   也省掉發言結束時 topmost→normal 的 flip-flop，消除提醒觸發時的卡頓。
+ * SPEAKING → IDLE：角色降回原始 band，泡泡也恢復。
+ * 在泡泡被關閉、角色被拖曳時呼叫。
+ */
+function demoteAfterSpeaking(characterId: string): void {
+  characterSpeakingPromoted.delete(characterId)
+  // 恢復角色視窗
+  const cw = characterWindows.get(characterId)
+  if (cw && !cw.isDestroyed()) {
+    if (charactersAlwaysOnTop) cw.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
+    else cw.setAlwaysOnTop(false)
+  }
+  // 恢復泡泡視窗（若仍存活；hide 時會由呼叫者處理 bw.hide()）
+  const bw = bubbleWindows.get(characterId)
+  if (bw && !bw.isDestroyed()) {
+    if (charactersAlwaysOnTop) bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+    else bw.setAlwaysOnTop(false)
+  }
+}
+
+/**
+ * SPEAKING → SPEAKING：泡泡已 visible，同角色連續發話。
+ * 只用 moveTop() 維持前置順序，不呼叫 setAlwaysOnTop 避免 DWM 副作用。
+ */
+function keepSpeakingFront(characterId: string, bw: BrowserWindow): void {
+  const cw = characterWindows.get(characterId)
+  if (cw && !cw.isDestroyed()) cw.moveTop()
+  bw.moveTop()
+}
+
+/**
+ * 發言時把角色＋泡泡抬到前面。
+ * 根據狀態機判斷該 promote（首次）還是只 moveTop（已在前面）。
  */
 function raiseBubbleAndCharacterForShow(characterId: string, bw: BrowserWindow): void {
-  const cw = characterWindows.get(characterId)
-  if (charactersAlwaysOnTop) {
-    if (cw && !cw.isDestroyed()) {
-      cw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
-      cw.moveTop()
-    }
-    bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
-    bw.moveTop()
+  if (characterSpeakingPromoted.get(characterId)) {
+    // 已經在 SPEAKING 狀態 → 只維持前置順序
+    keepSpeakingFront(characterId, bw)
   } else {
-    if (cw && !cw.isDestroyed()) cw.moveTop()
-    bw.moveTop()
+    // IDLE → SPEAKING
+    promoteForSpeaking(characterId, bw)
   }
 }
 
@@ -1325,7 +1397,7 @@ export function hideSpeechBubble(characterId: string): boolean {
   bw.webContents.send('bubble:hide', { characterId })
   bw.hide()
   bubbleHiddenForCharacterDrag.delete(characterId)
-  restoreCharacterAlwaysOnTopAfterBubbleHide(characterId)
+  demoteAfterSpeaking(characterId)
   if (lastShownBubbleCharacterId === characterId) lastShownBubbleCharacterId = null
   return true
 }
@@ -1339,7 +1411,7 @@ export function hideAllCharacterSpeechBubbles(): number {
     bw.webContents.send('bubble:hide', { characterId })
     bw.hide()
     bubbleHiddenForCharacterDrag.delete(characterId)
-    restoreCharacterAlwaysOnTopAfterBubbleHide(characterId)
+    demoteAfterSpeaking(characterId)
     hiddenCount += 1
   }
   lastShownBubbleCharacterId = null
@@ -1467,9 +1539,9 @@ export function reconcileSpeechBubbleAfterCharacterDrag(characterId: string): vo
       bw.setIgnoreMouseEvents(false)
       bw.webContents.send('bubble:outline-mode', { characterId, enabled: false })
       bw.setOpacity(1)
-      bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
       bw.showInactive()
-      bw.moveTop()
+      // 拖曳結束、泡泡重現 → IDLE → SPEAKING
+      promoteForSpeaking(characterId, bw)
     }
   }
   bubbleHiddenForCharacterDrag.delete(characterId)
