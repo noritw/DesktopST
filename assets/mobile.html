@@ -42,10 +42,17 @@
   }
   #char-avatars { display: flex; gap: 6px; flex: 1; overflow-x: auto; scrollbar-width: none; }
   #char-avatars::-webkit-scrollbar { display: none; }
+  .char-avatar-wrap { position: relative; flex-shrink: 0; cursor: pointer; }
   .char-avatar { width: 38px; height: 38px; border-radius: 50%; object-fit: cover;
-    border: 2px solid rgba(255,255,255,0.7); flex-shrink: 0; background: var(--mint2); }
+    border: 2px solid rgba(255,255,255,0.7); background: var(--mint2); display: block; }
   .char-avatar-ph { width: 38px; height: 38px; border-radius: 50%; background: var(--mint2);
-    display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+    display: flex; align-items: center; justify-content: center; font-size: 18px; }
+  .char-avatar-wrap.muted .char-avatar,
+  .char-avatar-wrap.muted .char-avatar-ph { opacity: 0.35; }
+  .char-avatar-wrap.muted::after {
+    content: '🔇'; position: absolute; bottom: -2px; right: -2px;
+    font-size: 12px; line-height: 1; background: var(--surface); border-radius: 50%; padding: 1px;
+  }
   #header-actions { display: flex; gap: 4px; flex-shrink: 0; }
   .icon-btn { width: 36px; height: 36px; border-radius: 50%; border: none;
     background: rgba(255,255,255,0.6); cursor: pointer; font-size: 16px;
@@ -141,18 +148,15 @@
   #input-area { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px;
     padding-bottom: max(8px, env(safe-area-inset-bottom));
     background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; }
-  #pending-random { display: none; align-items: center; gap: 6px;
-    background: var(--butter); border-radius: var(--radius-sm); padding: 6px 10px;
-    font-size: 13px; color: var(--text); }
-  #pending-random.visible { display: flex; }
-  #clear-random { margin-left: auto; background: none; border: none; cursor: pointer;
-    font-size: 16px; color: var(--text-sub); padding: 0 2px; }
   #input-row { display: flex; gap: 6px; align-items: flex-end; }
-  #tool-bar { display: flex; gap: 6px; }
+  #tool-bar { display: flex; gap: 6px; flex-wrap: wrap; }
   .tool-btn { padding: 5px 12px; border-radius: 20px; border: 1.5px solid var(--mint2);
     background: var(--bg); color: var(--text); font-size: 13px; cursor: pointer;
     white-space: nowrap; -webkit-tap-highlight-color: transparent; font-family: inherit; }
   .tool-btn:active { background: var(--mint); }
+  .random-skip-llm-row { display: flex; align-items: center; gap: 8px; margin-top: 12px;
+    padding: 10px 2px; font-size: 14px; color: var(--text); cursor: pointer; user-select: none; }
+  .random-skip-llm-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--mint2); cursor: pointer; margin: 0; flex-shrink: 0; }
   #msg-input { flex: 1; border: 1.5px solid var(--mint2); border-radius: 20px;
     padding: 9px 14px; font-size: 15px; color: var(--text); background: var(--bg);
     resize: none; outline: none; max-height: 120px; overflow-y: auto;
@@ -379,10 +383,7 @@
 
 <!-- Input area -->
 <div id="input-area">
-  <div id="pending-random">
-    <span id="pending-random-text"></span>
-    <button id="clear-random">✕</button>
-  </div>
+
   <div id="tool-bar">
     <button class="tool-btn" id="random-open-btn">🎲 擲骰 / 工具</button>
   </div>
@@ -450,9 +451,13 @@
       <div class="random-section-title">其他</div>
       <div class="random-other">
         <button class="random-btn" data-tool="coin">🪙 硬幣</button>
-        <button class="random-btn" data-tool="jiao">🌙 擲茭</button>
-        <button class="random-btn" data-tool="omikuji">🎋 抽籤</button>
+        <button class="random-btn" data-tool="jiao">🙏 擲茭</button>
+        <button class="random-btn" data-tool="omikuji">🏮 抽籤</button>
       </div>
+      <label id="skip-llm-label" class="random-skip-llm-row">
+        <input type="checkbox" id="skip-llm-chk" checked>
+        送出後讓角色回應
+      </label>
     </div>
   </div>
 </div>
@@ -646,7 +651,6 @@
   let ws = null, wsRetryCount = 0;
   let state = { desktopCharacters: [], conversation: null, randomToolsEnabled: true, remoteControl: { enabled: false, allowedCapabilities: [] } };
   let allLibraryChars = [];
-  let pendingRandom = null;
   let isWaiting = false;
   let currentSsDataUrl = null;
   let menuTab = 'conv';
@@ -657,8 +661,7 @@
   const $chat         = document.getElementById('chat');
   const $msgInput     = document.getElementById('msg-input');
   const $sendBtn      = document.getElementById('send-btn');
-  const $pendingRnd   = document.getElementById('pending-random');
-  const $pendingTxt   = document.getElementById('pending-random-text');
+  const $pendingRnd   = null; // removed — tokens now go inline
   const $toolBar      = document.getElementById('tool-bar');
   const $randomOpenBtn = document.getElementById('random-open-btn');
   const $toast        = document.getElementById('conn-toast');
@@ -726,40 +729,65 @@
     const $av = document.getElementById('char-avatars');
     $av.innerHTML = '';
     for (const c of state.desktopCharacters) {
+      const wrap = document.createElement('div');
+      wrap.className = 'char-avatar-wrap' + (c.muted ? ' muted' : '');
+      wrap.title = c.name + (c.muted ? '（禁言中）' : '');
+      wrap.addEventListener('click', () => showCharacterMenu(c.id));
+
       const img = document.createElement('img');
-      img.className = 'char-avatar'; img.src = avatarUrl(c.id); img.title = c.name;
-      img.addEventListener('click', () => showCharacterMenu(c.id));
+      img.className = 'char-avatar'; img.src = avatarUrl(c.id);
       img.onerror = () => {
         const ph = document.createElement('div');
-        ph.className = 'char-avatar-ph'; ph.textContent = '🐾'; ph.title = c.name;
-        ph.addEventListener('click', () => showCharacterMenu(c.id));
+        ph.className = 'char-avatar-ph'; ph.textContent = '🐾';
         img.replaceWith(ph);
       };
-      $av.appendChild(img);
+      wrap.appendChild(img);
+      $av.appendChild(wrap);
     }
   }
 
   // ── Chat rendering ──
-  function formatRandom(r) {
+  // Mirrors desktop: getToolEmoji(r.tool) + ' ' + formatResultBadgeText(r)
+  function getToolEmoji(tool) {
+    if (tool === 'omikuji') return '🏮';
+    if (tool === 'jiao')    return '🙏';
+    if (tool === 'coin')    return '🪙';
+    if (tool === 'dice')    return '🎲';
+    return '';
+  }
+  function modStr(mod) {
+    return mod > 0 ? '+' + mod : mod < 0 ? String(mod) : '';
+  }
+  function formatResultBadgeText(r) {
     if (!r) return '';
-    if (r.tool === 'coin')    return '🪙 硬幣：' + r.result;
-    if (r.tool === 'jiao')    return '🌙 擲茭：' + r.result;
-    if (r.tool === 'omikuji') return '🎋 抽籤：' + r.result;
+    if (r.tool === 'coin')    return r.result;
+    if (r.tool === 'jiao')    return r.result;
+    if (r.tool === 'omikuji') return r.result;
     if (r.tool === 'dice') {
-      const kh = r.keepHighest != null ? 'kh'+r.keepHighest : '';
-      const kl = r.keepLowest  != null ? 'kl'+r.keepLowest  : '';
-      const mod = r.modifier > 0 ? '+'+r.modifier : r.modifier < 0 ? String(r.modifier) : '';
-      return '🎲 ' + r.count + 'd' + r.faces + kh + kl + mod + ' = ' + r.total;
+      const kept = r.kept ?? r.rolls;
+      const hasKeep = kept.length < r.count;
+      const mod = modStr(r.modifier);
+      if (hasKeep) {
+        return r.total + '（骰：' + r.rolls.join(', ') + '，取：' + kept.join('+') + mod + '）';
+      }
+      const parts = (kept.length > 1 || r.modifier !== 0)
+        ? '（' + kept.join('+') + mod + '）'
+        : '';
+      return r.total + parts;
     }
     return '';
+  }
+  function formatRandom(r) {
+    if (!r) return '';
+    return getToolEmoji(r.tool) + ' ' + formatResultBadgeText(r);
   }
 
   // Pending bar label: shows what was rolled but hides the result until sent
   function formatRandomPending(r) {
     if (!r) return '';
     if (r.tool === 'coin')    return '🪙 硬幣已擲（送出後揭曉）';
-    if (r.tool === 'jiao')    return '🌙 擲茭已擲（送出後揭曉）';
-    if (r.tool === 'omikuji') return '🎋 抽籤已抽（送出後揭曉）';
+    if (r.tool === 'jiao')    return '🙏 擲茭已擲（送出後揭曉）';
+    if (r.tool === 'omikuji') return '🏮 抽籤已抽（送出後揭曉）';
     if (r.tool === 'dice') {
       const kh = r.keepHighest != null ? 'kh'+r.keepHighest : '';
       const kl = r.keepLowest  != null ? 'kl'+r.keepLowest  : '';
@@ -768,6 +796,144 @@
     }
     return '';
   }
+
+  // Short label for pending tag (compact, no "送出後揭曉")
+  function formatRandomPendingShort(r) {
+    if (!r) return '';
+    if (r.tool === 'coin')    return '🪙 硬幣';
+    if (r.tool === 'jiao')    return '🙏 擲茭';
+    if (r.tool === 'omikuji') return '🏮 抽籤';
+    if (r.tool === 'dice') {
+      const kh = r.keepHighest != null ? 'kh'+r.keepHighest : '';
+      const kl = r.keepLowest  != null ? 'kl'+r.keepLowest  : '';
+      const mod = r.modifier > 0 ? '+'+r.modifier : r.modifier < 0 ? String(r.modifier) : '';
+      return '🎲 ' + r.count + 'd' + r.faces + kh + kl + mod;
+    }
+    return '';
+  }
+
+  function renderPendingTags() { /* no-op: tokens are now inline in textarea */ }
+
+  // ── Inline token system (mirrors desktop randomTools.ts) ──
+
+  // Generate token string to insert (e.g. [🏮抽籤], [🎲2d6+3])
+  function makeTokenString(tool, params) {
+    if (tool === 'omikuji') return '[🏮抽籤]';
+    if (tool === 'jiao')    return '[🙏擲茭]';
+    if (tool === 'coin')    return '[🪙硬幣]';
+    if (tool === 'dice') {
+      const count = params.count ?? 1;
+      const faces = params.faces ?? 6;
+      const mod   = params.modifier ?? 0;
+      const modS  = mod > 0 ? '+'+mod : mod < 0 ? String(mod) : '';
+      const kh    = params.keepHighest != null ? 'kh'+params.keepHighest : '';
+      const kl    = params.keepLowest  != null ? 'kl'+params.keepLowest  : '';
+      return '[🎲'+count+'d'+faces+kh+kl+modS+']';
+    }
+    return '';
+  }
+
+  // Insert token at textarea cursor position
+  function insertToken(token) {
+    const el = $msgInput;
+    const start = el.selectionStart ?? el.value.length;
+    const end   = el.selectionEnd   ?? el.value.length;
+    const before = el.value.slice(0, start);
+    const after  = el.value.slice(end);
+    const sep = (before.length > 0 && !before.endsWith(' ')) ? ' ' : '';
+    el.value = before + sep + token + ' ' + after;
+    const pos = start + sep.length + token.length + 1;
+    el.focus();
+    el.setSelectionRange(pos, pos);
+    resizeTA();
+  }
+
+  // Token regex — supports emoji-prefixed and plain tokens
+  function tokenRegex() {
+    return /\[(?:\u{1F3EE}抽籤|\u{1F64F}擲茭|\u{1FA99}硬幣|\u{1F3B2}\d+d\d+(?:kh\d+|kl\d+)?(?:[+-]\d+)?|抽籤|擲茭|硬幣|\d+d\d+(?:kh\d+|kl\d+)?(?:[+-]\d+)?)\]/gu;
+  }
+
+  // Compute a random result client-side (no server call needed)
+  function computeRandomResult(tool, params) {
+    if (tool === 'coin') {
+      return { tool: 'coin', result: Math.random() < 0.5 ? '正面' : '反面' };
+    }
+    if (tool === 'omikuji') {
+      const tiers = [['大吉',12],['中吉',18],['小吉',20],['吉',22],['末吉',15],['凶',10],['大凶',3]];
+      const total = tiers.reduce((s,[,w]) => s+w, 0);
+      let r = Math.random() * total;
+      for (const [t,w] of tiers) { r -= w; if (r <= 0) return { tool: 'omikuji', result: t }; }
+      return { tool: 'omikuji', result: '吉' };
+    }
+    if (tool === 'jiao') {
+      const r = Math.random();
+      return { tool: 'jiao', result: r < 0.5 ? '聖筊' : r < 0.75 ? '笑筊' : '陰筊' };
+    }
+    if (tool === 'dice') {
+      const faces    = Math.max(2, params.faces ?? 6);
+      const count    = Math.max(1, Math.min(20, params.count ?? 1));
+      const modifier = params.modifier ?? 0;
+      const kh = params.keepHighest != null ? Math.max(1, params.keepHighest) : undefined;
+      const kl = params.keepLowest  != null ? Math.max(1, params.keepLowest)  : undefined;
+      const rolls = Array.from({length: count}, () => Math.floor(Math.random() * faces) + 1);
+      let kept;
+      if (kh != null) kept = [...rolls].sort((a,b)=>b-a).slice(0, Math.min(kh, count));
+      else if (kl != null) kept = [...rolls].sort((a,b)=>a-b).slice(0, Math.min(kl, count));
+      else kept = [...rolls];
+      const total = kept.reduce((a,b)=>a+b, 0) + modifier;
+      return { tool: 'dice', faces, count, rolls, kept, keepHighest: kh, keepLowest: kl, modifier, total };
+    }
+    return null;
+  }
+
+  // Parse a single token string into {tool, params}
+  function parseToken(token) {
+    const inner = token.slice(1, -1);
+    const stripped = inner.replace(/^[\u{1F3EE}\u{1F64F}\u{1FA99}\u{1F3B2}]/u, '');
+    if (stripped === '抽籤') return { tool: 'omikuji', params: {} };
+    if (stripped === '擲茭') return { tool: 'jiao',    params: {} };
+    if (stripped === '硬幣') return { tool: 'coin',    params: {} };
+    const m = stripped.match(/^(\d+)d(\d+)(?:(kh|kl)(\d+))?([+-]\d+)?$/);
+    if (!m) return null;
+    const params = { count: parseInt(m[1],10), faces: parseInt(m[2],10), modifier: m[5] ? parseInt(m[5],10) : 0 };
+    if (m[3] === 'kh') params.keepHighest = parseInt(m[4], 10);
+    if (m[3] === 'kl') params.keepLowest  = parseInt(m[4], 10);
+    return { tool: 'dice', params };
+  }
+
+  // Format result inline (same as desktop formatResultInline)
+  function formatResultInline(r) {
+    if (r.tool === 'omikuji') return '｛🏮抽籤結果：' + r.result + '｝';
+    if (r.tool === 'jiao')    return '｛🙏擲茭結果：' + r.result + '｝';
+    if (r.tool === 'coin')    return '｛🪙硬幣結果：' + r.result + '｝';
+    if (r.tool === 'dice') {
+      const kept = r.kept ?? r.rolls;
+      const hasKeep = kept.length < r.count;
+      const mod = modStr(r.modifier);
+      const khkl = r.keepHighest != null ? 'kh'+r.keepHighest : r.keepLowest != null ? 'kl'+r.keepLowest : '';
+      const notation = r.count + 'd' + r.faces + khkl + mod;
+      if (hasKeep) return '｛🎲骰子'+notation+'結果：'+r.total+'（骰出：'+r.rolls.join(', ')+'，採計：'+kept.join('+')+mod+'）｝';
+      if (r.count === 1 && r.modifier === 0) return '｛🎲骰子'+notation+'結果：'+r.total+'｝';
+      return '｛🎲骰子'+notation+'結果：'+r.total+'（'+kept.join('+')+mod+'='+r.total+'）｝';
+    }
+    return '';
+  }
+
+  // Expand all tokens in text → { expandedText, results[] }
+  function expandRandomTokens(text) {
+    const results = [];
+    const expandedText = text.replace(tokenRegex(), (match) => {
+      const parsed = parseToken(match);
+      if (!parsed) return match;
+      const result = computeRandomResult(parsed.tool, parsed.params);
+      if (!result) return match;
+      results.push(result);
+      return formatResultInline(result);
+    });
+    return { expandedText, results };
+  }
+
+  function hasRandomTokens(text) { return tokenRegex().test(text); }
 
   function charName(id) {
     return (state.desktopCharacters.find(x=>x.id===id) || allLibraryChars.find(x=>x.id===id))?.name || '角色';
@@ -801,7 +967,13 @@
     bubbleRow.style.cssText = 'display: flex; align-items: flex-end; gap: 4px;';
 
     const bubble = document.createElement('div'); bubble.className = 'bubble';
-    if (msg.randomResult) {
+    if (msg.randomResults && msg.randomResults.length) {
+      for (const r of msg.randomResults) {
+        const badge = document.createElement('div');
+        badge.style.cssText = 'font-size:13px;color:var(--text-sub);margin-bottom:4px;';
+        badge.textContent = formatRandom(r); bubble.appendChild(badge);
+      }
+    } else if (msg.randomResult) {
       const badge = document.createElement('div');
       badge.style.cssText = 'font-size:13px;color:var(--text-sub);margin-bottom:4px;';
       badge.textContent = formatRandom(msg.randomResult); bubble.appendChild(badge);
@@ -942,8 +1114,6 @@
   function updateRandomToolsUi() {
     if ($toolBar) $toolBar.style.display = state.randomToolsEnabled ? '' : 'none';
     if (!state.randomToolsEnabled) {
-      pendingRandom = null;
-      $pendingRnd.classList.remove('visible');
       closeSheet('random-overlay');
     }
   }
@@ -955,25 +1125,36 @@
   }
 
   // ── Send ──
+  const $skipLlmChk = document.getElementById('skip-llm-chk');
+
   async function sendMessage() {
-    const content = $msgInput.value.trim();
-    if ((!content && !pendingRandom) || isWaiting) return;
+    const raw = $msgInput.value.trim();
+    if (!raw || isWaiting) return;
     isWaiting = true; $sendBtn.disabled = true;
     $msgInput.value = ''; resizeTA();
-    const payload = { content };
-    let randForMsg = null;
-    if (pendingRandom) {
-      payload.randomResult = pendingRandom;
-      randForMsg = pendingRandom;
-      pendingRandom = null;
-      $pendingRnd.classList.remove('visible');
+
+    // Expand inline tokens client-side (mirrors desktop expandRandomTokens)
+    let finalContent = raw;
+    let randomResults;
+    if (hasRandomTokens(raw)) {
+      const expanded = expandRandomTokens(raw);
+      finalContent = expanded.expandedText;
+      if (expanded.results.length) randomResults = expanded.results;
     }
-    // Immediately show user message (optimistic)
-    pendingUserContent = content;
-    pendingUserMsgEl = renderMsg({ id: 'pending-' + Date.now(), role: 'user', content, randomResult: randForMsg, timestamp: Date.now() });
+
+    const skipLlm = !$skipLlmChk.checked;
+    const payload = { content: finalContent, skipLlm: skipLlm || undefined };
+    if (randomResults) {
+      payload.randomResults = randomResults;
+      payload.randomResult  = randomResults[0]; // legacy compat
+    }
+
+    // Optimistic render — show the expanded text immediately
+    pendingUserContent = finalContent;
+    pendingUserMsgEl = renderMsg({ id: 'pending-' + Date.now(), role: 'user', content: finalContent, randomResults, timestamp: Date.now() });
     $chat.appendChild(pendingUserMsgEl);
     scrollBottom();
-    showThinking();
+    if (!skipLlm) showThinking();
     try {
       const result = await api('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (result?.error) {
@@ -1354,14 +1535,10 @@
 
   async function rollTool(tool, params) {
     if (!state.randomToolsEnabled) { showToast('隨機工具已停用'); return; }
-    const d = await api('/api/random', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tool, ...params }) });
-    if (d.error) { showToast(d.error); return; }
-    if (d.result) {
-      pendingRandom = d.result;
-      $pendingTxt.textContent = formatRandomPending(d.result);
-      $pendingRnd.classList.add('visible');
-      closeSheet('random-overlay');
-    }
+    const token = makeTokenString(tool, params);
+    if (!token) return;
+    insertToken(token);
+    closeSheet('random-overlay');
   }
 
   document.querySelectorAll('.random-btn[data-tool="dice"]').forEach(btn =>
@@ -1371,7 +1548,6 @@
   document.querySelectorAll('.random-btn[data-tool="coin"]').forEach(btn => btn.addEventListener('click', () => rollTool('coin', {})));
   document.querySelectorAll('.random-btn[data-tool="jiao"]').forEach(btn => btn.addEventListener('click', () => rollTool('jiao', {})));
   document.querySelectorAll('.random-btn[data-tool="omikuji"]').forEach(btn => btn.addEventListener('click', () => rollTool('omikuji', {})));
-  document.getElementById('clear-random').addEventListener('click', () => { pendingRandom = null; $pendingRnd.classList.remove('visible'); });
 
   // ── Screenshots ──
   let ssScale = 1, ssTx = 0, ssTy = 0;

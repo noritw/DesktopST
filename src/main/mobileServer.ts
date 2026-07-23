@@ -19,7 +19,7 @@ export interface MobileBridge {
   getDesktopCharacterIds: () => string[]
   getDesktopCharacters: () => { id: string; name: string; muted: boolean }[]
   getActiveConversation: () => { id: string; title: string; participantIds: string[]; messages: Message[] } | null
-  sendMessage: (payload: { content: string; randomResult?: RandomResult; sourceDeviceName?: string }) => Promise<void>
+  sendMessage: (payload: { content: string; randomResult?: RandomResult; randomResults?: RandomResult[]; skipLlm?: boolean; sourceDeviceName?: string }) => Promise<void>
   addDesktopCharacter: (characterId: string) => Promise<boolean>
   removeDesktopCharacter: (characterId: string) => boolean
   captureScreenshot: (withChars: boolean, displayIndex?: number) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
@@ -282,15 +282,15 @@ async function handleRequest(
   if (method === 'POST' && url === '/api/send') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
     const body = await readBody(req)
-    let payload: { content?: string; randomResult?: RandomResult }
+    let payload: { content?: string; randomResult?: RandomResult; randomResults?: RandomResult[]; skipLlm?: boolean }
     try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
     const content = String(payload.content ?? '').trim()
-    if (!content && !payload.randomResult) { jsonError(res, 400, 'Empty message'); return }
+    if (!content && !payload.randomResult && !(payload.randomResults && payload.randomResults.length)) { jsonError(res, 400, 'Empty message'); return }
     try {
       const sourceDeviceName = bridge.shouldIncludeDeviceNameInPrompt()
         ? getDeviceDisplayNameFromRequest(req)
         : undefined
-      await bridge.sendMessage({ content, randomResult: payload.randomResult, sourceDeviceName })
+      await bridge.sendMessage({ content, randomResult: payload.randomResult, randomResults: payload.randomResults, skipLlm: payload.skipLlm, sourceDeviceName })
       jsonOk(res, { ok: true })
     } catch (e) {
       jsonError(res, 500, String(e))
