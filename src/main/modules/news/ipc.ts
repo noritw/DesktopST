@@ -2,7 +2,7 @@ import { BrowserWindow, dialog, ipcMain, screen } from 'electron'
 import fs from 'fs'
 import type { ModuleIpcRegistry } from '../moduleTypes'
 import { loadNewsModuleSettings, saveNewsModuleSettings, applyNewsFeedbackDelta, readerSelectionContext } from './settings'
-import { fetchAllSources } from './sources'
+import { fetchAllSources, fetchBreakoutItems, fetchSource } from './sources'
 import { filterAndPick, filterForReader } from './filter'
 import { applyNewsReaderPack, buildNewsReaderPack, parseNewsReaderPack } from './readerPack'
 import { loadReminders, saveReminders } from '../../fileStore'
@@ -194,6 +194,101 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
           sources: parsed.pack.sources.length,
           keywords: parsed.pack.sources.filter(s => s.type === 'keyword').length
         }
+      }
+    } catch (e) {
+      return { ok: false as const, error: (e as Error).message }
+    }
+  })
+
+  // 新聞報：只重抓單一欄（關鍵字／破圈／地方／訂閱）
+  registry.handle('news:fetch-section', async (_, req?: {
+    sectionGroupId?: string
+    excludeIds?: string[]
+    strictExclude?: boolean
+  }) => {
+    const settings = loadNewsModuleSettings()
+    if (!settings.enabled) {
+      return { ok: false as const, error: '新聞模組尚未啟用' }
+    }
+    const sectionGroupId = typeof req?.sectionGroupId === 'string' ? req.sectionGroupId : ''
+    if (!sectionGroupId) {
+      return { ok: false as const, error: '缺少 sectionGroupId' }
+    }
+
+    try {
+      const excludeIds = Array.isArray(req?.excludeIds)
+        ? req!.excludeIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+        : []
+      const selectionCtx = readerSelectionContext(settings)
+      let raw: Awaited<ReturnType<typeof fetchSource>> = []
+
+      if (sectionGroupId === '__breakout__') {
+        if (!settings.breakout.enabled) {
+          return { ok: false as const, error: '熱門話題未啟用' }
+        }
+        raw = await fetchBreakoutItems(settings.breakout.weight)
+      } else if (sectionGroupId === '__local__') {
+        if (!settings.localNews.enabled || settings.localNews.locations.length === 0) {
+          return { ok: false as const, error: '地方新聞未啟用' }
+        }
+        const parts = await Promise.all(
+          settings.localNews.locations.map(loc =>
+            fetchSource(
+              {
+                id: `loc-${loc.name}`,
+                type: 'keyword',
+                label: loc.name,
+                weight: loc.weight,
+                enabled: true,
+                origin: 'location'
+              },
+              { useCache: false }
+            )
+          )
+        )
+        raw = parts.flat()
+      } else if (sectionGroupId.startsWith('kw:')) {
+        const sourceId = sectionGroupId.slice(3)
+        const src = settings.sources.find(s => s.id === sourceId && s.type === 'keyword')
+        if (!src || !src.enabled) {
+          return { ok: false as const, error: '找不到此關鍵字來源' }
+        }
+        raw = await fetchSource(src, { useCache: false })
+      } else if (sectionGroupId.startsWith('feed:')) {
+        const sourceId = sectionGroupId.slice(5)
+        const src = settings.sources.find(s => s.id === sourceId && (s.type === 'rss' || s.type === 'json'))
+        if (!src || !src.enabled) {
+          return { ok: false as const, error: '找不到此訂閱來源' }
+        }
+        raw = await fetchSource(src, { useCache: false })
+      } else {
+        return { ok: false as const, error: '不支援的欄位類型' }
+      }
+
+      // 單欄：總上限用較高值，真正限制靠該桶配額
+      const filtered = filterForReader(
+        raw,
+        settings,
+        100,
+        selectionCtx,
+        excludeIds,
+        {
+          strictExclude: req?.strictExclude !== false,
+          onlyBucketKeys: [sectionGroupId]
+        }
+      )
+
+      return {
+        ok: true as const,
+        sectionGroupId,
+        items: filtered,
+        fetchedAt: Date.now(),
+        sources: settings.sources,
+        keywordGroups: settings.keywordGroups,
+        readerKeywordGroupIds: settings.readerKeywordGroupIds ?? [],
+        readerMaxItems: settings.readerMaxItems ?? 30,
+        readerPerKeyword: settings.readerPerKeyword ?? 3,
+        readerBreakoutQuota: settings.readerBreakoutQuota ?? 3
       }
     } catch (e) {
       return { ok: false as const, error: (e as Error).message }

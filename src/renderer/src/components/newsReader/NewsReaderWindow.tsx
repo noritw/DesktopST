@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import MonoIcon from '../MonoIcon'
 import { groupNewsItems, groupNewsItemsByKeyword } from './groupNewsItems'
 import { useNewsReaderStore } from './useNewsReaderStore'
@@ -28,21 +28,30 @@ function formatPublishedAt(iso: string): string {
   }
 }
 
-/** 報紙欄標題：關鍵字名 + 可直接改的抓取則數 */
+/** 報紙欄標題：關鍵字名 + 可直接改的抓取則數 + 單欄重抓 */
 function KeywordSectionHeader({
   sectionGroupId,
   label,
-  shownCount
+  shownCount,
+  dragHandleProps
 }: {
   sectionGroupId: string
   label: string
   shownCount: number
+  dragHandleProps?: {
+    draggable: boolean
+    onDragStart: (e: DragEvent) => void
+    onDragEnd: () => void
+  }
 }) {
   const getSectionQuota = useNewsReaderStore(s => s.getSectionQuota)
   const setSectionQuota = useNewsReaderStore(s => s.setSectionQuota)
+  const refreshSection = useNewsReaderStore(s => s.refreshSection)
   const isLoading = useNewsReaderStore(s => s.isLoading)
+  const refreshingSectionId = useNewsReaderStore(s => s.refreshingSectionId)
   const quota = getSectionQuota(sectionGroupId)
   const [draft, setDraft] = useState(String(quota))
+  const sectionBusy = refreshingSectionId === sectionGroupId
 
   useEffect(() => {
     setDraft(String(quota))
@@ -61,14 +70,35 @@ function KeywordSectionHeader({
   }
 
   return (
-    <header className="flex items-center gap-2 px-3 py-2 border-b border-border bg-mint-20 shrink-0">
+    <header className="flex items-center gap-1.5 px-2.5 py-2 border-b border-border bg-mint-20 shrink-0">
+      {dragHandleProps?.draggable && (
+        <span
+          className="cursor-grab active:cursor-grabbing text-secondary/70 text-xs px-0.5 select-none shrink-0"
+          title="拖曳調整欄位順序"
+          {...dragHandleProps}
+        >
+          ⋮⋮
+        </span>
+      )}
       <h2 className="text-xs font-bold text-primary truncate flex-1 min-w-0">{label}</h2>
+      <button
+        type="button"
+        className="shrink-0 w-6 h-6 rounded-full border border-border bg-surface text-[11px] text-primary hover:bg-mint transition-colors disabled:opacity-50"
+        title="只重抓這一欄"
+        disabled={isLoading || !!refreshingSectionId}
+        onClick={e => {
+          e.stopPropagation()
+          void refreshSection(sectionGroupId)
+        }}
+      >
+        {sectionBusy ? '…' : '↻'}
+      </button>
       <label className="flex items-center gap-1 shrink-0" title="此欄抓取則數（改完按 Enter 或點外面）">
         <input
           type="number"
           min={0}
           max={20}
-          disabled={isLoading}
+          disabled={isLoading || sectionBusy}
           value={draft}
           className="w-10 text-center text-[11px] font-semibold text-primary rounded-full border border-border bg-surface px-1 py-0.5 outline-none focus:border-teal disabled:opacity-50"
           onChange={e => setDraft(e.target.value)}
@@ -212,6 +242,8 @@ export default function NewsReaderWindow() {
   const setDisplayMode = useNewsReaderStore(s => s.setDisplayMode)
   const setActiveTab = useNewsReaderStore(s => s.setActiveTab)
   const setReaderKeywordGroups = useNewsReaderStore(s => s.setReaderKeywordGroups)
+  const reorderSources = useNewsReaderStore(s => s.reorderSources)
+  const [dragSectionId, setDragSectionId] = useState<string | null>(null)
 
   useEffect(() => {
     void fetchNews()
@@ -260,6 +292,37 @@ export default function NewsReaderWindow() {
   const handleClose = () => window.api.invoke('window:close-self').catch(console.error)
   const handleOpenSettings = () => void window.api.invoke('news:open-settings-tab')
   const handleRefresh = () => void fetchNews()
+
+  const sectionSourceId = (groupId: string): string | null => {
+    if (groupId.startsWith('kw:')) return groupId.slice(3)
+    if (groupId.startsWith('feed:')) return groupId.slice(5)
+    return null
+  }
+
+  const handleSectionDrop = (targetGroupId: string) => {
+    if (!dragSectionId || dragSectionId === targetGroupId) {
+      setDragSectionId(null)
+      return
+    }
+    const fromId = sectionSourceId(dragSectionId)
+    const toId = sectionSourceId(targetGroupId)
+    if (!fromId || !toId) {
+      setDragSectionId(null)
+      return
+    }
+    const order = sources.map(s => s.id)
+    const from = order.indexOf(fromId)
+    const to = order.indexOf(toId)
+    if (from < 0 || to < 0) {
+      setDragSectionId(null)
+      return
+    }
+    const next = [...order]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    void reorderSources(next)
+    setDragSectionId(null)
+  }
 
   const fetchedLabel = fetchedAt
     ? new Date(fetchedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
@@ -441,15 +504,40 @@ export default function NewsReaderWindow() {
         {/* 報紙牆：關鍵字分框 × 格子排版 */}
         {keywordSections.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-            {keywordSections.map(section => (
+            {keywordSections.map(section => {
+              const canDrag = !!sectionSourceId(section.groupId)
+              return (
               <section
                 key={section.groupId}
-                className="rounded-2xl border-2 border-border bg-surface overflow-hidden flex flex-col min-h-0"
+                className={`rounded-2xl border-2 bg-surface overflow-hidden flex flex-col min-h-0 transition-colors ${
+                  dragSectionId === section.groupId
+                    ? 'border-teal opacity-70'
+                    : dragSectionId && canDrag
+                      ? 'border-border border-dashed'
+                      : 'border-border'
+                }`}
+                onDragOver={e => {
+                  if (!canDrag || !dragSectionId) return
+                  e.preventDefault()
+                }}
+                onDrop={e => {
+                  e.preventDefault()
+                  if (canDrag) handleSectionDrop(section.groupId)
+                }}
               >
                 <KeywordSectionHeader
                   sectionGroupId={section.groupId}
                   label={section.label}
                   shownCount={section.items.length}
+                  dragHandleProps={canDrag ? {
+                    draggable: true,
+                    onDragStart: (e) => {
+                      setDragSectionId(section.groupId)
+                      e.dataTransfer.effectAllowed = 'move'
+                      e.dataTransfer.setData('text/plain', section.groupId)
+                    },
+                    onDragEnd: () => setDragSectionId(null)
+                  } : undefined}
                 />
                 <div className="p-2 grid grid-cols-1 gap-1.5">
                   {section.items.map(item => (
@@ -461,7 +549,8 @@ export default function NewsReaderWindow() {
                   ))}
                 </div>
               </section>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

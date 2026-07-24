@@ -167,6 +167,39 @@ function mergeKeepingPins(
   return result
 }
 
+/** 只置換某一欄的新聞（單欄重新整理） */
+function replaceOneSection(
+  previous: NewsItem[],
+  sectionGroupId: string,
+  fresh: NewsItem[],
+  pinnedIds: ReadonlySet<string>,
+  pinnedItems: NewsItem[],
+  quota: number,
+  dismissed: ReadonlySet<string>
+): NewsItem[] {
+  const sectionPrev = previous.filter(i => itemBucketKey(i) === sectionGroupId)
+  const others = previous.filter(i => itemBucketKey(i) !== sectionGroupId)
+  const insertAt = previous.findIndex(i => itemBucketKey(i) === sectionGroupId)
+
+  const rebuilt = mergeKeepingPins(
+    sectionPrev,
+    fresh.filter(i => !dismissed.has(i.id)),
+    pinnedIds,
+    pinnedItems.filter(p => itemBucketKey(p) === sectionGroupId),
+    () => quota
+  ).filter(i => !dismissed.has(i.id))
+
+  if (insertAt < 0) return [...others, ...rebuilt]
+  const next = [...others]
+  // others 已拿掉該欄，insertAt 需對應「前面有多少則仍留在 others」
+  let before = 0
+  for (let i = 0; i < insertAt; i++) {
+    if (itemBucketKey(previous[i]) !== sectionGroupId) before++
+  }
+  next.splice(before, 0, ...rebuilt)
+  return next
+}
+
 interface NewsReaderState {
   items: NewsItem[]
   sources: NewsSource[]
@@ -184,6 +217,10 @@ interface NewsReaderState {
   fetchedAt: number | null
 
   fetchNews: (opts?: { excludeCurrent?: boolean }) => Promise<void>
+  /** 只重抓單一報紙欄（排除該欄目前標題，釘選保留） */
+  refreshSection: (sectionGroupId: string) => Promise<void>
+  /** 調整 sources 順序（關鍵字／訂閱），影響報紙欄排列 */
+  reorderSources: (orderedSourceIds: string[]) => Promise<void>
   setDisplayMode: (mode: DisplayMode) => void
   setActiveTab: (tab: string) => void
   setReaderKeywordGroups: (ids: string[]) => Promise<void>
@@ -196,6 +233,8 @@ interface NewsReaderState {
   /** 這則不要看了：從畫面拿掉，之後換一批／重整也不再出現 */
   dismissItem: (itemId: string) => void
   insertToInput: (item: NewsItem) => void
+  /** 正在單欄重抓的 sectionGroupId */
+  refreshingSectionId: string | null
 }
 
 type FetchBatchResponse =
@@ -227,6 +266,7 @@ export const useNewsReaderStore = create<NewsReaderState>((set, get) => ({
   displayMode: readDisplayMode(),
   activeTab: readActiveTab(),
   fetchedAt: null,
+  refreshingSectionId: null,
 
   fetchNews: async (opts) => {
     set({ isLoading: true, error: null })
@@ -291,6 +331,117 @@ export const useNewsReaderStore = create<NewsReaderState>((set, get) => ({
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       set({ error: message, isLoading: false })
+    }
+  },
+
+  refreshSection: async (sectionGroupId: string) => {
+    if (!sectionGroupId) return
+    const { items: current, pinnedItems, dismissedIds, refreshingSectionId } = get()
+    if (refreshingSectionId) return
+    set({ refreshingSectionId: sectionGroupId, error: null })
+    try {
+      const pinnedIds = new Set(pinnedItems.map(p => p.id))
+      const dismissedSet = new Set(dismissedIds)
+      const sectionIds = current
+        .filter(i => itemBucketKey(i) === sectionGroupId)
+        .map(i => i.id)
+      const excludeIds = [...new Set([
+        ...sectionIds,
+        ...pinnedItems.filter(p => itemBucketKey(p) === sectionGroupId).map(p => p.id),
+        ...dismissedIds
+      ].filter(Boolean))]
+
+      const result = (await window.api.invoke('news:fetch-section', {
+        sectionGroupId,
+        excludeIds,
+        strictExclude: true
+      })) as
+        | {
+            ok: true
+            items: NewsItem[]
+            fetchedAt: number
+            sources?: NewsSource[]
+            keywordGroups?: NewsKeywordGroup[]
+            readerKeywordGroupIds?: string[]
+            readerMaxItems?: number
+            readerPerKeyword?: number
+            readerBreakoutQuota?: number
+          }
+        | { ok: false; error: string }
+
+      if (!result.ok) {
+        set({ error: result.error, refreshingSectionId: null })
+        return
+      }
+
+      if (Array.isArray(result.sources)) {
+        set({
+          sources: result.sources,
+          keywordGroups: Array.isArray(result.keywordGroups) ? result.keywordGroups : get().keywordGroups,
+          readerKeywordGroupIds: Array.isArray(result.readerKeywordGroupIds)
+            ? result.readerKeywordGroupIds
+            : get().readerKeywordGroupIds,
+          readerMaxItems: typeof result.readerMaxItems === 'number' ? result.readerMaxItems : get().readerMaxItems,
+          readerPerKeyword: typeof result.readerPerKeyword === 'number' ? result.readerPerKeyword : get().readerPerKeyword,
+          readerBreakoutQuota: typeof result.readerBreakoutQuota === 'number'
+            ? result.readerBreakoutQuota
+            : get().readerBreakoutQuota
+        })
+      }
+
+      const quota = get().getSectionQuota(sectionGroupId)
+      const nextItems = replaceOneSection(
+        current,
+        sectionGroupId,
+        result.items,
+        pinnedIds,
+        pinnedItems,
+        quota,
+        dismissedSet
+      )
+      const nextPinned = pinnedItems
+        .map(p => nextItems.find(i => i.id === p.id) ?? p)
+        .filter(p => pinnedIds.has(p.id))
+      writePinnedItems(nextPinned)
+
+      set({
+        items: nextItems,
+        pinnedItems: nextPinned,
+        fetchedAt: result.fetchedAt,
+        refreshingSectionId: null
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ error: message, refreshingSectionId: null })
+    }
+  },
+
+  reorderSources: async (orderedSourceIds: string[]) => {
+    const { sources } = get()
+    if (!Array.isArray(orderedSourceIds) || orderedSourceIds.length === 0) return
+    const byId = new Map(sources.map(s => [s.id, s]))
+    const seen = new Set<string>()
+    const reordered: NewsSource[] = []
+    for (const id of orderedSourceIds) {
+      const s = byId.get(id)
+      if (!s || seen.has(id)) continue
+      seen.add(id)
+      reordered.push(s)
+    }
+    for (const s of sources) {
+      if (seen.has(s.id)) continue
+      reordered.push(s)
+    }
+    if (reordered.length !== sources.length) return
+    // 順序沒變就略過
+    if (reordered.every((s, i) => s.id === sources[i]?.id)) return
+
+    set({ sources: reordered })
+    try {
+      await window.api.invoke('news:save-settings', { sources: reordered })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ error: message, sources })
     }
   },
 

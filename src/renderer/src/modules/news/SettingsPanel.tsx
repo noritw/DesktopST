@@ -154,6 +154,7 @@ export function NewsSettingsPanel() {
   const [groupRenameValue, setGroupRenameValue] = useState('')
   const [packBusy, setPackBusy] = useState(false)
   const [packMsg, setPackMsg] = useState<string | null>(null)
+  const [dragKwId, setDragKwId] = useState<string | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -271,6 +272,31 @@ export function NewsSettingsPanel() {
 
   function removeSource(id: string) {
     update(prev => ({ ...prev, sources: prev.sources.filter(s => s.id !== id) }))
+  }
+
+  /** 同組內拖拉調整關鍵字順序（寫入 sources 陣列順序） */
+  function reorderKeywordInActiveGroup(fromId: string, toId: string) {
+    if (!fromId || !toId || fromId === toId) return
+    update(prev => {
+      const groupIds = prev.sources
+        .filter(s => s.type === 'keyword' && s.origin !== 'location' && effectiveGroupId(s.groupId) === activeGroup.id)
+        .map(s => s.id)
+      const fromPos = groupIds.indexOf(fromId)
+      const toPos = groupIds.indexOf(toId)
+      if (fromPos < 0 || toPos < 0) return prev
+
+      const indices = prev.sources
+        .map((s, i) => ({ s, i }))
+        .filter(({ s }) => s.type === 'keyword' && s.origin !== 'location' && effectiveGroupId(s.groupId) === activeGroup.id)
+      const fromGlobal = indices[fromPos]?.i
+      const toGlobal = indices[toPos]?.i
+      if (fromGlobal == null || toGlobal == null) return prev
+
+      const next = [...prev.sources]
+      const [moved] = next.splice(fromGlobal, 1)
+      next.splice(toGlobal, 0, moved)
+      return { ...prev, sources: next }
+    })
   }
 
   function toggleSource(id: string, enabled: boolean) {
@@ -429,10 +455,31 @@ export function NewsSettingsPanel() {
           />
         )}
 
-        <p className="text-xs text-secondary">打字後按 Enter 或逗號變成一顆標籤，會歸到目前選的「{activeGroup.name}」。點標籤名稱可切換「常聊／普通／偶爾」；點「報·N」可單獨設定新聞報則數。在「情境」分頁可指定每個情境要用哪一組。</p>
+        <p className="text-xs text-secondary">打字後按 Enter 或逗號變成一顆標籤，會歸到目前選的「{activeGroup.name}」。點標籤名稱可切換「常聊／普通／偶爾」；點「報·N」可單獨設定新聞報則數。可拖拉標籤調整順序（新聞報欄位順序跟著變）。在「情境」分頁可指定每個情境要用哪一組。</p>
         <div className="flex flex-wrap gap-2 p-2 rounded-2xl bg-surface border border-border min-h-[44px]">
           {keywordSources.map(s => (
-            <span key={s.id} className={`flex items-center gap-1 text-xs px-3 py-1 rounded-full ${weightChipClass(s.weight)} ${!s.enabled ? 'opacity-40' : ''}`}>
+            <span
+              key={s.id}
+              draggable
+              onDragStart={e => {
+                setDragKwId(s.id)
+                e.dataTransfer.effectAllowed = 'move'
+                e.dataTransfer.setData('text/plain', s.id)
+              }}
+              onDragEnd={() => setDragKwId(null)}
+              onDragOver={e => {
+                if (!dragKwId || dragKwId === s.id) return
+                e.preventDefault()
+              }}
+              onDrop={e => {
+                e.preventDefault()
+                const from = dragKwId || e.dataTransfer.getData('text/plain')
+                if (from) reorderKeywordInActiveGroup(from, s.id)
+                setDragKwId(null)
+              }}
+              className={`flex items-center gap-1 text-xs px-3 py-1 rounded-full cursor-grab active:cursor-grabbing ${weightChipClass(s.weight)} ${!s.enabled ? 'opacity-40' : ''} ${dragKwId === s.id ? 'opacity-60 ring-2 ring-teal' : ''}`}
+              title="拖拉可調整順序"
+            >
               <button type="button" className="font-medium" title="切換常聊／普通／偶爾（聊天用）" onClick={() => cycleSourceWeight(s.id)}>
                 {s.label}
                 <span className="ml-1 opacity-70">· {WEIGHT_LABELS[s.weight]}</span>

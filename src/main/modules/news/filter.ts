@@ -269,7 +269,11 @@ export function filterForReader(
   maxItems: number,
   selectionCtx: NewsSelectionContext = { allKeywordGroups: true },
   excludeIds: ReadonlySet<string> | string[] = [],
-  options: { strictExclude?: boolean } = {}
+  options: {
+    strictExclude?: boolean
+    /** 只從這些桶取稿（單欄重新整理用，例如 `kw:xxx`） */
+    onlyBucketKeys?: string[]
+  } = {}
 ): NewsItem[] {
   const interestTerms = collectInterestTerms(settings, selectionCtx)
   const excludedSourcesLower = settings.excludedSources.map(s => s.toLowerCase())
@@ -356,6 +360,11 @@ export function filterForReader(
     .filter(k => k.startsWith('feed:'))
     .sort()
 
+  const onlyKeys = Array.isArray(options.onlyBucketKeys)
+    ? options.onlyBucketKeys.filter((k): k is string => typeof k === 'string' && k.length > 0)
+    : []
+  const onlySet = onlyKeys.length > 0 ? new Set(onlyKeys) : null
+
   const orderedKeys = [
     READER_BREAKOUT_BUCKET,
     ...keywordKeys,
@@ -363,7 +372,13 @@ export function filterForReader(
     READER_LOCAL_BUCKET,
     ...feedKeys,
     READER_OTHER_BUCKET
-  ].filter((k, i, arr) => arr.indexOf(k) === i && (buckets.get(k)?.length ?? 0) > 0)
+  ].filter((k, i, arr) => {
+    if (arr.indexOf(k) !== i) return false
+    if (onlySet && !onlySet.has(k)) return false
+    // 單欄重抓時即使目前池子為空也要保留 key（讓配額邏輯跑完回傳 []）
+    if (onlySet) return true
+    return (buckets.get(k)?.length ?? 0) > 0
+  })
 
   if (orderedKeys.length === 0) return []
 
