@@ -1,10 +1,15 @@
-import { ipcMain } from 'electron'
+import { ipcMain, screen } from 'electron'
 import type { ModuleIpcRegistry } from '../moduleTypes'
-import { loadNewsModuleSettings, saveNewsModuleSettings, applyNewsFeedbackDelta } from './settings'
+import { loadNewsModuleSettings, saveNewsModuleSettings, applyNewsFeedbackDelta, readerSelectionContext } from './settings'
 import { fetchAllSources } from './sources'
-import { filterAndPick } from './filter'
+import { filterAndPick, filterForReader } from './filter'
 import { loadReminders, saveReminders } from '../../fileStore'
 import { reloadReminders } from '../../reminderScheduler'
+import {
+  openSettingsWindow,
+  createNewsReaderWindow,
+  createInputWindow
+} from '../../windowManager'
 import type { NewsModuleSettings } from './types'
 import type { ReminderSchedule } from '../../types'
 
@@ -122,5 +127,102 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
     const s = loadNewsModuleSettings()
     const active = loadReminders().find(r => r.id === NEWS_SCHEDULER_REMINDER_ID)
     return { enabled: !!active?.enabled, schedule: s.reminder.schedule }
+  })
+
+  // 開啟（或聚焦）設定視窗並導航至新聞模組設定分頁（REQ-10）
+  registry.handle('news:open-settings-tab', () => {
+    openSettingsWindow('news')
+    return { ok: true }
+  })
+
+  // 新聞報：批次抓取（略過 seenIds，取前 N 則）
+  registry.handle('news:fetch-batch', async (_, req?: {
+    maxItems?: number
+    /** 換一批：排除目前畫面上的新聞 id */
+    excludeIds?: string[]
+    /** true＝絕不回填已排除 id（釘選換一批） */
+    strictExclude?: boolean
+  }) => {
+    const settings = loadNewsModuleSettings()
+    if (!settings.enabled) {
+      return { ok: false as const, error: '新聞模組尚未啟用' }
+    }
+    try {
+      const maxItems =
+        typeof req?.maxItems === 'number' && req.maxItems >= 5 && req.maxItems <= 100
+          ? Math.floor(req.maxItems)
+          : (settings.readerMaxItems ?? 30)
+      const excludeIds = Array.isArray(req?.excludeIds)
+        ? req!.excludeIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+        : []
+      const selectionCtx = readerSelectionContext(settings)
+      const items = await fetchAllSources(settings, { useCache: excludeIds.length === 0 }, selectionCtx)
+      const filtered = filterForReader(
+        items,
+        settings,
+        maxItems,
+        selectionCtx,
+        excludeIds,
+        { strictExclude: req?.strictExclude === true }
+      )
+      return {
+        ok: true as const,
+        items: filtered,
+        fetchedAt: Date.now(),
+        sources: settings.sources,
+        keywordGroups: settings.keywordGroups,
+        readerKeywordGroupIds: settings.readerKeywordGroupIds ?? [],
+        readerMaxItems: settings.readerMaxItems ?? 30,
+        readerPerKeyword: settings.readerPerKeyword ?? 3,
+        readerBreakoutQuota: settings.readerBreakoutQuota ?? 3
+      }
+    } catch (e) {
+      return { ok: false as const, error: (e as Error).message }
+    }
+  })
+
+  // 新聞報：開啟／聚焦視窗（模組停用時不開窗）
+  registry.handle('news:open-reader', () => {
+    const settings = loadNewsModuleSettings()
+    if (!settings.enabled) {
+      return { ok: false as const, reason: 'module-disabled' as const }
+    }
+    createNewsReaderWindow()
+    return { ok: true as const }
+  })
+
+  // 新聞報：把標題／摘要插入發話視窗
+  registry.handle('news:insert-to-input', (_, payload?: {
+    title?: string
+    summary?: string
+    newsId?: string
+    sourceId?: string
+  }) => {
+    const title = typeof payload?.title === 'string' ? payload.title : ''
+    const summary = typeof payload?.summary === 'string' ? payload.summary.trim() : ''
+    const text = summary ? `${title}\n${summary}` : title
+    if (!text) return { ok: false as const, error: 'empty' }
+
+    const fallback = screen.getPrimaryDisplay().workArea
+    const win = createInputWindow({
+      x: fallback.x + 80,
+      y: fallback.y + fallback.height - 200
+    })
+
+    const meta = {
+      newsId: typeof payload?.newsId === 'string' ? payload.newsId : '',
+      sourceId: typeof payload?.sourceId === 'string' ? payload.sourceId : '',
+      title
+    }
+    const send = () => {
+      if (win.isDestroyed()) return
+      win.webContents.send('input:insert-news-topic', { text, meta })
+    }
+    if (win.webContents.isLoadingMainFrame()) {
+      win.webContents.once('did-finish-load', send)
+    } else {
+      send()
+    }
+    return { ok: true as const }
   })
 }

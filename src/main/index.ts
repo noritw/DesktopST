@@ -7,6 +7,7 @@ import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefa
 import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
+import { loadNewsModuleSettings } from './modules/news/settings'
 import {
   createCharacterWindow,
   createCharacterLibraryWindow,
@@ -19,6 +20,7 @@ import {
   openSettingsWindow,
   openPinnedNotesManager,
   openRemindersManager,
+  createNewsReaderWindow,
   openQRCodeWindow,
   getCharacterWindowSize,
   suppressAuxAutoHide,
@@ -654,6 +656,13 @@ function setupTray(appRoot: string) {
       { label: '開啟角色庫', click: () => createCharacterLibraryWindow({ mode: 'home' }) },
       { label: '開啟便利貼管理', click: () => openPinnedNotesManager() },
       { label: '管理提醒', click: () => openRemindersManager() },
+      { label: '📰 開啟新聞報', click: () => {
+        if (!loadNewsModuleSettings().enabled) {
+          openSettingsWindow('news')
+          return
+        }
+        createNewsReaderWindow()
+      } },
       { label: '切換情境', submenu: sceneSubmenu },
       auxAction,
       { type: 'separator' },

@@ -32,6 +32,11 @@ export interface NewsSource {
    * rss / json 維持全域 always-on，不分組。
    */
   groupId?: string
+  /**
+   * 個人新聞報：此關鍵字最多顯示幾則（1–20）。
+   * 未設則用全域 `readerPerKeyword`；只影響新聞報，不影響聊天抽選權重。
+   */
+  readerQuota?: number
 }
 
 /** 關鍵字分組（情境綁定用，取代式切換興趣池） */
@@ -45,10 +50,16 @@ export interface NewsKeywordGroup {
  * 抽選一則新聞時的情境 / 角色脈絡：
  * - sceneGroupId：當前 Scene 綁定的關鍵字組（取代式，undefined = 預設組）。
  * - characterKeywords：當前發話角色的 newsKeywords（疊加，普通權重）。
+ * - allKeywordGroups：個人新聞報舊捷徑，抓全部組。
+ * - readerKeywordGroupIds：個人新聞報多選組；有值且非空時只抓這些組（優先於 allKeywordGroups）。
  */
 export interface NewsSelectionContext {
   sceneGroupId?: string
   characterKeywords?: string[]
+  /** true 時抓取／比對所有啟用的關鍵字組（新聞報：未指定多選時） */
+  allKeywordGroups?: boolean
+  /** 新聞報指定要抓的關鍵字組；非空時只抓這些組 */
+  readerKeywordGroupIds?: string[]
 }
 
 /** 地方新聞的單一縣市 */
@@ -100,6 +111,17 @@ export interface NewsModuleSettings {
   seenIds: string[]
   /** 幾天以前的文章排除，0 = 不限制，預設 30 */
   maxAgeDays: number
+  /** 新聞報每次顯示筆數，預設 30，範圍 5–100 */
+  readerMaxItems?: number
+  /** 新聞報每個關鍵字預設抓幾則，預設 3，範圍 1–20（可被單一關鍵字 readerQuota 覆蓋） */
+  readerPerKeyword?: number
+  /** 新聞報熱門／破圈話題抓幾則，預設 3，範圍 0–20（0＝新聞報不顯示熱門） */
+  readerBreakoutQuota?: number
+  /**
+   * 個人新聞報要抓哪些關鍵字組（可多選）。
+   * 空陣列／未設 = 全部組（逛書店感預設）；聊天仍只用情境綁定的那一組。
+   */
+  readerKeywordGroupIds?: string[]
   /** 對話新聞搜尋（被動、對話觸發的即時 Google News 查詢） */
   conversationSearch?: {
     enabled: boolean

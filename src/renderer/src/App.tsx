@@ -19,6 +19,7 @@ import { RemoteControlLogWindow } from './modules/remote-control'
 import EmojiPickerWindow from './windows/EmojiPickerWindow'
 import RandomToolsWindow from './windows/RandomToolsWindow'
 import QRCodeWindow from './windows/QRCodeWindow'
+import NewsReaderWindow from './components/newsReader/NewsReaderWindow'
 import ErrorBoundary from './components/ErrorBoundary'
 
 const w = typeof window !== 'undefined' && window.windowParams
@@ -153,6 +154,7 @@ export default function App() {
   if (w === 'pinned-note-color-menu') return <ErrorBoundary><PinnedNoteColorMenuWindow /></ErrorBoundary>
   if (w === 'pinned-notes-manager') return <ErrorBoundary><PinnedNotesManagerWindow /></ErrorBoundary>
   if (w === 'reminders-manager') return <ErrorBoundary><RemindersManagerWindow /></ErrorBoundary>
+  if (w === 'news-reader') return <ErrorBoundary><NewsReaderWindow /></ErrorBoundary>
   if (w === 'remote-control-log') return <ErrorBoundary><RemoteControlLogWindow /></ErrorBoundary>
   if (w === 'spotify-settings') return <ErrorBoundary><SpotifySettingsWindow /></ErrorBoundary>
   if (w === 'user-bubble') return <ErrorBoundary><UserBubbleWindow /></ErrorBoundary>

@@ -16,6 +16,8 @@ export interface NewsSource {
   origin?: 'user' | 'location' | 'builtin' | 'character'
   /** 興趣關鍵字所屬的組（只作用在 keyword）；未設視為預設組。 */
   groupId?: string
+  /** 新聞報此關鍵字則數；未設跟全域 readerPerKeyword */
+  readerQuota?: number
 }
 
 export interface NewsKeywordGroup {
@@ -55,12 +57,44 @@ export interface NewsModuleSettings {
   seenIds: string[]
   /** 幾天以前的文章排除，0 = 不限制，預設 30 */
   maxAgeDays: number
+  /** 新聞報每次顯示筆數，預設 30，範圍 5–100 */
+  readerMaxItems?: number
+  /** 新聞報每個關鍵字預設抓幾則，預設 3，範圍 1–20 */
+  readerPerKeyword?: number
+  /** 新聞報熱門／破圈抓幾則，預設 3，範圍 0–20 */
+  readerBreakoutQuota?: number
+  /**
+   * 個人新聞報要抓哪些關鍵字組（可多選）。
+   * 空陣列／未設 = 全部組；聊天仍只用情境綁定的那一組。
+   */
+  readerKeywordGroupIds?: string[]
   conversationSearch?: {
     enabled: boolean
     triggerWords: string[]
     /** 只收幾小時內的文章；0 = 不限制 */
     maxAgeHours: number
   }
+}
+
+/**
+ * 正規化後的單則新聞（與 src/main/modules/news/types.ts 同步，僅前端需要的欄位）。
+ */
+export interface NewsItem {
+  id: string
+  title: string
+  summary: string
+  source: string
+  category?: string
+  tags: string[]
+  url: string
+  publishedAt: string
+  image?: string
+  sourceId: string
+  sourceType: NewsSourceType
+  sourceWeight: NewsWeight
+  breakout?: boolean
+  keyword?: string
+  lang?: string
 }
 
 export interface NewsPreviewItem {

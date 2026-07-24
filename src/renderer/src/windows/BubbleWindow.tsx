@@ -262,13 +262,19 @@ export default function BubbleWindow({ characterId }: Props) {
 
     const measure = () => {
       const approxW = 180 + clamp(Math.floor(displayText.length / 14) * 30, 0, 220)
-      const width = clamp(approxW, 200, 420)
+      const contentW = clamp(approxW, 200, 420)
+      const padR = isLatestSpeaker && !lowPerformanceMode ? LATEST_SHADOW_OFFSET_PX : 0
 
-      if (containerRef.current) containerRef.current.style.width = `${width}px`
+      if (containerRef.current) containerRef.current.style.width = `${contentW}px`
 
       const outer = outerRef.current
       if (!outer) return
-      const w = Math.ceil(outer.offsetWidth)
+      // 取 offset / scroll / 意圖寬度的最大值，避免窄視窗或 overflow:hidden 把量測卡住
+      const w = Math.max(
+        Math.ceil(outer.offsetWidth),
+        Math.ceil(outer.scrollWidth),
+        contentW + padR
+      ) + 1
       const outerTop = outer.getBoundingClientRect().top
       const tailBottoms = [
         tailMeasureRef.current?.getBoundingClientRect().bottom,
@@ -281,14 +287,15 @@ export default function BubbleWindow({ characterId }: Props) {
         Math.ceil(outer.offsetHeight),
         Math.ceil(outer.scrollHeight),
         measuredFromTail
-      )
+      ) + 1
       if (w < 1 || h < 1) return
       lastSizeRef.current = { width: w, height: h }
-      window.api.invoke('bubble:set-size', characterId, { width: w, height: h })
-      if (revealPendingRef.current) {
-        revealPendingRef.current = false
-        void window.api.invoke('bubble:reveal', characterId)
-      }
+      // 先等 set-size 完成再 reveal，避免以舊的窄 bounds 現身導致右邊被裁切
+      const shouldReveal = revealPendingRef.current
+      if (shouldReveal) revealPendingRef.current = false
+      void window.api.invoke('bubble:set-size', characterId, { width: w, height: h }).then(() => {
+        if (shouldReveal) void window.api.invoke('bubble:reveal', characterId)
+      })
     }
 
     const raf1 = window.requestAnimationFrame(() => {

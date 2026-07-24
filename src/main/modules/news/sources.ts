@@ -1,7 +1,7 @@
 import { createHash } from 'crypto'
 import Parser from 'rss-parser'
 import type { NewsFeedJson, NewsItem, NewsModuleSettings, NewsSelectionContext, NewsSource } from './types'
-import { keywordSourceInGroup } from './settings'
+import { keywordSourceInGroup, keywordSourceInReaderGroups } from './settings'
 
 const rssParser = new Parser({
   timeout: 8000,
@@ -277,9 +277,15 @@ export async function fetchAllSources(
 
   for (const source of settings.sources) {
     if (!source.enabled) continue
-    // keyword 來源依情境組過濾；rss/json 全域 always-on
+    // keyword：情境組取代式；新聞報可用多選組或全部組
     if (source.type === 'keyword') {
-      if (!keywordSourceInGroup(source, ctx.sceneGroupId)) continue
+      if (ctx.readerKeywordGroupIds && ctx.readerKeywordGroupIds.length > 0) {
+        if (!keywordSourceInReaderGroups(source, ctx.readerKeywordGroupIds)) continue
+      } else if (ctx.allKeywordGroups) {
+        // 全部組
+      } else if (!keywordSourceInGroup(source, ctx.sceneGroupId)) {
+        continue
+      }
       activeKeywordLabels.add(source.label)
     }
     tasks.push(fetchSource(source, options))

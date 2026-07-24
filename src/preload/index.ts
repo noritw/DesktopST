@@ -2,12 +2,23 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('api', {
   // Two-way: invoke and get response
+  //
+  // Supported invoke channels (non-exhaustive):
+  //   news:fetch-batch        — Request { maxItems?: number }, Response { ok, items, fetchedAt } | { ok: false, error }
+  //   news:open-reader        — Open / focus NewsReaderWindow
+  //   news:insert-to-input    — Params { title, summary, newsId, sourceId }; main relays to InputWindow
+  //   news:open-settings-tab  — Open SettingsWindow and navigate to the news tab
   invoke: (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args),
 
   // One-way from renderer to main
   send: (channel: string, ...args: unknown[]) => ipcRenderer.send(channel, ...args),
 
-  // Subscribe to events pushed from main process
+  // Subscribe to events pushed from main process.
+  // Returns an unsubscribe function — call it to remove the listener (off semantics).
+  //
+  // Supported event channels (non-exhaustive):
+  //   input:insert-news-topic — Payload { text: string, meta: { newsId, sourceId, title } }
+  //                             Sent by main when user inserts a news item into the chat input.
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     const sub = (_: Electron.IpcRendererEvent, ...args: unknown[]) => callback(...args)
     ipcRenderer.on(channel, sub)

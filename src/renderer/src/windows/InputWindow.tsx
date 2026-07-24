@@ -76,6 +76,24 @@ export default function InputWindow() {
     return unsub
   }, [])
 
+  // 個人新聞報：插入話題到輸入框
+  useEffect(() => {
+    const unsub = window.api.on('input:insert-news-topic', (payload: unknown) => {
+      const p = payload as { text?: string }
+      const insertText = typeof p.text === 'string' ? p.text : ''
+      if (!insertText) return
+      setText(prev => (prev.trim() ? `${prev}\n${insertText}` : insertText))
+      requestAnimationFrame(() => {
+        const el = textareaRef.current
+        if (!el) return
+        el.focus()
+        const pos = el.value.length
+        el.setSelectionRange(pos, pos)
+      })
+    })
+    return unsub
+  }, [])
+
   // Receive selected emoji from the picker window
   useEffect(() => {
     const unsub = window.api.on('emoji-picker:selected', (unicode: unknown) => {
@@ -477,7 +495,7 @@ export default function InputWindow() {
               </button>
             </div>
 
-            {/* 右側：便利貼與提醒按鈕組，貼齊右下角 */}
+            {/* 右側：便利貼、提醒、新聞報 */}
             <div className="flex gap-1 items-center shrink-0 pl-1 border-l border-border">
               <button
                 type="button"
@@ -494,6 +512,23 @@ export default function InputWindow() {
                 onClick={() => window.api.invoke('reminder:open-manager-new')}
               >
                 <MonoIcon name="bell" className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                className="btn-round w-7 h-7 text-sm"
+                title="個人新聞報"
+                onClick={async () => {
+                  const res = await window.api.invoke('news:open-reader') as {
+                    ok?: boolean
+                    reason?: string
+                  }
+                  if (res?.ok === false && res.reason === 'module-disabled') {
+                    const go = window.confirm('新聞模組尚未啟用。要開啟新聞設定嗎？')
+                    if (go) void window.api.invoke('news:open-settings-tab')
+                  }
+                }}
+              >
+                📰
               </button>
             </div>
           </div>

@@ -237,7 +237,8 @@ export function NewsSettingsPanel() {
       keywordGroups: prev.keywordGroups.filter(g => g.id !== id),
       sources: prev.sources.map(s =>
         s.type === 'keyword' && effectiveGroupId(s.groupId) === id ? { ...s, groupId: undefined } : s
-      )
+      ),
+      readerKeywordGroupIds: (prev.readerKeywordGroupIds ?? []).filter(gid => gid !== id)
     }))
     setActiveGroupId(DEFAULT_KEYWORD_GROUP_ID)
   }
@@ -246,6 +247,23 @@ export function NewsSettingsPanel() {
     update(prev => ({
       ...prev,
       sources: prev.sources.map(s => s.id === id ? { ...s, weight: nextWeight(s.weight) } : s)
+    }))
+  }
+
+  /** 新聞報則數：未設 → 1 → 2 → 3 → 4 → 5 → 未設（跟全域） */
+  function cycleReaderQuota(id: string) {
+    update(prev => ({
+      ...prev,
+      sources: prev.sources.map(s => {
+        if (s.id !== id) return s
+        const cur = s.readerQuota
+        if (cur == null) return { ...s, readerQuota: 1 }
+        if (cur >= 5) {
+          const { readerQuota: _drop, ...rest } = s
+          return rest
+        }
+        return { ...s, readerQuota: cur + 1 }
+      })
     }))
   }
 
@@ -409,13 +427,21 @@ export function NewsSettingsPanel() {
           />
         )}
 
-        <p className="text-xs text-secondary">打字後按 Enter 或逗號變成一顆標籤，會歸到目前選的「{activeGroup.name}」。點標籤可切換「常聊／普通／偶爾」。在「情境」分頁可指定每個情境要用哪一組。</p>
+        <p className="text-xs text-secondary">打字後按 Enter 或逗號變成一顆標籤，會歸到目前選的「{activeGroup.name}」。點標籤名稱可切換「常聊／普通／偶爾」；點「報·N」可單獨設定新聞報則數。在「情境」分頁可指定每個情境要用哪一組。</p>
         <div className="flex flex-wrap gap-2 p-2 rounded-2xl bg-surface border border-border min-h-[44px]">
           {keywordSources.map(s => (
             <span key={s.id} className={`flex items-center gap-1 text-xs px-3 py-1 rounded-full ${weightChipClass(s.weight)} ${!s.enabled ? 'opacity-40' : ''}`}>
-              <button type="button" className="font-medium" title="切換常聊／普通／偶爾" onClick={() => cycleSourceWeight(s.id)}>
+              <button type="button" className="font-medium" title="切換常聊／普通／偶爾（聊天用）" onClick={() => cycleSourceWeight(s.id)}>
                 {s.label}
                 <span className="ml-1 opacity-70">· {WEIGHT_LABELS[s.weight]}</span>
+              </button>
+              <button
+                type="button"
+                className="ml-0.5 px-1 rounded-full border border-border/60 bg-surface/50 opacity-80 hover:opacity-100"
+                title="新聞報此關鍵字抓幾則（點擊循環；回到「報·—」＝跟全域預設）"
+                onClick={() => cycleReaderQuota(s.id)}
+              >
+                報·{s.readerQuota ?? '—'}
               </button>
               <button type="button" className="ml-0.5 opacity-60 hover:opacity-100" title="移除" onClick={() => removeSource(s.id)}>×</button>
             </span>
@@ -432,6 +458,108 @@ export function NewsSettingsPanel() {
             onBlur={() => interestInput.trim() && addInterest(interestInput)}
           />
         </div>
+      </section>
+
+      {/* 個人新聞報：獨立關鍵字組多選（與聊天情境組分開） */}
+      <section className="space-y-2">
+        <p className="text-sm font-semibold text-primary">📰 個人新聞報要看哪些組？</p>
+        <p className="text-xs text-secondary">
+          可多選。不勾任何組＝全部組一起抓（逛書店感）。聊天／「說點什麼」仍只用情境綁定的那一組，互不干擾。
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            className={`text-xs px-2.5 py-1 rounded-full transition-all border ${
+              (settings.readerKeywordGroupIds ?? []).length === 0
+                ? 'bg-teal text-primary font-semibold border-teal'
+                : 'bg-surface text-secondary border-border hover:bg-mint-40'
+            }`}
+            onClick={() => update(prev => ({ ...prev, readerKeywordGroupIds: [] }))}
+          >
+            全部組
+          </button>
+          {groups.map(g => {
+            const selected = (settings.readerKeywordGroupIds ?? []).includes(g.id)
+            const allMode = (settings.readerKeywordGroupIds ?? []).length === 0
+            return (
+              <button
+                key={g.id}
+                type="button"
+                className={`text-xs px-2.5 py-1 rounded-full transition-all border ${
+                  !allMode && selected
+                    ? 'bg-mint border-teal text-primary font-semibold'
+                    : 'bg-surface text-secondary border-border hover:bg-mint-40'
+                }`}
+                onClick={() => {
+                  update(prev => {
+                    const current = prev.readerKeywordGroupIds ?? []
+                    // 從「全部」切到單組：只勾這組
+                    if (current.length === 0) {
+                      return { ...prev, readerKeywordGroupIds: [g.id] }
+                    }
+                    const next = selected
+                      ? current.filter(id => id !== g.id)
+                      : [...current, g.id]
+                    // 全不勾 → 回到全部組
+                    return { ...prev, readerKeywordGroupIds: next }
+                  })
+                }}
+              >
+                {selected && !allMode ? '✓ ' : ''}{g.name}
+              </button>
+            )
+          })}
+        </div>
+        <div className="flex flex-wrap items-center gap-3 pt-1">
+          <label className="flex items-center gap-1.5 text-xs text-primary">
+            <span className="text-secondary shrink-0">每關鍵字</span>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={settings.readerPerKeyword ?? 3}
+              className="input-field w-14 text-sm text-center"
+              onChange={e => {
+                const v = Math.max(1, Math.min(20, Math.floor(Number(e.target.value))))
+                if (Number.isFinite(v)) update(prev => ({ ...prev, readerPerKeyword: v }))
+              }}
+            />
+            <span className="text-secondary">則</span>
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-primary">
+            <span className="text-secondary shrink-0">熱門話題</span>
+            <input
+              type="number"
+              min={0}
+              max={20}
+              value={settings.readerBreakoutQuota ?? 3}
+              className="input-field w-14 text-sm text-center"
+              onChange={e => {
+                const v = Math.max(0, Math.min(20, Math.floor(Number(e.target.value))))
+                if (Number.isFinite(v)) update(prev => ({ ...prev, readerBreakoutQuota: v }))
+              }}
+            />
+            <span className="text-secondary">則</span>
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-primary">
+            <span className="text-secondary shrink-0">總上限</span>
+            <input
+              type="number"
+              min={5}
+              max={100}
+              value={settings.readerMaxItems ?? 30}
+              className="input-field w-14 text-sm text-center"
+              onChange={e => {
+                const v = Math.max(5, Math.min(100, Math.floor(Number(e.target.value))))
+                if (Number.isFinite(v)) update(prev => ({ ...prev, readerMaxItems: v }))
+              }}
+            />
+            <span className="text-secondary">則</span>
+          </label>
+        </div>
+        <p className="text-xs text-secondary">
+          上方標籤旁的「報·N」可單獨覆蓋該關鍵字則數（點一下循環 1→5，再點回到跟全域）。聊天權重（常聊／普通／偶爾）不受影響。
+        </p>
       </section>
 
       {/* 黑名單 */}
@@ -593,16 +721,33 @@ export function NewsSettingsPanel() {
           <span className="text-sm font-semibold text-primary">💡 偶爾也丟我沒設過的熱門話題</span>
         </label>
         {settings.breakout.enabled && (
-          <div className="ml-6 flex items-center gap-2">
-            <span className="text-xs text-secondary">出現頻率：</span>
-            <button
-              type="button"
-              className={`text-xs px-3 py-1 rounded-full ${weightChipClass(settings.breakout.weight)}`}
-              onClick={() => update(prev => ({ ...prev, breakout: { ...prev.breakout, weight: nextWeight(prev.breakout.weight) } }))}
-            >
-              {WEIGHT_LABELS[settings.breakout.weight]}
-            </button>
-            <span className="text-[11px] text-secondary">（從 Google 熱搜抽，仍受黑名單過濾）</span>
+          <div className="ml-6 space-y-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-secondary">聊天出現頻率：</span>
+              <button
+                type="button"
+                className={`text-xs px-3 py-1 rounded-full ${weightChipClass(settings.breakout.weight)}`}
+                onClick={() => update(prev => ({ ...prev, breakout: { ...prev.breakout, weight: nextWeight(prev.breakout.weight) } }))}
+              >
+                {WEIGHT_LABELS[settings.breakout.weight]}
+              </button>
+              <span className="text-[11px] text-secondary">（從 Google 熱搜抽，仍受黑名單過濾）</span>
+            </div>
+            <label className="flex items-center gap-1.5 text-xs text-primary">
+              <span className="text-secondary shrink-0">新聞報熱門則數</span>
+              <input
+                type="number"
+                min={0}
+                max={20}
+                value={settings.readerBreakoutQuota ?? 3}
+                className="input-field w-14 text-sm text-center"
+                onChange={e => {
+                  const v = Math.max(0, Math.min(20, Math.floor(Number(e.target.value))))
+                  if (Number.isFinite(v)) update(prev => ({ ...prev, readerBreakoutQuota: v }))
+                }}
+              />
+              <span className="text-secondary">則（0＝新聞報不顯示熱門；與聊天權重分開）</span>
+            </label>
           </div>
         )}
       </section>

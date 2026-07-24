@@ -16,6 +16,42 @@ export function keywordSourceInGroup(source: NewsSource, sceneGroupId: string | 
   return effectiveGroupId(source.groupId) === effectiveGroupId(sceneGroupId)
 }
 
+/**
+ * 新聞報：關鍵字是否落在選中的多組內。
+ * `selectedIds` 為 null／空 = 全部組都收。
+ */
+export function keywordSourceInReaderGroups(
+  source: NewsSource,
+  selectedIds: string[] | null | undefined
+): boolean {
+  if (!selectedIds || selectedIds.length === 0) return true
+  const gid = effectiveGroupId(source.groupId)
+  return selectedIds.some(id => effectiveGroupId(id) === gid)
+}
+
+/**
+ * 解析新聞報要用的關鍵字組。
+ * 回傳 null = 全部組；否則為已驗證過的 groupId 清單。
+ */
+export function resolveReaderKeywordGroupIds(settings: NewsModuleSettings): string[] | null {
+  const raw = settings.readerKeywordGroupIds
+  if (!raw || raw.length === 0) return null
+  const valid = new Set(settings.keywordGroups.map(g => g.id))
+  valid.add(DEFAULT_KEYWORD_GROUP_ID)
+  const filtered = [...new Set(raw.filter(id => valid.has(id)))]
+  return filtered.length > 0 ? filtered : null
+}
+
+/** 組裝新聞報抓取用的 SelectionContext */
+export function readerSelectionContext(settings: NewsModuleSettings): {
+  allKeywordGroups?: boolean
+  readerKeywordGroupIds?: string[]
+} {
+  const ids = resolveReaderKeywordGroupIds(settings)
+  if (ids) return { readerKeywordGroupIds: ids }
+  return { allKeywordGroups: true }
+}
+
 const VALID_WEIGHTS: NewsWeight[] = ['often', 'normal', 'rarely']
 const VALID_LANG_MODES: LangMode[] = ['zh-only', 'translate', 'raw']
 const VALID_SPEAK_MODES: SpeakMode[] = ['off', 'sometimes', 'always']
@@ -52,7 +88,11 @@ function normalizeSource(raw: Partial<NewsSource> | undefined): NewsSource | nul
     enabled: raw.enabled !== false,
     origin: raw.origin === 'location' || raw.origin === 'builtin' || raw.origin === 'character' ? raw.origin : 'user',
     // groupId 只對 keyword 有意義；rss/json 一律不分組
-    groupId: type === 'keyword' && typeof raw.groupId === 'string' && raw.groupId ? raw.groupId : undefined
+    groupId: type === 'keyword' && typeof raw.groupId === 'string' && raw.groupId ? raw.groupId : undefined,
+    readerQuota: typeof raw.readerQuota === 'number'
+      && raw.readerQuota >= 1 && raw.readerQuota <= 20
+      ? Math.floor(raw.readerQuota)
+      : undefined
   }
 }
 
@@ -101,6 +141,10 @@ export function defaultNewsModuleSettings(): NewsModuleSettings {
     feedback: { adjustments: {} },
     seenIds: [],
     maxAgeDays: 30,
+    readerMaxItems: 30,
+    readerPerKeyword: 3,
+    readerBreakoutQuota: 3,
+    readerKeywordGroupIds: [],
     conversationSearch: {
       enabled: false,
       triggerWords: [
@@ -167,6 +211,18 @@ export function normalizeNewsModuleSettings(raw: Partial<NewsModuleSettings> | u
     // seenIds 上限保護，避免無限增長
     seenIds: normalizeStringArray(raw.seenIds).slice(-500),
     maxAgeDays: typeof raw.maxAgeDays === 'number' && raw.maxAgeDays >= 0 ? Math.floor(raw.maxAgeDays) : 30,
+    readerMaxItems: typeof raw.readerMaxItems === 'number'
+      && raw.readerMaxItems >= 5 && raw.readerMaxItems <= 100
+      ? Math.floor(raw.readerMaxItems) : 30,
+    readerPerKeyword: typeof raw.readerPerKeyword === 'number'
+      && raw.readerPerKeyword >= 1 && raw.readerPerKeyword <= 20
+      ? Math.floor(raw.readerPerKeyword) : 3,
+    readerBreakoutQuota: typeof raw.readerBreakoutQuota === 'number'
+      && raw.readerBreakoutQuota >= 0 && raw.readerBreakoutQuota <= 20
+      ? Math.floor(raw.readerBreakoutQuota) : 3,
+    // 空陣列 = 全部組；指向已刪除組的 id 剔除
+    readerKeywordGroupIds: normalizeStringArray(raw.readerKeywordGroupIds)
+      .filter(id => groupIds.has(id) || id === DEFAULT_KEYWORD_GROUP_ID),
     conversationSearch: {
       enabled: raw.conversationSearch?.enabled === true,
       triggerWords: normalizeStringArray(raw.conversationSearch?.triggerWords).length > 0
@@ -194,7 +250,8 @@ export function loadNewsModuleSettings(): NewsModuleSettings {
 }
 
 export function saveNewsModuleSettings(settings: Partial<NewsModuleSettings>): NewsModuleSettings {
-  const normalized = normalizeNewsModuleSettings(settings)
+  const current = loadNewsModuleSettings()
+  const normalized = normalizeNewsModuleSettings({ ...current, ...settings })
   writeModuleSettings(NEWS_MODULE_ID, normalized)
   return normalized
 }

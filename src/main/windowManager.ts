@@ -202,6 +202,14 @@ const bubbleOffsetWriteSuppressedUntil = new Map<string, number>()
 const bubbleUserOffsetSnapshotBeforeDrag = new Map<string, { x: number; y: number } | null>()
 /** 避免異常 IPC 傳入無限大；一般長文仍完整顯示 */
 const BUBBLE_MAX_HEIGHT_PX = 32000
+/** 對白內容 max-width 420 + 最後發話實心陰影偏移 + 子像素／DPI 安全邊 */
+const BUBBLE_CONTENT_MAX_WIDTH_PX = 420
+const BUBBLE_LATEST_SHADOW_PAD_PX = 5
+const BUBBLE_SIZE_SAFETY_PX = 8
+const BUBBLE_MAX_WIDTH_PX =
+  BUBBLE_CONTENT_MAX_WIDTH_PX + BUBBLE_LATEST_SHADOW_PAD_PX + BUBBLE_SIZE_SAFETY_PX
+/** 顯示前先撐到這個寬度再量測，避免舊的窄視窗把 offsetWidth 卡住 */
+const BUBBLE_MEASURE_FLOOR_WIDTH_PX = BUBBLE_MAX_WIDTH_PX
 /** 依桌面角色數量決定可同時存在的泡泡上限（至少 1）。 */
 let lowPerformanceModeEnabled = false
 let lowPerformanceLogMessageLimit = 50
@@ -354,7 +362,7 @@ function sendCharacterLibraryNavigate(win: BrowserWindow, options?: CharacterLib
 }
 
 function getAuxWindows(): BrowserWindow[] {
-  return [inputWindow, userBubbleWindow, logWindow, settingsWindow, characterLibraryWindow].filter(w => w && !w.isDestroyed()) as BrowserWindow[]
+  return [inputWindow, userBubbleWindow, logWindow, settingsWindow, characterLibraryWindow, newsReaderWindow].filter(w => w && !w.isDestroyed()) as BrowserWindow[]
 }
 
 export function createCharacterLibraryWindow(options?: CharacterLibraryOpenOptions): BrowserWindow {
@@ -417,6 +425,69 @@ export function createCharacterLibraryWindow(options?: CharacterLibraryOpenOptio
 
 export function getCharacterLibraryWindow(): BrowserWindow | undefined {
   return characterLibraryWindow && !characterLibraryWindow.isDestroyed() ? characterLibraryWindow : undefined
+}
+
+// ── 個人新聞報視窗 ─────────────────────────────────────────────────────────
+let newsReaderWindow: BrowserWindow | null = null
+
+/** 模組層級的新聞報視窗位置記憶（尚未接入 AuxWindowKind，task 5.2 再擴充） */
+let savedNewsReaderBounds: { x: number; y: number; width: number; height: number } | null = null
+
+function saveNewsReaderBounds(): void {
+  if (!newsReaderWindow || newsReaderWindow.isDestroyed()) return
+  const b = newsReaderWindow.getBounds()
+  savedNewsReaderBounds = { x: b.x, y: b.y, width: b.width, height: b.height }
+}
+
+export function createNewsReaderWindow(): BrowserWindow {
+  if (newsReaderWindow && !newsReaderWindow.isDestroyed()) {
+    newsReaderWindow.show()
+    newsReaderWindow.focus()
+    return newsReaderWindow
+  }
+
+  const defaultBounds = { x: 80, y: 60, width: 900, height: 720 }
+  const bounds =
+    savedNewsReaderBounds && isWindowBoundsVisible(savedNewsReaderBounds)
+      ? savedNewsReaderBounds
+      : defaultBounds
+
+  newsReaderWindow = new BrowserWindow({
+    ...bounds,
+    minWidth: 480,
+    minHeight: 400,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    alwaysOnTop: true,
+    skipTaskbar: false,
+    icon: getAppIcon(),
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  newsReaderWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  newsReaderWindow.loadURL(makeURL({ w: 'news-reader' }))
+
+  newsReaderWindow.on('moved', saveNewsReaderBounds)
+  newsReaderWindow.on('resized', saveNewsReaderBounds)
+  newsReaderWindow.on('close', saveNewsReaderBounds)
+  newsReaderWindow.on('closed', () => {
+    newsReaderWindow = null
+  })
+
+  if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
+    newsReaderWindow.webContents.openDevTools({ mode: 'detach' })
+  }
+
+  return newsReaderWindow
+}
+
+export function getNewsReaderWindow(): BrowserWindow | null {
+  return newsReaderWindow && !newsReaderWindow.isDestroyed() ? newsReaderWindow : null
 }
 
 export function suppressAuxAutoHide(ms = 700): void {
@@ -1266,6 +1337,7 @@ function demoteAfterSpeaking(characterId: string): void {
 /**
  * SPEAKING → SPEAKING：泡泡已 visible，同角色連續發話。
  * 只用 moveTop() 維持前置順序，不呼叫 setAlwaysOnTop 避免 DWM 副作用。
+ * 內容更新由 showSpeechBubble 的透明→reveal 路徑強制重繪（見 dispatchShow）。
  */
 function keepSpeakingFront(characterId: string, bw: BrowserWindow): void {
   const cw = characterWindows.get(characterId)
@@ -1323,7 +1395,18 @@ export function showSpeechBubble(
   pruneSpeechBubbleWindows(characterId)
 
   const anchor = resolveBubbleAnchorBounds(characterId, anchorFallback)
-  applyBubbleBounds(bw, lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }, anchor, characterId)
+  // 先撐到量測地板寬度（opacity 0 時使用者看不見），避免沿用上一句的窄 bounds
+  // 導致 renderer 在 overflow:hidden 視窗內量到偏小的寬度、右邊圓角／按鈕被裁切
+  const prevSize = lastBubbleSizes.get(characterId) ?? { width: 280, height: 120 }
+  applyBubbleBounds(
+    bw,
+    {
+      width: Math.max(prevSize.width, BUBBLE_MEASURE_FLOOR_WIDTH_PX),
+      height: Math.max(prevSize.height, 120)
+    },
+    anchor,
+    characterId
+  )
 
   const payload = {
     characterId,
@@ -1351,19 +1434,17 @@ export function showSpeechBubble(
   const dispatchShow = () => {
     if (bw.isDestroyed()) return
     cancelPendingBubbleReveal(characterId)
-    if (bw.isVisible()) {
-      bw.setOpacity(1)
-      raiseBubbleAndCharacterForShow(characterId, bw)
-      bw.webContents.send('bubble:show', payload)
-    } else {
-      // 隱藏中的視窗改以「全透明」先現身：隱藏狀態下 compositor 不會產生新畫面，
-      // 直接 show 會殘留上一句的舊畫面。透明現身讓 renderer 能真正把新對白畫上去，
-      // 畫好、量完尺寸回 bubble:reveal 後才把透明度調回 1
-      pendingBubbleReveal.set(characterId, setTimeout(() => revealSpeechBubble(characterId), 500))
-      bw.setOpacity(0)
-      bw.showInactive()
-      bw.webContents.send('bubble:show', payload)
-    }
+    // 一律走「透明 → 繪製新對白 → reveal」：
+    // - 隱藏中：compositor 不會在 hide 狀態產新畫面，直接 show 會殘留舊對白
+    // - 已顯示：狀態機 SPEAKING→SPEAKING 只 moveTop、不碰 setAlwaysOnTop；
+    //   Windows 透明視窗常因此不重繪內容，變成「角色跳上層了、文字還是上一句」
+    const alreadyVisible = bw.isVisible()
+    pendingBubbleReveal.set(characterId, setTimeout(() => revealSpeechBubble(characterId), 500))
+    bw.setOpacity(0)
+    if (!alreadyVisible) bw.showInactive()
+    // 已可見時立刻 raise，讓角色跳上層的回饋不需等 measure；首次現身等 reveal 再 raise
+    if (alreadyVisible) raiseBubbleAndCharacterForShow(characterId, bw)
+    bw.webContents.send('bubble:show', payload)
   }
   if (bw.webContents.isLoadingMainFrame()) {
     bw.webContents.once('did-finish-load', dispatchShow)
@@ -1458,7 +1539,7 @@ function applyBubbleBounds(
 
   const rw = Math.round(Number(bubbleSize.width))
   const rh = Math.round(Number(bubbleSize.height))
-  const width = Math.max(180, Math.min(420, Number.isFinite(rw) ? rw : 280))
+  const width = Math.max(180, Math.min(BUBBLE_MAX_WIDTH_PX, Number.isFinite(rw) ? rw : 280))
   const height = Math.max(78, Math.min(BUBBLE_MAX_HEIGHT_PX, Number.isFinite(rh) ? rh : 120))
 
   const spriteTop = getSpriteTop(cb, characterId)
@@ -1502,7 +1583,7 @@ export function updateSpeechBubbleSize(characterId: string, size: { width: numbe
   if (!bw || bw.isDestroyed() || !cw || cw.isDestroyed()) return false
   lastBubbleSizes.set(characterId, size)
   applyBubbleBounds(bw, size, cw.getBounds(), characterId)
-  bw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
+  // 尺寸更新只維持 z-order，不重複 setAlwaysOnTop（狀態機原則；避免 DWM 副作用）
   if (bw.isVisible()) bw.moveTop()
   return true
 }
@@ -1797,7 +1878,8 @@ function collectAllDesktopSTWindows(): BrowserWindow[] {
     emojiPickerWindow,
     pinnedNotesManagerWindow,
     remindersManagerWindow,
-    pinnedNoteColorMenuWindow
+    pinnedNoteColorMenuWindow,
+    newsReaderWindow
   ]) {
     if (w && !w.isDestroyed()) wins.push(w)
   }
@@ -3037,7 +3119,8 @@ export function broadcastToAll(channel: string, data: unknown): void {
     settingsWindow,
     characterLibraryWindow,
     pinnedNotesManagerWindow,
-    remindersManagerWindow
+    remindersManagerWindow,
+    newsReaderWindow
   ].filter(w => w && !w.isDestroyed()) as BrowserWindow[]
   for (const w of wins) w.webContents.send(channel, data)
 }

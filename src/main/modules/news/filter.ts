@@ -1,5 +1,5 @@
 import type { DetectedLang, NewsItem, NewsModuleSettings, NewsSelectionContext } from './types'
-import { weightToValue, keywordSourceInGroup } from './settings'
+import { weightToValue, keywordSourceInGroup, keywordSourceInReaderGroups } from './settings'
 
 // ---------------------------------------------------------------------------
 // 語言偵測（輕量字元判斷，不引入完整語言庫，design §6.4）
@@ -58,7 +58,14 @@ function matchesAny(haystack: string, needles: string[]): boolean {
  */
 export function collectInterestTerms(settings: NewsModuleSettings, ctx: NewsSelectionContext = {}): string[] {
   const sceneTerms = settings.sources
-    .filter(s => s.enabled && s.type === 'keyword' && keywordSourceInGroup(s, ctx.sceneGroupId))
+    .filter(s => {
+      if (!s.enabled || s.type !== 'keyword') return false
+      if (ctx.readerKeywordGroupIds && ctx.readerKeywordGroupIds.length > 0) {
+        return keywordSourceInReaderGroups(s, ctx.readerKeywordGroupIds)
+      }
+      if (ctx.allKeywordGroups) return true
+      return keywordSourceInGroup(s, ctx.sceneGroupId)
+    })
     .map(s => s.label)
   const charTerms = (ctx.characterKeywords ?? []).map(k => k.trim()).filter(Boolean)
   return [...new Set([...sceneTerms, ...charTerms])]
@@ -221,4 +228,184 @@ export function filterAndPick(
 export function isForeignLanguage(item: NewsItem): boolean {
   const lang = item.lang ?? detectLang(`${item.title} ${item.summary}`)
   return !(lang === 'zh-hant') && (lang === 'ja' || lang === 'ko' || lang === 'zh-hans' || lang === 'other')
+}
+
+// ---------------------------------------------------------------------------
+// 新聞報專用：六層篩選（略過 seenIds），取前 N 則
+// REQ-02, REQ-08
+// ---------------------------------------------------------------------------
+
+const READER_BREAKOUT_BUCKET = '__breakout__'
+const READER_LOCAL_BUCKET = '__local__'
+const READER_OTHER_BUCKET = '__other__'
+
+function readerBucketKey(
+  item: NewsItem,
+  sourceById: Map<string, NewsModuleSettings['sources'][number]>
+): string {
+  if (item.breakout) return READER_BREAKOUT_BUCKET
+  if (item.sourceId.startsWith('loc-')) return READER_LOCAL_BUCKET
+
+  const src = sourceById.get(item.sourceId)
+  // 每個關鍵字各自一桶，避免同組內第一個標籤獨佔名額
+  if (src?.type === 'keyword') return `kw:${src.id}`
+  if (item.sourceType === 'keyword') return `kw:${item.sourceId}`
+  if (src) return `feed:${src.id}`
+  return READER_OTHER_BUCKET
+}
+
+/**
+ * 依序執行層 0–5 篩選（日期截止、來源排除、黑名單、整類排除、語言、興趣正向比對），
+ * **不執行層 6（seenIds）**，不寫 seenIds。
+ *
+ * 新聞報會依 `readerKeywordGroupIds`（或全部組）抓取；
+ * 每關鍵字名額用 `readerQuota`／`readerPerKeyword`，總量受 `maxItems` 限制。
+ * `excludeIds`：換一批時排除目前畫面上的 id。
+ * `strictExclude`：為 true 時絕不回填已排除的 id（釘選換一批用，寧願少幾則也不重複）。
+ */
+export function filterForReader(
+  items: NewsItem[],
+  settings: NewsModuleSettings,
+  maxItems: number,
+  selectionCtx: NewsSelectionContext = { allKeywordGroups: true },
+  excludeIds: ReadonlySet<string> | string[] = [],
+  options: { strictExclude?: boolean } = {}
+): NewsItem[] {
+  const interestTerms = collectInterestTerms(settings, selectionCtx)
+  const excludedSourcesLower = settings.excludedSources.map(s => s.toLowerCase())
+  const excludedCategoriesLower = settings.excludedCategories.map(s => s.toLowerCase())
+  const sourceById = new Map(settings.sources.map(s => [s.id, s]))
+  const readerGroupIds = selectionCtx.readerKeywordGroupIds && selectionCtx.readerKeywordGroupIds.length > 0
+    ? selectionCtx.readerKeywordGroupIds
+    : null
+  const exclude = excludeIds instanceof Set ? excludeIds : new Set(excludeIds)
+  const strictExclude = options.strictExclude === true
+  const defaultPerKw = typeof settings.readerPerKeyword === 'number'
+    && settings.readerPerKeyword >= 1 && settings.readerPerKeyword <= 20
+    ? Math.floor(settings.readerPerKeyword)
+    : 3
+  const breakoutQuota = typeof settings.readerBreakoutQuota === 'number'
+    && settings.readerBreakoutQuota >= 0 && settings.readerBreakoutQuota <= 20
+    ? Math.floor(settings.readerBreakoutQuota)
+    : defaultPerKw
+
+  // 先去重：同 id 只留一則（多來源可能混入同一篇）
+  const uniqueById = new Map<string, NewsItem>()
+  for (const item of items) {
+    if (!uniqueById.has(item.id)) uniqueById.set(item.id, item)
+  }
+  let pool = [...uniqueById.values()]
+
+  // 0. 日期截止（maxAgeDays > 0 時生效；publishedAt 空字串或解析失敗的放行）
+  if (settings.maxAgeDays > 0) {
+    const cutoff = Date.now() - settings.maxAgeDays * 24 * 60 * 60 * 1000
+    pool = pool.filter(item => {
+      if (!item.publishedAt) return true
+      const t = new Date(item.publishedAt).getTime()
+      return isNaN(t) || t >= cutoff
+    })
+  }
+
+  // 1. 來源排除（source 子字串比對）
+  pool = pool.filter(item => !matchesAny(item.source.toLowerCase(), excludedSourcesLower))
+
+  // 2. 黑名單關鍵字（比對 title/summary/tags/category/source，黑名單優先）
+  pool = pool.filter(item => !matchesAny(searchableText(item), settings.blacklist))
+
+  // 3. 整類排除
+  pool = pool.filter(item => {
+    if (!item.category) return true
+    return !excludedCategoriesLower.includes(item.category.toLowerCase())
+  })
+
+  // 4. 語言處理，同時把偵測語言寫回 item 供注入階段用
+  pool = pool.filter(item => {
+    const lang = detectLang(`${item.title} ${item.summary}`)
+    item.lang = lang
+    if (settings.langMode === 'zh-only') return lang === 'zh-hant'
+    return true // translate / raw 都保留
+  })
+
+  // 5. 興趣正向比對（僅對需要的來源）
+  pool = pool.filter(item => {
+    if (!needsPositiveFilter(item)) return true
+    if (interestTerms.length === 0) return true
+    return matchesAny(searchableText(item), interestTerms)
+  })
+
+  // 層 6（seenIds）刻意略過 — 不排除、不寫入（REQ-08）
+
+  const buckets = new Map<string, NewsItem[]>()
+  for (const item of pool) {
+    const key = readerBucketKey(item, sourceById)
+    const list = buckets.get(key)
+    if (list) list.push(item)
+    else buckets.set(key, [item])
+  }
+
+  const keywordKeys = settings.sources
+    .filter(s => {
+      if (!s.enabled || s.type !== 'keyword') return false
+      return keywordSourceInReaderGroups(s, readerGroupIds)
+    })
+    .map(s => `kw:${s.id}`)
+  const extraKeywordKeys = [...buckets.keys()].filter(
+    k => k.startsWith('kw:') && !keywordKeys.includes(k)
+  )
+  const feedKeys = [...buckets.keys()]
+    .filter(k => k.startsWith('feed:'))
+    .sort()
+
+  const orderedKeys = [
+    READER_BREAKOUT_BUCKET,
+    ...keywordKeys,
+    ...extraKeywordKeys,
+    READER_LOCAL_BUCKET,
+    ...feedKeys,
+    READER_OTHER_BUCKET
+  ].filter((k, i, arr) => arr.indexOf(k) === i && (buckets.get(k)?.length ?? 0) > 0)
+
+  if (orderedKeys.length === 0) return []
+
+  function quotaForKey(key: string): number {
+    if (key === READER_BREAKOUT_BUCKET) return breakoutQuota
+    if (key.startsWith('kw:')) {
+      const sourceId = key.slice(3)
+      const src = sourceById.get(sourceId)
+      if (typeof src?.readerQuota === 'number' && src.readerQuota >= 1) {
+        return Math.min(20, Math.floor(src.readerQuota))
+      }
+      return defaultPerKw
+    }
+    return defaultPerKw
+  }
+
+  const result: NewsItem[] = []
+  const used = new Set<string>()
+
+  const takeFrom = (key: string, limit: number) => {
+    if (limit <= 0) return
+    const list = buckets.get(key) ?? []
+    // 換一批：優先還沒出現在畫面上的；strict 時不回填已排除的
+    const preferred = list.filter(i => !used.has(i.id) && !exclude.has(i.id))
+    const fallback = strictExclude
+      ? []
+      : list.filter(i => !used.has(i.id) && exclude.has(i.id))
+    const ordered = [...preferred, ...fallback]
+    let taken = 0
+    for (const item of ordered) {
+      if (result.length >= maxItems || taken >= limit) break
+      if (used.has(item.id)) continue
+      used.add(item.id)
+      result.push(item)
+      taken++
+    }
+  }
+
+  for (const key of orderedKeys) takeFrom(key, quotaForKey(key))
+
+  // 刻意不再用「總上限」去各桶加碼補滿——否則會把「每關鍵字 3 則」灌成几十則。
+  // 總上限只當天花板：takeFrom 內已有 result.length >= maxItems 檢查。
+
+  return result
 }
