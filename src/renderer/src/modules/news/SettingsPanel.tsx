@@ -152,6 +152,8 @@ export function NewsSettingsPanel() {
   const [newGroupName, setNewGroupName] = useState('')
   const [renamingGroup, setRenamingGroup] = useState(false)
   const [groupRenameValue, setGroupRenameValue] = useState('')
+  const [packBusy, setPackBusy] = useState(false)
+  const [packMsg, setPackMsg] = useState<string | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -559,6 +561,75 @@ export function NewsSettingsPanel() {
         </div>
         <p className="text-xs text-secondary">
           上方標籤旁的「報·N」可單獨覆蓋該關鍵字則數（點一下循環 1→5，再點回到跟全域）。聊天權重（常聊／普通／偶爾）不受影響。
+        </p>
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <button
+            type="button"
+            disabled={packBusy}
+            className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary hover:bg-teal transition-all disabled:opacity-50"
+            onClick={() => {
+              void (async () => {
+                setPackBusy(true)
+                setPackMsg(null)
+                const res = await window.api.invoke('news:export-reader-settings') as {
+                  ok?: boolean
+                  canceled?: boolean
+                  error?: string
+                  path?: string
+                }
+                setPackBusy(false)
+                if (res.canceled) return
+                if (!res.ok) {
+                  setPackMsg(res.error ?? '匯出失敗')
+                  return
+                }
+                setPackMsg('已匯出設定檔')
+              })()
+            }}
+          >
+            匯出設定
+          </button>
+          <button
+            type="button"
+            disabled={packBusy}
+            className="text-xs px-3 py-1.5 rounded-full bg-surface border border-border font-semibold text-primary hover:bg-mint-40 transition-all disabled:opacity-50"
+            onClick={() => {
+              if (!window.confirm('匯入後會覆蓋本機的關鍵字組、興趣標籤、RSS／JSON、新聞報則數、黑名單與破圈設定。已讀紀錄與學習權重不會動。確定？')) {
+                return
+              }
+              void (async () => {
+                setPackBusy(true)
+                setPackMsg(null)
+                const res = await window.api.invoke('news:import-reader-settings') as {
+                  ok?: boolean
+                  canceled?: boolean
+                  error?: string
+                  settings?: NewsModuleSettings
+                  summary?: { groups: number; sources: number; keywords: number }
+                }
+                setPackBusy(false)
+                if (res.canceled) return
+                if (!res.ok || !res.settings) {
+                  setPackMsg(res.error ?? '匯入失敗')
+                  return
+                }
+                if (saveTimer.current) clearTimeout(saveTimer.current)
+                setSettings(res.settings)
+                const s = res.summary
+                setPackMsg(
+                  s
+                    ? `已匯入：${s.groups} 組、${s.keywords} 個關鍵字` + (s.sources > s.keywords ? `（含 ${s.sources - s.keywords} 個訂閱）` : '')
+                    : '已匯入設定'
+                )
+              })()
+            }}
+          >
+            匯入設定
+          </button>
+          {packMsg && <span className="text-xs text-secondary">{packMsg}</span>}
+        </div>
+        <p className="text-xs text-secondary">
+          換電腦可匯出／匯入 JSON。含關鍵字組、標籤、新聞報則數、黑名單、破圈與 RSS／JSON；不含已讀與學習權重。
         </p>
       </section>
 

@@ -1,8 +1,10 @@
-import { ipcMain, screen } from 'electron'
+import { BrowserWindow, dialog, ipcMain, screen } from 'electron'
+import fs from 'fs'
 import type { ModuleIpcRegistry } from '../moduleTypes'
 import { loadNewsModuleSettings, saveNewsModuleSettings, applyNewsFeedbackDelta, readerSelectionContext } from './settings'
 import { fetchAllSources } from './sources'
 import { filterAndPick, filterForReader } from './filter'
+import { applyNewsReaderPack, buildNewsReaderPack, parseNewsReaderPack } from './readerPack'
 import { loadReminders, saveReminders } from '../../fileStore'
 import { reloadReminders } from '../../reminderScheduler'
 import {
@@ -133,6 +135,69 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
   registry.handle('news:open-settings-tab', () => {
     openSettingsWindow('news')
     return { ok: true }
+  })
+
+  // 匯出個人新聞報／關鍵字組設定（JSON，可換機）
+  registry.handle('news:export-reader-settings', async (event) => {
+    try {
+      const pack = buildNewsReaderPack(loadNewsModuleSettings())
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const dialogOpts = {
+        title: '匯出新聞報設定',
+        defaultPath: 'DesktopST-news-reader.json',
+        filters: [{ name: 'DesktopST 新聞報設定', extensions: ['json'] }]
+      }
+      const { canceled, filePath } =
+        win && !win.isDestroyed()
+          ? await dialog.showSaveDialog(win, dialogOpts)
+          : await dialog.showSaveDialog(dialogOpts)
+      if (canceled || !filePath) return { ok: false as const, canceled: true as const }
+      fs.writeFileSync(filePath, JSON.stringify(pack, null, 2), 'utf-8')
+      return { ok: true as const, path: filePath }
+    } catch (e) {
+      return { ok: false as const, error: (e as Error).message }
+    }
+  })
+
+  // 匯入個人新聞報／關鍵字組設定（覆蓋關鍵字組與新聞報相關欄位）
+  registry.handle('news:import-reader-settings', async (event) => {
+    try {
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const dialogOpts = {
+        title: '匯入新聞報設定',
+        properties: ['openFile' as const],
+        filters: [{ name: 'DesktopST 新聞報設定', extensions: ['json'] }]
+      }
+      const { canceled, filePaths } =
+        win && !win.isDestroyed()
+          ? await dialog.showOpenDialog(win, dialogOpts)
+          : await dialog.showOpenDialog(dialogOpts)
+      if (canceled || filePaths.length === 0) return { ok: false as const, canceled: true as const }
+
+      const text = fs.readFileSync(filePaths[0], 'utf-8')
+      let raw: unknown
+      try {
+        raw = JSON.parse(text)
+      } catch {
+        return { ok: false as const, error: 'JSON 解析失敗' }
+      }
+      const parsed = parseNewsReaderPack(raw)
+      if (!parsed.ok) return { ok: false as const, error: parsed.error }
+
+      const next = applyNewsReaderPack(loadNewsModuleSettings(), parsed.pack)
+      const saved = saveNewsModuleSettings(next)
+      return {
+        ok: true as const,
+        settings: saved,
+        summary: {
+          groups: parsed.pack.keywordGroups.length,
+          sources: parsed.pack.sources.length,
+          keywords: parsed.pack.sources.filter(s => s.type === 'keyword').length
+        }
+      }
+    } catch (e) {
+      return { ok: false as const, error: (e as Error).message }
+    }
   })
 
   // 新聞報：批次抓取（略過 seenIds，取前 N 則）

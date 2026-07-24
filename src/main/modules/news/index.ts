@@ -4,6 +4,7 @@ export * from './sources'
 export * from './filter'
 export * from './trigger'
 export * from './topicState'
+export * from './readerPack'
 export * from './ipc'
 
 import type { DesktopSTModule } from '../moduleTypes'
