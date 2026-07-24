@@ -18,7 +18,7 @@ export interface NewsReaderPack {
   readerBreakoutQuota: number
   blacklist: string[]
   maxAgeDays: number
-  breakout: { enabled: boolean; weight: NewsWeight }
+  breakout: { enabled: boolean; weight: NewsWeight; zhOnly?: boolean }
 }
 
 function isExportableSource(s: NewsSource): boolean {
@@ -43,7 +43,8 @@ export function buildNewsReaderPack(settings: NewsModuleSettings): NewsReaderPac
     maxAgeDays: normalized.maxAgeDays,
     breakout: {
       enabled: normalized.breakout.enabled,
-      weight: normalized.breakout.weight
+      weight: normalized.breakout.weight,
+      zhOnly: normalized.breakout.zhOnly !== false
     }
   }
 }
@@ -94,7 +95,8 @@ export function parseNewsReaderPack(raw: unknown): { ok: true; pack: NewsReaderP
       maxAgeDays: probe.maxAgeDays,
       breakout: {
         enabled: probe.breakout.enabled,
-        weight: probe.breakout.weight
+        weight: probe.breakout.weight,
+        zhOnly: probe.breakout.zhOnly !== false
       }
     }
   }

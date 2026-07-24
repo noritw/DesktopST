@@ -86,6 +86,10 @@ function KeywordSectionHeader({
         className="shrink-0 w-6 h-6 rounded-full border border-border bg-surface text-[11px] text-primary hover:bg-mint transition-colors disabled:opacity-50"
         title="只重抓這一欄"
         disabled={isLoading || !!refreshingSectionId}
+        onMouseDown={e => {
+          // 避免點按鈕時旁邊「則」輸入框 blur → 誤觸整頁重抓
+          e.preventDefault()
+        }}
         onClick={e => {
           e.stopPropagation()
           void refreshSection(sectionGroupId)
@@ -471,7 +475,7 @@ export default function NewsReaderWindow() {
           </div>
         )}
 
-        {!isLoading && error && (
+        {!isLoading && error && items.length === 0 && (
           <div className="rounded-2xl border border-[#FFB59F] bg-[#FFE2D8] px-4 py-3 text-sm text-[#9B3535]">
             <p className="font-semibold">抓取失敗</p>
             <p className="mt-1 text-xs opacity-90">{error}</p>
@@ -482,6 +486,12 @@ export default function NewsReaderWindow() {
             >
               重試
             </button>
+          </div>
+        )}
+
+        {!isLoading && error && items.length > 0 && (
+          <div className="mb-2 rounded-2xl border border-border bg-mint-20 px-3 py-2 text-xs text-primary">
+            {error}
           </div>
         )}
 

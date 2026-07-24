@@ -2,6 +2,7 @@ import { createHash } from 'crypto'
 import Parser from 'rss-parser'
 import type { NewsFeedJson, NewsItem, NewsModuleSettings, NewsSelectionContext, NewsSource } from './types'
 import { keywordSourceInGroup, keywordSourceInReaderGroups } from './settings'
+import { detectLang } from './filter'
 
 const rssParser = new Parser({
   timeout: 8000,
@@ -225,8 +226,13 @@ function htField(obj: Record<string, unknown> | undefined, key: string): string 
  * 抓取破圈來源（Google Trends 台灣熱搜）。
  * 每個熱搜詞用它底下的相關新聞當實際標題/來源（純熱搜詞無法聊），
  * 並用熱搜詞當穩定 id（每次更新同詞 id 一致，供 seenIds 去重）。
+ * zhOnly：優先挑中文相關新聞；若該熱搜底下沒有中文標題則整則略過。
  */
-export async function fetchBreakoutItems(weight: NewsSource['weight']): Promise<NewsItem[]> {
+export async function fetchBreakoutItems(
+  weight: NewsSource['weight'],
+  options: { zhOnly?: boolean } = {}
+): Promise<NewsItem[]> {
+  const zhOnly = options.zhOnly !== false
   try {
     const feed = await trendsParser.parseURL(buildTrendsRssUrl())
     const items: NewsItem[] = []
@@ -235,14 +241,41 @@ export async function fetchBreakoutItems(weight: NewsSource['weight']): Promise<
       if (!trend) continue
       const raw = (entry as { newsItems?: unknown }).newsItems
       const newsList = (Array.isArray(raw) ? raw : raw ? [raw] : []) as Record<string, unknown>[]
-      const top = newsList[0]
-      const headline = top ? htField(top, 'ht:news_item_title') : ''
-      const newsUrl = top ? htField(top, 'ht:news_item_url') : ''
-      const src = top ? htField(top, 'ht:news_item_source') : ''
-      const others = newsList.slice(1, 4).map(n => htField(n, 'ht:news_item_title')).filter(Boolean)
+
+      type Related = { headline: string; newsUrl: string; src: string; score: number }
+      const related: Related[] = []
+      for (const n of newsList) {
+        const headline = htField(n, 'ht:news_item_title')
+        if (!headline) continue
+        const lang = detectLang(headline)
+        const score = lang === 'zh-hant' ? 3 : lang === 'zh-hans' ? 2 : 0
+        related.push({
+          headline,
+          newsUrl: htField(n, 'ht:news_item_url'),
+          src: htField(n, 'ht:news_item_source'),
+          score
+        })
+      }
+      related.sort((a, b) => b.score - a.score)
+
+      if (zhOnly) {
+        // 只要中文：沒有中文相關新聞就跳過這個熱搜詞
+        if (related.length === 0 || related[0].score === 0) continue
+      }
+
+      const top = related[0]
+      const headline = top?.headline || trend
+      const newsUrl = top?.newsUrl || ''
+      const src = top?.src || ''
+      const others = related
+        .slice(1, 4)
+        .filter(r => !zhOnly || r.score > 0)
+        .map(r => r.headline)
+        .filter(Boolean)
+
       items.push({
         id: stableId('trend', trend),
-        title: headline || trend,
+        title: headline,
         summary: others.join('／'),
         source: src || 'Google 熱搜',
         tags: [trend],
@@ -324,7 +357,7 @@ export async function fetchAllSources(
 
   // 破圈
   if (settings.breakout.enabled) {
-    tasks.push(fetchBreakoutItems(settings.breakout.weight))
+    tasks.push(fetchBreakoutItems(settings.breakout.weight, { zhOnly: settings.breakout.zhOnly !== false }))
   }
 
   const results = await Promise.all(tasks)

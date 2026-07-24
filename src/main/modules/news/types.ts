@@ -97,6 +97,11 @@ export interface NewsModuleSettings {
   breakout: {
     enabled: boolean
     weight: NewsWeight
+    /**
+     * 熱門話題只要中文標題（預設 true）。
+     * 與全域 langMode 分開：聊天可收外文翻譯，熱門／新聞報仍可只要看得懂的中文。
+     */
+    zhOnly?: boolean
   }
   /** 地方新聞（沿用天氣定位，多縣市） */
   localNews: {

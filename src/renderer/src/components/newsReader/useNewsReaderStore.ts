@@ -390,7 +390,8 @@ export const useNewsReaderStore = create<NewsReaderState>((set, get) => ({
       }
 
       const quota = get().getSectionQuota(sectionGroupId)
-      const nextItems = replaceOneSection(
+      const sectionPrev = current.filter(i => itemBucketKey(i) === sectionGroupId)
+      let nextItems = replaceOneSection(
         current,
         sectionGroupId,
         result.items,
@@ -399,6 +400,17 @@ export const useNewsReaderStore = create<NewsReaderState>((set, get) => ({
         quota,
         dismissedSet
       )
+      const sectionNext = nextItems.filter(i => itemBucketKey(i) === sectionGroupId)
+      // 單欄重抓若暫時沒新稿，維持原欄內容，避免熱門等欄位整塊消失、畫面跳到其他關鍵字
+      if (sectionNext.length === 0 && sectionPrev.length > 0) {
+        set({
+          fetchedAt: result.fetchedAt,
+          refreshingSectionId: null,
+          error: '這一欄暫時沒有新的標題，已保留原本內容'
+        })
+        return
+      }
+
       const nextPinned = pinnedItems
         .map(p => nextItems.find(i => i.id === p.id) ?? p)
         .filter(p => pinnedIds.has(p.id))
@@ -408,7 +420,8 @@ export const useNewsReaderStore = create<NewsReaderState>((set, get) => ({
         items: nextItems,
         pinnedItems: nextPinned,
         fetchedAt: result.fetchedAt,
-        refreshingSectionId: null
+        refreshingSectionId: null,
+        error: null
       })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -480,7 +493,7 @@ export const useNewsReaderStore = create<NewsReaderState>((set, get) => ({
   setSectionQuota: async (sectionGroupId: string, quota: number) => {
     const n = Math.max(0, Math.min(20, Math.floor(quota)))
     if (!Number.isFinite(n)) return
-    set({ isLoading: true, error: null })
+    set({ error: null })
     try {
       if (sectionGroupId === '__breakout__') {
         await window.api.invoke('news:save-settings', { readerBreakoutQuota: n })
@@ -505,10 +518,11 @@ export const useNewsReaderStore = create<NewsReaderState>((set, get) => ({
         await window.api.invoke('news:save-settings', { readerPerKeyword: v })
         set({ readerPerKeyword: v })
       }
-      await get().fetchNews()
+      // 只重抓該欄，避免整頁重整讓捲動跳到別的關鍵字
+      await get().refreshSection(sectionGroupId)
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      set({ error: message, isLoading: false })
+      set({ error: message, isLoading: false, refreshingSectionId: null })
     }
   },
 

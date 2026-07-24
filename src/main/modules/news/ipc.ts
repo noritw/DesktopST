@@ -226,7 +226,9 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
         if (!settings.breakout.enabled) {
           return { ok: false as const, error: '熱門話題未啟用' }
         }
-        raw = await fetchBreakoutItems(settings.breakout.weight)
+        raw = await fetchBreakoutItems(settings.breakout.weight, {
+          zhOnly: settings.breakout.zhOnly !== false
+        })
       } else if (sectionGroupId === '__local__') {
         if (!settings.localNews.enabled || settings.localNews.locations.length === 0) {
           return { ok: false as const, error: '地方新聞未啟用' }

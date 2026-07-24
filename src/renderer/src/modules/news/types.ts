@@ -51,7 +51,7 @@ export interface NewsModuleSettings {
   speakButton: SpeakMode
   replyModel: NewsReplyModel
   reminder: { enabled: boolean }
-  breakout: { enabled: boolean; weight: NewsWeight }
+  breakout: { enabled: boolean; weight: NewsWeight; /** 熱門只要中文，預設 true */ zhOnly?: boolean }
   localNews: { enabled: boolean; locations: NewsLocation[] }
   feedback: { adjustments: Record<string, number> }
   seenIds: string[]

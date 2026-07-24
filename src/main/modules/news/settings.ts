@@ -136,7 +136,7 @@ export function defaultNewsModuleSettings(): NewsModuleSettings {
     speakButton: 'sometimes',
     replyModel: 'main',
     reminder: { enabled: false },
-    breakout: { enabled: false, weight: 'normal' },
+    breakout: { enabled: false, weight: 'normal', zhOnly: true },
     localNews: { enabled: false, locations: [] },
     feedback: { adjustments: {} },
     seenIds: [],
@@ -201,7 +201,9 @@ export function normalizeNewsModuleSettings(raw: Partial<NewsModuleSettings> | u
     },
     breakout: {
       enabled: raw.breakout?.enabled === true,
-      weight: normalizeWeight(raw.breakout?.weight)
+      weight: normalizeWeight(raw.breakout?.weight),
+      // 未設視為 true（舊設定也預設只要中文，避免熱門灌一堆外文）
+      zhOnly: raw.breakout?.zhOnly !== false
     },
     localNews: {
       enabled: raw.localNews?.enabled === true,

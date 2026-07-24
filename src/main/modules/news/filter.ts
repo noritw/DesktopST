@@ -200,9 +200,14 @@ export function filterAndPick(
   stats.afterCategoryExclude = pool.length
 
   // 4. 語言處理（三選一），同時把偵測語言寫回 item 供注入階段用
+  //    熱門話題另受 breakout.zhOnly（預設開）約束，與全域 translate 可並存
+  const breakoutZhOnly = settings.breakout.zhOnly !== false
   pool = pool.filter(item => {
     const lang = detectLang(`${item.title} ${item.summary}`)
     item.lang = lang
+    if (item.breakout && breakoutZhOnly) {
+      return lang === 'zh-hant' || lang === 'zh-hans'
+    }
     if (settings.langMode === 'zh-only') return lang === 'zh-hant'
     return true // translate / raw 都保留
   })
@@ -323,9 +328,13 @@ export function filterForReader(
   })
 
   // 4. 語言處理，同時把偵測語言寫回 item 供注入階段用
+  const breakoutZhOnly = settings.breakout.zhOnly !== false
   pool = pool.filter(item => {
     const lang = detectLang(`${item.title} ${item.summary}`)
     item.lang = lang
+    if (item.breakout && breakoutZhOnly) {
+      return lang === 'zh-hant' || lang === 'zh-hans'
+    }
     if (settings.langMode === 'zh-only') return lang === 'zh-hant'
     return true // translate / raw 都保留
   })

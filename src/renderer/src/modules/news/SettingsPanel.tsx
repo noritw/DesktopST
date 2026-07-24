@@ -866,6 +866,19 @@ export function NewsSettingsPanel() {
               />
               <span className="text-secondary">則（0＝新聞報不顯示熱門；與聊天權重分開）</span>
             </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                className="accent-teal w-4 h-4"
+                checked={settings.breakout.zhOnly !== false}
+                onChange={e => update(prev => ({
+                  ...prev,
+                  breakout: { ...prev.breakout, zhOnly: e.target.checked }
+                }))}
+              />
+              <span className="text-xs text-primary">熱門話題只要中文標題</span>
+              <span className="text-[11px] text-secondary">（推薦；關掉才會出現外文熱搜相關新聞）</span>
+            </label>
           </div>
         )}
       </section>
