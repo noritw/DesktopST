@@ -1446,10 +1446,25 @@ export function showSpeechBubble(
     if (alreadyVisible) raiseBubbleAndCharacterForShow(characterId, bw)
     bw.webContents.send('bubble:show', payload)
   }
-  if (bw.webContents.isLoadingMainFrame()) {
-    bw.webContents.once('did-finish-load', dispatchShow)
-  } else {
+  // did-finish-load 早於 React useEffect 掛上 bubble:show listener。
+  // 只送一次會丟事件 → 保底 reveal 把空窗調成不透明並 raise 角色，看起來像「人跳上層、對白沒出來」。
+  // 提醒常在閒置後新建泡泡，特別容易踩到；比照 user-bubble 重送內容（不重跑透明流程）。
+  const resendContent = () => {
+    if (bw.isDestroyed()) return
+    bw.webContents.send('bubble:show', payload)
+  }
+  const startShow = () => {
+    if (bw.isDestroyed()) return
+    // 發話泡泡應可讀；短暫壓制失焦半透明，避免 show 過程觸發 blur 把對白調到幾乎看不見
+    suppressAuxAutoHide(1200)
     dispatchShow()
+    setTimeout(resendContent, 80)
+    setTimeout(resendContent, 260)
+  }
+  if (bw.webContents.isLoadingMainFrame()) {
+    bw.webContents.once('did-finish-load', startShow)
+  } else {
+    startShow()
     if (!bubbleRepositionDone.has(characterId)) {
       bubbleRepositionDone.add(characterId)
       setTimeout(() => {
@@ -1837,8 +1852,11 @@ export function hideUserSpeechBubble(): boolean {
 
 export function hideAuxWindowsRememberingState(): void {
   if (lowPerformanceModeEnabled) return
-  for (const w of bubbleWindows.values()) {
-    if (w.isVisible()) w.setOpacity(unfocusedBubbleOpacity)
+  for (const [characterId, w] of bubbleWindows.entries()) {
+    if (!w.isVisible()) continue
+    // 發話中／正等待 reveal 的對白保持全不透明（提醒觸發時常在 App 失焦狀態）
+    if (characterSpeakingPromoted.get(characterId) || pendingBubbleReveal.has(characterId)) continue
+    w.setOpacity(unfocusedBubbleOpacity)
   }
   for (const w of getAuxWindows()) {
     if (!w || w.isDestroyed() || !w.isVisible()) continue

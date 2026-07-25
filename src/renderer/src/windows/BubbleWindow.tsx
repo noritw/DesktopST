@@ -73,6 +73,8 @@ export default function BubbleWindow({ characterId }: Props) {
   const settings = useAppStore(s => s.settings)
   const lowPerformanceMode = settings?.ui.lowPerformanceMode ?? false
   const displayText = useMemo(() => String(text ?? ''), [text])
+  const autoCloseSettingsRef = useRef(settings?.ui.chatBubbleAutoClose)
+  autoCloseSettingsRef.current = settings?.ui.chatBubbleAutoClose
 
   const clearTimer = () => {
     if (!timerRef.current) return
@@ -205,11 +207,11 @@ export default function BubbleWindow({ characterId }: Props) {
       setVisible(true)
 
       if (!p.persistUntilClosed) {
-        // 優先使用設定中的自動消失時間
+        // 優先使用設定中的自動消失時間（ref：避免 settings 載入時重掛 listener 丟事件）
         let autoCloseMs = 8000
-        if (settings?.ui.chatBubbleAutoClose?.enabled) {
-          const seconds = settings.ui.chatBubbleAutoClose.seconds
-          autoCloseMs = Math.max(1000, seconds * 1000)
+        const autoClose = autoCloseSettingsRef.current
+        if (autoClose?.enabled) {
+          autoCloseMs = Math.max(1000, autoClose.seconds * 1000)
         } else if (Number(p.autoCloseMs)) {
           autoCloseMs = Math.max(8000, Number(p.autoCloseMs))
         }
@@ -253,7 +255,7 @@ export default function BubbleWindow({ characterId }: Props) {
       unsubHide()
       unsubOutline()
     }
-  }, [characterId, settings?.ui.chatBubbleAutoClose])
+  }, [characterId])
 
   useEffect(() => {
     if (!visible || outlineMode) return
