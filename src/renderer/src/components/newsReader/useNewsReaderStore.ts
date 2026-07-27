@@ -1,10 +1,14 @@
 import { create } from 'zustand'
 import type { NewsItem, NewsKeywordGroup, NewsSource } from '../../modules/news/types'
 
+// 顯示模式與目前分頁＝每台裝置各自的 UI 偏好，留在 localStorage。
+// 共用的話，在手機點一下分頁會讓桌機畫面跟著跳走。
 const LS_DISPLAY_MODE = 'desktopst.newsReader.displayMode'
 const LS_ACTIVE_TAB = 'desktopst.newsReader.activeTab'
-const LS_PINNED_ITEMS = 'desktopst.newsReader.pinnedItems'
-const LS_DISMISSED = 'desktopst.newsReader.dismissedIds'
+// 釘選與「不看了」＝內容狀態，已搬到主程序共用（見 src/main/modules/news/readerState.ts）。
+// 以下兩個 key 只用於首次搬移舊資料，搬完即刪。
+const LS_LEGACY_PINNED = 'desktopst.newsReader.pinnedItems'
+const LS_LEGACY_DISMISSED = 'desktopst.newsReader.dismissedIds'
 
 type DisplayMode = 'title' | 'title-summary'
 
@@ -17,9 +21,9 @@ function readActiveTab(): string {
   return localStorage.getItem(LS_ACTIVE_TAB) || 'all'
 }
 
-function readPinnedItems(): NewsItem[] {
+function readLegacyPinnedItems(): NewsItem[] {
   try {
-    const raw = localStorage.getItem(LS_PINNED_ITEMS)
+    const raw = localStorage.getItem(LS_LEGACY_PINNED)
     if (!raw) return []
     const parsed = JSON.parse(raw) as unknown
     if (!Array.isArray(parsed)) return []
@@ -31,13 +35,9 @@ function readPinnedItems(): NewsItem[] {
   }
 }
 
-function writePinnedItems(items: NewsItem[]): void {
-  localStorage.setItem(LS_PINNED_ITEMS, JSON.stringify(items))
-}
-
-function readDismissedIds(): string[] {
+function readLegacyDismissedIds(): string[] {
   try {
-    const raw = localStorage.getItem(LS_DISMISSED)
+    const raw = localStorage.getItem(LS_LEGACY_DISMISSED)
     if (!raw) return []
     const parsed = JSON.parse(raw) as unknown
     if (!Array.isArray(parsed)) return []
@@ -47,8 +47,20 @@ function readDismissedIds(): string[] {
   }
 }
 
+/**
+ * 尚未 hydrate 完成前不得寫入：此時 pinnedItems 還是空陣列，
+ * 寫下去會把主程序那份（可能有內容）清掉。
+ */
+let sharedStateHydrated = false
+
+function writePinnedItems(items: NewsItem[]): void {
+  if (!sharedStateHydrated) return
+  void window.api.invoke('news:reader-set-pinned', items)
+}
+
 function writeDismissedIds(ids: string[]): void {
-  localStorage.setItem(LS_DISMISSED, JSON.stringify(ids.slice(-500)))
+  if (!sharedStateHydrated) return
+  void window.api.invoke('news:reader-set-dismissed', ids.slice(-500))
 }
 
 function itemBucketKey(item: NewsItem): string {
@@ -216,6 +228,11 @@ interface NewsReaderState {
   activeTab: string
   fetchedAt: number | null
 
+  /**
+   * 從主程序載入共用的釘選 / 不看了清單（桌面與手機同一份）。
+   * 必須在第一次 fetchNews 之前 await，否則抓取流程會用空清單覆寫掉主程序那份。
+   */
+  hydrateSharedState: () => Promise<void>
   fetchNews: (opts?: { excludeCurrent?: boolean }) => Promise<void>
   /** 只重抓單一報紙欄（排除該欄目前標題，釘選保留） */
   refreshSection: (sectionGroupId: string) => Promise<void>
@@ -259,14 +276,49 @@ export const useNewsReaderStore = create<NewsReaderState>((set, get) => ({
   readerMaxItems: 30,
   readerPerKeyword: 3,
   readerBreakoutQuota: 3,
-  pinnedItems: readPinnedItems(),
-  dismissedIds: readDismissedIds(),
+  // 共用狀態改由主程序供應，開窗後由 hydrateSharedState 填入（不再是同步的 localStorage）
+  pinnedItems: [],
+  dismissedIds: [],
   isLoading: false,
   error: null,
   displayMode: readDisplayMode(),
   activeTab: readActiveTab(),
   fetchedAt: null,
   refreshingSectionId: null,
+
+  hydrateSharedState: async () => {
+    try {
+      const res = await window.api.invoke('news:reader-get-state') as {
+        pinnedItems?: NewsItem[]
+        dismissedIds?: string[]
+        initialized?: boolean
+      }
+      // 這台還沒有共用狀態檔 → 把舊版存在 localStorage 的釘選 / 不看了搬上去
+      if (res?.initialized === false) {
+        const legacyPinned = readLegacyPinnedItems()
+        const legacyDismissed = readLegacyDismissedIds()
+        if (legacyPinned.length > 0 || legacyDismissed.length > 0) {
+          const migrated = await window.api.invoke('news:reader-migrate-state', {
+            pinnedItems: legacyPinned,
+            dismissedIds: legacyDismissed
+          }) as { pinnedItems?: NewsItem[]; dismissedIds?: string[] }
+          localStorage.removeItem(LS_LEGACY_PINNED)
+          localStorage.removeItem(LS_LEGACY_DISMISSED)
+          sharedStateHydrated = true
+          set({
+            pinnedItems: migrated?.pinnedItems ?? legacyPinned,
+            dismissedIds: migrated?.dismissedIds ?? legacyDismissed
+          })
+          return
+        }
+      }
+      sharedStateHydrated = true
+      set({ pinnedItems: res?.pinnedItems ?? [], dismissedIds: res?.dismissedIds ?? [] })
+    } catch (e) {
+      // 讀不到就維持空清單，但不可開放寫入，否則會把主程序那份清掉
+      console.error('[newsReader] hydrate shared state failed:', e)
+    }
+  },
 
   fetchNews: async (opts) => {
     set({ isLoading: true, error: null })

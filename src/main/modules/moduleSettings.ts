@@ -52,3 +52,27 @@ export const moduleSettingsBridge: ModuleSettingsBridge = {
   get: readModuleSettings,
   set: writeModuleSettings
 }
+
+// ── 模組自有資料檔（settings.json 以外）──────────────────────
+// 給「不是設定、但要跟著資料夾搬家」的東西用，例如新聞報的釘選 / 已讀清單。
+// 與 settings.json 分開，才不會被設定正規化剪掉，也不會被搬家包帶走。
+
+export function hasModuleData(moduleId: string, fileName: string): boolean {
+  return fs.existsSync(path.join(getModuleDir(moduleId), fileName))
+}
+
+export function readModuleData<T>(moduleId: string, fileName: string): T | undefined {
+  const file = path.join(getModuleDir(moduleId), fileName)
+  if (!fs.existsSync(file)) return undefined
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as T
+  } catch (e) {
+    console.error(`[modules] read data failed for ${moduleId}/${fileName}:`, e)
+    return undefined
+  }
+}
+
+export function writeModuleData<T>(moduleId: string, fileName: string, value: T): void {
+  ensureModuleDir(moduleId)
+  fs.writeFileSync(path.join(getModuleDir(moduleId), fileName), JSON.stringify(value, null, 2), 'utf-8')
+}

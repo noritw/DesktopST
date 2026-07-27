@@ -37,7 +37,7 @@ import {
 } from './modules/news'
 import { getConversationSearchContext } from './modules/news/conversationSearch'
 import { collectModuleContext, listRegisteredModules } from './modules/moduleHost'
-import { pushRemoteControlState, pushThinking as mobilePushThinking, isServerRunning as isMobileServerRunning } from './mobileServer'
+import { pushRemoteControlState, pushThinking as mobilePushThinking, pushThinkingDone as mobilePushThinkingDone, isServerRunning as isMobileServerRunning } from './mobileServer'
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
   resizeCharacterWindow, getCharacterWindowSize, enterCharacterScaleMode, exitCharacterScaleMode, enterScaleModeWindow,
@@ -1527,6 +1527,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     console.error('[reminder] triggerReminderSpeak failed:', e)
   } finally {
     setCharacterThinking(charId, false)
+    if (isMobileServerRunning()) mobilePushThinkingDone(charId)
   }
 }
 
@@ -1771,6 +1772,8 @@ export async function forceSpeakDirect(
 
     // 先亮思考氣泡再做網路抓取（天氣 / Spotify / 新聞），避免使用者看到約 1 秒的無回饋停頓。
     setCharacterThinking(characterId, true)
+    // 手機遠端按「說點什麼」時，回饋只能靠這個推播（桌面泡泡在手機上看不到）
+    if (isMobileServerRunning()) mobilePushThinking(characterId)
     deferRaiseCharacterAbovePinnedNotes(characterId)
 
     const ctxParts: string[] = []
@@ -1968,6 +1971,7 @@ export async function forceSpeakDirect(
       return { error: e instanceof Error ? e.message : String(e) }
     } finally {
       setCharacterThinking(characterId, false)
+      if (isMobileServerRunning()) mobilePushThinkingDone(characterId)
     }
 }
 

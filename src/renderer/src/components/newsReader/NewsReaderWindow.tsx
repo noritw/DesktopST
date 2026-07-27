@@ -243,6 +243,7 @@ export default function NewsReaderWindow() {
   const activeTab = useNewsReaderStore(s => s.activeTab)
   const fetchedAt = useNewsReaderStore(s => s.fetchedAt)
   const fetchNews = useNewsReaderStore(s => s.fetchNews)
+  const hydrateSharedState = useNewsReaderStore(s => s.hydrateSharedState)
   const setDisplayMode = useNewsReaderStore(s => s.setDisplayMode)
   const setActiveTab = useNewsReaderStore(s => s.setActiveTab)
   const setReaderKeywordGroups = useNewsReaderStore(s => s.setReaderKeywordGroups)
@@ -250,8 +251,10 @@ export default function NewsReaderWindow() {
   const [dragSectionId, setDragSectionId] = useState<string | null>(null)
 
   useEffect(() => {
-    void fetchNews()
-  }, [fetchNews])
+    // 先載入共用的釘選 / 不看了（與手機同一份），再抓新聞：
+    // 順序顛倒的話，抓取流程會用空清單覆寫掉主程序那份。
+    void hydrateSharedState().then(() => fetchNews())
+  }, [hydrateSharedState, fetchNews])
 
   // 頂部篩選：依關鍵字「組」
   const filterTabs = useMemo(

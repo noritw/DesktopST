@@ -346,6 +346,95 @@
     border-radius: 20px; font-size: 13px; z-index: 400; opacity: 0;
     transition: opacity 0.3s; pointer-events: none; white-space: nowrap; }
   #conn-toast.visible { opacity: 1; }
+
+  /* ╔══════════════════════════════════════════════════════════════════╗
+     ║ 【個人新聞報】樣式區                                              ║
+     ║                                                                  ║
+     ║ 本區 .nr-* 樣式 ＋ #reader-overlay 結構 ＋ script 內同名標題的     ║
+     ║ 邏輯區塊，構成一組完整且自足的功能，對外只依賴：                    ║
+     ║   api() / showToast() / openSheet() / closeSheet() / $msgInput    ║
+     ║ 若 mobile.html 日後過大，可整組搬到 assets/mobile-reader.html。    ║
+     ║ 修改時請維持這個邊界，不要把新聞報邏輯散進聊天主流程。              ║
+     ╚══════════════════════════════════════════════════════════════════╝ */
+  #reader-overlay .sheet { max-height: 94dvh; height: 94dvh; }
+  #reader-body { padding: 10px 12px; }
+
+  .nr-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 16px 0; flex-shrink: 0; }
+  .nr-optbtn { border: 1.5px solid var(--border); background: var(--bg); color: var(--text);
+    border-radius: 16px; font-size: 12px; font-family: inherit; padding: 8px 12px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent; white-space: nowrap; }
+  .nr-optbtn.on { background: var(--mint); border-color: var(--mint2); font-weight: 600; }
+
+  .nr-options { padding: 10px 16px 14px; border-bottom: 1px solid var(--border);
+    background: var(--bg); flex-shrink: 0; max-height: 46dvh; overflow-y: auto; }
+  .nr-opt-head { display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px; }
+  .nr-opt-heading { font-size: 14px; font-weight: 600; color: var(--text); }
+  .nr-opt-done { border: none; background: var(--mint2); color: var(--text);
+    border-radius: 16px; font-size: 13px; font-weight: 600; font-family: inherit;
+    padding: 9px 18px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .nr-opt-title { font-size: 12px; color: var(--text-sub); margin-bottom: 6px; }
+  .nr-opt-note { font-size: 12px; color: var(--text-sub); line-height: 1.6; padding: 4px 0 2px; }
+  .nr-ordergroup { font-size: 11px; color: var(--text-sub); background: var(--surface);
+    border-radius: 10px; padding: 3px 8px; flex-shrink: 0; }
+  .nr-chiprow { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .nr-chip { border: 1.5px solid var(--border); background: var(--bg); color: var(--text-sub);
+    border-radius: 16px; font-size: 13px; font-family: inherit; padding: 9px 13px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .nr-chip.on { background: var(--mint2); border-color: var(--mint2); color: var(--text); font-weight: 600; }
+
+  .nr-orderrow { display: flex; align-items: center; gap: 8px; padding: 7px 0;
+    border-bottom: 1px solid var(--border); }
+  .nr-ordername { flex: 1; min-width: 0; font-size: 13px; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nr-movebtn { border: 1.5px solid var(--border); background: var(--bg); color: var(--text);
+    border-radius: 50%; width: 40px; height: 40px; font-size: 14px; cursor: pointer;
+    flex-shrink: 0; -webkit-tap-highlight-color: transparent; }
+  .nr-movebtn:disabled { opacity: 0.3; }
+
+  /* 欄標題（section header）：欄名 + 則數 + 只重抓這一欄 */
+  .nr-section { margin: 4px 0 16px; }
+  .nr-section-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+    padding-bottom: 6px; border-bottom: 2px solid var(--mint2); }
+  .nr-section-name { flex: 1; min-width: 0; font-size: 15px; font-weight: 600; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .nr-quota { width: 56px; padding: 8px 4px; border-radius: 8px; border: 1.5px solid var(--border);
+    background: var(--bg); color: var(--text); font-size: 13px; text-align: center;
+    outline: none; font-family: inherit; flex-shrink: 0; }
+  .nr-secbtn { border: none; background: var(--mint); color: var(--text); border-radius: 16px;
+    font-size: 12px; font-family: inherit; padding: 8px 12px; cursor: pointer; flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent; }
+  .nr-secbtn:disabled { opacity: 0.5; }
+
+  /* 新聞卡片 */
+  .nr-card { border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+    padding: 12px; margin-bottom: 10px; background: var(--bg); }
+  .nr-card.pinned { border-color: var(--mint2); background: var(--mint); }
+  .nr-card-title { font-size: 15px; line-height: 1.45; color: var(--text); font-weight: 600; }
+  .nr-card-summary { font-size: 13px; line-height: 1.5; color: var(--text-sub); margin-top: 6px; }
+  .nr-card-meta { font-size: 11px; color: var(--text-sub); margin-top: 6px; }
+  .nr-card-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .nr-act { border: 1.5px solid var(--border); background: var(--surface); color: var(--text-sub);
+    border-radius: 16px; font-size: 12px; font-family: inherit; padding: 9px 13px;
+    cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .nr-act:active { background: var(--mint); }
+  .nr-act.on { background: var(--mint2); border-color: var(--mint2); color: var(--text); font-weight: 600; }
+
+  .nr-empty { text-align: center; color: var(--text-sub); font-size: 14px;
+    padding: 40px 20px; line-height: 1.7; }
+  .nr-skeleton { height: 76px; border-radius: var(--radius-sm); margin-bottom: 10px;
+    background: var(--border); opacity: 0.5; animation: nr-pulse 1.2s ease-in-out infinite; }
+  @keyframes nr-pulse { 0%,100% { opacity: 0.35 } 50% { opacity: 0.6 } }
+
+  #reader-footer { flex-shrink: 0; border-top: 1px solid var(--border);
+    padding: 10px 16px max(10px, env(safe-area-inset-bottom)); background: var(--surface);
+    display: flex; align-items: center; gap: 10px; }
+  #reader-refresh { flex: 1; padding: 12px; border-radius: 20px; border: none;
+    background: var(--mint2); color: var(--text); font-size: 15px; font-weight: 600;
+    font-family: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  #reader-refresh:disabled { opacity: 0.5; }
+  #reader-fetched { font-size: 11px; color: var(--text-sub); white-space: nowrap; }
+  /* ╚═══ 個人新聞報樣式區結束 ═══╝ */
 </style>
 </head>
 <body>
@@ -355,6 +444,7 @@
   <div id="char-avatars"></div>
   <div id="header-actions">
     <button class="icon-btn" id="menu-btn" title="選單">☰</button>
+    <button class="icon-btn" id="reader-btn" title="個人新聞報">📰</button>
     <button class="icon-btn" id="manage-btn" title="角色管理">👥</button>
     <div id="pc-menu-wrap">
       <button class="icon-btn" id="pc-btn" title="電腦操作">🖥️</button>
@@ -392,6 +482,28 @@
     <button id="send-btn">↑</button>
   </div>
 </div>
+
+<!-- ══ 【個人新聞報】結構區（可與同名 CSS／JS 區塊整組抽出）══ -->
+<div class="sheet-overlay" id="reader-overlay">
+  <div class="sheet">
+    <div class="sheet-header">
+      <span class="sheet-title">📰 個人新聞報</span>
+      <button class="sheet-close" id="reader-close">✕</button>
+    </div>
+    <div class="nr-toolbar">
+      <button class="nr-optbtn" id="reader-display-btn">標題</button>
+      <button class="nr-optbtn" id="reader-options-btn">⚙ 欄位</button>
+    </div>
+    <div class="nr-options" id="reader-options" style="display:none"></div>
+    <div class="sheet-tabs" id="reader-tabs"></div>
+    <div class="sheet-body" id="reader-body"></div>
+    <div id="reader-footer">
+      <button id="reader-refresh">🔄 換一批</button>
+      <span id="reader-fetched"></span>
+    </div>
+  </div>
+</div>
+<!-- ══ 個人新聞報結構區結束 ══ -->
 
 <!-- ── 主選單（對話 / 情境 / 使用者 / 世界觀）── -->
 <div class="sheet-overlay" id="menu-overlay">
@@ -648,7 +760,7 @@
   }
 
   // ── State ──
-  let ws = null, wsRetryCount = 0;
+  let ws = null, wsRetryCount = 0, wsEverConnected = false;
   let state = { desktopCharacters: [], conversation: null, randomToolsEnabled: true, remoteControl: { enabled: false, allowedCapabilities: [] } };
   let allLibraryChars = [];
   let isWaiting = false;
@@ -998,17 +1110,28 @@
   }
 
   function renderAll() {
+    const wasThinking = $thinkingBar.classList.contains('visible');
     $chat.innerHTML = '';
     for (const msg of (state.conversation?.messages ?? [])) $chat.appendChild(renderMsg(msg));
+    if (wasThinking) showThinking();   // 重繪不該吃掉還在進行中的思考動畫
     scrollBottom();
   }
+
+  // 思考狀態逾時保險：LLM 失敗時不會有訊息推回來，沒有逾時的話提示會永遠卡著
+  var thinkingTimer = null;
+  const THINKING_TIMEOUT_MS = 90000;
 
   function showThinkingBar(charId) {
     const name = charId ? charName(charId) : null;
     $thinkingBar.textContent = (name ? name + ' ' : '') + '正在回覆…';
     $thinkingBar.classList.add('visible');
+    if (thinkingTimer) clearTimeout(thinkingTimer);
+    thinkingTimer = setTimeout(() => { removeThinking(); hideThinkingBar(); fetchState(); }, THINKING_TIMEOUT_MS);
   }
-  function hideThinkingBar() { $thinkingBar.classList.remove('visible'); }
+  function hideThinkingBar() {
+    if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; }
+    $thinkingBar.classList.remove('visible');
+  }
 
   function appendMsg(msg) {
     removeThinking();
@@ -1035,7 +1158,14 @@
     // 優先用 Worker 注入的 tunnel WebSocket URL，否則連本機
     const wsUrl = window.__tunnelWsUrl || (proto + '//' + location.host + tokenQuery());
     ws = new WebSocket(wsUrl);
-    ws.addEventListener('open', () => { wsRetryCount = 0; wsFailCount = 0; showToast('已連線'); });
+    ws.addEventListener('open', () => {
+      wsRetryCount = 0; wsFailCount = 0;
+      // 重連後必須對帳：手機鎖屏／切背景時 WS 會被系統斷掉，
+      // 斷線期間 push 的訊息（例如遠端叫角色「說點什麼」的回覆）不會補送，
+      // 不重抓的話畫面會一直停在舊狀態。
+      if (wsEverConnected) { showToast('已重新連線'); fetchState(); }
+      else { wsEverConnected = true; showToast('已連線'); }
+    });
     ws.addEventListener('message', e => {
       let d; try { d = JSON.parse(e.data); } catch { return; }
       if (d.type === 'message' && d.message) {
@@ -1050,6 +1180,9 @@
       } else if (d.type === 'thinking') {
         showThinking();
         showThinkingBar(d.characterId);
+      } else if (d.type === 'thinking-done') {
+        removeThinking();
+        hideThinkingBar();
       } else if (d.type === 'desktop-updated' && d.desktopCharacterIds) {
         fetchState();
       } else if (d.type === 'remote-control-state' && d.remoteControl) {
@@ -1212,13 +1345,15 @@
       {
         label: '說點什麼',
         fn: async () => {
-          showToast((ch.name || '角色') + ' 正在想…');
+          // 本地先給回饋，不等 WS 往返（伺服器的 thinking 推播也會蓋上同樣的狀態）
+          showThinking();
+          showThinkingBar(characterId);
           const r = await api('/api/characters/speak', {
             method:'POST',
             headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ characterId })
           });
-          if (r.error) showToast(r.error);
+          if (r.error) { removeThinking(); hideThinkingBar(); showToast(r.error); }
         }
       },
       {
@@ -2428,8 +2563,596 @@
   document.getElementById('sys-shutdown-btn').addEventListener('click', () => doSystemAction('shutdown'));
   document.getElementById('sys-restart-btn').addEventListener('click', () => doSystemAction('restart'));
 
+  // ╔══════════════════════════════════════════════════════════════════╗
+  // ║ 【個人新聞報】邏輯區                                              ║
+  // ║                                                                  ║
+  // ║ 與同名的 CSS 區塊（<style> 內）、HTML 區塊（#reader-overlay）構成  ║
+  // ║ 一組自足功能。對外依賴僅：                                        ║
+  // ║   api() / showToast() / openSheet() / closeSheet() / $msgInput    ║
+  // ║   / resizeTA()                                                    ║
+  // ║ 日後 mobile.html 過大時，可整組搬到 assets/mobile-reader.html。    ║
+  // ║                                                                  ║
+  // ║ 狀態分兩類（與桌面版一致）：                                       ║
+  // ║  · 釘選 / 不看了 → 主程序共用（桌機與手機同一份）                  ║
+  // ║  · 顯示模式 / 目前分頁 → 各裝置自己的 localStorage（UI 偏好）      ║
+  // ╚══════════════════════════════════════════════════════════════════╝
+
+  const NR_LS_DISPLAY = 'desktopst.mobileReader.displayMode';
+  const NR_LS_TAB = 'desktopst.mobileReader.activeTab';
+  const NR_BREAKOUT_ID = '__breakout__';
+  const NR_LOCAL_ID = '__local__';
+  const NR_OTHER_ID = '__other__';
+
+  var readerState = {
+    items: [], sources: [], keywordGroups: [], readerKeywordGroupIds: [],
+    readerMaxItems: 30, readerPerKeyword: 3, readerBreakoutQuota: 3,
+    pinnedItems: [], dismissedIds: [],
+    enabled: true, loaded: false, loading: false, error: null, fetchedAt: null,
+    refreshingSection: null, optionsOpen: false,
+    displayMode: localStorage.getItem(NR_LS_DISPLAY) === 'title-summary' ? 'title-summary' : 'title',
+    activeTab: localStorage.getItem(NR_LS_TAB) || 'all'
+  };
+
+  const $readerBody = document.getElementById('reader-body');
+  const $readerTabs = document.getElementById('reader-tabs');
+  const $readerOptions = document.getElementById('reader-options');
+  const $readerFetched = document.getElementById('reader-fetched');
+  const $readerRefresh = document.getElementById('reader-refresh');
+
+  // ── 分欄（對齊桌面 groupNewsItemsByKeyword）──
+  function nrGroupByKeyword(items, sources) {
+    const byId = new Map(sources.map(s => [s.id, s]));
+    const breakout = [], local = [], other = [];
+    const kw = new Map(), feed = new Map();
+    // 依 settings.sources 順序預建關鍵字框，欄位順序才跟桌面一致
+    for (const s of sources) {
+      if (s.type === 'keyword' && s.enabled) kw.set(s.id, { label: s.label, items: [] });
+    }
+    for (const item of items) {
+      if (item.breakout === true) { breakout.push(item); continue; }
+      if (String(item.sourceId || '').indexOf('loc-') === 0) { local.push(item); continue; }
+      const src = byId.get(item.sourceId);
+      if ((src && src.type === 'keyword') || item.sourceType === 'keyword') {
+        const key = src ? src.id : item.sourceId;
+        const label = (src && src.label) || item.keyword || item.source || key;
+        const bucket = kw.get(key);
+        if (bucket) bucket.items.push(item);
+        else kw.set(key, { label, items: [item] });
+        continue;
+      }
+      if (src) {
+        const bucket = feed.get(src.id);
+        if (bucket) bucket.items.push(item);
+        else feed.set(src.id, { label: src.label, items: [item] });
+        continue;
+      }
+      other.push(item);
+    }
+    const out = [];
+    if (breakout.length) out.push({ groupId: NR_BREAKOUT_ID, label: '🔥 熱門話題', items: breakout });
+    for (const [id, b] of kw) if (b.items.length) out.push({ groupId: 'kw:' + id, label: b.label, items: b.items });
+    if (local.length) out.push({ groupId: NR_LOCAL_ID, label: '📍 地方新聞', items: local });
+    for (const [id, b] of feed) if (b.items.length) out.push({ groupId: 'feed:' + id, label: b.label, items: b.items });
+    if (other.length) out.push({ groupId: NR_OTHER_ID, label: '其他', items: other });
+    return out;
+  }
+
+  function nrFormatTime(iso) {
+    if (!iso) return '';
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return '';
+    const mins = Math.floor((Date.now() - t) / 60000);
+    if (mins < 1) return '剛剛';
+    if (mins < 60) return mins + ' 分鐘前';
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return hours + ' 小時前';
+    const days = Math.floor(hours / 24);
+    if (days < 7) return days + ' 天前';
+    try { return new Date(iso).toLocaleString('zh-TW', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' }); }
+    catch { return iso; }
+  }
+
+  function nrIsPinned(id) { return readerState.pinnedItems.some(p => p.id === id); }
+
+  function nrSectionQuota(sectionGroupId) {
+    if (sectionGroupId === NR_BREAKOUT_ID) return readerState.readerBreakoutQuota;
+    if (sectionGroupId.indexOf('kw:') === 0) {
+      const src = readerState.sources.find(s => s.id === sectionGroupId.slice(3));
+      if (src && typeof src.readerQuota === 'number' && src.readerQuota >= 1) return src.readerQuota;
+    }
+    return readerState.readerPerKeyword;
+  }
+
+  // ── 開關面板 ──
+  async function openReaderPanel() {
+    openSheet('reader-overlay');
+    if (!readerState.loaded) await nrLoad();
+    else nrRender();
+  }
+
+  async function nrLoad() {
+    readerState.loading = true; readerState.error = null;
+    nrRender();
+    const st = await api('/api/news/reader/state');
+    if (st.error) {
+      readerState.loading = false;
+      readerState.error = '讀不到新聞報設定';
+      nrRender();
+      return;
+    }
+    readerState.enabled = st.enabled !== false;
+    readerState.sources = st.sources || [];
+    readerState.keywordGroups = st.keywordGroups || [];
+    readerState.readerKeywordGroupIds = st.readerKeywordGroupIds || [];
+    readerState.readerMaxItems = st.readerMaxItems || 30;
+    readerState.readerPerKeyword = st.readerPerKeyword || 3;
+    readerState.readerBreakoutQuota = typeof st.readerBreakoutQuota === 'number' ? st.readerBreakoutQuota : 3;
+    readerState.pinnedItems = st.pinnedItems || [];
+    readerState.dismissedIds = st.dismissedIds || [];
+    readerState.loaded = true;
+    if (!readerState.enabled) { readerState.loading = false; nrRender(); return; }
+    await nrFetchBatch(false);
+  }
+
+  /**
+   * 抓一批。excludeCurrent＝「換一批」：排除畫面上全部（含釘選）以免抽到重複的，
+   * 釘選的在本地併回來。桌面版還會依每欄配額做細部併回，手機這裡簡化為
+   * 「釘選的一律保留，分欄時各自歸位」，行為好預測、不需要維護第二份配額演算法。
+   */
+  async function nrFetchBatch(excludeCurrent) {
+    readerState.loading = true; readerState.error = null;
+    nrRender();
+    const pinned = readerState.pinnedItems;
+    const excludeIds = excludeCurrent
+      ? readerState.items.map(i => i.id)
+      : pinned.map(p => p.id);
+    const r = await api('/api/news/reader/batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ excludeIds, strictExclude: !!excludeCurrent })
+    });
+    readerState.loading = false;
+    if (r.error || r.ok === false) {
+      readerState.error = r.error || '抓取失敗';
+      nrRender();
+      return;
+    }
+    nrApplySnapshot(r);
+    const dismissed = new Set(readerState.dismissedIds);
+    const fresh = (r.items || []).filter(i => !dismissed.has(i.id));
+    const freshIds = new Set(fresh.map(i => i.id));
+    const keptPins = pinned.filter(p => !freshIds.has(p.id) && !dismissed.has(p.id));
+    readerState.items = keptPins.concat(fresh);
+    readerState.fetchedAt = r.fetchedAt || Date.now();
+    nrRender();
+  }
+
+  async function nrRefreshSection(sectionGroupId) {
+    readerState.refreshingSection = sectionGroupId;
+    nrRender();
+    const current = readerState.items.filter(i => nrSectionOf(i) === sectionGroupId);
+    const r = await api('/api/news/reader/section', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sectionGroupId,
+        excludeIds: current.filter(i => !nrIsPinned(i.id)).map(i => i.id),
+        strictExclude: true
+      })
+    });
+    readerState.refreshingSection = null;
+    if (r.error || r.ok === false) { showToast(r.error || '重抓失敗'); nrRender(); return; }
+    nrApplySnapshot(r);
+    nrReplaceSection(sectionGroupId, r.items || []);
+    nrRender();
+  }
+
+  /** 這則新聞屬於哪一欄（與 nrGroupByKeyword 同規則） */
+  function nrSectionOf(item) {
+    if (item.breakout === true) return NR_BREAKOUT_ID;
+    if (String(item.sourceId || '').indexOf('loc-') === 0) return NR_LOCAL_ID;
+    const src = readerState.sources.find(s => s.id === item.sourceId);
+    if ((src && src.type === 'keyword') || item.sourceType === 'keyword') return 'kw:' + (src ? src.id : item.sourceId);
+    if (src) return 'feed:' + src.id;
+    return NR_OTHER_ID;
+  }
+
+  function nrReplaceSection(sectionGroupId, freshItems) {
+    const dismissed = new Set(readerState.dismissedIds);
+    const kept = readerState.items.filter(i => nrSectionOf(i) !== sectionGroupId || nrIsPinned(i.id));
+    const keptIds = new Set(kept.map(i => i.id));
+    const fresh = freshItems.filter(i => !dismissed.has(i.id) && !keptIds.has(i.id));
+    readerState.items = kept.concat(fresh);
+  }
+
+  function nrApplySnapshot(r) {
+    if (Array.isArray(r.sources)) readerState.sources = r.sources;
+    if (Array.isArray(r.keywordGroups)) readerState.keywordGroups = r.keywordGroups;
+    if (Array.isArray(r.readerKeywordGroupIds)) readerState.readerKeywordGroupIds = r.readerKeywordGroupIds;
+    if (typeof r.readerMaxItems === 'number') readerState.readerMaxItems = r.readerMaxItems;
+    if (typeof r.readerPerKeyword === 'number') readerState.readerPerKeyword = r.readerPerKeyword;
+    if (typeof r.readerBreakoutQuota === 'number') readerState.readerBreakoutQuota = r.readerBreakoutQuota;
+  }
+
+  // ── 共用狀態寫回 ──
+  function nrSavePinned() {
+    void api('/api/news/reader/pinned', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: readerState.pinnedItems })
+    });
+  }
+  function nrSaveDismissed() {
+    void api('/api/news/reader/dismissed', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: readerState.dismissedIds })
+    });
+  }
+
+  function nrTogglePin(item) {
+    const exists = nrIsPinned(item.id);
+    readerState.pinnedItems = exists
+      ? readerState.pinnedItems.filter(p => p.id !== item.id)
+      : readerState.pinnedItems.concat([item]);
+    nrSavePinned();
+    nrRender();
+  }
+
+  function nrDismiss(item) {
+    if (readerState.dismissedIds.indexOf(item.id) < 0) {
+      readerState.dismissedIds = readerState.dismissedIds.concat([item.id]).slice(-500);
+      nrSaveDismissed();
+    }
+    if (nrIsPinned(item.id)) {
+      readerState.pinnedItems = readerState.pinnedItems.filter(p => p.id !== item.id);
+      nrSavePinned();
+    }
+    readerState.items = readerState.items.filter(i => i.id !== item.id);
+    nrRender();
+  }
+
+  /** 桌面版是在桌機開發話視窗；手機版丟進手機自己的輸入框才合理（人在外面） */
+  function nrInsertToInput(item) {
+    const text = item.summary ? item.title + '\n' + item.summary : item.title;
+    const cur = $msgInput.value;
+    $msgInput.value = cur ? cur.replace(/\s*$/, '') + '\n' + text : text;
+    resizeTA();
+    closeSheet('reader-overlay');
+    $msgInput.focus();
+    showToast('已放進輸入框');
+  }
+
+  function nrOpenOriginal(item) {
+    if (item.sourceId) {
+      void api('/api/news/mark-opened', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceId: item.sourceId })
+      });
+    }
+    if (item.url) window.open(item.url, '_blank', 'noopener');
+  }
+
+  // ── 渲染 ──
+  function nrRender() {
+    nrRenderToolbar();
+    nrRenderOptions();
+    nrRenderTabs();
+    nrRenderBody();
+    $readerFetched.textContent = readerState.fetchedAt
+      ? '更新於 ' + new Date(readerState.fetchedAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
+      : '';
+    $readerRefresh.disabled = readerState.loading || !readerState.enabled;
+    $readerRefresh.textContent = readerState.loading ? '抓取中…' : '🔄 換一批';
+  }
+
+  function nrRenderToolbar() {
+    // 兩顆都標明「現在是什麼狀態」，避免只寫「標題」「欄位」看不出是開關還是分類
+    const dBtn = document.getElementById('reader-display-btn');
+    dBtn.textContent = readerState.displayMode === 'title' ? '顯示：標題' : '顯示：標題＋摘要';
+    const oBtn = document.getElementById('reader-options-btn');
+    oBtn.classList.toggle('on', readerState.optionsOpen);
+    // 收合時 ▶、展開時 ▲，兩者同一套實心三角形，一眼看得出是同一顆開關的兩個狀態
+    oBtn.textContent = readerState.optionsOpen ? '▲ 收合欄位設定' : '▶ 欄位設定';
+  }
+
+  /**
+   * 欄位順序清單要顯示哪些關鍵字來源。
+   * 必須跟著「要抓哪些關鍵字組」走：沒選＝全部組，有選＝只列那幾組的關鍵字，
+   * 否則切了組卻看到同一份清單，會以為切換沒生效。
+   */
+  function nrVisibleKeywordSources() {
+    const selected = readerState.readerKeywordGroupIds;
+    return readerState.sources.filter(s => {
+      if (s.type !== 'keyword' || !s.enabled) return false;
+      if (s.origin === 'location') return false;
+      if (selected.length === 0) return true;
+      return selected.indexOf(s.groupId || 'default') >= 0;
+    });
+  }
+
+  function nrGroupNameOf(src) {
+    const gid = src.groupId || 'default';
+    const g = readerState.keywordGroups.find(x => x.id === gid);
+    return g ? g.name : '';
+  }
+
+  function nrRenderOptions() {
+    $readerOptions.style.display = readerState.optionsOpen ? '' : 'none';
+    if (!readerState.optionsOpen) return;
+    $readerOptions.innerHTML = '';
+
+    // 面板自己的標題列與收合鈕：右上角那顆 ✕ 是關掉整個新聞報，不是關這一區
+    const head = nEl2('div', 'nr-opt-head');
+    head.appendChild(nEl2('span', 'nr-opt-heading', '欄位設定'));
+    const doneBtn = nEl2('button', 'nr-opt-done', '完成');
+    doneBtn.type = 'button';
+    doneBtn.addEventListener('click', () => {
+      readerState.optionsOpen = false;
+      nrRender();
+    });
+    head.appendChild(doneBtn);
+    $readerOptions.appendChild(head);
+
+    // 關鍵字組多選
+    if (readerState.keywordGroups.length > 0) {
+      $readerOptions.appendChild(nEl2('div', 'nr-opt-title', '要抓哪些關鍵字組'));
+      const row = nEl2('div', 'nr-chiprow');
+      const selected = readerState.readerKeywordGroupIds;
+      const allBtn = nEl2('button', 'nr-chip' + (selected.length === 0 ? ' on' : ''), '全部組');
+      allBtn.type = 'button';
+      allBtn.addEventListener('click', () => nrSetGroups([]));
+      row.appendChild(allBtn);
+      for (const g of readerState.keywordGroups) {
+        const on = selected.indexOf(g.id) >= 0;
+        const btn = nEl2('button', 'nr-chip' + (on ? ' on' : ''), g.name);
+        btn.type = 'button';
+        btn.addEventListener('click', () => {
+          const next = on ? selected.filter(x => x !== g.id) : selected.concat([g.id]);
+          nrSetGroups(next);
+        });
+        row.appendChild(btn);
+      }
+      $readerOptions.appendChild(row);
+    }
+
+    // 欄位順序（手機不做拖曳，改上下移）
+    const kwSources = nrVisibleKeywordSources();
+    const showGroupTag = readerState.readerKeywordGroupIds.length === 0
+      && readerState.keywordGroups.length > 1;
+    if (kwSources.length > 1) {
+      $readerOptions.appendChild(nEl2('div', 'nr-opt-title', '欄位順序'));
+      kwSources.forEach((src, idx) => {
+        const row = nEl2('div', 'nr-orderrow');
+        row.appendChild(nEl2('span', 'nr-ordername', src.label));
+        // 顯示全部組時標一下每個關鍵字屬於哪組，才知道清單為什麼混在一起
+        if (showGroupTag) {
+          const tag = nrGroupNameOf(src);
+          if (tag) row.appendChild(nEl2('span', 'nr-ordergroup', tag));
+        }
+        const up = nEl2('button', 'nr-movebtn', '▲');
+        up.type = 'button'; up.disabled = idx === 0;
+        up.addEventListener('click', () => nrMoveSource(src.id, -1));
+        const down = nEl2('button', 'nr-movebtn', '▼');
+        down.type = 'button'; down.disabled = idx === kwSources.length - 1;
+        down.addEventListener('click', () => nrMoveSource(src.id, 1));
+        row.appendChild(up); row.appendChild(down);
+        $readerOptions.appendChild(row);
+      });
+    } else if (kwSources.length === 1) {
+      $readerOptions.appendChild(nEl2('div', 'nr-opt-title', '欄位順序'));
+      $readerOptions.appendChild(nEl2('div', 'nr-opt-note',
+        '這組只有「' + kwSources[0].label + '」一個關鍵字，沒有順序可調。'));
+    } else {
+      $readerOptions.appendChild(nEl2('div', 'nr-opt-title', '欄位順序'));
+      $readerOptions.appendChild(nEl2('div', 'nr-opt-note', '選取的組裡沒有啟用中的關鍵字。'));
+    }
+  }
+
+  function nrRenderTabs() {
+    $readerTabs.innerHTML = '';
+    const sections = nrGroupByKeyword(readerState.items, readerState.sources);
+    // 目前分頁所屬的欄已經沒東西了 → 退回「全部」
+    if (readerState.activeTab !== 'all' && !sections.some(s => s.groupId === readerState.activeTab)) {
+      readerState.activeTab = 'all';
+      localStorage.setItem(NR_LS_TAB, 'all');
+    }
+    const mk = (id, label) => {
+      const btn = nEl2('button', 'tab-btn' + (readerState.activeTab === id ? ' active' : ''), label);
+      btn.type = 'button';
+      btn.addEventListener('click', () => {
+        readerState.activeTab = id;
+        localStorage.setItem(NR_LS_TAB, id);
+        nrRender();
+        $readerBody.scrollTop = 0;
+      });
+      return btn;
+    };
+    $readerTabs.appendChild(mk('all', '全部'));
+    for (const sec of sections) $readerTabs.appendChild(mk(sec.groupId, sec.label));
+  }
+
+  function nrRenderBody() {
+    $readerBody.innerHTML = '';
+
+    if (!readerState.enabled) {
+      $readerBody.appendChild(nEl2('div', 'nr-empty',
+        '新聞模組尚未啟用。\n請在電腦上的「設定 → 擴充」把新聞陪聊打開，就能在這裡看新聞報。'));
+      return;
+    }
+    if (readerState.loading && readerState.items.length === 0) {
+      for (let i = 0; i < 5; i++) $readerBody.appendChild(nEl2('div', 'nr-skeleton'));
+      return;
+    }
+    if (readerState.error) {
+      const box = nEl2('div', 'nr-empty', readerState.error);
+      const retry = nEl2('button', 'nr-optbtn', '重試');
+      retry.type = 'button';
+      retry.style.marginTop = '12px';
+      retry.addEventListener('click', () => void nrFetchBatch(false));
+      box.appendChild(document.createElement('br'));
+      box.appendChild(retry);
+      $readerBody.appendChild(box);
+      return;
+    }
+
+    const sections = nrGroupByKeyword(readerState.items, readerState.sources);
+    const shown = readerState.activeTab === 'all'
+      ? sections
+      : sections.filter(s => s.groupId === readerState.activeTab);
+
+    if (shown.length === 0) {
+      $readerBody.appendChild(nEl2('div', 'nr-empty',
+        '目前沒有新聞。\n可以按下面的「換一批」，或在電腦上調整關鍵字。'));
+      return;
+    }
+
+    for (const sec of shown) {
+      const secEl = nEl2('div', 'nr-section');
+      const head = nEl2('div', 'nr-section-head');
+      head.appendChild(nEl2('span', 'nr-section-name', sec.label + '（' + sec.items.length + '）'));
+
+      // 熱門／關鍵字欄才有獨立配額；地方／訂閱改的是全域預設，一樣給輸入框
+      const quota = nEl2('input', 'nr-quota');
+      quota.type = 'number'; quota.inputMode = 'numeric';
+      quota.min = '0'; quota.max = '20';
+      quota.value = String(nrSectionQuota(sec.groupId));
+      quota.title = '此欄抓取則數';
+      quota.addEventListener('change', () => {
+        const n = Math.max(0, Math.min(20, Math.floor(Number(quota.value))));
+        if (!isFinite(n)) return;
+        void nrSetQuota(sec.groupId, n);
+      });
+      head.appendChild(quota);
+
+      const refreshBtn = nEl2('button', 'nr-secbtn',
+        readerState.refreshingSection === sec.groupId ? '重抓中…' : '↻ 重抓');
+      refreshBtn.type = 'button';
+      refreshBtn.disabled = readerState.refreshingSection != null;
+      refreshBtn.addEventListener('click', () => void nrRefreshSection(sec.groupId));
+      head.appendChild(refreshBtn);
+      secEl.appendChild(head);
+
+      // 釘選的排前面
+      const ordered = sec.items.slice().sort((a, b) => (nrIsPinned(b.id) ? 1 : 0) - (nrIsPinned(a.id) ? 1 : 0));
+      for (const item of ordered) secEl.appendChild(nrRenderCard(item));
+      $readerBody.appendChild(secEl);
+    }
+  }
+
+  function nrRenderCard(item) {
+    const pinned = nrIsPinned(item.id);
+    const card = nEl2('div', 'nr-card' + (pinned ? ' pinned' : ''));
+    card.appendChild(nEl2('div', 'nr-card-title', item.title));
+    if (readerState.displayMode === 'title-summary' && item.summary) {
+      card.appendChild(nEl2('div', 'nr-card-summary', item.summary));
+    }
+    const meta = [item.source, nrFormatTime(item.publishedAt)].filter(Boolean).join(' · ');
+    if (meta) card.appendChild(nEl2('div', 'nr-card-meta', meta));
+
+    const actions = nEl2('div', 'nr-card-actions');
+    if (item.url) {
+      const open = nEl2('button', 'nr-act', '↗ 原文');
+      open.type = 'button';
+      open.addEventListener('click', () => nrOpenOriginal(item));
+      actions.appendChild(open);
+    }
+    const pin = nEl2('button', 'nr-act' + (pinned ? ' on' : ''), pinned ? '📌 已釘' : '📌 釘選');
+    pin.type = 'button';
+    pin.addEventListener('click', () => nrTogglePin(item));
+    actions.appendChild(pin);
+
+    const chat = nEl2('button', 'nr-act', '💬 聊這個');
+    chat.type = 'button';
+    chat.addEventListener('click', () => nrInsertToInput(item));
+    actions.appendChild(chat);
+
+    const skip = nEl2('button', 'nr-act', '✕ 不看了');
+    skip.type = 'button';
+    skip.addEventListener('click', () => nrDismiss(item));
+    actions.appendChild(skip);
+
+    card.appendChild(actions);
+    return card;
+  }
+
+  // ── 設定寫回 ──
+  async function nrSetGroups(ids) {
+    readerState.readerKeywordGroupIds = ids;
+    nrRender();
+    const r = await api('/api/news/reader/groups', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids })
+    });
+    if (r.error) { showToast('設定失敗'); return; }
+    await nrFetchBatch(false);
+  }
+
+  async function nrSetQuota(sectionGroupId, quota) {
+    readerState.refreshingSection = sectionGroupId;
+    nrRender();
+    const r = await api('/api/news/reader/quota', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sectionGroupId, quota })
+    });
+    readerState.refreshingSection = null;
+    if (r.error || r.ok === false) { showToast(r.error || '設定失敗'); nrRender(); return; }
+    nrApplySnapshot(r);
+    nrReplaceSection(sectionGroupId, r.items || []);
+    nrRender();
+  }
+
+  async function nrMoveSource(sourceId, delta) {
+    const all = readerState.sources.slice();
+    const idx = all.findIndex(s => s.id === sourceId);
+    if (idx < 0) return;
+    // 只在「目前清單上看得到的關鍵字」之間交換位置，跳過中間夾雜的其他組與訂閱來源，
+    // 這樣畫面上按 ▲ 就真的跟上一列對調，不會跳到看不見的項目上。
+    const visibleIds = new Set(nrVisibleKeywordSources().map(s => s.id));
+    const visibleIdx = all.map((s, i) => (visibleIds.has(s.id) ? i : -1)).filter(i => i >= 0);
+    const posInVisible = visibleIdx.indexOf(idx);
+    const targetIdx = visibleIdx[posInVisible + delta];
+    if (targetIdx == null) return;
+    const tmp = all[idx]; all[idx] = all[targetIdx]; all[targetIdx] = tmp;
+    readerState.sources = all;
+    nrRender();
+    const r = await api('/api/news/reader/order', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderedSourceIds: all.map(s => s.id) })
+    });
+    if (r.error) { showToast('排序儲存失敗'); return; }
+    if (Array.isArray(r.sources)) { readerState.sources = r.sources; nrRender(); }
+  }
+
+  function nEl2(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  document.getElementById('reader-btn').addEventListener('click', () => void openReaderPanel());
+  document.getElementById('reader-close').addEventListener('click', () => closeSheet('reader-overlay'));
+  document.getElementById('reader-display-btn').addEventListener('click', () => {
+    readerState.displayMode = readerState.displayMode === 'title' ? 'title-summary' : 'title';
+    localStorage.setItem(NR_LS_DISPLAY, readerState.displayMode);
+    nrRender();
+  });
+  document.getElementById('reader-options-btn').addEventListener('click', () => {
+    readerState.optionsOpen = !readerState.optionsOpen;
+    nrRender();
+  });
+  $readerRefresh.addEventListener('click', () => void nrFetchBatch(true));
+  // ╚═══ 個人新聞報邏輯區結束 ═══╝
+
   // ── Util ──
   function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  // ── 回到前景時對帳 ──
+  // 手機切走／鎖屏時 WS 常被系統靜默關閉，close 事件的重連排程也可能被凍結，
+  // 回來時主動確認連線狀態並重抓一次，避免畫面停在離開前的舊訊息。
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!ws) connectWS();                              // 已斷線：重連，補抓交給 open 事件
+    else if (ws.readyState !== WebSocket.OPEN) fetchState();  // CONNECTING／CLOSING：先補一次畫面
+    else fetchState();
+  });
 
   // ── Init ──
   fetchState().then(() => { fetchLibrary(); connectWS(); initRemoteControl(); });

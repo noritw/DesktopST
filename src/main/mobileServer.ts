@@ -120,6 +120,15 @@ export function pushThinking(charId?: string): void {
   }
 }
 
+// 回覆流程結束（含失敗）：讓手機端收掉「正在回覆…」提示。
+// 成功時訊息本身就會關掉提示，這裡主要是保險失敗／無輸出的情況。
+export function pushThinkingDone(charId?: string): void {
+  const payload = JSON.stringify({ type: 'thinking-done', characterId: charId ?? '' })
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(payload)
+  }
+}
+
 export function pushRemoteControlState(): void {
   if (!bridge) return
   const payload = JSON.stringify({

@@ -241,6 +241,22 @@ npm run typecheck # 型別檢查
   - 全部走粗略取整（Nh / Nd），不逐則加時間戳以省 Token；trigger 時間行與斷層標註皆受 `injectSystemTime` 開關控制（關閉時 prompt 完全不含現實時間，TRPG／故事接龍場合適用）
   - 時間注入納入情境模組覆蓋（虛擬 id `desktopst.systemTime`）：情境可強制開／關，覆蓋經 `applySceneModuleOverrides()` 改寫 `injectSystemTime` 後傳入 `chatWithLLM`（一般聊天、群聊接龍、說點什麼、提醒皆生效）；世界觀分頁全域開關旁有被覆蓋提示
 
+- [x] 手機版個人新聞報 ＋ 遠端同步修正
+  - **同步修正**：手機 WS 重連後呼叫 `fetchState()` 對帳（鎖屏／切背景斷線期間的訊息不再漏掉）、
+    `visibilitychange` 回前景重抓、`forceSpeakDirect` 補推 `thinking`（遠端按「說點什麼」原本完全沒回饋）、
+    新增 `thinking-done` 推播 ＋ 90 秒逾時保險
+  - **新聞報手機版**：header 📰 開圖層覆蓋；桌面的報紙分欄在手機改為分頁 chips（每欄一個分頁），
+    支援換一批、單欄重抓、每欄則數、關鍵字組多選、欄位上下移（取代拖曳）、釘選、不看了、開原文
+  - 「聊這個」在手機是插進**手機自己的輸入框**（桌面版是在桌機開發話視窗，兩邊語意相同但落點不同）
+  - **釘選 / 不看了改為跨裝置共用**：從 renderer 的 localStorage 搬到主程序
+    `modules/desktopst.news/reader-state.json`（`readerState.ts`），桌面與手機同一份；
+    舊 localStorage 內容首次開窗自動搬移一次後清掉。
+    顯示模式 / 目前分頁刻意**不**共用（UI 偏好，共用會讓桌機畫面被手機操作帶著跳）
+  - 抓取邏輯抽到 `readerFetch.ts` 給 IPC 與 HTTP 共用；手機路由在 `mobileRoutes.ts`（`/api/news/reader/*`）
+  - **順手修掉既有 bug**：`news:save-settings` 收到 partial 時會把其餘設定清成預設，
+    導致在桌面新聞報拖欄位／改則數就清空關鍵字、黑名單、排程等；改為先讀現況再淺層合併
+  - 詳見 `docs/news-reader-mobile-plan.md`
+
 **尚未實作（第一版排除）：**
 - Lorebook
 - TTS（文字轉語音）
