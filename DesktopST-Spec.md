@@ -1368,9 +1368,9 @@ src/styles/global.css     ← 全域字型載入
 - **使用者前置條件**：需自行至 Spotify Developer Dashboard 建立 App 並取得 Client ID，將 `desktopst://spotify-callback` 加入 Redirect URIs
 - **取得資訊**：
   - 當前曲目名稱、藝術家
-  - 藝術家流派（genres，via `/v1/artists/{id}`）
-  - 曲風特徵 energy / valence（via `/v1/audio-features/{id}`）
-- **注入格式**：`[Spotify: Now Playing] "曲名" — 藝術家 · 流派 · 氣氛描述`
+  - ~~藝術家流派（genres）~~ — 兩次獨立取樣皆回傳空陣列，2026-07-28 移除
+  - ~~曲風特徵 energy / valence~~ — Spotify 已停用 `/v1/audio-features`（一律 403），2026-07-28 移除
+- **注入格式**：`[Spotify: Now Playing] "曲名" — 藝術家 · 發行年`
 - **Token 管理**：Access Token 過期自動以 Refresh Token 更新；兩者皆以 `safeStorage` 加密存於 `%APPDATA%\DesktopST\spotify-auth.json`
 - **設定位置**：全域設定 → 世界觀分頁 → Spotify 區塊（顯示連線狀態 / 開啟設定視窗按鈕）
 - **設定視窗**（`spotify-settings` window）：輸入 Client ID → 點「連線」開啟瀏覽器授權 → 回調後自動關閉視窗並顯示已連線帳號名稱；支援斷線

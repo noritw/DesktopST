@@ -184,7 +184,10 @@ npm run typecheck # 型別檢查
 - [x] Spotify 音樂偵測
   - OAuth PKCE 授權流程（自訂 URI scheme `desktopst://spotify-callback`）
   - 使用者需自行申請 Spotify Developer App（Client ID）並授權個人帳號
-  - 取得當前播放曲目、藝術家、流派（genres）、曲風特徵（energy / valence）
+  - 取得當前播放曲目、藝術家、發行年
+  - 流派（genres）與曲風特徵（energy / valence）已移除：genres 兩次取樣皆回傳空陣列，
+    audio-features 對本 app 已停用（實測一律 403）；連帶 `/v1/recommendations`、`/v1/browse/*`
+    也已 404，故「角色自動選歌播放」不可行
   - 對話 system prompt 自動注入 `[Spotify: Now Playing] "曲名" — 藝術家` 格式字串
   - Token 自動刷新，Access Token / Refresh Token 以 `safeStorage` 加密存於 `spotify-auth.json`
   - Spotify 設定視窗（`spotify-settings`）：輸入 Client ID、OAuth 連線、斷線、顯示已連線帳號

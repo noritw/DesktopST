@@ -176,7 +176,6 @@ interface CurrentTrack {
   id: string
   name: string
   artists: string[]
-  primaryArtistId: string
   album: string
   releaseYear: string
   isPlaying: boolean
@@ -203,7 +202,6 @@ async function getCurrentTrack(accessToken: string): Promise<CurrentTrack | null
       id: data.item.id,
       name: data.item.name,
       artists: data.item.artists.map(a => a.name),
-      primaryArtistId: data.item.artists[0]?.id ?? '',
       album: data.item.album.name,
       releaseYear,
       isPlaying: data.is_playing
@@ -211,42 +209,9 @@ async function getCurrentTrack(accessToken: string): Promise<CurrentTrack | null
   } catch { return null }
 }
 
-async function getArtistGenres(accessToken: string, artistId: string): Promise<string[]> {
-  if (!artistId) return []
-  try {
-    const res = await fetch(`https://api.spotify.com/v1/artists/${artistId}`, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    })
-    if (!res.ok) return []
-    const data = await res.json() as { genres?: string[] }
-    return data.genres?.slice(0, 3) ?? []
-  } catch { return [] }
-}
-
-interface AudioFeatures {
-  energy: number
-  valence: number
-  tempo: number
-}
-
-async function getAudioFeatures(accessToken: string, trackId: string): Promise<AudioFeatures | null> {
-  try {
-    const res = await fetch(`https://api.spotify.com/v1/audio-features/${trackId}`, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    })
-    if (!res.ok) {
-      console.warn(`[Spotify] audio-features HTTP ${res.status} for ${trackId}`)
-      return null
-    }
-    return res.json() as Promise<AudioFeatures>
-  } catch { return null }
-}
-
-function describeMood(energy: number, valence: number): string {
-  const e = energy > 0.65 ? 'energetic' : energy > 0.4 ? 'moderate' : 'calm'
-  const v = valence > 0.65 ? 'upbeat' : valence > 0.4 ? 'neutral' : 'melancholic'
-  return `${e} & ${v}`
-}
+// 註：曲風特徵（/v1/audio-features）與藝術家流派（/v1/artists/{id}.genres）
+// 皆已對本 app 停用或不再回傳資料（實測 audio-features 一律 403、genres 一律空陣列），
+// 兩次獨立取樣結果一致，故整段移除，不再對這兩支端點發送請求。
 
 // ── Public context builder ────────────────────────────────
 
@@ -257,16 +222,6 @@ export async function getSpotifyContextString(settings: AppSettings): Promise<st
   const track = await getCurrentTrack(accessToken)
   if (!track?.isPlaying) return null
 
-  const [features, genres] = await Promise.all([
-    getAudioFeatures(accessToken, track.id),
-    getArtistGenres(accessToken, track.primaryArtistId)
-  ])
-
-  const meta: string[] = []
-  if (track.releaseYear) meta.push(track.releaseYear)
-  if (genres.length > 0) meta.push(genres.join(', '))
-  if (features) meta.push(describeMood(features.energy, features.valence))
-
-  const metaStr = meta.length > 0 ? ` · ${meta.join(' · ')}` : ''
+  const metaStr = track.releaseYear ? ` · ${track.releaseYear}` : ''
   return `[Spotify: Now Playing] "${track.name}" — ${track.artists.join(', ')}${metaStr}`
 }
