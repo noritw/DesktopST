@@ -156,6 +156,7 @@ export function NewsSettingsPanel() {
   const [packMsg, setPackMsg] = useState<string | null>(null)
   const [dragKwId, setDragKwId] = useState<string | null>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingSave = useRef<NewsModuleSettings | null>(null)
 
   useEffect(() => {
     void (async () => {
@@ -164,13 +165,29 @@ export function NewsSettingsPanel() {
     })()
   }, [])
 
+  // 面板卸載（切分頁／關窗）時把還在防抖中的變更立刻送出，避免最後一次修改遺失
+  useEffect(() => {
+    return () => {
+      if (!saveTimer.current) return
+      clearTimeout(saveTimer.current)
+      saveTimer.current = null
+      if (pendingSave.current) {
+        void window.api.invoke('news:save-settings', pendingSave.current)
+        pendingSave.current = null
+      }
+    }
+  }, [])
+
   // 變更後防抖存檔
   function update(mutator: (prev: NewsModuleSettings) => NewsModuleSettings) {
     setSettings(prev => {
       if (!prev) return prev
       const next = mutator(prev)
+      pendingSave.current = next
       if (saveTimer.current) clearTimeout(saveTimer.current)
       saveTimer.current = setTimeout(() => {
+        saveTimer.current = null
+        pendingSave.current = null
         void window.api.invoke('news:save-settings', next)
       }, 300)
       return next
@@ -661,6 +678,8 @@ export function NewsSettingsPanel() {
                   return
                 }
                 if (saveTimer.current) clearTimeout(saveTimer.current)
+                saveTimer.current = null
+                pendingSave.current = null
                 setSettings(res.settings)
                 const s = res.summary
                 setPackMsg(

@@ -339,6 +339,8 @@ export default function SettingsWindow() {
   const messagePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const draftRef = useRef<AppSettings | null>(null)
   const dirtyRef = useRef(false)
+  const personaDraftRef = useRef<PersonaPreset | null>(null)
+  const worldDraftRef = useRef<WorldPreset | null>(null)
 
   // 提醒音效路徑改變時重新建立 Audio 實例（只載入一次）
   const customSoundPath = draft?.ui.reminderNotificationSound?.customSoundPath
@@ -537,6 +539,19 @@ export default function SettingsWindow() {
   // 保持 ref 與最新 state 同步，供 unmount cleanup 使用
   useEffect(() => { draftRef.current = draft }, [draft])
   useEffect(() => { dirtyRef.current = dirty }, [dirty])
+  useEffect(() => { personaDraftRef.current = personaDraft }, [personaDraft])
+  useEffect(() => { worldDraftRef.current = worldDraft }, [worldDraft])
+
+  // preset 草稿與 AppSettings 是分開的 state；編輯時必須自行標記 dirty，
+  // 否則自動儲存的防抖不會被觸發（狀態列會誤顯示「已儲存」）。
+  const editPersonaDraft = (fn: (prev: PersonaPreset) => PersonaPreset) => {
+    setDirty(true)
+    setPersonaDraft(prev => prev ? fn(prev) : prev)
+  }
+  const editWorldDraft = (fn: (prev: WorldPreset) => WorldPreset) => {
+    setDirty(true)
+    setWorldDraft(prev => prev ? fn(prev) : prev)
+  }
 
   // 視窗關閉前若有未儲存修改，立即觸發儲存（fire-and-forget）
   useEffect(() => {
@@ -545,6 +560,12 @@ export default function SettingsWindow() {
       const data = draftRef.current
       const settingsToSave = JSON.parse(JSON.stringify(data)) as AppSettings
       settingsToSave.llm.model = settingsToSave.llm.models?.[settingsToSave.llm.provider] ?? settingsToSave.llm.model
+      if (worldDraftRef.current) {
+        window.api.invoke('presets:world:save', { ...worldDraftRef.current, updatedAt: Date.now() }).catch(() => {})
+      }
+      if (personaDraftRef.current) {
+        window.api.invoke('presets:persona:save', { ...personaDraftRef.current, updatedAt: Date.now() }).catch(() => {})
+      }
       window.api.invoke('settings:save', settingsToSave).catch(() => {})
     }
   }, [])
@@ -1663,7 +1684,7 @@ export default function SettingsWindow() {
                   <textarea
                     className="input-field min-h-[120px] resize-none"
                     value={worldDraft.worldSetting}
-                    onChange={e => setWorldDraft(prev => prev ? { ...prev, worldSetting: e.target.value } : prev)}
+                    onChange={e => editWorldDraft(prev => ({ ...prev, worldSetting: e.target.value }))}
                     placeholder="描述這個世界的背景設定..."
                   />
                   <p className="text-[11px] text-secondary leading-snug mt-1.5">
@@ -1674,7 +1695,7 @@ export default function SettingsWindow() {
                   <textarea
                     className="input-field min-h-[80px] resize-none"
                     value={worldDraft.interactionExample}
-                    onChange={e => setWorldDraft(prev => prev ? { ...prev, interactionExample: e.target.value } : prev)}
+                    onChange={e => editWorldDraft(prev => ({ ...prev, interactionExample: e.target.value }))}
                     placeholder="角色之間如何互動的範例..."
                   />
                   <p className="text-[11px] text-secondary leading-snug mt-1.5">
@@ -1917,14 +1938,14 @@ export default function SettingsWindow() {
                 <Field label="顯示名稱">
                   <input type="text" className="input-field"
                     value={personaDraft.displayName}
-                    onChange={e => setPersonaDraft(prev => prev ? { ...prev, displayName: e.target.value } : prev)}
+                    onChange={e => editPersonaDraft(prev => ({ ...prev, displayName: e.target.value }))}
                     placeholder="你的名字"
                   />
                 </Field>
                 <Field label="角色如何稱呼你">
                   <input type="text" className="input-field"
                     value={personaDraft.nickname}
-                    onChange={e => setPersonaDraft(prev => prev ? { ...prev, nickname: e.target.value } : prev)}
+                    onChange={e => editPersonaDraft(prev => ({ ...prev, nickname: e.target.value }))}
                     placeholder="主人、大人、小名..."
                   />
                 </Field>
@@ -1937,7 +1958,7 @@ export default function SettingsWindow() {
                         {n}
                         <button
                           type="button"
-                          onClick={() => setPersonaDraft(prev => prev ? { ...prev, nicknames: (prev.nicknames ?? []).filter((_, i) => i !== idx) } : prev)}
+                          onClick={() => editPersonaDraft(prev => ({ ...prev, nicknames: (prev.nicknames ?? []).filter((_, i) => i !== idx) }))}
                           className="text-secondary hover:text-primary leading-none"
                           title="移除"
                         >×</button>
@@ -1956,22 +1977,22 @@ export default function SettingsWindow() {
                         e.preventDefault()
                         const v = personaNickDraft.trim()
                         if (!v) return
-                        setPersonaDraft(prev => {
-                          if (!prev) return prev
-                          if ((prev.nicknames ?? []).includes(v)) return prev
-                          return { ...prev, nicknames: [...(prev.nicknames ?? []), v] }
-                        })
+                        editPersonaDraft(prev =>
+                          (prev.nicknames ?? []).includes(v)
+                            ? prev
+                            : { ...prev, nicknames: [...(prev.nicknames ?? []), v] }
+                        )
                         setPersonaNickDraft('')
                       }
                     }}
                     onBlur={() => {
                       const v = personaNickDraft.trim()
                       if (!v) return
-                      setPersonaDraft(prev => {
-                        if (!prev) return prev
-                        if ((prev.nicknames ?? []).includes(v)) return prev
-                        return { ...prev, nicknames: [...(prev.nicknames ?? []), v] }
-                      })
+                      editPersonaDraft(prev =>
+                        (prev.nicknames ?? []).includes(v)
+                          ? prev
+                          : { ...prev, nicknames: [...(prev.nicknames ?? []), v] }
+                      )
                       setPersonaNickDraft('')
                     }}
                   />
@@ -1979,7 +2000,7 @@ export default function SettingsWindow() {
                 <Field label="自我介紹（選填）">
                   <textarea className="input-field min-h-[80px] resize-none"
                     value={personaDraft.description}
-                    onChange={e => setPersonaDraft(prev => prev ? { ...prev, description: e.target.value } : prev)}
+                    onChange={e => editPersonaDraft(prev => ({ ...prev, description: e.target.value }))}
                     placeholder="讓角色更了解你..."
                   />
                 </Field>
@@ -2747,10 +2768,7 @@ export default function SettingsWindow() {
               <input
                 type="checkbox"
                 checked={draft?.updates?.checkOnStartup !== false}
-                onChange={e => setDraft(prev => prev ? {
-                  ...prev,
-                  updates: { ...prev.updates, checkOnStartup: e.target.checked }
-                } : prev)}
+                onChange={e => set('updates.checkOnStartup', e.target.checked)}
               />
               啟動時自動檢查更新
             </label>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Character } from '../types'
 import { useAppStore, selectCharacter } from '../stores/useAppStore'
 import BasicInfoTab from './tabs/BasicInfoTab'
@@ -32,6 +32,20 @@ export default function CharacterEditor({ characterId, onClose }: Props) {
   const [isSaving, setIsSaving] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [saveOk, setSaveOk] = useState(false)
+
+  // 供 unmount cleanup 使用（關窗時防抖可能還沒跑完）
+  const draftRef = useRef<Character | null>(null)
+  const dirtyRef = useRef(false)
+  useEffect(() => { draftRef.current = draft }, [draft])
+  useEffect(() => { dirtyRef.current = dirty }, [dirty])
+
+  // 關閉前若有未儲存修改，立即觸發儲存（fire-and-forget）
+  useEffect(() => {
+    return () => {
+      if (!dirtyRef.current || !draftRef.current) return
+      void saveCharacter({ ...draftRef.current, updatedAt: Date.now() })
+    }
+  }, [saveCharacter])
 
   useEffect(() => {
     if (!character) return
