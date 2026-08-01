@@ -1104,6 +1104,9 @@ export function createBubbleWindow(characterId: string): BrowserWindow {
   bubbleLastActiveAt.set(characterId, Date.now())
   win.on('closed', () => {
     cancelPendingBubbleReveal(characterId)
+    // 旗標必須跟著清掉：重建的泡泡視窗 band 只看 charactersAlwaysOnTop，
+    // 留著 stale 的 SPEAKING 旗標會讓其他 z-order 函式誤以為它還在 screen-saver band
+    characterSpeakingPromoted.delete(characterId)
     bubbleWindows.delete(characterId)
     bubbleLastActiveAt.delete(characterId)
     bubbleUserOffset.delete(characterId)
@@ -1295,9 +1298,11 @@ function pruneSpeechBubbleWindows(activeCharacterId: string): void {
 //   SPEAKING → cw = screen-saver、bw = screen-saver（角色跟泡泡一起置頂）
 //
 // 轉換：
-//   promoteForSpeaking()  — IDLE → SPEAKING（呼叫 setAlwaysOnTop + moveTop）
+//   promoteForSpeaking()  — → SPEAKING（setAlwaysOnTop + moveTop；冪等，連續發話重複呼叫也安全）
 //   demoteAfterSpeaking() — SPEAKING → IDLE（恢復原始 band）
-//   keepSpeakingFront()   — SPEAKING → SPEAKING（只 moveTop，不碰 setAlwaysOnTop）
+//
+// 旗標只用來決定「該不該 demote」以及讓其他 z-order 函式避開發話中的角色，
+// 不可拿來當「band 一定還正確」的保證（見 raiseBubbleAndCharacterForShow 註解）。
 
 /**
  * IDLE → SPEAKING：把角色＋泡泡推到最高 band (screen-saver)。
@@ -1335,28 +1340,16 @@ function demoteAfterSpeaking(characterId: string): void {
 }
 
 /**
- * SPEAKING → SPEAKING：泡泡已 visible，同角色連續發話。
- * 只用 moveTop() 維持前置順序，不呼叫 setAlwaysOnTop 避免 DWM 副作用。
- * 內容更新由 showSpeechBubble 的透明→reveal 路徑強制重繪（見 dispatchShow）。
- */
-function keepSpeakingFront(characterId: string, bw: BrowserWindow): void {
-  const cw = characterWindows.get(characterId)
-  if (cw && !cw.isDestroyed()) cw.moveTop()
-  bw.moveTop()
-}
-
-/**
  * 發言時把角色＋泡泡抬到前面。
- * 根據狀態機判斷該 promote（首次）還是只 moveTop（已在前面）。
+ *
+ * 一律走 promoteForSpeaking()（冪等）。曾經為了避開 DWM 副作用，SPEAKING→SPEAKING 只 moveTop
+ * 不碰 setAlwaysOnTop，但那等於把 characterSpeakingPromoted 當成「泡泡此刻仍在 screen-saver band」
+ * 的保證，而旗標會脫鉤（泡泡視窗重建、aux 搶前景改 band…），一脫鉤泡泡就再也回不到最上層，
+ * 變成「角色跳上層、音效也響了，對白卻在後面看不到」。
+ * 重繪問題現在由 showSpeechBubble 的透明→reveal 路徑處理（見 dispatchShow），不需再靠這裡省事。
  */
 function raiseBubbleAndCharacterForShow(characterId: string, bw: BrowserWindow): void {
-  if (characterSpeakingPromoted.get(characterId)) {
-    // 已經在 SPEAKING 狀態 → 只維持前置順序
-    keepSpeakingFront(characterId, bw)
-  } else {
-    // IDLE → SPEAKING
-    promoteForSpeaking(characterId, bw)
-  }
+  promoteForSpeaking(characterId, bw)
 }
 
 export interface BubbleNewsMeta {
@@ -1964,9 +1957,10 @@ export function restoreAllWindowsAfterRemote(): void {
 export function raiseAllCharactersAboveAux(): void {
   charactersRaisedAboveAux = true
   if (!charactersAlwaysOnTop) return
-  for (const w of characterWindows.values()) {
+  for (const [id, w] of characterWindows.entries()) {
     if (w.isDestroyed()) continue
-    w.setAlwaysOnTop(true, 'pop-up-menu')
+    // 發話中的角色留在 screen-saver band，別踢回 pop-up-menu
+    if (!characterSpeakingPromoted.get(id)) w.setAlwaysOnTop(true, 'pop-up-menu')
     w.moveTop()
   }
   for (const w of bubbleWindows.values()) {
@@ -1978,13 +1972,15 @@ export function raiseAllCharactersAboveAux(): void {
 
 export function raiseAuxAboveCharacters(): void {
   charactersRaisedAboveAux = false
-  for (const w of characterWindows.values()) {
+  for (const [id, w] of characterWindows.entries()) {
     if (w.isDestroyed()) continue
+    if (characterSpeakingPromoted.get(id)) continue // 發話中：維持 SPEAKING band
     if (charactersAlwaysOnTop) w.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
     w.moveTop()
   }
-  for (const w of bubbleWindows.values()) {
+  for (const [id, w] of bubbleWindows.entries()) {
     if (w.isDestroyed()) continue
+    if (characterSpeakingPromoted.get(id)) continue
     if (charactersAlwaysOnTop) w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
   }
   for (const w of getAuxWindows()) {
@@ -1996,12 +1992,14 @@ export function raiseAuxWindowToFront(target: BrowserWindow): boolean {
   if (!target || target.isDestroyed()) return false
   charactersRaisedAboveAux = false
 
-  for (const w of characterWindows.values()) {
+  for (const [id, w] of characterWindows.entries()) {
     if (w.isDestroyed()) continue
+    if (characterSpeakingPromoted.get(id)) continue // 發話中：維持 SPEAKING band
     if (charactersAlwaysOnTop) w.setAlwaysOnTop(true, CHARACTER_ALWAYS_ON_TOP_LEVEL)
   }
-  for (const w of bubbleWindows.values()) {
+  for (const [id, w] of bubbleWindows.entries()) {
     if (w.isDestroyed()) continue
+    if (characterSpeakingPromoted.get(id)) continue
     if (charactersAlwaysOnTop) w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
   }
   for (const w of getAuxWindows()) {
@@ -2010,8 +2008,9 @@ export function raiseAuxWindowToFront(target: BrowserWindow): boolean {
 
   target.moveTop()
   target.setOpacity(1)
-  for (const w of bubbleWindows.values()) {
+  for (const [id, w] of bubbleWindows.entries()) {
     if (w.isDestroyed() || !w.isVisible()) continue
+    if (characterSpeakingPromoted.get(id)) { w.moveTop(); continue }
     if (charactersAlwaysOnTop) w.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
     w.moveTop()
   }
