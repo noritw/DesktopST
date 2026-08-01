@@ -43,17 +43,19 @@ function openaiModelOptionsFor(mode: OpenaiModelListMode): string[] {
 
 /** 建議值：與官方目錄同步手動維護，或以帳戶可用的 `GET https://api.openai.com/v1/models` 為準 */
 const MODELS = [
+  'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
   'gpt-5.5', 'gpt-5.5-pro',
   'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano',
   'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.1',
   'gpt-5', 'gpt-5-pro', 'gpt-5-mini', 'gpt-5-nano',
   'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
   'gpt-4o', 'gpt-4o-mini',
-  'o3', 'o3-pro', 'o4-mini', 'o1', 'o1-mini'
+  'o3', 'o3-pro', 'o4-mini', 'o1'
 ]
 
 const CLAUDE_MODELS = [
   'claude-fable-5',
+  'claude-opus-5',
   'claude-opus-4-8',
   'claude-sonnet-5',
   'claude-opus-4-7',
@@ -63,7 +65,9 @@ const CLAUDE_MODELS = [
 ]
 
 const GEMINI_MODELS = [
+  'gemini-3.6-flash',
   'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
   'gemini-3.1-pro-preview',
   'gemini-2.5-flash',
@@ -72,19 +76,21 @@ const GEMINI_MODELS = [
 ]
 
 const GROK_MODELS = [
+  'grok-4.5',
   'grok-4.3',
-  'grok-4.20-reasoning',
-  'grok-4.20-non-reasoning',
-  'grok-4-1-fast-reasoning',
-  'grok-4-1-fast-non-reasoning'
+  'grok-4.20-0309-reasoning',
+  'grok-4.20-0309-non-reasoning'
 ]
 
 /** 模型清單與價格的人工同步日期（依各家官方定價頁） */
-const MODEL_DATA_UPDATED = '2026-07-04'
+const MODEL_DATA_UPDATED = '2026-08-01'
 
 /** 每百萬 tokens 美金價（輸入, 輸出）；未列出的模型（如官方快照 ID、自訂 ID）不顯示價格 */
 const MODEL_PRICES: Record<string, [number, number]> = {
   // OpenAI
+  'gpt-5.6-sol': [5, 30],
+  'gpt-5.6-terra': [2, 12],
+  'gpt-5.6-luna': [0.2, 1.2],
   'gpt-5.5': [5, 30],
   'gpt-5.5-pro': [30, 180],
   'gpt-5.4': [2.5, 15],
@@ -92,6 +98,7 @@ const MODEL_PRICES: Record<string, [number, number]> = {
   'gpt-5.4-mini': [0.75, 4.5],
   'gpt-5.4-nano': [0.2, 1.25],
   'gpt-5.2': [1.75, 14],
+  'gpt-5.2-pro': [21, 168],
   'gpt-5.1': [1.25, 10],
   'gpt-5': [1.25, 10],
   'gpt-5-pro': [15, 120],
@@ -106,9 +113,9 @@ const MODEL_PRICES: Record<string, [number, number]> = {
   'o3-pro': [20, 80],
   'o4-mini': [1.1, 4.4],
   'o1': [15, 60],
-  'o1-mini': [1.1, 4.4],
   // Anthropic Claude
   'claude-fable-5': [10, 50],
+  'claude-opus-5': [5, 25],
   'claude-opus-4-8': [5, 25],
   'claude-sonnet-5': [3, 15],
   'claude-opus-4-7': [5, 25],
@@ -116,18 +123,19 @@ const MODEL_PRICES: Record<string, [number, number]> = {
   'claude-opus-4-6': [5, 25],
   'claude-haiku-4-5': [1, 5],
   // Google Gemini（長 prompt 分級價以 ≤200K tokens 計）
+  'gemini-3.6-flash': [1.5, 7.5],
   'gemini-3.5-flash': [1.5, 9],
+  'gemini-3.5-flash-lite': [0.3, 2.5],
   'gemini-3.1-flash-lite': [0.25, 1.5],
   'gemini-3.1-pro-preview': [2, 12],
   'gemini-2.5-flash': [0.3, 2.5],
   'gemini-2.5-flash-lite': [0.1, 0.4],
   'gemini-2.5-pro': [1.25, 10],
   // xAI Grok
+  'grok-4.5': [2, 6],
   'grok-4.3': [1.25, 2.5],
-  'grok-4.20-reasoning': [1.25, 2.5],
-  'grok-4.20-non-reasoning': [1.25, 2.5],
-  'grok-4-1-fast-reasoning': [0.2, 0.5],
-  'grok-4-1-fast-non-reasoning': [0.2, 0.5]
+  'grok-4.20-0309-reasoning': [1.25, 2.5],
+  'grok-4.20-0309-non-reasoning': [1.25, 2.5]
 }
 
 function modelPriceText(m: string): string | null {
@@ -138,6 +146,40 @@ function modelPriceText(m: string): string | null {
 function modelOptionLabel(m: string): string {
   const price = modelPriceText(m)
   return price ? `${m}（${price}）` : m
+}
+
+/** 高單價門檻（每百萬 tokens 美金）：輸入或輸出任一超過就歸到高單價區並加警告 */
+const HIGH_PRICE_INPUT = 10
+const HIGH_PRICE_OUTPUT = 50
+
+function isHighPriceModel(m: string): boolean {
+  const p = MODEL_PRICES[m]
+  if (!p) return false
+  return p[0] >= HIGH_PRICE_INPUT || p[1] >= HIGH_PRICE_OUTPUT
+}
+
+/** 把模型清單依單價拆成一般／高單價兩組，供 optgroup 使用 */
+function splitModelsByPrice(list: string[]): { normal: string[]; high: string[] } {
+  const normal: string[] = []
+  const high: string[] = []
+  for (const m of list) (isHighPriceModel(m) ? high : normal).push(m)
+  return { normal, high }
+}
+
+const HIGH_PRICE_GROUP_LABEL = `⚠ 高單價（輸入 ≥$${HIGH_PRICE_INPUT} 或輸出 ≥$${HIGH_PRICE_OUTPUT}）`
+
+/** 下拉選單的 option 群組：一般模型在前，高單價模型收在獨立群組並標警告 */
+function ModelPickerOptions({ models }: { models: string[] }): JSX.Element {
+  const { normal, high } = splitModelsByPrice(models)
+  const opts = (list: string[]) =>
+    list.map(m => <option key={m} value={m}>{modelOptionLabel(m)}</option>)
+  if (high.length === 0) return <>{opts(normal)}</>
+  return (
+    <>
+      <optgroup label="一般">{opts(normal)}</optgroup>
+      <optgroup label={HIGH_PRICE_GROUP_LABEL}>{opts(high)}</optgroup>
+    </>
+  )
 }
 
 const PROVIDER_MODELS: Record<string, string[]> = {
@@ -1145,12 +1187,11 @@ export default function SettingsWindow() {
                   }}
                 >
                   <option value="">快速挑選（顯示完整清單）</option>
-                  {(draft?.llm.provider === 'openai'
-                    ? openaiModelOptionsFor(openaiModelListMode)
-                    : PROVIDER_MODELS[draft?.llm.provider ?? 'openai'] ?? MODELS
-                  ).map(m => (
-                    <option key={m} value={m}>{modelOptionLabel(m)}</option>
-                  ))}
+                  <ModelPickerOptions
+                    models={draft?.llm.provider === 'openai'
+                      ? openaiModelOptionsFor(openaiModelListMode)
+                      : PROVIDER_MODELS[draft?.llm.provider ?? 'openai'] ?? MODELS}
+                  />
                 </select>
               </div>
               <datalist id="model-list">
@@ -1159,6 +1200,12 @@ export default function SettingsWindow() {
                   : PROVIDER_MODELS[draft?.llm.provider ?? 'openai'] ?? MODELS
                 ).map(m => <option key={m} value={m} label={modelPriceText(m) ?? undefined} />)}
               </datalist>
+              {isHighPriceModel(getCurrentModel()) && (
+                <p className="text-[11px] leading-snug mt-1.5 text-[#E85D3F]">
+                  ⚠ {getCurrentModel()} 屬高單價模型（{modelPriceText(getCurrentModel())} / 每百萬 tokens）。
+                  桌寵長時間聊天會累積大量 tokens，請留意帳單。
+                </p>
+              )}
               <p className="text-[11px] text-secondary leading-snug mt-1.5">
                 模型清單與價格更新於 {MODEL_DATA_UPDATED}。價格為美金 / 每百萬 tokens（輸入 / 輸出），實際以各家官方定價頁為準。
               </p>
@@ -1376,12 +1423,11 @@ export default function SettingsWindow() {
                         }}
                       >
                         <option value="">快速挑選</option>
-                        {((draft.llm.utilityProvider ?? draft.llm.provider) === 'openai'
-                          ? openaiModelOptionsFor(utilityOpenaiModelListMode)
-                          : PROVIDER_MODELS[draft.llm.utilityProvider ?? draft.llm.provider] ?? MODELS
-                        ).map(m => (
-                          <option key={m} value={m}>{modelOptionLabel(m)}</option>
-                        ))}
+                        <ModelPickerOptions
+                          models={(draft.llm.utilityProvider ?? draft.llm.provider) === 'openai'
+                            ? openaiModelOptionsFor(utilityOpenaiModelListMode)
+                            : PROVIDER_MODELS[draft.llm.utilityProvider ?? draft.llm.provider] ?? MODELS}
+                        />
                       </select>
                     </div>
                     <datalist id="utility-model-list">

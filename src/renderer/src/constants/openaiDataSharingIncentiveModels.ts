@@ -2,12 +2,17 @@
  * 在啟用「與 OpenAI 分享 API 輸入／輸出」且帳戶符合資格時，每日贈送 token 僅適用於下列模型（額度分兩組、分別共用）。
  * 非贈送方案或微調／eval／工具呼叫等不在此列。
  *
+ * 額度每日 00:00 UTC 重置；單筆請求若會讓當日累計超過額度，該筆整筆照原價計費。
+ * 只有 Org Owner 能在 data sharing 設定頁開關此選項。
+ *
  * 清單為官方文件截錄，OpenAI 更新政策時請對照下列連結手動同步。
+ * 最後同步：2026-08-01
  * @see https://help.openai.com/en/articles/10306912-sharing-feedback-evaluation-and-fine-tuning-data-and-api-inputs-and-outputs-with-openai
  */
 
 /** 每日 1M（Tier 1–2 為 250K）額度共用 — 與下方 10M 組分開計 */
 export const OPENAI_DATA_SHARING_INCENTIVE_1M_GROUP: string[] = [
+  'gpt-5.6-sol',
   'gpt-5.5-2026-04-23',
   'gpt-5.4-2026-03-05',
   'gpt-5.2-2025-12-11',
@@ -27,6 +32,8 @@ export const OPENAI_DATA_SHARING_INCENTIVE_1M_GROUP: string[] = [
 
 /** 每日 10M（Tier 1–2 為 2.5M）額度共用 — 較輕量模型組 */
 export const OPENAI_DATA_SHARING_INCENTIVE_10M_GROUP: string[] = [
+  'gpt-5.6-terra',
+  'gpt-5.6-luna',
   'gpt-5.4-mini-2026-03-17',
   'gpt-5.4-nano-2026-03-17',
   'gpt-5.1-codex-mini',

@@ -161,6 +161,33 @@ function migrateLegacySettings(raw: Record<string, unknown>): { migratedPersonaI
   return { migratedPersonaId, migratedWorldId }
 }
 
+/**
+ * 官方改名／下架的模型 ID 對照。舊 settings.json 存的值在載入時自動換成新 ID，
+ * 避免打到已失效的 endpoint。新增項目時左邊放舊 ID、右邊放官方現行 ID。
+ */
+const RENAMED_MODEL_IDS: Record<string, string> = {
+  // xAI 官方文件改用帶日期的完整 ID
+  'grok-4.20-reasoning': 'grok-4.20-0309-reasoning',
+  'grok-4.20-non-reasoning': 'grok-4.20-0309-non-reasoning',
+  // xAI 已下架 grok-4-1-fast 系列
+  'grok-4-1-fast-reasoning': 'grok-4.3',
+  'grok-4-1-fast-non-reasoning': 'grok-4.3',
+  // OpenAI 已下架 o1-mini
+  'o1-mini': 'o4-mini'
+}
+
+function renameModelId(id: string | undefined): string | undefined {
+  if (!id) return id
+  return RENAMED_MODEL_IDS[id] ?? id
+}
+
+function renameModelIdMap(map: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!map) return map
+  const out: Record<string, string> = {}
+  for (const [provider, id] of Object.entries(map)) out[provider] = renameModelId(id) ?? id
+  return out
+}
+
 export function loadSettings(): AppSettings {
   ensureDirs()
   if (!fs.existsSync(SETTINGS_FILE)) {
@@ -211,6 +238,10 @@ export function loadSettings(): AppSettings {
       llm: {
         ...DEFAULT_SETTINGS.llm,
         ...typed.llm,
+        // Migrate: 官方改名／下架的模型 ID 自動換成現行 ID
+        model: renameModelId(typed.llm?.model) ?? DEFAULT_SETTINGS.llm.model,
+        models: renameModelIdMap(typed.llm?.models) ?? DEFAULT_SETTINGS.llm.models,
+        utilityModels: renameModelIdMap(typed.llm?.utilityModels) ?? DEFAULT_SETTINGS.llm.utilityModels,
         // Migrate: if apiKeys missing but legacy apiKey exists, seed openai key
         apiKeys: typed.llm?.apiKeys ?? {
           openai: typed.llm?.apiKey ?? '',
