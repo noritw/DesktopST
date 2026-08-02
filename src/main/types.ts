@@ -200,6 +200,21 @@ export interface SpotifySettings {
   displayName?: string
 }
 
+export interface CalendarSettings {
+  enabled: boolean
+  /** 使用者自備的 Google OAuth Client ID（程式碼中不內建任何 ID） */
+  clientId: string
+  /** Google 桌面應用程式 client 一併發放的密鑰；以 safeStorage 加密存放 */
+  clientSecret?: string
+  /** 已連結的帳號（Google 為 email） */
+  displayName?: string
+  /** 往後看幾小時的行程 */
+  lookaheadHours: number
+  maxEvents: number
+  /** 沒有行程時也告訴角色（預設關，省 token） */
+  mentionWhenEmpty: boolean
+}
+
 export interface MobileSettings {
   enabled: boolean
   port: number
@@ -282,6 +297,7 @@ export interface AppSettings {
   injectSystemTime: boolean
   weather?: WeatherSettings
   spotify?: SpotifySettings
+  calendar?: CalendarSettings
   mobile?: MobileSettings
   remoteControl?: RemoteControlSettings
   llm: {
@@ -398,6 +414,8 @@ export interface Reminder {
   injectWeather?: boolean
   /** 觸發時抓一則新聞當話題素材（需先啟用新聞模組） */
   injectNews?: boolean
+  /** 觸發時附入接下來的行程（需先連結 Google 日曆） */
+  injectCalendar?: boolean
   lastTriggeredAt?: number
   createdAt: number
 }

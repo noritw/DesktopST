@@ -27,6 +27,12 @@ import { getDisasterNewsSupplement } from './disasterNewsSupplement'
 import {
   buildAuthUrl, handleAuthCallback, clearAuthFile, isAuthenticated, getSpotifyContextString
 } from './spotifyService'
+import {
+  getCalendarContextString, beginGoogleAuth, cancelGoogleAuth, revokeGoogleAuth,
+  isCalendarAuthenticated, invalidateCalendarCache, DEFAULT_CALENDAR_SETTINGS, readClientSecret,
+  peekCalendar
+} from './calendar'
+import { encrypt } from './secureStore'
 import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
 import {
   getNewsInjectionForSpeak, getActiveNewsTopic, setActiveNewsTopic,
@@ -57,6 +63,7 @@ import {
   openRemindersManager, closeRemindersManager,
   openRemoteControlLog, closeRemoteControlLog,
   openSpotifySettingsWindow, closeSpotifySettingsWindow,
+  openCalendarSettingsWindow, closeCalendarSettingsWindow,
   openQRCodeWindow,
   hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu,
   createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow,
@@ -1317,6 +1324,11 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
     if (weatherStr) ctxParts.push(weatherStr)
   }
 
+  if (reminder.injectCalendar) {
+    const calendarStr = await getCalendarContextString(applySceneModuleOverrides(settings))
+    if (calendarStr) ctxParts.push(calendarStr)
+  }
+
   let reminderNewsTitle: string | undefined
   let reminderNewsDirective: string | undefined
   if (reminder.injectNews) {
@@ -1657,6 +1669,7 @@ function buildVisiblePinnedNotesContext(): { text: string; titles: string[] } | 
 export const WEATHER_MODULE_ID = 'desktopst.weather'
 export const SPOTIFY_MODULE_ID = 'desktopst.spotify'
 export const SYSTEM_TIME_MODULE_ID = 'desktopst.systemTime'
+export const CALENDAR_MODULE_ID = 'desktopst.calendar'
 
 /** 讀取目前情境對某模組的開關覆蓋；無情境或未設定時回傳 undefined（跟隨全域）。 */
 function getActiveSceneModuleOverride(moduleId: string): 'on' | 'off' | undefined {
@@ -1674,19 +1687,21 @@ export function isModuleEffectivelyEnabled(moduleId: string, globalEnabled: bool
 }
 
 /**
- * 依目前情境覆蓋回傳天氣 / Spotify / 系統時間開關已調整的 settings 副本（無覆蓋時原樣回傳）。
- * getWeatherContextString / getSpotifyContextString / chatWithLLM（injectSystemTime）
+ * 依目前情境覆蓋回傳天氣 / Spotify / 系統時間 / 日曆開關已調整的 settings 副本（無覆蓋時原樣回傳）。
+ * getWeatherContextString / getSpotifyContextString / getCalendarContextString / chatWithLLM（injectSystemTime）
  * 內部會檢查各自的 enabled 旗標，所以「強制開／強制關」要在傳入前改寫。
  */
 function applySceneModuleOverrides(s: AppSettings): AppSettings {
   const wOv = getActiveSceneModuleOverride(WEATHER_MODULE_ID)
   const sOv = getActiveSceneModuleOverride(SPOTIFY_MODULE_ID)
   const tOv = getActiveSceneModuleOverride(SYSTEM_TIME_MODULE_ID)
-  if (!wOv && !sOv && !tOv) return s
+  const cOv = getActiveSceneModuleOverride(CALENDAR_MODULE_ID)
+  if (!wOv && !sOv && !tOv && !cOv) return s
   const out = { ...s }
   if (wOv && out.weather) out.weather = { ...out.weather, enabled: wOv === 'on' }
   if (sOv && out.spotify) out.spotify = { ...out.spotify, enabled: sOv === 'on' }
   if (tOv) out.injectSystemTime = tOv === 'on'
+  if (cOv && out.calendar) out.calendar = { ...out.calendar, enabled: cOv === 'on' }
   return out
 }
 
@@ -1793,6 +1808,10 @@ export async function forceSpeakDirect(
     if (effSettings.spotify?.enabled) {
       const spotifyStr = await getSpotifyContextString(effSettings)
       if (spotifyStr) ctxParts.push(spotifyStr)
+    }
+    if (effSettings.calendar?.enabled) {
+      const calendarStr = await getCalendarContextString(effSettings)
+      if (calendarStr) ctxParts.push(calendarStr)
     }
     // 候選素材：主題泡泡（優先素材，主導）／新聞 ＋ 便利貼（候選，讓角色挑一個）／天氣 Spotify（背景）。
     let newsUsedUtilityModel = false
@@ -2235,6 +2254,101 @@ export function registerIpcHandlers() {
     displayName: settings.spotify?.displayName,
     enabled: settings.spotify?.enabled ?? false
   }))
+
+  // Google Calendar
+  ipcMain.handle('calendar:open-settings', () => {
+    openCalendarSettingsWindow()
+  })
+
+  ipcMain.handle('calendar:close-settings', () => {
+    cancelGoogleAuth()
+    closeCalendarSettingsWindow()
+  })
+
+  ipcMain.handle('calendar:start-auth', async (_, payload: { clientId: string; clientSecret?: string }) => {
+    const clientId = (payload?.clientId ?? '').trim()
+    const clientSecret = (payload?.clientSecret ?? '').trim()
+    if (!clientId) return { ok: false, error: '請輸入 Client ID' }
+
+    settings.calendar = {
+      ...DEFAULT_CALENDAR_SETTINGS,
+      ...(settings.calendar ?? {}),
+      clientId,
+      // 密鑰以 safeStorage 加密後才落地，比照 API Key / CWA Key
+      clientSecret: clientSecret ? encrypt(clientSecret) : settings.calendar?.clientSecret
+    }
+    fileStore.saveSettings(settings)
+
+    // 授權在背景等回呼，這裡先回 ok 讓 UI 進入「等待授權」狀態
+    beginGoogleAuth(
+      { clientId, clientSecret: clientSecret || readClientSecret(settings.calendar) },
+      url => { shell.openExternal(url) }
+    ).then(result => {
+      if (result.ok) {
+        settings.calendar = {
+          ...DEFAULT_CALENDAR_SETTINGS,
+          ...(settings.calendar ?? { clientId }),
+          displayName: result.displayName,
+          enabled: true
+        }
+        invalidateCalendarCache()
+        fileStore.saveSettings(settings)
+        broadcastToAll('settings:updated', settings)
+      } else {
+        broadcastToAll('calendar:auth-error', result.error ?? '授權失敗')
+      }
+    }).catch(e => {
+      broadcastToAll('calendar:auth-error', String(e))
+    })
+
+    return { ok: true }
+  })
+
+  ipcMain.handle('calendar:disconnect', async () => {
+    cancelGoogleAuth()
+    await revokeGoogleAuth()
+    invalidateCalendarCache()
+    if (settings.calendar) {
+      settings.calendar = { ...settings.calendar, enabled: false, displayName: undefined }
+      fileStore.saveSettings(settings)
+      broadcastToAll('settings:updated', settings)
+    }
+    return { ok: true }
+  })
+
+  ipcMain.handle('calendar:get-status', () => ({
+    connected: isCalendarAuthenticated(),
+    displayName: settings.calendar?.displayName,
+    enabled: settings.calendar?.enabled ?? false
+  }))
+
+  /**
+   * Log 視窗 debug 面板：直接看實際抓到什麼，不必發一則訊息去試探角色。
+   * 略過快取，並套用目前情境的模組覆蓋，所見即聊天時所得。
+   */
+  ipcMain.handle('calendar:peek', async () => {
+    const eff = applySceneModuleOverrides(settings)
+    return {
+      ...await peekCalendar(eff),
+      enabled: isModuleEffectivelyEnabled(CALENDAR_MODULE_ID, settings.calendar?.enabled ?? false),
+      sceneOverridden: (eff.calendar?.enabled ?? false) !== (settings.calendar?.enabled ?? false)
+    }
+  })
+
+  /** 設定視窗調整區間／筆數後呼叫，讓下一次注入立刻反映新設定 */
+  ipcMain.handle('calendar:save-options', (_, opts: { lookaheadHours?: number; maxEvents?: number; mentionWhenEmpty?: boolean }) => {
+    settings.calendar = {
+      ...DEFAULT_CALENDAR_SETTINGS,
+      ...(settings.calendar ?? {}),
+      ...(opts.lookaheadHours ? { lookaheadHours: Math.max(1, Math.min(opts.lookaheadHours, 168)) } : {}),
+      ...(opts.maxEvents ? { maxEvents: Math.max(1, Math.min(opts.maxEvents, 20)) } : {}),
+      ...(opts.mentionWhenEmpty !== undefined ? { mentionWhenEmpty: opts.mentionWhenEmpty } : {})
+    }
+    invalidateCalendarCache()
+    fileStore.saveSettings(settings)
+    broadcastToAll('settings:updated', settings)
+    return { ok: true }
+  })
 
   // Characters
   ipcMain.handle('characters:list', () => characters)
@@ -3303,6 +3417,7 @@ export function registerIpcHandlers() {
     const effChatSettings = applySceneModuleOverrides(settings)
     const weatherContext = effChatSettings.weather?.enabled ? await getWeatherContextString(effChatSettings) : null
     const spotifyContext = effChatSettings.spotify?.enabled ? await getSpotifyContextString(effChatSettings) : null
+    const calendarContext = effChatSettings.calendar?.enabled ? await getCalendarContextString(effChatSettings) : null
     const realtimeQueryContext = (isModuleEffectivelyEnabled(WEATHER_MODULE_ID, true) || slashWeather)
       ? await getRealtimeQueryContextString(payload.content, settings)
       : { injectionText: null }
@@ -3321,7 +3436,7 @@ export function registerIpcHandlers() {
     }
     const chatPinnedNotesBlock = settings.ui.chatUsePinnedNotes ? buildVisiblePinnedNotesContext()?.text ?? null : null
     const moduleContextParts = await collectModuleContext(id => isModuleEffectivelyEnabled(id, true))
-    const extraContextParts = [weatherContext, spotifyContext, realtimeQueryContext.injectionText, newsSearchResult.context, disasterNews.context, chatPinnedNotesBlock, ...moduleContextParts].filter(Boolean) as string[]
+    const extraContextParts = [weatherContext, spotifyContext, calendarContext, realtimeQueryContext.injectionText, newsSearchResult.context, disasterNews.context, chatPinnedNotesBlock, ...moduleContextParts].filter(Boolean) as string[]
     const combinedExtraContext = extraContextParts.length > 0 ? extraContextParts.join('\n\n') : null
 
     // Emotion split: use utility model to classify if utilityEnabled + character has custom sprites
@@ -4044,6 +4159,22 @@ export function registerIpcHandlers() {
 
   ipcMain.handle('shell:open-external', (_, url: string) => {
     return shell.openExternal(url)
+  })
+
+  /**
+   * 開啟隨程式附帶的說明文件（`docs/` 底下的 .html）。
+   * 走本機檔案而非線上網址，離線也能看；檔名白名單，不接受路徑。
+   */
+  ipcMain.handle('shell:open-doc', async (_, name: string) => {
+    const ALLOWED = ['google-calendar-setup.html', 'license.html']
+    if (!ALLOWED.includes(name)) return { ok: false, error: '未知的說明文件' }
+
+    const appRoot = app.isPackaged ? path.dirname(app.getPath('exe')) : app.getAppPath()
+    const p = path.join(appRoot, 'docs', name)
+    if (!fs.existsSync(p)) return { ok: false, error: '找不到說明文件' }
+
+    const err = await shell.openPath(p)
+    return err ? { ok: false, error: err } : { ok: true }
   })
 
   ipcMain.handle('devtools:is-available', () => isDevToolsAllowed())

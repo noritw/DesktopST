@@ -3007,6 +3007,62 @@ export function closeSpotifySettingsWindow(): void {
   }
 }
 
+// ── Google Calendar settings window ───────────────────────
+
+let calendarSettingsWindow: BrowserWindow | null = null
+
+export function openCalendarSettingsWindow(): BrowserWindow {
+  if (calendarSettingsWindow && !calendarSettingsWindow.isDestroyed()) {
+    calendarSettingsWindow.show()
+    calendarSettingsWindow.focus()
+    calendarSettingsWindow.moveTop()
+    return calendarSettingsWindow
+  }
+
+  const wa = screen.getPrimaryDisplay().workArea
+  const w = 420, h = 660
+  calendarSettingsWindow = new BrowserWindow({
+    x: Math.round(wa.x + (wa.width - w) / 2),
+    y: Math.round(wa.y + (wa.height - h) / 2),
+    width: w,
+    height: h,
+    frame: false,
+    transparent: false,
+    backgroundColor: '#F7FFFC',
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  calendarSettingsWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  if (VITE_DEV_SERVER_URL) {
+    calendarSettingsWindow.loadURL(makeURL({ w: 'calendar-settings' }))
+  } else {
+    calendarSettingsWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: { w: 'calendar-settings' }
+    })
+  }
+  if (VITE_DEV_SERVER_URL && DEVTOOLS_ENABLED) {
+    calendarSettingsWindow.webContents.openDevTools({ mode: 'detach' })
+  }
+  calendarSettingsWindow.on('closed', () => { calendarSettingsWindow = null })
+  calendarSettingsWindow.show()
+  raiseAuxAboveCharacters()
+  calendarSettingsWindow.moveTop()
+  calendarSettingsWindow.focus()
+  return calendarSettingsWindow
+}
+
+export function closeCalendarSettingsWindow(): void {
+  if (calendarSettingsWindow && !calendarSettingsWindow.isDestroyed()) {
+    calendarSettingsWindow.close()
+  }
+}
+
 // ── QR Code window ────────────────────────────────────────
 
 let qrCodeWindow: BrowserWindow | null = null
