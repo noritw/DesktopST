@@ -1,0 +1,577 @@
+import type { AppSettings, Message, PersonaPreset, WorldPreset } from '../types'
+
+/** Returns the API key for the active provider, falling back to legacy apiKey field */
+export function resolveApiKey(settings: AppSettings): string {
+  return settings.llm.apiKeys?.[settings.llm.provider] || settings.llm.apiKey || ''
+}
+
+/** Returns the model for the active provider, falling back to the legacy single model field */
+export function resolveModel(settings: AppSettings): string {
+  return settings.llm.models?.[settings.llm.provider] || settings.llm.model || ''
+}
+
+/** Parse provider/model recorded in a debugPrompt JSON blob (actual API call). */
+export function parseDebugPromptLlmMeta(debugPrompt?: string): {
+  provider?: AppSettings['llm']['provider']
+  model?: string
+} | null {
+  if (!debugPrompt?.trim()) return null
+  try {
+    const obj = JSON.parse(debugPrompt) as { provider?: string; model?: string }
+    const provider = obj.provider as AppSettings['llm']['provider'] | undefined
+    const model = typeof obj.model === 'string' ? obj.model.trim() : undefined
+    if (!provider && !model) return null
+    return { provider, model }
+  } catch {
+    return null
+  }
+}
+
+/** Prefer debugPrompt metadata; fall back to the settings snapshot passed into chatWithLLM. */
+export function messageLlmMeta(
+  debugPrompt: string | undefined,
+  chatSettings: AppSettings
+): { provider: AppSettings['llm']['provider']; model: string } {
+  const parsed = parseDebugPromptLlmMeta(debugPrompt)
+  if (parsed?.provider || parsed?.model) {
+    return {
+      provider: parsed?.provider ?? chatSettings.llm.provider,
+      model: parsed?.model || resolveModel(chatSettings)
+    }
+  }
+  return {
+    provider: chatSettings.llm.provider,
+    model: resolveModel(chatSettings)
+  }
+}
+
+export const EMOTION_LIST = [
+  'admiration', 'amusement', 'anger', 'annoyance', 'approval',
+  'caring', 'confusion', 'curiosity', 'desire', 'disappointment',
+  'disapproval', 'disgust', 'embarrassment', 'excitement', 'fear',
+  'gratitude', 'grief', 'joy', 'love', 'nervousness',
+  'optimism', 'pride', 'realization', 'relief', 'remorse',
+  'sadness', 'surprise', 'neutral'
+]
+
+const EMOTION_ALIASES: Record<string, string> = {
+  admire: 'admiration',
+  admired: 'admiration',
+  amused: 'amusement',
+  angry: 'anger',
+  annoyed: 'annoyance',
+  approving: 'approval',
+  caring: 'caring',
+  confused: 'confusion',
+  curious: 'curiosity',
+  disappointed: 'disappointment',
+  disapproving: 'disapproval',
+  disgusted: 'disgust',
+  embarrassed: 'embarrassment',
+  excited: 'excitement',
+  fearful: 'fear',
+  afraid: 'fear',
+  grateful: 'gratitude',
+  grieving: 'grief',
+  joyful: 'joy',
+  loving: 'love',
+  nervous: 'nervousness',
+  optimistic: 'optimism',
+  proud: 'pride',
+  realized: 'realization',
+  relieved: 'relief',
+  remorseful: 'remorse',
+  sad: 'sadness',
+  surprised: 'surprise',
+  calm: 'neutral',
+  normal: 'neutral'
+}
+
+export function normalizeEmotion(raw: string | undefined | null): string | null {
+  const normalized = String(raw ?? '').trim().toLowerCase()
+  if (EMOTION_LIST.includes(normalized)) return normalized
+  return EMOTION_ALIASES[normalized] ?? null
+}
+
+export type PromptCharacter = {
+  id?: string
+  name: string
+  nicknames?: string[]
+  description?: string
+  personality: string
+  scenario?: string
+  systemPromptOverride?: string
+  exampleDialogue?: string
+  creatorNotes?: string
+  emotions?: Record<string, string>
+  spriteIds?: Record<string, string>
+}
+
+export type ChatLLMParams = {
+  settings: AppSettings
+  character: PromptCharacter
+  messages: Message[]
+  images?: string[]
+  speakerNameById?: Record<string, string>
+  persona?: PersonaPreset | null
+  world?: WorldPreset | null
+  desktopCharacterNames?: string[]
+  /** 附加到 system prompt 末尾的額外上下文（提醒指令、便利貼等） */
+  extraSystemContext?: string
+  /** 記憶摘要（conv.summary）；chatWithLLM 單一入口注入為 [Memory Summary] 區塊 */
+  memorySummary?: string
+  /** 是否為提醒模式（不注入 trigger message） */
+  isReminder?: boolean
+  /** 附加在 trigger message 之後的指令（最末、緊鄰生成處；用於「主動聊新聞」這類需要高 recency 的指示） */
+  triggerDirective?: string
+  /** 是否省略情緒輸出合約（由後續獨立情緒分類呼叫處理） */
+  splitEmotion?: boolean
+  /** 輕量工具 call（意圖萃取等）：跳過角色扮演規則、輸出格式、系統時間、輸入來源等與角色扮演相關的段落 */
+  minimal?: boolean
+  /** 可用於中途取消本次 LLM 請求 */
+  signal?: AbortSignal
+}
+
+export type ChatLLMResult = {
+  content: string
+  emotion: string
+  debugPrompt: string
+  inputTokens?: number
+  outputTokens?: number
+}
+
+/** 使用者對角色訊息按的 reaction → 注入 prompt 的英文語意標籤（省 token；不影響輸出語言）。 */
+const REACTION_PROMPT_LABELS: Record<string, string> = {
+  '❤️': 'loved it',
+  '👍': 'acknowledged / agrees',
+  '😂': 'found it funny',
+  '🥺': 'touched by it',
+  '😮': 'surprised',
+  '😒': 'unimpressed'
+}
+
+/**
+ * 把帶有 reaction 的角色訊息展開：在其後插入一則合成的使用者訊息，
+ * 讓角色知道使用者對哪句話按了什麼表情。沒有任何 reaction 時原陣列直接回傳。
+ * 😒 + 新聞訊息時改用「對這則新聞主題沒興趣」措辭，避免角色誤會是針對自己。
+ */
+export function expandReactionAnnotations(messages: Message[]): Message[] {
+  if (!messages.some(m => m.role === 'character' && m.reaction)) return messages
+  const result: Message[] = []
+  for (const m of messages) {
+    result.push(m)
+    if (m.role !== 'character' || !m.reaction) continue
+    const label = REACTION_PROMPT_LABELS[m.reaction] ?? ''
+    const note = m.reaction === '😒' && m.newsLink
+      ? `(reacted ${m.reaction} to the message above — not interested in this news topic, drop it naturally)`
+      : `(reacted ${m.reaction} to the message above${label ? ` — ${label}` : ''})`
+    result.push({ id: `${m.id}:reaction`, role: 'user', content: note, timestamp: m.timestamp })
+  }
+  return result
+}
+
+/** 間隔超過這個值才標註時間斷層（訊息之間、以及最後一則到現在） */
+const TIME_GAP_ANNOTATE_MS = 60 * 60 * 1000
+
+/** 粗略時距字串（"6h" / "2d"）——模型只需要斷層感，不需要精確值 */
+function formatTimeGap(ms: number): string {
+  const hours = Math.round(ms / 3_600_000)
+  if (hours < 48) return `${hours}h`
+  return `${Math.round(ms / 86_400_000)}d`
+}
+
+/** 相鄰訊息間隔超過 1 小時時，插入 "(6h later)" 系統標註讓角色知道對話有時間斷層。 */
+export function annotateTimeGaps(messages: Message[]): Message[] {
+  const result: Message[] = []
+  let prevTs: number | undefined
+  for (const m of messages) {
+    if (prevTs !== undefined && m.timestamp - prevTs >= TIME_GAP_ANNOTATE_MS) {
+      result.push({
+        id: `${m.id}:timegap`,
+        role: 'system',
+        content: `(${formatTimeGap(m.timestamp - prevTs)} later)`,
+        timestamp: m.timestamp
+      })
+    }
+    result.push(m)
+    prevTs = m.timestamp
+  }
+  return result
+}
+
+export function sanitizePromptText(text: string | undefined | null): string {
+  return String(text ?? '')
+    .replace(/\[object Object\]/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+export function applyStStyleTags(
+  text: string | undefined | null,
+  vars: { userName: string; charName: string }
+): string {
+  const clean = sanitizePromptText(text)
+  return clean
+    .replace(/\{\{\s*user\s*\}\}/gi, vars.userName)
+    .replace(/\{\{\s*char\s*\}\}/gi, vars.charName)
+}
+
+function stemFromFilename(filename: string): string {
+  return filename.replace(/\.[^.]+$/, '')
+}
+
+/**
+ * Builds the emotion ID list for the Output Contract.
+ * If the character has sprites with assigned emotions, returns custom IDs with descriptions.
+ * Otherwise returns the default 28-emotion list string.
+ */
+export function buildEmotionContract(char: PromptCharacter): { ids: string; descriptions: string[] } {
+  const emotions = char.emotions ?? {}
+  const spriteIds = char.spriteIds ?? {}
+
+  // Group emotions by imagePath
+  const pathToEmotions = new Map<string, string[]>()
+  for (const [emo, p] of Object.entries(emotions)) {
+    if (!p?.trim()) continue
+    const list = pathToEmotions.get(p) ?? []
+    list.push(emo)
+    pathToEmotions.set(p, list)
+  }
+
+  if (pathToEmotions.size === 0) {
+    return { ids: EMOTION_LIST.join(', '), descriptions: [] }
+  }
+
+  const entries: { id: string; emotions: string[] }[] = []
+  for (const [imagePath, assignedEmotions] of pathToEmotions) {
+    const filename = imagePath.split(/[/\\]/).pop() ?? imagePath
+    const id = spriteIds[imagePath]?.trim() || stemFromFilename(filename)
+    entries.push({ id, emotions: assignedEmotions })
+  }
+
+  const ids = entries.map(e => e.id).join(', ')
+  const descriptions = entries.map(e => `  - ${e.id}: use for ${e.emotions.join(', ')}`)
+  return { ids, descriptions }
+}
+
+export function buildTimeMoodGuideline(hours: number): string {
+  if (hours < 5) return 'Late night / early morning — tone may lean toward companionship and tenderness.'
+  if (hours < 8) return 'Early morning — naturally reference waking up or not having slept.'
+  if (hours < 11) return 'Morning — tone may reflect the start of a new day.'
+  if (hours < 14) return 'Around noon / lunchtime — can naturally mention meals or taking a break.'
+  if (hours < 18) return 'Afternoon — tone may reflect being mid-day or busy with routine.'
+  if (hours < 22) return 'Evening — tone may lean toward winding down, relaxing, or spending time together.'
+  return 'Late evening (around 10–11 PM) — tone may relax slightly, but keep it natural.'
+}
+
+// Matches ASCII word chars or CJK unified ideographs — used for custom emotion IDs
+const EMOTION_TOKEN = /[a-z_一-鿿㐀-䶿]+/i
+
+/** Returns the flat list of effective emotion IDs for a character (used to parse bare CJK tags). */
+export function buildEmotionIdList(char: PromptCharacter): string[] {
+  const { ids } = buildEmotionContract(char)
+  return ids.split(',').map(s => s.trim()).filter(Boolean)
+}
+
+/**
+ * knownEmotionIds — pass the character's sprite ID list so bare CJK tags on their own line
+ * (e.g. "閉眼臉紅\n...") can be identified and stripped. Without this list the function will
+ * not attempt to parse bare CJK tokens (safe fallback).
+ */
+export function parseEmotion(text: string, knownEmotionIds?: string[]): { emotion: string; content: string } {
+  const source = sanitizePromptText(text)
+  let detectedEmotion = 'neutral'
+  let content = source
+
+  for (let i = 0; i < 3; i++) {
+    const before = content
+
+    // Match "[amused]" or "[emotion: 微笑]" etc.
+    const bracketRe = new RegExp(
+      `^\\s*\\[\\s*(?:(?:emotion|mood|feeling|情緒)\\s*[:=：]\\s*)?(${EMOTION_TOKEN.source})\\s*\\]\\s*`,
+      'i'
+    )
+    const bracketMatch = content.match(bracketRe)
+    if (bracketMatch) {
+      const raw = bracketMatch[1]
+      detectedEmotion = normalizeEmotion(raw) ?? raw
+      content = content.slice(bracketMatch[0].length).trim()
+      continue
+    }
+
+    // Match "emotion: xxx" or "emotion: 微笑" on the first line.
+    const kvRe = new RegExp(
+      `^\\s*(?:emotion|mood|feeling|情緒)\\s*[:=：]\\s*(${EMOTION_TOKEN.source})\\s*(?:\\r?\\n|$)`,
+      'i'
+    )
+    const kvMatch = content.match(kvRe)
+    if (kvMatch) {
+      const raw = kvMatch[1]
+      detectedEmotion = normalizeEmotion(raw) ?? raw
+      content = content.slice(kvMatch[0].length).trim()
+      continue
+    }
+
+    // Match a bare leading ASCII emotion token (e.g. "amused會。") — intentionally no CJK
+    // to avoid consuming the start of Chinese dialogue.
+    const bareMatch = content.match(/^\s*([a-z_]+)(?=$|[\s:=,，.。!！?？;；\-]|[㐀-鿿])/i)
+    const bareEmotion = normalizeEmotion(bareMatch?.[1])
+    if (bareMatch && bareEmotion) {
+      detectedEmotion = bareEmotion
+      content = content
+        .slice(bareMatch[0].length)
+        .replace(/^\s*[:=,，.。!！?？;；\-]?\s*/, '')
+        .trim()
+      continue
+    }
+
+    // Match a bare CJK-only token on its own line — only when it exactly matches a known sprite ID.
+    // No heuristic fallback to avoid accidentally stripping the start of Chinese dialogue.
+    if (knownEmotionIds && knownEmotionIds.length > 0) {
+      const bareCjkMatch = content.match(/^\s*([一-鿿㐀-䶿]{1,12})\s*(?:\r?\n)/)
+      if (bareCjkMatch && knownEmotionIds.includes(bareCjkMatch[1])) {
+        detectedEmotion = bareCjkMatch[1]
+        content = content.slice(bareCjkMatch[0].length).trim()
+        continue
+      }
+    }
+
+    if (content === before) break
+  }
+
+  return {
+    emotion: detectedEmotion,
+    content: content || source
+  }
+}
+
+export function messageSpeakerLabel(
+  message: Message,
+  persona?: PersonaPreset | null,
+  speakerNameById?: Record<string, string>
+): string {
+  if (message.role === 'user') {
+    return persona?.displayName?.trim() || persona?.nickname?.trim() || '使用者'
+  }
+  if (message.role === 'character') {
+    return (message.characterId && speakerNameById?.[message.characterId]) || '其他角色'
+  }
+  return '系統'
+}
+
+/** Returns settings with the utility provider/model substituted in (reminders, emotion classify). */
+export function applyUtilitySettings(settings: AppSettings): AppSettings {
+  if (!settings.llm.utilityEnabled) return settings
+  const utilityProvider = settings.llm.utilityProvider ?? settings.llm.provider
+  const utilityModel = settings.llm.utilityModels?.[utilityProvider] ?? ''
+  return {
+    ...settings,
+    llm: {
+      ...settings.llm,
+      provider: utilityProvider,
+      models: {
+        ...(settings.llm.models ?? {}),
+        [utilityProvider]: utilityModel
+      }
+    }
+  }
+}
+
+/** Minimal system prompt for a single emotion-classification call. */
+export function buildEmotionClassifierSystemPrompt(char: PromptCharacter): string {
+  const { ids: emotionIds, descriptions: emotionDescs } = buildEmotionContract(char)
+  const lines = [
+    'You are an emotion classifier for a visual novel character.',
+    `Given a reply by "${char.name}", output ONLY the single emotion ID that best fits the reply.`,
+    `Valid IDs: ${emotionIds}`
+  ]
+  if (emotionDescs.length > 0) lines.push(`Guide:\n${emotionDescs.join('\n')}`)
+  lines.push('Output the ID and nothing else.')
+  return lines.join('\n')
+}
+
+/**
+ * Minimal system prompt for rating how subjective/emotionally loaded a news headline's WORDING reads
+ * (not whether the underlying claim is true). Debug-only signal — never used to filter or alter tone.
+ */
+export function buildNewsSubjectivityClassifierSystemPrompt(): string {
+  return [
+    'You are a news headline analyst.',
+    "Rate how subjective, emotionally loaded, or one-sided the WORDING of the given headline (and summary, if any) is — not whether the claim itself is true or important.",
+    '0 = purely factual, neutral wording. 5 = strongly opinionated, emotionally charged, or one-sided framing.',
+    'Reply with ONLY a single digit (0, 1, 2, 3, 4, or 5), then a "|" character, then a short reason written in Traditional Chinese (under 20 characters). Do not add any other words, labels, brackets, or punctuation.',
+    'Example output (copy this exact shape, but with your own digit and reason):',
+    '2|語氣中性，僅敘述事實',
+    '3|用詞稍帶評價意味'
+  ].join('\n')
+}
+
+/** Formats the current local time as "YYYY-MM-DD HH:mm 時段"（e.g. "2026-07-05 14:03 下午"）. */
+export function formatSystemTimeStr(): string {
+  const now = new Date()
+  const hours = now.getHours()
+  const timeLabel =
+    hours < 5 ? '深夜' : hours < 8 ? '清晨' : hours < 12 ? '上午' :
+    hours < 13 ? '中午' : hours < 18 ? '下午' : hours < 19 ? '傍晚' :
+    hours < 23 ? '晚上' : '深夜'
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(hours).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} ${timeLabel}`
+}
+
+export function buildSystemPrompt(
+  settings: AppSettings,
+  char: PromptCharacter,
+  persona?: PersonaPreset | null,
+  world?: WorldPreset | null,
+  desktopCharacterNames?: string[],
+  extraSystemContext?: string,
+  opts?: { splitEmotion?: boolean; minimal?: boolean; omitSystemTime?: boolean }
+): string {
+
+  const displayName = sanitizePromptText(persona?.displayName) || '使用者'
+  const nickname = sanitizePromptText(persona?.nickname) || displayName
+  const tagVars = {
+    userName: nickname || displayName,
+    charName: sanitizePromptText(char.name) || '角色'
+  }
+
+  const override = applyStStyleTags(char.systemPromptOverride, tagVars)
+  const description = applyStStyleTags(char.description, tagVars)
+  const personality = applyStStyleTags(char.personality, tagVars)
+  const scenario = applyStStyleTags(char.scenario, tagVars)
+  const exampleDialogue = applyStStyleTags(char.exampleDialogue, tagVars)
+  const creatorNotes = applyStStyleTags(char.creatorNotes, tagVars)
+  const worldSetting = applyStStyleTags(world?.worldSetting, tagVars)
+  const interactionExample = applyStStyleTags(world?.interactionExample, tagVars)
+  const nicknames = (char.nicknames ?? [])
+    .map(n => sanitizePromptText(n))
+    .filter(Boolean)
+
+  const others = (desktopCharacterNames ?? []).filter(n => n !== char.name)
+  const isGroup = others.length > 0
+
+  const { ids: emotionIds, descriptions: emotionDescs } = buildEmotionContract(char)
+  const hasCustomSprites = emotionDescs.length > 0
+
+  const parts: string[] = []
+
+  // ── [1] WHO ──────────────────────────────────────────────────────────────
+  {
+    let whoStatement = `You are "${char.name}"`
+    if (nicknames.length > 0) {
+      whoStatement += ` (also known as ${nicknames.map(n => `"${n}"`).join(', ')})`
+    }
+    const who: string[] = [whoStatement + '.']
+    if (override) who.push(override)
+    if (description) who.push(`[Description]\n${description}`)
+    if (personality) who.push(personality)
+    if (exampleDialogue) who.push(`[Style Examples]\n${exampleDialogue}`)
+    parts.push(who.join('\n\n'))
+  }
+
+  // ── [2] CONTEXT ──────────────────────────────────────────────────────────
+  {
+    const ctx: string[] = []
+    if (worldSetting) ctx.push(`[World]\n${worldSetting}`)
+    if (scenario) ctx.push(`[Scene]\n${scenario}`)
+    if (persona?.displayName?.trim() || persona?.nickname?.trim() || persona?.description?.trim()) {
+      const description = sanitizePromptText(persona?.description)
+      const personaNicknames = (persona?.nicknames ?? []).map(n => sanitizePromptText(n)).filter(Boolean)
+      const lines = ['[User]', `name: ${displayName}`, `preferred_name: ${nickname}`]
+      if (personaNicknames.length > 0) lines.push(`other_names: ${personaNicknames.join(', ')}`)
+      if (description) lines.push(`notes: ${description}`)
+      ctx.push(lines.join('\n'))
+    }
+    if (interactionExample) ctx.push(`[Interaction Hints]\n${interactionExample}`)
+    if (isGroup) ctx.push(
+      `Group Members: ${char.name} (you), ${others.join(', ')}\n` +
+      `Conversation uses "Name: content" format — ${nickname}: = user`
+    )
+    if (creatorNotes) ctx.push(`[Author Notes]\n${creatorNotes}`)
+    // 一般聊天時間改注入 trigger 結尾（omitSystemTime），只有提醒路徑（無 trigger）留在這裡
+    if (!opts?.minimal && !opts?.omitSystemTime && settings.injectSystemTime) ctx.push(`[System Time]\n${formatSystemTimeStr()}`)
+    if (!opts?.minimal && settings.mobile?.enabled) {
+      ctx.push('[Input Source]\n[from: device] marks the device the user sent from. Treat it as context, not spoken text.')
+    }
+    if (extraSystemContext?.trim()) ctx.push(extraSystemContext.trim())
+    if (ctx.length > 0) parts.push(ctx.join('\n\n'))
+  }
+
+  if (opts?.minimal) return parts.join('\n\n')
+
+  // ── [3] BEHAVIOR ─────────────────────────────────────────────────────────
+  {
+    const behaviorParts: string[] = [
+      [
+        '[Roleplay Rules]',
+        'Stay in character at all times. Character consistency takes priority over generic helpful tone.',
+        'Do not mention AI, model, or system prompt.',
+        'Never offer to help, suggest actions, or adopt a service/consultant tone (e.g. no "要不要我幫你", "你可以試試", "我建議你").',
+        'If the user mentions a personal milestone (birthday, achievement, life event) anywhere in their message — even as a passing remark — acknowledge it in character before moving on.'
+      ].join('\n')
+    ]
+    if (isGroup) {
+      behaviorParts.push(
+        [
+          '[Group Conversation]',
+          'Read the full conversation and decide naturally what to respond to — it may be something the user said, something another character said, or both.',
+          'Do not always direct replies at the user. Treat this as a group conversation where any remark is fair game to pick up on.',
+          'Do not repeat the emotional beat or core message already expressed by the other character(s).'
+        ].join('\n')
+      )
+    }
+    parts.push(behaviorParts.join('\n\n'))
+  }
+
+  // ── [4] OUTPUT CONTRACT ──────────────────────────────────────────────────
+  {
+    const outputLines: string[] = ['[Output Format]']
+    if (hasCustomSprites && !opts?.splitEmotion) {
+      outputLines.push(
+        `- First line MUST be a bracket tag "[{emotion_id}]" where emotion_id is one of: ${emotionIds}\n  Emotion guide:\n${emotionDescs.join('\n')}\n  Example first line: [${emotionIds.split(',')[0].trim()}]`
+      )
+    }
+    outputLines.push(
+      '- Spoken dialogue only. No narration, stage directions, or inner monologue.',
+      '- No environmental descriptions (e.g. no "陽光灑落"). No character name prefix before lines.',
+      '- Do not wrap the reply in outer quotation marks (「」/『』/""). Use quotes only when quoting someone.',
+      '- Multiple sentences: one per line.',
+      '- Keep replies short: 1–3 sentences max. Terse characters lean toward 1; expressive characters may use up to 3.',
+      '- Write entirely in Traditional Chinese (Taiwan usage).'
+    )
+    parts.push(outputLines.join('\n'))
+  }
+
+  return parts.join('\n\n')
+}
+
+/**
+ * Trigger 用的時間字串：injectSystemTime 開啟時回傳現在時間；
+ * 距離最後一則訊息超過 1 小時再附註間隔（深夜聊到一半、隔天下午續聊的斷層就在這裡）。
+ */
+export function buildTriggerTimeStr(settings: AppSettings, messages: Message[], minimal?: boolean): string | undefined {
+  if (minimal || !settings.injectSystemTime) return undefined
+  let str = formatSystemTimeStr()
+  const lastTs = messages.length > 0 ? messages[messages.length - 1].timestamp : undefined
+  if (lastTs !== undefined) {
+    const gap = Date.now() - lastTs
+    if (gap >= TIME_GAP_ANNOTATE_MS) str += ` (last message ${formatTimeGap(gap)} ago)`
+  }
+  return str
+}
+
+/**
+ * Trigger line injected as the final user message, after conversation history.
+ * timeStr（injectSystemTime 開啟時傳入）放在這裡而不是只放 system prompt 中段：
+ * prompt 結尾的注意力最強，才能壓過舊訊息裡的時間語境（例如深夜聊到一半隔天下午續聊）。
+ */
+export function buildTriggerMessage(charName: string, directive?: string, timeStr?: string): string {
+  const lines: string[] = []
+  if (timeStr) {
+    lines.push(`[Current time: ${timeStr}]`)
+  }
+  lines.push(`[Write the next in-character reply as "${charName}" only.]`)
+  if (directive?.trim()) lines.push(directive.trim())
+  return lines.join('\n')
+}
