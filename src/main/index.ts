@@ -540,6 +540,7 @@ function initMobileServer(): void {
     getActiveWorldId: () => getSettings().activeWorldId,
     getColorTheme: () => getSettings().ui.colorTheme ?? 'mint',
     getRandomToolsEnabled: () => getSettings().ui.randomToolsEnabled !== false,
+    getMaxImagesPerMessage: () => getSettings().llm?.maxImagesPerMessage ?? 5,
     shouldIncludeDeviceNameInPrompt: () => getSettings().mobile?.enabled === true,
     deleteMessage: deleteMessageDirect,
     editMessage: editMessageDirect,

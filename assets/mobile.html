@@ -168,6 +168,31 @@
   #send-btn:active { background: var(--mint); }
   #send-btn:disabled { opacity: 0.5; cursor: default; }
 
+  /* ── 圖片附件 ── */
+  #attach-btn { width: 40px; height: 40px; border-radius: 50%; border: 1.5px solid var(--mint2);
+    background: var(--bg); color: var(--text); font-size: 17px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent; padding: 0; }
+  #attach-btn:active { background: var(--mint); }
+  #attach-btn:disabled { opacity: 0.4; cursor: default; }
+  #attach-preview { display: none; gap: 6px; flex-wrap: wrap; }
+  #attach-preview.visible { display: flex; }
+  .attach-thumb { position: relative; width: 56px; height: 56px; border-radius: 10px;
+    overflow: hidden; border: 1.5px solid var(--mint2); background: var(--bg); flex-shrink: 0; }
+  .attach-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .attach-thumb button { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px;
+    border-radius: 50%; border: none; background: rgba(0,0,0,0.55); color: #fff;
+    font-size: 11px; line-height: 1; cursor: pointer; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    -webkit-tap-highlight-color: transparent; }
+  .msg-images { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+  .msg-images img { width: 96px; height: 96px; object-fit: cover; border-radius: 10px;
+    display: block; cursor: pointer; background: rgba(0,0,0,0.05); }
+  #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.88); z-index: 300;
+    display: none; align-items: center; justify-content: center; padding: 16px; }
+  #lightbox.visible { display: flex; }
+  #lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; }
+
   /* ── Bottom sheets (shared) ── */
   .sheet-overlay { display: none; position: fixed; inset: 0;
     background: rgba(0,0,0,0.25); z-index: 100; align-items: flex-end; }
@@ -477,11 +502,17 @@
   <div id="tool-bar">
     <button class="tool-btn" id="random-open-btn">🎲 擲骰 / 工具</button>
   </div>
+  <div id="attach-preview"></div>
   <div id="input-row">
+    <button id="attach-btn" title="加入圖片">📎</button>
+    <input type="file" id="attach-input" accept="image/*" multiple style="display:none">
     <textarea id="msg-input" rows="1" placeholder="輸入訊息…"></textarea>
     <button id="send-btn">↑</button>
   </div>
 </div>
+
+<!-- 圖片放大檢視 -->
+<div id="lightbox"><img id="lightbox-img" alt=""></div>
 
 <!-- ══ 【個人新聞報】結構區（可與同名 CSS／JS 區塊整組抽出）══ -->
 <div class="sheet-overlay" id="reader-overlay">
@@ -761,7 +792,7 @@
 
   // ── State ──
   let ws = null, wsRetryCount = 0, wsEverConnected = false;
-  let state = { desktopCharacters: [], conversation: null, randomToolsEnabled: true, remoteControl: { enabled: false, allowedCapabilities: [] } };
+  let state = { desktopCharacters: [], conversation: null, randomToolsEnabled: true, maxImages: 5, remoteControl: { enabled: false, allowedCapabilities: [] } };
   let allLibraryChars = [];
   let isWaiting = false;
   let currentSsDataUrl = null;
@@ -1079,6 +1110,22 @@
     bubbleRow.style.cssText = 'display: flex; align-items: flex-end; gap: 4px;';
 
     const bubble = document.createElement('div'); bubble.className = 'bubble';
+    // 圖片：樂觀渲染用本地 data URL，已存檔的訊息用 /api/message-image 按需取
+    const imgSrcs = msg.localImages && msg.localImages.length
+      ? msg.localImages
+      : Array.from({ length: msg.imageCount || 0 }, (_, i) => messageImageUrl(msg.id, i));
+    if (imgSrcs.length) {
+      const strip = document.createElement('div'); strip.className = 'msg-images';
+      for (const src of imgSrcs) {
+        const im = document.createElement('img');
+        im.src = src; im.loading = 'lazy'; im.alt = '附件圖片';
+        im.addEventListener('click', () => openLightbox(src));
+        im.onerror = () => im.remove();   // 換過對話後舊圖抓不到，就別留破圖
+
+        strip.appendChild(im);
+      }
+      bubble.appendChild(strip);
+    }
     if (msg.randomResults && msg.randomResults.length) {
       for (const r of msg.randomResults) {
         const badge = document.createElement('div');
@@ -1237,8 +1284,10 @@
     state.desktopCharacters = d.desktopCharacters || [];
     state.conversation = d.conversation || null;
     state.randomToolsEnabled = d.randomToolsEnabled !== false;
+    state.maxImages = d.maxImages || 5;
     state.remoteControl = d.remoteControl || { enabled: false, allowedCapabilities: [] };
     if (d.colorTheme) applyTheme(d.colorTheme);
+    renderAttachPreview();
     updateRandomToolsUi();
     updateRemoteControlUi();
     renderHeader(); renderAll();
@@ -1257,13 +1306,89 @@
     return allLibraryChars;
   }
 
+  // ── 圖片附件 ──
+  // 手機相機動輒 4000px / 好幾 MB，直接送 base64 會塞爆 body，先在前端縮圖再壓 JPEG
+  const IMG_MAX_EDGE = 1024;
+  const IMG_QUALITY  = 0.8;
+
+  let pendingImages = [];   // data URL 陣列，送出後清空
+  const $attachBtn     = document.getElementById('attach-btn');
+  const $attachInput   = document.getElementById('attach-input');
+  const $attachPreview = document.getElementById('attach-preview');
+  const $lightbox      = document.getElementById('lightbox');
+  const $lightboxImg   = document.getElementById('lightbox-img');
+
+  function maxImages() { return state.maxImages || 5; }
+
+  function compressImage(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const scale = Math.min(1, IMG_MAX_EDGE / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        // JPEG 沒有透明通道，先鋪白底免得透明處變黑
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', IMG_QUALITY));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode failed')); };
+      img.src = url;
+    });
+  }
+
+  function renderAttachPreview() {
+    $attachPreview.innerHTML = '';
+    $attachPreview.classList.toggle('visible', pendingImages.length > 0);
+    pendingImages.forEach((dataUrl, i) => {
+      const box = document.createElement('div'); box.className = 'attach-thumb';
+      const img = document.createElement('img'); img.src = dataUrl;
+      img.addEventListener('click', () => openLightbox(dataUrl));
+      const rm = document.createElement('button'); rm.textContent = '✕';
+      rm.addEventListener('click', () => { pendingImages.splice(i, 1); renderAttachPreview(); });
+      box.appendChild(img); box.appendChild(rm);
+      $attachPreview.appendChild(box);
+    });
+    $attachBtn.disabled = pendingImages.length >= maxImages();
+  }
+
+  $attachBtn.addEventListener('click', () => { $attachInput.value = ''; $attachInput.click(); });
+  $attachInput.addEventListener('change', async () => {
+    const files = Array.from($attachInput.files || []);
+    if (!files.length) return;
+    const room = maxImages() - pendingImages.length;
+    if (room <= 0) { showToast('最多只能附 ' + maxImages() + ' 張圖片'); return; }
+    if (files.length > room) showToast('最多只能附 ' + maxImages() + ' 張，只加入前 ' + room + ' 張');
+    $attachBtn.disabled = true;
+    for (const file of files.slice(0, room)) {
+      try { pendingImages.push(await compressImage(file)); }
+      catch { showToast('無法讀取圖片：' + file.name); }
+    }
+    renderAttachPreview();
+  });
+
+  function openLightbox(src) { $lightboxImg.src = src; $lightbox.classList.add('visible'); }
+  $lightbox.addEventListener('click', () => { $lightbox.classList.remove('visible'); $lightboxImg.src = ''; });
+
+  function messageImageUrl(msgId, index) {
+    const base = window.__relayDeviceId ? '/' + window.__relayDeviceId : '';
+    return base + '/api/message-image/' + encodeURIComponent(msgId) + '/' + index + tokenQuery();
+  }
+
   // ── Send ──
   const $skipLlmChk = document.getElementById('skip-llm-chk');
 
   async function sendMessage() {
     const raw = $msgInput.value.trim();
-    if (!raw || isWaiting) return;
+    if ((!raw && !pendingImages.length) || isWaiting) return;
     isWaiting = true; $sendBtn.disabled = true;
+    const sentImages = pendingImages;
+    pendingImages = []; renderAttachPreview();
     $msgInput.value = ''; resizeTA();
 
     // Expand inline tokens client-side (mirrors desktop expandRandomTokens)
@@ -1277,6 +1402,7 @@
 
     const skipLlm = !$skipLlmChk.checked;
     const payload = { content: finalContent, skipLlm: skipLlm || undefined };
+    if (sentImages.length) payload.images = sentImages;
     if (randomResults) {
       payload.randomResults = randomResults;
       payload.randomResult  = randomResults[0]; // legacy compat
@@ -1284,7 +1410,7 @@
 
     // Optimistic render — show the expanded text immediately
     pendingUserContent = finalContent;
-    pendingUserMsgEl = renderMsg({ id: 'pending-' + Date.now(), role: 'user', content: finalContent, randomResults, timestamp: Date.now() });
+    pendingUserMsgEl = renderMsg({ id: 'pending-' + Date.now(), role: 'user', content: finalContent, randomResults, localImages: sentImages, timestamp: Date.now() });
     $chat.appendChild(pendingUserMsgEl);
     scrollBottom();
     if (!skipLlm) showThinking();
@@ -1293,6 +1419,8 @@
       if (result?.error) {
         appendMsg({ id: 'err-' + Date.now(), role: 'system', content: '⚠️ ' + result.error, timestamp: Date.now() });
         pendingUserMsgEl = null; pendingUserContent = '';
+        // 送失敗就把圖放回附件列，使用者不用重選一次
+        if (sentImages.length && !pendingImages.length) { pendingImages = sentImages; renderAttachPreview(); }
       }
     } finally { isWaiting = false; $sendBtn.disabled = false; }
   }

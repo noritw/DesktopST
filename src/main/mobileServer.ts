@@ -19,7 +19,7 @@ export interface MobileBridge {
   getDesktopCharacterIds: () => string[]
   getDesktopCharacters: () => { id: string; name: string; muted: boolean }[]
   getActiveConversation: () => { id: string; title: string; participantIds: string[]; messages: Message[] } | null
-  sendMessage: (payload: { content: string; randomResult?: RandomResult; randomResults?: RandomResult[]; skipLlm?: boolean; sourceDeviceName?: string }) => Promise<void>
+  sendMessage: (payload: { content: string; images?: string[]; randomResult?: RandomResult; randomResults?: RandomResult[]; skipLlm?: boolean; sourceDeviceName?: string }) => Promise<void>
   addDesktopCharacter: (characterId: string) => Promise<boolean>
   removeDesktopCharacter: (characterId: string) => boolean
   captureScreenshot: (withChars: boolean, displayIndex?: number) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
@@ -40,6 +40,7 @@ export interface MobileBridge {
   getActiveWorldId: () => string
   getColorTheme: () => string
   getRandomToolsEnabled: () => boolean
+  getMaxImagesPerMessage: () => number
   shouldIncludeDeviceNameInPrompt: () => boolean
   deleteMessage: (id: string) => boolean
   editMessage: (id: string, content: string) => boolean
@@ -145,11 +146,12 @@ export function getConnectedCount(): number {
   return clients.size
 }
 
-// 移除敏感欄位（debugPrompt、圖片 base64）
-function sanitizeMessage(msg: Message): Partial<Message> {
+// 移除大型／敏感欄位（debugPrompt、圖片 base64）
+// 圖片改以 imageCount 表示，實際內容由 GET /api/message-image 按需取用，避免 WS 推播塞滿 base64
+function sanitizeMessage(msg: Message): Partial<Message> & { imageCount?: number } {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { debugPrompt, utilityDebugPrompt, images, ...rest } = msg
-  return rest
+  return images && images.length ? { ...rest, imageCount: images.length } : rest
 }
 
 // ── 靜態資源路徑 ──────────────────────────────────────────
@@ -205,6 +207,27 @@ function rollRandomTool(tool: string, params: Record<string, number>): RandomRes
   return null
 }
 
+// ── 圖片附件驗證 ───────────────────────────────────────────
+
+const ALLOWED_IMAGE_MIME = /^data:image\/(png|jpeg|jpg|webp|gif);base64,/i
+
+// 單張壓縮後的 data URL 上限（base64 約比原檔大 1/3）
+const MAX_IMAGE_DATAURL_LEN = 6 * 1024 * 1024
+
+// 只收 data:image/* base64，張數以設定為準，避免手機端塞進奇怪的東西
+function sanitizeIncomingImages(raw: unknown, maxImages: number): string[] {
+  if (!Array.isArray(raw)) return []
+  const out: string[] = []
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    if (!ALLOWED_IMAGE_MIME.test(item)) continue
+    if (item.length > MAX_IMAGE_DATAURL_LEN) continue
+    out.push(item)
+    if (out.length >= Math.max(1, maxImages)) break
+  }
+  return out
+}
+
 // ── HTTP 路由 ─────────────────────────────────────────────
 
 async function handleRequest(
@@ -257,6 +280,7 @@ async function handleRequest(
         : null,
       colorTheme: bridge.getColorTheme(),
       randomToolsEnabled: bridge.getRandomToolsEnabled(),
+      maxImages: bridge.getMaxImagesPerMessage(),
       remoteControl: getRemoteControlClientStateForDevice(bridge.getRemoteControlSettings(), getDeviceIdFromRequest(req))
     })
     return
@@ -287,19 +311,39 @@ async function handleRequest(
     return
   }
 
+  // ── GET /api/message-image/:msgId/:index ──
+  // 訊息圖片不隨 state / WS 推播（base64 太肥），改由這裡按需取用
+  const msgImgMatch = url.match(/^\/api\/message-image\/([^/]+)\/(\d+)$/)
+  if (method === 'GET' && msgImgMatch) {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const msgId = decodeURIComponent(msgImgMatch[1])
+    const index = Number(msgImgMatch[2])
+    const conv = bridge.getActiveConversation()
+    const msg = conv?.messages.find(m => m.id === msgId)
+    const dataUrl = msg?.images?.[index]
+    if (!dataUrl || !dataUrl.startsWith('data:image/')) { jsonError(res, 404, 'Not found'); return }
+    const [header, b64] = dataUrl.split(',')
+    const mime = header.replace('data:', '').replace(';base64', '')
+    res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'private, max-age=86400' })
+    res.end(Buffer.from(b64, 'base64'))
+    return
+  }
+
   // ── POST /api/send ──
   if (method === 'POST' && url === '/api/send') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-    const body = await readBody(req)
-    let payload: { content?: string; randomResult?: RandomResult; randomResults?: RandomResult[]; skipLlm?: boolean }
+    const body = await readBody(req, SEND_MAX_BODY)
+    if (body === BODY_TOO_LARGE) { jsonError(res, 413, '圖片太大，請減少張數或降低畫質'); return }
+    let payload: { content?: string; images?: unknown; randomResult?: RandomResult; randomResults?: RandomResult[]; skipLlm?: boolean }
     try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
     const content = String(payload.content ?? '').trim()
-    if (!content && !payload.randomResult && !(payload.randomResults && payload.randomResults.length)) { jsonError(res, 400, 'Empty message'); return }
+    const images = sanitizeIncomingImages(payload.images, bridge.getMaxImagesPerMessage())
+    if (!content && !images.length && !payload.randomResult && !(payload.randomResults && payload.randomResults.length)) { jsonError(res, 400, 'Empty message'); return }
     try {
       const sourceDeviceName = bridge.shouldIncludeDeviceNameInPrompt()
         ? getDeviceDisplayNameFromRequest(req)
         : undefined
-      await bridge.sendMessage({ content, randomResult: payload.randomResult, randomResults: payload.randomResults, skipLlm: payload.skipLlm, sourceDeviceName })
+      await bridge.sendMessage({ content, images: images.length ? images : undefined, randomResult: payload.randomResult, randomResults: payload.randomResults, skipLlm: payload.skipLlm, sourceDeviceName })
       jsonOk(res, { ok: true })
     } catch (e) {
       jsonError(res, 500, String(e))
@@ -805,12 +849,30 @@ function jsonError(res: http.ServerResponse, status: number, message: string): v
   res.end(JSON.stringify({ error: message }))
 }
 
-function readBody(req: http.IncomingMessage): Promise<string> {
+// 超過上限時回傳這個哨符字串（不可能出現在正常 JSON body 裡）
+const BODY_TOO_LARGE = '\u0000__BODY_TOO_LARGE__'
+
+const DEFAULT_MAX_BODY = 1024 * 1024          // 一般路由：1 MB 綽綽有餘
+const SEND_MAX_BODY = 24 * 1024 * 1024        // /api/send 帶壓縮後圖片，放寬到 24 MB
+
+function readBody(req: http.IncomingMessage, maxBytes: number = DEFAULT_MAX_BODY): Promise<string> {
   return new Promise((resolve) => {
     let body = ''
-    req.on('data', chunk => { body += chunk.toString() })
-    req.on('end', () => resolve(body))
-    req.on('error', () => resolve(''))
+    let size = 0
+    let aborted = false
+    req.on('data', chunk => {
+      if (aborted) return
+      size += chunk.length
+      if (size > maxBytes) {
+        aborted = true
+        resolve(BODY_TOO_LARGE)
+        req.destroy()
+        return
+      }
+      body += chunk.toString()
+    })
+    req.on('end', () => { if (!aborted) resolve(body) })
+    req.on('error', () => { if (!aborted) resolve('') })
   })
 }
 

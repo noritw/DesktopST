@@ -734,7 +734,7 @@ export function setApplyMobileRuntimeSettingsFn(fn: (previous: AppSettings, next
 /** mobile server 透過這個呼叫 send message（在 registerIpcHandlers 之後才可用）*/
 let _mobileSendImpl: ((payload: { content: string; images?: string[]; randomResult?: RandomResult; randomResults?: RandomResult[]; sourceDeviceName?: string }) => Promise<{ ok: boolean } | { error: string }>) | null = null
 
-export function handleSendMessageFromMobile(payload: { content: string; randomResult?: RandomResult; randomResults?: RandomResult[]; skipLlm?: boolean; sourceDeviceName?: string }): Promise<{ ok: boolean } | { error: string }> {
+export function handleSendMessageFromMobile(payload: { content: string; images?: string[]; randomResult?: RandomResult; randomResults?: RandomResult[]; skipLlm?: boolean; sourceDeviceName?: string }): Promise<{ ok: boolean } | { error: string }> {
   if (!_mobileSendImpl) return Promise.resolve({ error: 'IPC handlers not registered yet' })
   return _mobileSendImpl(payload)
 }
