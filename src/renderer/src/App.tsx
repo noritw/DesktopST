@@ -15,6 +15,7 @@ import PinnedNoteColorMenuWindow from './windows/PinnedNoteColorMenuWindow'
 import PinnedNotesManagerWindow from './windows/PinnedNotesManagerWindow'
 import RemindersManagerWindow from './windows/RemindersManagerWindow'
 import SpotifySettingsWindow from './windows/SpotifySettingsWindow'
+import CalendarSettingsWindow from './windows/CalendarSettingsWindow'
 import { RemoteControlLogWindow } from './modules/remote-control'
 import EmojiPickerWindow from './windows/EmojiPickerWindow'
 import RandomToolsWindow from './windows/RandomToolsWindow'
@@ -157,6 +158,7 @@ export default function App() {
   if (w === 'news-reader') return <ErrorBoundary><NewsReaderWindow /></ErrorBoundary>
   if (w === 'remote-control-log') return <ErrorBoundary><RemoteControlLogWindow /></ErrorBoundary>
   if (w === 'spotify-settings') return <ErrorBoundary><SpotifySettingsWindow /></ErrorBoundary>
+  if (w === 'calendar-settings') return <ErrorBoundary><CalendarSettingsWindow /></ErrorBoundary>
   if (w === 'user-bubble') return <ErrorBoundary><UserBubbleWindow /></ErrorBoundary>
   if (w === 'input') return <ErrorBoundary><InputWindow /></ErrorBoundary>
   if (w === 'settings') return <ErrorBoundary><SettingsWindow /></ErrorBoundary>

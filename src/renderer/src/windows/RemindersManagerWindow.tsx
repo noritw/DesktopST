@@ -63,6 +63,7 @@ function makeDefault(): Reminder {
     injectPinnedNotes: false,
     injectConversationContext: false,
     injectWeather: false,
+    injectCalendar: false,
     createdAt: Date.now()
   }
 }
@@ -107,6 +108,7 @@ function ReminderForm({
   const [injectContext, setInjectContext] = useState(initial.injectConversationContext ?? false)
   const [injectWeather, setInjectWeather] = useState(initial.injectWeather ?? false)
   const [injectNews, setInjectNews] = useState(initial.injectNews ?? false)
+  const [injectCalendar, setInjectCalendar] = useState(initial.injectCalendar ?? false)
   const [error, setError] = useState('')
 
   const handleSchedTypeChange = (next: ReminderSchedule['type']) => {
@@ -178,7 +180,8 @@ function ReminderForm({
       injectPinnedNotes: injectNotes,
       injectConversationContext: injectContext,
       injectWeather,
-      injectNews
+      injectNews,
+      injectCalendar
     })
   }
 
@@ -380,6 +383,30 @@ function ReminderForm({
         </p>
       )}
 
+      {(() => {
+        const hasCalendar = !!(settings?.calendar?.displayName)
+        return (
+          <>
+            <label className={`flex items-center gap-2 select-none ${hasCalendar ? 'cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
+              <input
+                type="checkbox"
+                checked={injectCalendar}
+                onChange={e => setInjectCalendar(e.target.checked)}
+                disabled={!hasCalendar}
+                className="w-4 h-4 accent-teal"
+              />
+              <span className="text-sm text-primary">加入接下來的行程</span>
+              {!hasCalendar && <span className="text-[11px] text-secondary">（需先在設定→擴充連結 Google 日曆）</span>}
+            </label>
+            {injectCalendar && hasCalendar && (
+              <p className="text-[11px] text-secondary -mt-1 ml-6">
+                觸發時附入接下來的行程，角色就能講出「你明天早上 9 點有會」這種話。
+              </p>
+            )}
+          </>
+        )
+      })()}
+
       <div className="flex gap-2 pt-1">
         <button
           type="button"
@@ -435,12 +462,13 @@ function ReminderCard({
           <div className="text-sm font-semibold text-primary truncate">{reminder.label}</div>
           <div className="text-xs text-secondary mt-0.5">{scheduleLabel(reminder.schedule)}</div>
           <div className="text-xs text-secondary">角色：{charName}</div>
-          {(reminder.injectPinnedNotes || reminder.injectConversationContext || reminder.injectWeather || reminder.injectNews) && (
+          {(reminder.injectPinnedNotes || reminder.injectConversationContext || reminder.injectWeather || reminder.injectNews || reminder.injectCalendar) && (
             <div className="text-[11px] text-teal mt-0.5 space-x-2">
               {reminder.injectPinnedNotes && <span>✦ 便利貼</span>}
               {reminder.injectConversationContext && <span>✦ 對話上下文</span>}
               {reminder.injectWeather && <span>✦ 天氣</span>}
               {reminder.injectNews && <span>✦ 新聞</span>}
+              {reminder.injectCalendar && <span>✦ 行程</span>}
             </div>
           )}
         </div>

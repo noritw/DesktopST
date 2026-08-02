@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeST — Google 日曆設定教學</title>
+<style>
+  :root {
+    --mint: #CBFBC4;
+    --mint-soft: #AAEEDD;
+    --sky: #AAEEFF;
+    --butter: #FFE8AA;
+    --blush: #FFBBBB;
+    --bg: #F7FFFC;
+    --surface: #FFFFFF;
+    --text: #3D5A52;
+    --text-soft: #6B8B80;
+    --border: #DCEFE8;
+    --warn: #E85D3F;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 20px 72px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Noto Sans TC", "Microsoft JhengHei", -apple-system, sans-serif;
+    line-height: 1.85;
+    font-size: 15px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+
+  header {
+    background: linear-gradient(135deg, var(--mint) 0%, var(--sky) 100%);
+    border-radius: 24px;
+    padding: 28px 32px;
+    margin-bottom: 28px;
+  }
+  header h1 { margin: 0 0 6px; font-size: 25px; font-weight: 700; }
+  header p { margin: 0; color: var(--text); opacity: .8; font-size: 14px; }
+
+  h2 {
+    font-size: 19px;
+    margin: 36px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+  }
+  h3 { font-size: 15px; margin: 22px 0 8px; }
+  p { margin: 10px 0; }
+
+  ol, ul { padding-left: 24px; margin: 10px 0; }
+  li { margin: 6px 0; }
+
+  a { color: #2E8B7A; text-decoration: none; border-bottom: 1px solid #A8DDD2; }
+  a:hover { background: var(--mint); border-radius: 4px; }
+
+  code {
+    background: var(--mint);
+    border-radius: 6px;
+    padding: 1px 7px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+  }
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 14px 18px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  pre code { background: none; padding: 0; }
+
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 14px 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    font-size: 14px;
+  }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+  th { background: var(--mint-soft); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 18px 24px;
+    margin: 16px 0;
+  }
+  .note   { background: #F0FFFB; border-left: 5px solid var(--mint-soft); }
+  .warn   { background: #FFF6F4; border-left: 5px solid var(--blush); }
+  .tip    { background: #FFFDF2; border-left: 5px solid var(--butter); }
+  .card > :first-child { margin-top: 0; }
+  .card > :last-child  { margin-bottom: 0; }
+  .card .label { font-weight: 700; display: block; margin-bottom: 4px; }
+  .warn .label { color: var(--warn); }
+
+  .step {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--mint);
+    font-size: 14px;
+    font-weight: 700;
+    margin-right: 10px;
+    vertical-align: middle;
+  }
+  h2.stepline { border-bottom: none; margin-bottom: 4px; }
+
+  .faq-q { font-weight: 700; margin: 20px 0 4px; }
+  .faq-q::before { content: "Q  "; color: var(--text-soft); }
+
+  footer {
+    margin-top: 48px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-soft);
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Google 日曆設定教學</h1>
+  <p>讓 DeST 的角色知道你接下來的行程與待辦</p>
+</header>
+
+<p>啟用之後，角色在聊天時會知道你接下來的安排，可以自然提起 ——
+例如「你明天早上九點有會，現在都兩點了」。</p>
+
+<div class="card note">
+  <ul>
+    <li><strong>全程唯讀</strong>：只會讀取，不會新增、修改或刪除你日曆上的任何東西。</li>
+    <li><strong>資料不經過第三方</strong>：你的電腦直接連 Google，作者看不到你的行程。</li>
+    <li><strong>這是進階功能</strong>，不設定完全不影響 DeST 的其他功能。</li>
+  </ul>
+</div>
+
+<p>整個設定大約 10 分鐘，<strong>只要做一次</strong>。</p>
+
+<h2>為什麼要自己申請？不能內建嗎？</h2>
+
+<p>因為 Google 把日曆權限列為敏感範圍，有兩個限制：</p>
+<ol>
+  <li>內建的識別碼放進公開程式等於公開，任何人都能取出來用</li>
+  <li>未經 Google 驗證的應用程式<strong>上限 100 個使用者</strong>，額滿後所有人都連不上</li>
+</ol>
+
+<p>要解除限制得由作者把應用程式送 Google 驗證。驗證本身不收費，但需要網域擁有權、
+公開的隱私權政策頁面、操作示範影片，並經過數週審核，且日後每次調整權限都要重送。</p>
+
+<p>所以改成<strong>每個人用自己的</strong> —— 額度是你自己的，也不會有人因為別人用光而連不上。
+DeST 的 Spotify 功能也是同樣的做法。</p>
+
+<h2 class="stepline"><span class="step">1</span>建立專案</h2>
+
+<ol>
+  <li>開啟 <a href="https://console.cloud.google.com/">Google Cloud Console</a>，用你的 Google 帳號登入</li>
+  <li>點畫面上方的專案選單 → <strong>新增專案</strong></li>
+  <li>專案名稱隨便取（例如 <code>DeST</code>）→ <strong>建立</strong></li>
+  <li>建立完成後，確認上方的專案選單已切換到這個新專案</li>
+</ol>
+
+<div class="card note">
+  第一次使用會要求同意服務條款，照著點即可。<strong>不需要綁定信用卡。</strong>
+</div>
+
+<h2 class="stepline"><span class="step">2</span>啟用兩個 API</h2>
+
+<p>日曆上的「行程」和「工作」在 Google 後端是兩套不同的服務，
+<strong>兩個都要啟用</strong>，否則待辦事項會讀不到。</p>
+
+<ol>
+  <li>左側選單 → <strong>API 和服務</strong> → <strong>已啟用的 API 和服務</strong></li>
+  <li>點上方 <strong>+ 啟用 API 和服務</strong></li>
+  <li>搜尋 <code>Google Calendar API</code> → 點進去 → <strong>啟用</strong></li>
+  <li>回上一頁，再搜尋 <code>Google Tasks API</code> → 點進去 → <strong>啟用</strong></li>
+</ol>
+
+<h2 class="stepline"><span class="step">3</span>設定同意畫面</h2>
+
+<p>這是授權時會看到的那個畫面，Google 要求先設定好才能建立憑證。</p>
+
+<ol>
+  <li>左側選單 → <strong>API 和服務</strong> → <strong>OAuth 同意畫面</strong><br>
+      （新版介面可能叫 <strong>Google 驗證平台</strong>）</li>
+  <li>點 <strong>開始使用</strong>，依序填寫：</li>
+</ol>
+
+<table>
+  <tr><th>欄位</th><th>填什麼</th></tr>
+  <tr><td>應用程式名稱</td><td><code>DeST</code>（隨便取，只有你自己會看到）</td></tr>
+  <tr><td>使用者支援電子郵件</td><td>選你自己的信箱</td></tr>
+  <tr><td>目標對象</td><td><strong>選「外部」</strong></td></tr>
+  <tr><td>聯絡資訊</td><td>填你自己的信箱</td></tr>
+</table>
+
+<p>勾選同意條款 → <strong>建立</strong>。</p>
+
+<h2 class="stepline"><span class="step">4</span>把自己加為測試使用者</h2>
+
+<div class="card warn">
+  <span class="label">這步不能跳過</span>
+  沒做的話，授權時會直接出現「存取遭到封鎖」。
+</div>
+
+<ol>
+  <li>左側選單 → <strong>目標對象</strong>（舊版介面叫 <strong>OAuth 同意畫面</strong>）</li>
+  <li>找到 <strong>測試使用者</strong> 區塊 → <strong>Add users</strong></li>
+  <li>填入<strong>你自己的 Google 帳號信箱</strong>（就是日曆所屬的那個帳號）→ 儲存</li>
+</ol>
+
+<h2 class="stepline"><span class="step">5</span>建立憑證，取得 ID 與密鑰</h2>
+
+<ol>
+  <li>左側選單 → <strong>憑證</strong>（新版可能叫 <strong>用戶端</strong>）</li>
+  <li>點 <strong>+ 建立憑證</strong> → <strong>OAuth 用戶端 ID</strong></li>
+  <li>應用程式類型選 <strong>電腦版應用程式</strong><br>
+      （依介面版本也可能顯示為「桌面應用程式」或「Desktop app」，是同一個）</li>
+  <li>名稱隨便填 → <strong>建立</strong></li>
+  <li>跳出的視窗會顯示兩串文字：
+    <ul>
+      <li><strong>用戶端 ID</strong>（結尾是 <code>.apps.googleusercontent.com</code>）</li>
+      <li><strong>用戶端密鑰</strong></li>
+    </ul>
+  </li>
+</ol>
+
+<p><strong>把這兩串複製下來。</strong> 視窗關掉也沒關係，之後在憑證清單點進去隨時能再看。</p>
+
+<div class="card warn">
+  <span class="label">類型一定要選「電腦版應用程式」</span>
+  選成「網頁應用程式」的話，授權時會出現 <code>redirect_uri_mismatch</code> 錯誤。
+</div>
+
+<h2 class="stepline"><span class="step">6</span>填進 DeST</h2>
+
+<ol>
+  <li>DeST <strong>設定</strong> → <strong>擴充</strong> 分頁</li>
+  <li>找到 <strong>Google 日曆</strong> → 點 <strong>設定</strong></li>
+  <li>把剛剛的 <strong>Client ID</strong> 與 <strong>Client 密鑰</strong> 貼進去</li>
+  <li>點 <strong>連結 Google 帳號</strong>，瀏覽器會自動打開</li>
+  <li>選擇你的 Google 帳號</li>
+  <li>會看到 <strong>「Google 尚未驗證這個應用程式」</strong> 的警告 —— 這是正常的，
+      因為這個應用程式是你自己剛建立的。點 <strong>進階</strong> → <strong>繼續前往（不安全）</strong></li>
+  <li>確認權限清單（查看日曆、查看工作，都是唯讀）→ <strong>繼續</strong></li>
+  <li>瀏覽器顯示「已完成授權」就可以關掉，回到 DeST</li>
+</ol>
+
+<p>設定視窗顯示 <strong>已連結：你的信箱</strong>，代表成功。</p>
+
+<h2 class="stepline"><span class="step">7</span>確認真的讀到了</h2>
+
+<p>連結成功後，日曆設定視窗下方會出現 <strong>目前讀到的內容</strong>，並自動查詢一次。
+框裡顯示的就是實際會送給角色的內容，例如：</p>
+
+<pre><code>[Calendar]
+這是使用者本人的行程與待辦，已確實取得，可以自然提起。
+今天 澆花（待辦）
+明天 09:00–10:00 部門會議（會議室 A）</code></pre>
+
+<div class="card note">
+  這個檢查<strong>不會發送訊息，也不會消耗 LLM 費用</strong>，隨時可以按「重新讀取」。<br>
+  如果這裡有內容，功能就正常了。
+</div>
+
+<h2>⚠️ 重要：七天後要重新授權，除非做這一步</h2>
+
+<div class="card warn">
+  <span class="label">處於「測試中」的應用程式，授權每 7 天就會失效</span>
+  也就是說每週都要重新連結一次。做完下面這步就不會了。
+</div>
+
+<ol>
+  <li>回到 Google Cloud Console → <strong>API 和服務</strong> → <strong>OAuth 同意畫面</strong><br>
+      （或 <strong>Google 驗證平台</strong> → <strong>目標對象</strong>）</li>
+  <li>找到 <strong>發布狀態</strong>，點 <strong>發布應用程式</strong> → 確認</li>
+</ol>
+
+<p>發布後狀態變成「正式版」，授權就不會每週過期了。</p>
+
+<ul>
+  <li>仍然會顯示「未驗證」的警告畫面，這不影響使用</li>
+  <li>使用者上限 100 人，你自己用完全不會碰到</li>
+  <li><strong>不需要送審、不需要付費</strong></li>
+</ul>
+
+<h2>可以調整的設定</h2>
+
+<table>
+  <tr><th>設定</th><th>預設</th><th>說明</th></tr>
+  <tr><td>往後看幾小時的行程</td><td>24</td><td>想讓角色知道整週的事就改成 <code>168</code></td></tr>
+  <tr><td>最多帶入幾則</td><td>5</td><td>有很多每日重複的待辦時建議調高</td></tr>
+  <tr><td>沒有行程時也告訴角色</td><td>關閉</td><td>開啟後角色會知道「你今天沒事」，會多花一點 token</td></tr>
+</table>
+
+<h2>常見問題</h2>
+
+<p class="faq-q">授權時出現「存取遭到封鎖：這個應用程式的要求無效」</p>
+<p>沒有完成步驟 4。回去把自己加進測試使用者，注意要填<strong>日曆所屬的那個帳號</strong>。</p>
+
+<p class="faq-q">出現 <code>redirect_uri_mismatch</code></p>
+<p>步驟 5 的應用程式類型選錯了。刪掉重建一個「電腦版應用程式」類型的。</p>
+
+<p class="faq-q">待辦事項讀得到，但沒有時間</p>
+<p>這是 Google 的限制，不是 DeST 的問題。Google 工作（Tasks）的到期日
+<strong>只儲存日期，時間會被丟棄</strong>，無法透過 API 讀取。
+你在日曆上看到的「上午 9:00」是畫面排版位置，資料裡並不存在。</p>
+<p>兩個做法：</p>
+<ul>
+  <li>把時間寫進工作標題，例如 <code>09:00 澆花</code> —— 標題讀得到，角色照樣講得出時間</li>
+  <li>或改建成日曆「活動」而不是「工作」，時間就會完整保留（但失去打勾功能）</li>
+</ul>
+
+<p class="faq-q">讀不到我另外建立的日曆</p>
+<p>目前只讀取主日曆。如果你習慣把行程分在不同日曆，請回報。</p>
+
+<p class="faq-q">角色說它看不到我的日曆</p>
+<p>先看日曆設定視窗下方的「目前讀到的內容」：</p>
+<ul>
+  <li><strong>框裡有內容</strong> → 讀取正常。角色否認多半是因為對話中先前已經說過「讀不到」，
+      模型會維持前後一致。開一個新對話再試，並且問「我今天有什麼事」而不是「你讀得到日曆嗎」</li>
+  <li><strong>框裡是空的或顯示錯誤</strong> → 依錯誤訊息回頭檢查上面的步驟</li>
+</ul>
+
+<p class="faq-q">怎麼停用？</p>
+<p>設定 → 擴充 → Google 日曆，把開關關掉即可。
+要完全撤銷授權就點設定視窗裡的 <strong>斷開連結</strong>，
+DeST 會通知 Google 撤銷權限並刪除本機憑證。</p>
+
+<p class="faq-q">我的資料會被傳到哪裡？</p>
+<p>只有你的電腦與 Google 之間。憑證以系統加密（Windows DPAPI）儲存在本機，
+不會包含在備份或角色包匯出檔裡。行程內容會隨對話送給你自己設定的 LLM 服務商
+（就像你打字說出來一樣），不會經過作者的任何伺服器。</p>
+
+<footer>
+  DeST — 桌面 AI 角色扮演程式　|　本文件隨程式附帶，離線亦可閱讀
+</footer>
+
+</div>
+</body>
+</html>

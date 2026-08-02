@@ -215,6 +215,7 @@ const SCENE_MODULE_ROWS_BASE: Array<{ id: string; label: string }> = [
   { id: 'desktopst.news', label: '新聞陪聊' },
   { id: 'desktopst.weather', label: '天氣' },
   { id: 'desktopst.spotify', label: 'Spotify 音樂' },
+  { id: 'desktopst.calendar', label: 'Google 日曆' },
   { id: 'desktopst.systemTime', label: '系統時間' }
 ]
 
@@ -2469,6 +2470,17 @@ export default function SettingsWindow() {
               onSettings={() => window.api.invoke('spotify:open-settings')}
             />
             <SceneOverrideHint moduleId="desktopst.spotify" />
+            <ExtensionRow
+              title="Google 日曆"
+              description="讓角色知道你接下來的行程，聊天時能主動提起（唯讀，不會更動你的日曆）。"
+              enabled={!!draft.calendar?.enabled}
+              onToggle={enabled => set('calendar.enabled', enabled)}
+              disabled={!draft.calendar?.displayName}
+              statusText={draft.calendar?.enabled ? '已啟用' : draft.calendar?.displayName ? '已停用' : '尚未連結'}
+              settingsLabel="設定"
+              onSettings={() => window.api.invoke('calendar:open-settings')}
+            />
+            <SceneOverrideHint moduleId="desktopst.calendar" />
             <ExtensionRow
               title="新聞陪聊"
               description="讓角色像朋友一樣，按「說點什麼」時偶爾抽一則新聞跟你聊聊（不照念、不簡報）。"

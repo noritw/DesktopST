@@ -22,6 +22,10 @@
 **`DesktopST-Spec.md`**（同資料夾）— 所有功能、UI、資料結構、LLM 整合的完整規格。
 實作前務必讀完對應章節，不要憑空猜測規格。
 
+**`docs/multi-device-platform-roadmap.md`** — 手機獨立版與平台擴充的評估與規劃。
+**動到手機版／跨平台／多電腦／散布方式之前先讀完**，特別是：
+§2「公開版四大目標」（所有提案要先過這四把尺）、§8「已否決的方案」（不要重新提案）。
+
 ---
 
 ## 技術棧
@@ -259,6 +263,77 @@ npm run typecheck # 型別檢查
   - **順手修掉既有 bug**：`news:save-settings` 收到 partial 時會把其餘設定清成預設，
     導致在桌面新聞報拖欄位／改則數就清空關鍵字、黑名單、排程等；改為先讀現況再淺層合併
   - 詳見 `docs/news-reader-mobile-plan.md`
+
+- [x] Google 日曆模組（唯讀）
+  - 虛擬 module id `desktopst.calendar`，scope `calendar.readonly` ＋ `tasks.readonly`（皆唯讀）
+  - **行程與「工作」是兩套 API**：日曆畫面上的工作（有「標示為完成」「○○的清單」）屬於
+    Google Tasks，`calendar.readonly` 完全讀不到 → 必須另外啟用 Google Tasks API 並加 scope。
+    Tasks 的 `due` 只保留日期（時間一律被截成當日 00:00Z），故待辦一律標成 `kind: 'task'`、
+    不顯示時刻，注入格式為「今天 澆花（待辦）」；行程與待辦混排後依時間排序再套筆數上限。
+    工作讀取失敗（未啟用 Tasks API 等）只是少一部分，不影響行程
+  - **使用者自備 Client ID／密鑰**（同 Spotify 模式），程式碼內不含任何 ID
+  - **回呼方式與 Spotify 不同**：Google 的「桌面應用程式」OAuth client 不接受自訂 URI scheme
+    （`desktopst://` 只給 iOS／Android client），只允許 `http://127.0.0.1:<port>`。
+    因此改為授權時臨時起一個 loopback HTTP server 收 code，收完立即關閉，
+    **不動 `setAsDefaultProtocolClient` 與 `second-instance` 分派**。5 分鐘沒回呼自動收掉
+  - Token（access／refresh）以 `safeStorage` 加密存於 `calendar-auth.json`；
+    Client 密鑰以 `encrypt()` 加密後存在 settings，比照 CWA Key
+  - **provider 介面**（`src/main/calendar/types.ts`）：`CalendarProvider` / `CalendarEvent` 皆與服務商無關，
+    Google 端點與回應格式只存在於 `googleProvider.ts`；`index.ts` 的格式化與注入只吃 `CalendarEvent[]`
+    → 手機版移植只需換一個 provider 實作
+  - 注入格式 `[Calendar]` ＋「今天／明天／後天／M月D日 HH:mm–HH:mm 標題（地點）」；
+    全天行程標「（整天）」；10 分鐘記憶體快取
+  - 生效範圍：一般聊天、說點什麼、提醒（新增 `Reminder.injectCalendar`）
+  - 情境模組覆蓋沿用既有機制（`applySceneModuleOverrides` 改寫 `calendar.enabled`）
+  - **失敗一律靜默**：未啟用／未授權／token 換不到／離線／逾時皆回 `null`，聊天流程不中斷
+  - 設定入口：設定 → 擴充 →「Google 日曆」，獨立視窗 `calendar-settings`
+  - **日曆設定視窗內建「目前讀到的內容」區塊**（`calendar:peek` IPC）：略過快取直接查一次，
+    顯示模組開關（含情境覆蓋提示）、往後時數、**實際會注入 prompt 的原文**。
+    連結成功後自動查一次、改區間／筆數後自動重查 —— 設定完當場就能驗證，
+    不必發訊息試探角色抓到什麼，也不花 token
+  - 注入區塊開頭固定一句「這是使用者本人的行程與待辦，已確實取得，可以自然提起」：
+    實測只給裸標籤 `[Calendar]` 時角色會把它當雜訊略過，被直接問還會否認讀得到
+  - 教學：`docs/google-calendar-setup.html`（**只有 HTML 一份，刻意不留 .md 避免雙份維護**），
+    設定視窗最上方「📖 開啟設定教學」
+    一鍵開啟。走新增的 `shell:open-doc` IPC 讀**本機** `docs/`（`extraFiles` 已含），離線可看；
+    檔名白名單、不接受路徑。**必須提醒使用者做「發布應用程式」**，否則測試中狀態的授權每 7 天失效
+  - 相關檔案：`src/main/calendar/{types,googleProvider,index}.ts`、
+    `src/renderer/src/windows/CalendarSettingsWindow.tsx`
+
+- [ ] **手機獨立版與平台擴充（規劃完成，待開工）** → `docs/multi-device-platform-roadmap.md`
+  - **定位修正**：DeST 從「桌寵程式」擴張為「AI 角色聊天平台，有桌寵版與手機版」。
+    目標客群的路徑（卿卿我我 → SillyTavern → DeST）起點在手機，一般使用者不見得有電腦
+    → **手機獨立版是主線，不是進階選項**
+  - 手機獨立版範圍：自訂角色、聊天（單張主圖免表情差分）、傳圖、自動總結、群組聊天、
+    新聞、天氣、條件式主動提醒 + Google Calendar。**不做**桌寵視窗、遙控、截圖
+  - **功能基準線（硬性）**：手機獨立版必須具備現行行動網頁版 `assets/mobile.html` 的全部功能
+    （含隨機工具：御神籤／擲筊／硬幣／骰子），扣除遙控專屬項目
+  - **關鍵路徑：抽出 `src/core/`**（純 TS、零 Node/Electron、儲存與網路走 adapter）。
+    桌面注入 Electron adapter、手機注入 Capacitor adapter。不抽就會 drift
+  - **手機 UI 只寫一份**（React），資料來源可抽換：本機 core（獨立模式）／遠端 relay API
+    （遙控模式）。散布為 APK ＋ mobileServer 提供的網頁。
+    **掃 QR 開網頁連電腦的方式永久保留、不得移除**（唯一不挑裝置的入口，iOS／平板／他人手機皆可）；
+    被取代的只是 `mobile.html` 那 3,290 行 vanilla 實作，換成同一份 React UI 的 web build
+    → 網頁版與 APK 是同一份原始碼，功能結構性同步，drift 不可能發生
+  - 網頁版**無法**做獨立模式（網頁由電腦提供，電腦沒開就連不上）＝拓樸限制，非取捨。
+    要獨立運作就裝 APK。**已知缺口：沒有電腦的 iOS 使用者目前無解**
+  - **資料同步走點對點（手機↔自己的電腦），不是雲端**：S1 掃 QR 初始化匯入（單向一次性）→
+    S2 手動雙向同步（推送／拉取／合併＋差異預覽）→ S3 自動同步暫不做（靜默出錯風險）。
+    否決的是「雲端後端」，不是同步本身
+  - **API Key 僅在區網直連時傳輸**，由電腦端檢查來源 IP 判定（不可信任手機端自稱），
+    UI 直接顯示連線狀態不要求使用者判斷，不提供覆寫選項；且永不參與雙向同步
+  - 遙控功能要保留在手機獨立版中（owner 之後的唯一入口），但為**可選模組、預設關閉**
+  - 順序：A1 Google Calendar 模組（3–5 天，可立即開工）→
+    B1 抽 core（3–5 週）→ B2–B5 手機獨立版（合計約 3–4 個月）→
+    C 進階（host/client、macOS、WoL，隨時可插隊但不擋 B）
+  - **公開版四大目標**（設計約束）：單機可完整運作／不需付費給作者／敏感資料不放第三方
+    （relay 為例外，須揭露並提供自架 Tunnel）／新手三步上手（分層規則見文件 §2）
+  - **在地化**：台灣取向為主，不導入 i18n。但兩條低成本約束要遵守——
+    天氣／新聞來源走 provider 介面（別把 CWA 寫死在呼叫端）、`core/` 不寫死中文文案
+  - **iOS**：目前不做。無等同 APK 的免費途徑（AltStore 7 天過期、DMA 僅限歐盟），
+    實際只有 TestFlight 或正式上架兩條路，皆需 $99/年 ＋ macOS 建置環境
+  - **已否決不要重提**：雲端同步後端、RTC 半夜喚醒、Relay 代排程、React Native、
+    NAS 當 host（armv7 無 Electron 建置）、付費模式（理由見文件 §8）
 
 **尚未實作（第一版排除）：**
 - Lorebook
