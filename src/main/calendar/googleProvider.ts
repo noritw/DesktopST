@@ -257,18 +257,29 @@ async function fetchAccountName(accessToken: string): Promise<string | null> {
   return data?.id ?? data?.summary ?? null
 }
 
-/** 中斷授權：向 Google 撤銷 token（失敗不影響本機清除） */
+/**
+ * 中斷授權：先刪本機憑證（同步、必定成功），再通知 Google 撤銷。
+ * 撤銷失敗或逾時都不影響「已斷線」這個事實，呼叫端不需要等它。
+ */
 export async function revokeGoogleAuth(): Promise<void> {
   const auth = readAuthFile()
   clearCalendarAuthFile()
   if (!auth?.refreshToken) return
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   try {
     await fetch(REVOKE_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ token: auth.refreshToken })
+      body: new URLSearchParams({ token: auth.refreshToken }),
+      signal: controller.signal
     })
-  } catch { /* 本機已清掉，撤銷失敗不影響使用 */ }
+  } catch {
+    /* 本機已清掉，撤銷失敗不影響使用 */
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 // ── Token refresh ─────────────────────────────────────────

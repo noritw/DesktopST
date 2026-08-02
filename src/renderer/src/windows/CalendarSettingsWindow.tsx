@@ -52,6 +52,23 @@ export default function CalendarSettingsWindow() {
     }
   }, [connected, displayName, waiting])
 
+  // 等待授權時每 2 秒主動問一次狀態。
+  // 正常情況下 settings:updated 廣播就會讓畫面更新，這只是保險 ——
+  // 廣播萬一沒送到，畫面也不該永遠停在「等待授權中」。
+  useEffect(() => {
+    if (!waiting) return
+    const timer = setInterval(() => {
+      window.api.invoke('calendar:get-status').then((status: unknown) => {
+        const s = status as { connected: boolean; displayName?: string } | null
+        if (s?.connected) {
+          setWaiting(false)
+          setMsg({ type: 'ok', text: s.displayName ? `已連結為 ${s.displayName}` : '已連結' })
+        }
+      }).catch(() => {})
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [waiting])
+
   // 授權失敗時主程序會推這個事件
   useEffect(() => {
     const off = window.api.on('calendar:auth-error', (...args: unknown[]) => {
@@ -79,8 +96,10 @@ export default function CalendarSettingsWindow() {
   async function handleDisconnect() {
     setMsg(null)
     setWaiting(false)
+    setPeek(null)          // 舊的讀取結果不該留在畫面上
+    setClientSecret('')
     await window.api.invoke('calendar:disconnect')
-    setMsg({ type: 'ok', text: '已斷開連結' })
+    setMsg({ type: 'ok', text: '已斷開連結。要重新連結的話，密鑰請再貼一次。' })
   }
 
   const refreshPeek = useCallback(async () => {

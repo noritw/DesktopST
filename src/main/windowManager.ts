@@ -3193,7 +3193,11 @@ export function broadcastToAll(channel: string, data: unknown): void {
     characterLibraryWindow,
     pinnedNotesManagerWindow,
     remindersManagerWindow,
-    newsReaderWindow
+    newsReaderWindow,
+    // OAuth 設定視窗要收 settings:updated / *:auth-error，
+    // 否則授權完成或失敗時畫面會一直停在「等待授權中」
+    spotifySettingsWindow,
+    calendarSettingsWindow
   ].filter(w => w && !w.isDestroyed()) as BrowserWindow[]
   for (const w of wins) w.webContents.send(channel, data)
 }

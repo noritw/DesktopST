@@ -2304,15 +2304,23 @@ export function registerIpcHandlers() {
     return { ok: true }
   })
 
-  ipcMain.handle('calendar:disconnect', async () => {
+  ipcMain.handle('calendar:disconnect', () => {
     cancelGoogleAuth()
-    await revokeGoogleAuth()
     invalidateCalendarCache()
-    if (settings.calendar) {
-      settings.calendar = { ...settings.calendar, enabled: false, displayName: undefined }
-      fileStore.saveSettings(settings)
-      broadcastToAll('settings:updated', settings)
+
+    settings.calendar = {
+      ...DEFAULT_CALENDAR_SETTINGS,
+      ...(settings.calendar ?? {}),
+      enabled: false,
+      displayName: undefined
     }
+    fileStore.saveSettings(settings)
+    broadcastToAll('settings:updated', settings)
+
+    // 向 Google 撤銷是「順便做」的清理，不讓它擋住畫面更新。
+    // 本機憑證在 revokeGoogleAuth() 一開始就已刪除，即使這個請求失敗也已經斷線。
+    void revokeGoogleAuth().catch(() => { /* 本機已清掉，撤銷失敗不影響 */ })
+
     return { ok: true }
   })
 
