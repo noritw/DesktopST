@@ -13,6 +13,33 @@ export function isAddressed(content: string, char: Character): boolean {
   return false
 }
 
+/**
+ * 將回應者排序：有 newsKeywords 且與訊息內容有交叉的角色排在前面（內部再 shuffle），
+ * 其餘角色 shuffle 後接在後面。無交叉或角色無關鍵字時等同純 shuffleIds。
+ *
+ * @param getCharacter 角色查詢函式（原本直接呼叫模組層的 getCharacter，抽 core 後改為參數傳入）
+ */
+export function sortRespondersByKeywordMatch(
+  ids: string[],
+  message: string,
+  getCharacter: (id: string) => Character | undefined
+): string[] {
+  if (ids.length <= 1) return [...ids]
+  const msgLower = message.toLowerCase()
+  const matched: string[] = []
+  const rest: string[] = []
+  for (const id of shuffleIds(ids)) {
+    const char = getCharacter(id)
+    const kws = (char?.newsKeywords ?? []).map(k => k.trim().toLowerCase()).filter(Boolean)
+    if (kws.length > 0 && kws.some(k => msgLower.includes(k))) {
+      matched.push(id)
+    } else {
+      rest.push(id)
+    }
+  }
+  return [...matched, ...rest]
+}
+
 export function shuffleIds(ids: string[]): string[] {
   const out = [...ids]
   for (let i = out.length - 1; i > 0; i--) {

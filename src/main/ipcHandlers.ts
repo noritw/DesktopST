@@ -15,7 +15,8 @@ import { safeJsonParse } from '../core/util/json'
 import { characterAliases } from '../core/character'
 import { formatRandomResultForPrompt } from '../core/prompt/randomResult'
 import { normalizeCharacterDialogue } from '../core/prompt/dialogue'
-import { isAddressed, shuffleIds, pickPrimaryResponderId } from '../core/group/responders'
+import { isAddressed, shuffleIds, pickPrimaryResponderId, sortRespondersByKeywordMatch } from '../core/group/responders'
+import { stripOtherCharacterSpeakerLines } from '../core/group/dialogueCleanup'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
 import { importStJson, exportToStJson } from './stCardMapper'
 import {
@@ -294,52 +295,6 @@ function getPersonaDisplayName(): string {
   return p?.displayName?.trim() || p?.nickname?.trim() || '使用者'
 }
 
-/**
- * 將回應者排序：有 newsKeywords 且與訊息內容有交叉的角色排在前面（內部再 shuffle），
- * 其餘角色 shuffle 後接在後面。無交叉或角色無關鍵字時等同純 shuffleIds。
- */
-function sortRespondersByKeywordMatch(ids: string[], message: string): string[] {
-  if (ids.length <= 1) return [...ids]
-  const msgLower = message.toLowerCase()
-  const matched: string[] = []
-  const rest: string[] = []
-  for (const id of shuffleIds(ids)) {
-    const char = getCharacter(id)
-    const kws = (char?.newsKeywords ?? []).map(k => k.trim().toLowerCase()).filter(Boolean)
-    if (kws.length > 0 && kws.some(k => msgLower.includes(k))) {
-      matched.push(id)
-    } else {
-      rest.push(id)
-    }
-  }
-  return [...matched, ...rest]
-}
-
-function stripOtherCharacterSpeakerLines(text: string, selfCharId: string): string {
-  const otherAliases = characters
-    .filter(c => c.id !== selfCharId)
-    .flatMap(c => characterAliases(c))
-    .filter(Boolean)
-    .sort((a, b) => b.length - a.length)
-  if (otherAliases.length === 0) return String(text ?? '').trim()
-
-  const isOtherSpeakerPrefixed = (line: string): boolean => {
-    const t = String(line ?? '').trim()
-    if (!t) return false
-    for (const alias of otherAliases) {
-      const escaped = escapeRegExp(alias)
-      const pattern = new RegExp(`^(?:[【\\[]\\s*)?${escaped}(?:\\s*[】\\]]\\s*)?\\s*[：:]\\s*`)
-      if (pattern.test(t)) return true
-    }
-    return false
-  }
-
-  return String(text ?? '')
-    .split(/\r?\n/)
-    .filter(line => !isOtherSpeakerPrefixed(line))
-    .join('\n')
-    .trim()
-}
 
 const MAX_MEDIA_BYTES = 10 * 1024 * 1024
 const ALLOWED_IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp'])
@@ -1325,7 +1280,8 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       })
       cleanReply = stripOtherCharacterSpeakerLines(
         normalizeCharacterDialogue(content, char),
-        char.id
+        char.id,
+        characters
       )
       reminderInputTk = rInputTk
       reminderOutputTk = rOutputTk
@@ -1789,7 +1745,8 @@ export async function forceSpeakDirect(
       })
       const forcedReply = stripOtherCharacterSpeakerLines(
         normalizeCharacterDialogue(content, char),
-        char.id
+        char.id,
+        characters
       )
       if (!forcedReply) {
         return { error: '模型輸出包含其他角色台詞，已拒絕這次強制發話。' }
@@ -3212,7 +3169,7 @@ export function registerIpcHandlers() {
         ...shuffleIds(mentionedIds),
         ...shuffleIds(desktopResponders.filter(id => !mentionedIds.includes(id)))
       ]
-      : sortRespondersByKeywordMatch(desktopResponders, payload.content)
+      : sortRespondersByKeywordMatch(desktopResponders, payload.content, getCharacter)
 
     if (respondingIds.length === 0) {
       // If there are desktop characters but all are muted, surface a hint in conversation.
@@ -3321,7 +3278,8 @@ export function registerIpcHandlers() {
       })
       const primaryReply = stripOtherCharacterSpeakerLines(
         normalizeCharacterDialogue(content, primaryChar),
-        primaryChar.id
+        primaryChar.id,
+        characters
       )
       if (!primaryReply) {
         throw new Error('模型輸出包含其他角色台詞，已拒絕這次回覆。')
@@ -3464,7 +3422,8 @@ export function registerIpcHandlers() {
         })
         const cleanReply = stripOtherCharacterSpeakerLines(
           normalizeCharacterDialogue(reply.trim(), char),
-          char.id
+          char.id,
+          characters
         )
 
         if (!cleanReply) {
@@ -3620,7 +3579,8 @@ export function registerIpcHandlers() {
         })
         const cleanReply = stripOtherCharacterSpeakerLines(
           normalizeCharacterDialogue(content, char),
-          char.id
+          char.id,
+          characters
         )
         if (!cleanReply) { setCharacterThinking(char.id, false); continue }
         if (nonMuted.length > 1) {
