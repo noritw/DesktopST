@@ -6,8 +6,9 @@
 >
 > **進度一覽**
 > - ✅ **A1 Google Calendar 模組** —— 已完成並實機驗證（見 §6.1、`CLAUDE.md`）
-> - ⬜ **B1 抽出 `core/`** —— **下一個要做的，是所有後續的前置**（見 §4.4、§10.5）
-> - ⬜ B2 之後（Capacitor、手機 UI）尚未開始
+> - ✅ **B1 抽出 `core/` 第一刀** —— 已完成（2026-08-02，見 §4.4、§10.5）
+> - ⬜ **B2 Capacitor 專案骨架 ＋ 儲存／金鑰 adapter** —— **下一個要做的**
+> - ⬜ B3 之後（手機 UI）尚未開始
 > 相關：`docs/module-system-roadmap.md`、`docs/news-reader-mobile-plan.md`、`docs/remote-control-plan.md`
 
 本文件記錄「手機獨立版 / 跨平台 / 多電腦 / 開源散布」的完整評估結論。
@@ -153,8 +154,21 @@ DeST 無營利、主要自用、開放讓別人也能用，因此**不追求國�
 
 1. **天氣／新聞來源走 provider 介面**，不要把 CWA 端點與回應格式寫死在呼叫端。
    未來要加別的地區，是新增一個 provider，不是改呼叫端。
-2. **`core/` 層不得寫死中文文案**，只回傳結構化資料（代碼、數值、時間），
+2. **`core/` 層不得寫死中文 UI 文案**，只回傳結構化資料（代碼、數值、時間），
    文案一律留在 UI 層。這樣未來要多語系時 `core/` 完全不用動。
+
+   > **例外：送進 LLM prompt 的中文字串可以留在 `core/`**（owner 2026-08-02 拍板）。
+   >
+   > 那些不是介面語言，是**模型輸入的內容**；本專案輸出強制繁中，介面日後就算多語系，
+   > prompt 語言也不會跟著變。若硬要抽離，`core/` 只能回傳結構化資料、
+   > 再由桌面與手機**各組一次字串** —— 同一份 prompt 語意實作兩次，
+   > 正是 §4.1 要防的 drift。為守規則而製造它要防的問題，不划算。
+   >
+   > **落地約束**：這類字串集中在 `core/prompt/` 底下，檔頭註明
+   > 「本檔含刻意寫死的中文 prompt 字串，非 UI 文案」。日後真要多語系只換這幾檔。
+   > 目前適用：`core/prompt/systemTime.ts`、`core/prompt/randomResult.ts`。
+   >
+   > **UI 文案不適用此例外，一律不得進 `core/`。**
 
 README 應明確標示「台灣向」，避免國際使用者誤裝後失望。
 
@@ -232,11 +246,56 @@ UI 仍是兩份（桌寵 UI 與手機 UI 資訊架構本就不同），這是預
 `windowManager.ts`、`modules/remote-control/`（Windows only）、
 `cloudflaredManager.ts`、`mobileServer.ts`、`dstPack.ts`（可後續再議）。
 
-#### 建議的第一刀
+#### 建議的第一刀 —— ✅ **已完成（2026-08-02）**
 
 從 **`ipcHandlers.ts` 279–488 行**開始——它最純、最獨立、沒有 IPC 糾纏，
 而且正好是群組聊天（§3.1 必做項）的核心。
 搬完立刻能驗證：桌面版行為不變 ＝ 切得對。
+
+**實作結果**（六個小 commit，`a971fbd`..`d1edce0`，直接在 `main` 上，依 §11.1）：
+
+```
+src/core/
+  types.ts                     ← 原 src/main/types.ts（逐字相同）
+  character.ts                 ← characterAliases
+  prompt/promptUtils.ts        ← 原 src/main/llm/promptUtils.ts（逐字相同）
+  prompt/dialogue.ts           ← 對白正規化三件套
+  prompt/randomResult.ts       ← 隨機工具 prompt 格式化 ⚠️含中文 prompt 字串
+  prompt/systemTime.ts         ← 時段標籤 ⚠️含中文 prompt 字串
+  group/responders.ts          ← isAddressed / shuffleIds / pickPrimaryResponderId
+                                 / sortRespondersByKeywordMatch
+  group/dialogueCleanup.ts     ← stripOtherCharacterSpeakerLines
+  util/text.ts  util/json.ts
+```
+
+**兩處刻意的偏離**（避免 `core/` 內部依賴繞圈）：
+`characterAliases` 放 `core/character.ts` 而非 `group/`（`prompt/dialogue.ts` 也要用它，
+放 group 底下會變成 prompt 反向依賴 group）；`stripOtherCharacterSpeakerLines` 獨立成檔。
+
+**改過簽名的只有兩個**（原本偷讀模組層變數，這是它們唯一的不純處）：
+
+```ts
+sortRespondersByKeywordMatch(ids, message, getCharacter)   // 第三參數收 lookup function
+stripOtherCharacterSpeakerLines(text, selfCharId, characters)  // 第三參數收 Character[]
+```
+
+**相容作法**：`src/main/types.ts` 與 `src/main/llm/promptUtils.ts` 改為 re-export 轉出檔，
+**所有既有 import 路徑一字未改** → diff 極小、零行為風險。
+新增檔案時請直接 import `core/`，不要再走轉出檔；等哪天沒人用了再刪。
+
+`tsconfig.node.json` 的 `include` 已加入 `src/core`。
+
+**驗收結果**：`npm run typecheck` ＋ `electron-vite build` 通過；
+owner 實機驗過聊天 / 群聊 / 新聞 / 抽籤 / 骰子，行為無異常。
+
+#### 下一刀怎麼切（尚未開工）
+
+依 §4.4 的清單，剩下的順序建議：`llm/summarizer.ts`(92) → `llm/index.ts` 與四家
+provider adapter（要先定義注入的 HTTP client 介面）→ `modules/news/` 的
+`filter.ts` / `trigger.ts` / `topicState.ts` → `stCardMapper.ts` / `pngUtils.ts`
+（`pngUtils` 要確認 Buffer 能否改 Uint8Array）。
+**adapter 介面（儲存／金鑰／HTTP／排程／通知）目前一個都還沒定義**，
+碰到 `llm/index.ts` 就必須先定，那是 B2 的主要內容。
 
 ### 4.5 手機 UI：**一份程式碼，兩種資料來源，三種散布**（關鍵決議）
 
@@ -670,8 +729,8 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 
 | # | 項目 | 估時 |
 |---|---|---|
-| B1 | **抽出 `core/`**（純 TS，adapter 介面） | 3–5 週 |
-| B2 | Capacitor 專案骨架 ＋ 儲存／金鑰 adapter | 1 週 |
+| B1 | **抽出 `core/`**（純 TS，adapter 介面）— **第一刀 ✅ 完成，其餘待 B2 定介面後續做** | 3–5 週 |
+| B2 | Capacitor 專案骨架 ＋ 儲存／金鑰 adapter ← **下一個** | 1 週 |
 | B3 | 手機 UI（含 §3.0 全部功能 ＋ §4.8 設定 UI，資料來源可抽換見 §4.5） | 4–8 週 |
 | B3.5 | S1 掃 QR 一鍵初始化匯入（見 §4.7） | 3–5 天 |
 | B6 | 手機 UI 的 web build 接手 `mobile.html`（含遙控 UI 搬移）。**掃 QR 連線方式不變** | 1 週 |
@@ -703,13 +762,18 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 
 **開工前必讀**：本文件 §2（四大目標）、§4.4（抽 core 切法）、§8（已否決清單）、§11（提醒）。
 
-> ## 👉 現在的下一步是 **B1（抽出 `core/`）**
+> ## 👉 現在的下一步是 **B2（Capacitor 專案骨架 ＋ adapter 介面）**
 >
-> A1 已完成，階段 B 尚未開始。**不要再從 A1 找事做**。
+> A1 已完成、**B1 的第一刀已完成**（見 §4.4）。**不要再從 A1 或 B1 第一刀找事做**。
 >
-> B1 是 B2–B5 的前置，也是防 drift 的唯一手段（§4.1）。
-> 依 §11.1，B1 是純重構、桌面行為不變，**建議在 `main` 上分批合併**，
-> 不要開長命分支；B2 之後才進 `feat/mobile-standalone`。
+> ⚠️ **B1 尚未全部做完** —— 已搬的只有群組聊天那批純函式 ＋ types ＋ promptUtils。
+> `llm/index.ts`、四家 provider adapter、`modules/news/`、角色卡解析都還在 `main/`。
+> 這些的共通卡點是 **adapter 介面（儲存／金鑰／HTTP／排程／通知）一個都還沒定義**，
+> 而那正是 B2 的主要內容 → 所以順序上先做 B2，再回頭把剩下的 core 搬完。
+> 剩餘切法見 §4.4 末段「下一刀怎麼切」。
+>
+> 依 §11.1，純重構的部分繼續**在 `main` 上分批小 commit**；
+> B2 開始（Capacitor 專案、手機 UI）才進 `feat/mobile-standalone`。
 >
 > **A1 留下的可複用範例**：`src/main/calendar/` 是目前唯一「已經照 provider 介面切乾淨」的模組
 > —— 純邏輯（格式化、注入判斷）在 `index.ts`，平台/服務商細節在 `googleProvider.ts`。
@@ -725,12 +789,14 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 4. 新增 `desktopst.calendar`，scope `calendar.readonly`，**使用者自備 Client ID**
 5. 設定 UI 比照 `SpotifySettingsWindow.tsx`(139)
 
-### 若接手 B1（抽 `core/`）
+### 若接手 B1 剩餘部分（抽 `core/`）—— 第一刀已完成，見 §4.4
 
-1. 照 §4.4「建議的第一刀」，從 `ipcHandlers.ts` 279–488 行搬起
+1. 第一刀（`ipcHandlers.ts` 279–488 行）**已完成**，不要重做。剩餘切法見 §4.4 末段
 2. 驗收標準：**桌面版行為完全不變**（`npm run typecheck` 通過 ＋ 手動走一輪群組聊天）
 3. 每搬一塊就驗一次，不要一次搬完再測
 4. `core/` 不得 `import` 任何 `electron` / `fs` / `path`；用注入的 adapter
+5. 純位移優先用 **re-export 轉出檔**保住既有 import 路徑，讓 diff 只剩「刪掉本體」
+6. 中文字串規則見 §3.3 的例外條款（prompt 字串可留、UI 文案不可）
 
 ### Owner 已決定的事項（2026-08-02）
 

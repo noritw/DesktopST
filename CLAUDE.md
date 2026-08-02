@@ -300,7 +300,26 @@ npm run typecheck # 型別檢查
   - 相關檔案：`src/main/calendar/{types,googleProvider,index}.ts`、
     `src/renderer/src/windows/CalendarSettingsWindow.tsx`
 
-- [ ] **手機獨立版與平台擴充（規劃完成，待開工）** → `docs/multi-device-platform-roadmap.md`
+- [x] **B1 抽出 `src/core/`（第一刀完成）**
+  - 純 TypeScript 層，**不得 import `electron` / `fs` / `path`，也不得反向 import `src/main/`**；
+    儲存與網路一律走注入的 adapter。目的是防止桌面版與手機版邏輯 drift（roadmap §4.1）
+  - 已搬：`types.ts`、`llm/promptUtils.ts`（皆逐字相同的檔案位移）＋
+    `ipcHandlers.ts` 279–488 行那批群組聊天純函式
+  - 檔案配置：`core/{types,character}.ts`、
+    `core/prompt/{promptUtils,dialogue,randomResult,systemTime}.ts`、
+    `core/group/{responders,dialogueCleanup}.ts`、`core/util/{text,json}.ts`
+  - **改過簽名的只有兩個**（原本偷讀模組層變數）：
+    `sortRespondersByKeywordMatch(ids, message, getCharacter)`、
+    `stripOtherCharacterSpeakerLines(text, selfCharId, characters)`
+  - **`src/main/types.ts` 與 `src/main/llm/promptUtils.ts` 現在是 re-export 轉出檔**，
+    既有 import 路徑全部不變。**新增檔案請直接 import `core/`，不要再走轉出檔**
+  - 中文字串規則：**送進 LLM prompt 的中文可留在 `core/prompt/`（檔頭有註明），
+    UI 文案一律不得進 core**（roadmap §3.3 例外條款，owner 2026-08-02 拍板）
+  - `tsconfig.node.json` 的 `include` 已加 `src/core`
+  - **尚未搬**：`llm/index.ts` 與四家 provider adapter、`llm/summarizer.ts`、
+    `modules/news/`、`stCardMapper.ts` / `pngUtils.ts`。
+    共通卡點是 adapter 介面還沒定義 → 那是 B2 的內容，故先做 B2 再回頭搬完
+- [ ] **手機獨立版與平台擴充（B2 起待開工）** → `docs/multi-device-platform-roadmap.md`
   - **定位修正**：DeST 從「桌寵程式」擴張為「AI 角色聊天平台，有桌寵版與手機版」。
     目標客群的路徑（卿卿我我 → SillyTavern → DeST）起點在手機，一般使用者不見得有電腦
     → **手機獨立版是主線，不是進階選項**
