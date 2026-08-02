@@ -9,6 +9,11 @@ import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM } from './llm/index'
 import { summarizeConversation, countUncoveredMessages, listSummarizableMessages } from './llm/summarizer'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
+import { formatSystemTimeStamp } from '../core/prompt/systemTime'
+import { normalizeForCompare, escapeRegExp } from '../core/util/text'
+import { safeJsonParse } from '../core/util/json'
+import { characterAliases } from '../core/character'
+import { isAddressed, shuffleIds, pickPrimaryResponderId } from '../core/group/responders'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
 import { importStJson, exportToStJson } from './stCardMapper'
 import {
@@ -266,27 +271,6 @@ function normalizeLegacyPinnedNoteSizes(): boolean {
   return changed
 }
 
-function formatSystemTimeLabel(d: Date): string {
-  const hours = d.getHours()
-  return hours < 5 ? '凌晨'
-    : hours < 8 ? '清晨'
-    : hours < 12 ? '上午'
-    : hours < 13 ? '中午'
-    : hours < 18 ? '下午'
-    : hours < 19 ? '傍晚'
-    : hours < 23 ? '晚上'
-    : '深夜'
-}
-
-function formatSystemTimeStamp(d: Date): string {
-  const timeLabel = formatSystemTimeLabel(d)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')} ${timeLabel}`
-}
-
-function normalizeText(s: string): string {
-  return s.toLowerCase()
-}
-
 function copyDataUrlImageToClipboard(dataUrl: string): void {
   const image = nativeImage.createFromDataURL(dataUrl)
   if (image.isEmpty()) throw new Error('Failed to convert screenshot for clipboard')
@@ -306,11 +290,6 @@ function getActiveWorld(): WorldPreset | null {
 function getPersonaDisplayName(): string {
   const p = getActivePersona()
   return p?.displayName?.trim() || p?.nickname?.trim() || '使用者'
-}
-
-function characterAliases(char: Character): string[] {
-  const nn = Array.isArray(char.nicknames) ? char.nicknames : []
-  return [char.name, ...nn].map(s => String(s ?? '').trim()).filter(Boolean)
 }
 
 function formatRandomResultForPrompt(result: RandomResult): string {
@@ -351,25 +330,6 @@ function formatRandomResultForPrompt(result: RandomResult): string {
   }
 }
 
-function isAddressed(content: string, char: Character): boolean {
-  const text = normalizeText(content)
-  for (const a of characterAliases(char)) {
-    const aa = normalizeText(a)
-    if (!aa) continue
-    if (text.includes(`@${aa}`) || text.includes(aa)) return true
-  }
-  return false
-}
-
-function shuffleIds(ids: string[]): string[] {
-  const out = [...ids]
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1))
-    ;[out[i], out[j]] = [out[j], out[i]]
-  }
-  return out
-}
-
 /**
  * 將回應者排序：有 newsKeywords 且與訊息內容有交叉的角色排在前面（內部再 shuffle），
  * 其餘角色 shuffle 後接在後面。無交叉或角色無關鍵字時等同純 shuffleIds。
@@ -389,39 +349,6 @@ function sortRespondersByKeywordMatch(ids: string[], message: string): string[] 
     }
   }
   return [...matched, ...rest]
-}
-
-function pickPrimaryResponderId(respondingIds: string[], mentionedIds: string[]): string | null {
-  if (respondingIds.length === 0) return null
-  if (mentionedIds.length > 0) return respondingIds[0]
-  return respondingIds[0]
-}
-
-function safeJsonParse<T>(s: string): T | null {
-  try {
-    return JSON.parse(s) as T
-  } catch {
-    const match = String(s ?? '').match(/\{[\s\S]*\}/)
-    if (!match) return null
-    try {
-      return JSON.parse(match[0]) as T
-    } catch {
-      return null
-    }
-  }
-}
-
-
-function normalizeForCompare(s: string): string {
-  return String(s ?? '')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .replace(/[，、。！？!?,.]+/g, '')
-    .toLowerCase()
-}
-
-function escapeRegExp(s: string): string {
-  return String(s ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function maybeUnwrapSingleDialogueQuote(text: string): string {
