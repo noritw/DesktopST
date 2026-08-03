@@ -1,0 +1,2185 @@
+{
+  "01-空檔案": {
+    "settings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      }
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": {},
+    "pinnedNotesFile": null
+  },
+  "02-舊版 persona 與 worldSetting 欄位（要遷移成 preset）": {
+    "settings": {
+      "activePersonaId": "uuid#1",
+      "activeWorldId": "uuid#2",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      }
+    },
+    "personaFiles": [
+      {
+        "id": "uuid#1",
+        "name": "我的設定",
+        "displayName": "小明",
+        "nickname": "明明",
+        "description": "喜歡貓",
+        "builtIn": false,
+        "createdAt": 1754179200000,
+        "updatedAt": 1754179200000
+      }
+    ],
+    "worldFiles": [
+      {
+        "id": "uuid#2",
+        "name": "我的世界觀",
+        "worldSetting": "現代都市",
+        "interactionExample": "A: 你好\nB: 嗨",
+        "builtIn": false,
+        "createdAt": 1754179200000,
+        "updatedAt": 1754179200000
+      }
+    ],
+    "persistedSettings": {
+      "activePersonaId": "uuid#1",
+      "activeWorldId": "uuid#2",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false
+      }
+    },
+    "pinnedNotesFile": []
+  },
+  "03-舊 persona 但世界觀是空白（不該產生 world preset）": {
+    "settings": {
+      "activePersonaId": "uuid#3",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      }
+    },
+    "personaFiles": [
+      {
+        "id": "uuid#3",
+        "name": "我的設定",
+        "displayName": "小華",
+        "nickname": "華華",
+        "description": "",
+        "builtIn": false,
+        "createdAt": 1754179200000,
+        "updatedAt": 1754179200000
+      }
+    ],
+    "worldFiles": [],
+    "persistedSettings": {
+      "activePersonaId": "uuid#3",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false
+      }
+    },
+    "pinnedNotesFile": []
+  },
+  "04-舊 persona 缺欄位（走 fallback 名稱）": {
+    "settings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      },
+      "persona": {}
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false
+      },
+      "persona": {}
+    },
+    "pinnedNotesFile": []
+  },
+  "05-已有 activePersonaId 時不該被遷移值蓋掉": {
+    "settings": {
+      "activePersonaId": "existing-persona",
+      "activeWorldId": "existing-world",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      }
+    },
+    "personaFiles": [
+      {
+        "id": "uuid#4",
+        "name": "我的設定",
+        "displayName": "X",
+        "nickname": "Y",
+        "description": "Z",
+        "builtIn": false,
+        "createdAt": 1754179200000,
+        "updatedAt": 1754179200000
+      }
+    ],
+    "worldFiles": [
+      {
+        "id": "uuid#5",
+        "name": "我的世界觀",
+        "worldSetting": "有內容",
+        "interactionExample": "",
+        "builtIn": false,
+        "createdAt": 1754179200000,
+        "updatedAt": 1754179200000
+      }
+    ],
+    "persistedSettings": {
+      "activePersonaId": "existing-persona",
+      "activeWorldId": "existing-world",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false
+      }
+    },
+    "pinnedNotesFile": []
+  },
+  "06-已下架／改名的模型 id（應自動換新）": {
+    "settings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "o4-mini",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8,
+        "models": {
+          "openai": "o4-mini",
+          "grok": "grok-4.3",
+          "claude": "claude-opus-4"
+        },
+        "utilityModels": {
+          "openai": "o4-mini",
+          "grok": "grok-4.20-0309-reasoning"
+        }
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      }
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": {
+      "llm": {
+        "model": "o1-mini",
+        "models": {
+          "openai": "o1-mini",
+          "grok": "grok-4-1-fast-reasoning",
+          "claude": "claude-opus-4"
+        },
+        "utilityModels": {
+          "openai": "o1-mini",
+          "grok": "grok-4.20-reasoning"
+        }
+      }
+    },
+    "pinnedNotesFile": null
+  },
+  "07-明文舊金鑰（應解出明文並標記需要回寫）": {
+    "settings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "sk-plaintext-legacy",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      }
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "enc:v1:REVTVEZBS0UpMXcqNjszNC4/Ii53Nj89Ozkj",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false
+      }
+    },
+    "pinnedNotesFile": []
+  },
+  "08-已加密金鑰（應解密成明文）": {
+    "settings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "sk-encrypted-ok",
+          "claude": "sk-ant-xyz",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      }
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": {
+      "llm": {
+        "apiKeys": {
+          "openai": "enc:v1:REVTVEZBS0UpMXc/NDkoIyouPz53NTE=",
+          "claude": "enc:v1:REVTVEZBS0UpMXc7NC53IiMg",
+          "gemini": "",
+          "grok": ""
+        }
+      }
+    },
+    "pinnedNotesFile": null
+  },
+  "09-解密失敗的金鑰（應清成空字串、不可留密文）": {
+    "settings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      }
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": {
+      "llm": {
+        "apiKeys": {
+          "openai": "enc:v1:!!!not-valid-base64-at-all!!!",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        }
+      }
+    },
+    "pinnedNotesFile": null
+  },
+  "10-更舊的單一 apiKey 欄位（應種進 openai）": {
+    "settings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "sk-very-old-single-key",
+        "apiKeys": {
+          "openai": "sk-very-old-single-key",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      }
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": {
+      "llm": {
+        "apiKey": "sk-very-old-single-key"
+      }
+    },
+    "pinnedNotesFile": null
+  },
+  "11-便利貼還在 ui.pinnedNotes 舊欄位裡（應搬出來）": {
+    "settings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": [
+          {
+            "id": "n1",
+            "title": "記得",
+            "content": "買牛奶",
+            "color": "#FFE8AA",
+            "visible": true,
+            "position": {
+              "x": 10,
+              "y": 20
+            }
+          }
+        ]
+      }
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false
+      }
+    },
+    "pinnedNotesFile": [
+      {
+        "id": "n1",
+        "title": "記得",
+        "content": "買牛奶",
+        "color": "#FFE8AA",
+        "visible": true,
+        "position": {
+          "x": 10,
+          "y": 20
+        }
+      }
+    ]
+  },
+  "12-便利貼舊欄位與獨立檔並存（獨立檔優先）": {
+    "settings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": [
+          {
+            "id": "new",
+            "title": "新的",
+            "content": "y",
+            "color": "#000",
+            "visible": false,
+            "position": {
+              "x": 3,
+              "y": 4
+            }
+          }
+        ]
+      }
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false
+      }
+    },
+    "pinnedNotesFile": [
+      {
+        "id": "new",
+        "title": "新的",
+        "content": "y",
+        "color": "#000",
+        "visible": false,
+        "position": {
+          "x": 3,
+          "y": 4
+        }
+      }
+    ]
+  },
+  "13-onboardingCompleted 已存在時不該被重設": {
+    "settings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": true,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      }
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": {
+      "ui": {
+        "onboardingCompleted": true
+      }
+    },
+    "pinnedNotesFile": null
+  },
+  "14-CWA 天氣金鑰（加密／明文兩種）": {
+    "settings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      },
+      "weather": {
+        "realtimeQuery": {
+          "enabled": true,
+          "cwaApiKey": "CWA-1234",
+          "location": "臺北市"
+        }
+      }
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": {
+      "weather": {
+        "realtimeQuery": {
+          "enabled": true,
+          "cwaApiKey": "enc:v1:REVTVEZBS0UZDRt3a2hpbg==",
+          "location": "臺北市"
+        }
+      }
+    },
+    "pinnedNotesFile": null
+  },
+  "15-desktopCharacters 缺 flipped 欄位（應補 false）": {
+    "settings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [
+          {
+            "characterId": "a",
+            "position": {
+              "x": 1,
+              "y": 2
+            },
+            "size": 1,
+            "muted": false,
+            "zIndex": 1,
+            "flipped": false
+          },
+          {
+            "characterId": "b",
+            "position": {
+              "x": 3,
+              "y": 4
+            },
+            "size": 2,
+            "flipped": true,
+            "muted": true,
+            "zIndex": 2
+          }
+        ],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      }
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": {
+      "ui": {
+        "desktopCharacters": [
+          {
+            "characterId": "a",
+            "position": {
+              "x": 1,
+              "y": 2
+            },
+            "size": 1,
+            "muted": false,
+            "zIndex": 1
+          },
+          {
+            "characterId": "b",
+            "position": {
+              "x": 3,
+              "y": 4
+            },
+            "size": 2,
+            "flipped": true,
+            "muted": true,
+            "zIndex": 2
+          }
+        ]
+      }
+    },
+    "pinnedNotesFile": null
+  },
+  "16-memory 只給部分欄位（其餘走預設）": {
+    "settings": {
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 7,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      }
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": {
+      "memory": {
+        "keepRecentN": 7
+      }
+    },
+    "pinnedNotesFile": null
+  },
+  "17-完全損毀的 JSON 結構（頂層是陣列）": {
+    "settings": {
+      "0": "not",
+      "1": "an",
+      "2": "object",
+      "activePersonaId": "",
+      "activeWorldId": "",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "gpt-5.4-nano-2026-03-17",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": []
+      }
+    },
+    "personaFiles": [],
+    "worldFiles": [],
+    "persistedSettings": [
+      "not",
+      "an",
+      "object"
+    ],
+    "pinnedNotesFile": null
+  },
+  "18-混合：舊 persona ＋ 明文金鑰 ＋ 舊便利貼 ＋ 舊模型 id": {
+    "settings": {
+      "activePersonaId": "uuid#6",
+      "activeWorldId": "uuid#7",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "sk-plain",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "o4-mini",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "remoteControl": {
+        "enabled": false,
+        "allowedCapabilities": [],
+        "requireConfirmation": [],
+        "allowedDevices": [],
+        "restrictToAllowedDevices": false,
+        "logRetention": {
+          "maxEntries": 500
+        },
+        "enableInputControl": false,
+        "enableSystemActions": false,
+        "registeredPrograms": []
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false,
+        "pinnedNotes": [
+          {
+            "id": "m1",
+            "title": "T",
+            "content": "C",
+            "color": "#CBFBC4",
+            "visible": true,
+            "position": {
+              "x": 5,
+              "y": 6
+            }
+          }
+        ]
+      }
+    },
+    "personaFiles": [
+      {
+        "id": "uuid#6",
+        "name": "我的設定",
+        "displayName": "綜合",
+        "nickname": "綜綜",
+        "description": "一次全中",
+        "builtIn": false,
+        "createdAt": 1754179200000,
+        "updatedAt": 1754179200000
+      }
+    ],
+    "worldFiles": [
+      {
+        "id": "uuid#7",
+        "name": "我的世界觀",
+        "worldSetting": "奇幻世界",
+        "interactionExample": "",
+        "builtIn": false,
+        "createdAt": 1754179200000,
+        "updatedAt": 1754179200000
+      }
+    ],
+    "persistedSettings": {
+      "activePersonaId": "uuid#6",
+      "activeWorldId": "uuid#7",
+      "injectSystemTime": true,
+      "llm": {
+        "provider": "openai",
+        "apiKey": "",
+        "apiKeys": {
+          "openai": "enc:v1:REVTVEZBS0UpMXcqNjszNA==",
+          "claude": "",
+          "gemini": "",
+          "grok": ""
+        },
+        "model": "o4-mini",
+        "maxResponseTokens": 360,
+        "maxGroupRounds": 3,
+        "maxImagesPerMessage": 5,
+        "temperature": 0.8
+      },
+      "memory": {
+        "keepRecentN": 20,
+        "autoSummarizeAfter": 50,
+        "autoSummarizeEnabled": true,
+        "keepDebugPromptN": 5
+      },
+      "mobile": {
+        "enabled": false,
+        "port": 3721,
+        "useTunnel": true
+      },
+      "ui": {
+        "desktopCharacters": [],
+        "inputWindowPosition": {
+          "x": 100,
+          "y": 100
+        },
+        "unfocusedBubbleOpacity": 0.1,
+        "theme": "light",
+        "hoverMenuOnHover": true,
+        "onboardingCompleted": false,
+        "alwaysOnTop": true,
+        "chatBubbleAutoClose": {
+          "enabled": false,
+          "seconds": 8
+        },
+        "reminderNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "messageNotificationSound": {
+          "enabled": true,
+          "volume": 0.7
+        },
+        "screenshotIncludeInputWindow": false,
+        "randomToolsEnabled": true,
+        "lowPerformanceMode": false,
+        "lowPerformanceLogMessageLimit": 50,
+        "eventDrivenHitTest": false
+      }
+    },
+    "pinnedNotesFile": [
+      {
+        "id": "m1",
+        "title": "T",
+        "content": "C",
+        "color": "#CBFBC4",
+        "visible": true,
+        "position": {
+          "x": 5,
+          "y": 6
+        }
+      }
+    ]
+  }
+}

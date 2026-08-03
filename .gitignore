@@ -22,6 +22,8 @@ DesktopST-v*.zip
 scripts/sync-and-push-intro.bat
 assets/*.dstpack
 
-# prompt 全等比對的暫存輸出（golden 快照另存於 scripts/__golden__/）
+# 全等比對 harness 的暫存輸出（golden 快照另存於 scripts/__golden__/）
 .eq*.cjs
 .eq*.json
+.sh*.cjs
+.sh*.json
