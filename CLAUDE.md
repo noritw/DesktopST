@@ -438,11 +438,47 @@ npm run typecheck # 型別檢查
   - 探針原始碼 `src/mobile/smoketest/`（一次性驗證，非產品程式碼）。
     結果讀取走 `adb forward` ＋ WebView devtools socket（CDP 取 `innerText`），不必人工看螢幕
   - **仍未解**：`sources.ts` 的 `crypto.createHash` 要換純 JS hash 才能進 core
+- [x] **`mobile.html` 功能對照清單（2026-08-03）** → `docs/mobile-html-feature-inventory.md`
+  - B3 的**範圍定義**：49 項獨立版必做、15 項遙控專屬，每項標了行號／分類／依賴
+  - **Owner 2026-08-04 四題定案**：①手機「角色管理」＝「這次對話誰在場」（UI 用語），
+    同步時對應桌面角色清單，**桌面端缺位置資訊自行產生**（位置是桌面獨有顯示狀態，不進同步）；
+    ②截圖「加入對話」歸遙控模組，獨立模式不做手機自身截圖（相簿選圖已涵蓋）；
+    ③獨立／遙控走**同一個「事件來源」介面**，UI 不知道差別；
+    ④**編輯功能全部進 B3** —— 情境／Persona／World 預設組 ＋ **角色庫與角色卡編輯**
+  - ⚠️ **B3 階段 0（不含任何 UI）必做三件事**，晚做的成本是「拆掉重寫」而非「慢一點」：
+    事件來源抽象、`StorageAdapter` 呼叫端接上（要先反轉 `storageAdapter → fileStore` 依賴方向）、
+    隨機工具搬 core
+  - ⚠️ **既有 drift 實例**：新聞分欄寫了兩份（`mobile.html` 的 `nrGroupByKeyword`
+    vs 桌面 `groupNewsItems`），隨手機 UI 改 React 自然解掉。
+    隨機工具那份 ✅ 已解，見下條
+  - B3 估時因決議 ④ 上修為 **8–12 週**；但 owner 明示**時間非限制條件**，
+    取捨一律選「架構漂亮、好維護」
+- [x] **隨機工具搬進 `core/`（2026-08-04）**
+  - 原本**三份實作且機率已長歪**：御神籤與擲筊在桌面、`mobileServer`、`mobile.html`
+    三處的權重互不相同（對照表見 `docs/mobile-html-feature-inventory.md` §4）
+  - 配置：`core/random/dice.ts`（`computeRandomResult` / `diceNotation` /
+    `modifierString` / `keptRolls` / `sanitizePendingRandomTool`）＋
+    `core/prompt/randomTokens.ts`（`makeTokenString` / `hasRandomTokens` /
+    `expandRandomTokens`，含 token 正則與展開文字）
+  - **以桌面版那份為準逐字沿用**；`renderer/utils/randomTools.ts` 改為轉出檔
+    ＋ 保留三支 UI 文案（`getToolEmoji` / `formatPendingLabel` /
+    `formatResultBadgeText`，依 §3.3 不得進 core）。既有 import 路徑一行未改
+  - **兩條分界線**：token 字串放 `core/prompt/`（是**訊息內容**，適用 §3.3 例外）；
+    籤詩等第／筊象／正反面留 `core/random/`（是 `RandomResult` 的**資料值**，
+    會存檔與進 prompt，不是介面語言）
+  - HTTP 端點的參數夾擠獨立成 `sanitizePendingRandomTool()`，在信任邊界呼叫；
+    `computeRandomResult` 本身不夾（否則桌面與手機行為難以推理）
+  - ⚠️ **唯一的行為改變**：`mobile.html` 擲筊 50/25/25 → 40/30/30（與桌面對齊）。
+    `/api/random` 端點零呼叫端，故該處改動無感
+  - ⚠️ `mobile.html` 那份**蓄意保留**（純 vanilla、無建置步驟、不能 import TS），
+    已加註解：**改 core 的機率表要同步過去**。B6 整份取代後自然消失
+  - 驗證：新舊實作吃同一串偽亂數比對，**3,819 項零差異**（一次性，未保留成常設測試）
 - [ ] **手機獨立版與平台擴充** → `docs/multi-device-platform-roadmap.md`
   - ⚠️ **下一步不是 B3。** 2026-08-03 盤點發現規劃缺一塊、且 B1／B2 尚未實機驗證
     → **先讀 `docs/pre-b3-work-assessment.md`**（含測試策略：哪些能自動測、
-    哪些只能 owner 手動測）。順序：驗證合併 → APK 試打 → ~~B2.7 `fileStore` 抽 core~~
-    ✅ **已完成 2026-08-03** → B2.5 Lorebook core → B3
+    哪些只能 owner 手動測）。順序：~~驗證合併~~ ✅ → ~~APK 試打~~ ✅ →
+    ~~B2.7 `fileStore` 抽 core~~ ✅ → ~~`mobile.html` 對照清單~~ ✅（2026-08-03）→
+    **B2.5 Lorebook core（下一步）** → B2.6 → B3
   - **B2.7 是新增項目**：`fileStore` 989 行、128 處 `fs`，內含設定遷移等真邏輯；
     五個 adapter 目前只有 HTTP 有呼叫端，**儲存／金鑰／排程／通知零呼叫端**。
     不抽的話 B3 會在手機端重寫一份 → 最核心資料的 drift

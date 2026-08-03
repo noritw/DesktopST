@@ -9,6 +9,7 @@ import * as path from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { app, desktopCapturer } from 'electron'
 import type { Message, RandomResult } from './types'
+import { computeRandomResult, sanitizePendingRandomTool } from '../core/random/dice'
 import { getAccessToken } from './relayService'
 import { getRemoteControlClientState, getRemoteControlClientStateForDevice } from './modules/remote-control'
 
@@ -165,46 +166,18 @@ function getMobileHtmlPath(): string {
 
 // ── 隨機工具邏輯 ───────────────────────────────────────────
 
+/**
+ * 擲出邏輯已搬進 `core/random/dice`（2026-08-04）。
+ *
+ * 這裡原本有一份獨立實作，且**權重與桌面版不一致**（御神籤與擲筊的機率都不同）——
+ * 見 `docs/mobile-html-feature-inventory.md` §4。現統一走 core 那份。
+ *
+ * 這支端點收的是任意 JSON，所以先過 `sanitizePendingRandomTool` 夾範圍，
+ * 再交給 core 算 —— 防禦留在信任邊界，不塞進核心算式。
+ */
 function rollRandomTool(tool: string, params: Record<string, number>): RandomResult | null {
-  if (tool === 'coin') {
-    return { tool: 'coin', result: Math.random() < 0.5 ? '正面' : '反面' }
-  }
-  if (tool === 'omikuji') {
-    const tiers = ['大吉', '中吉', '小吉', '吉', '末吉', '凶', '大凶'] as const
-    const weights = [15, 20, 15, 25, 10, 10, 5]
-    const total = weights.reduce((a, b) => a + b, 0)
-    let r = Math.random() * total
-    for (let i = 0; i < tiers.length; i++) {
-      r -= weights[i]
-      if (r <= 0) return { tool: 'omikuji', result: tiers[i] }
-    }
-    return { tool: 'omikuji', result: '吉' }
-  }
-  if (tool === 'jiao') {
-    const r = Math.random()
-    const result: '聖筊' | '笑筊' | '陰筊' = r < 0.5 ? '聖筊' : r < 0.75 ? '笑筊' : '陰筊'
-    return { tool: 'jiao', result }
-  }
-  if (tool === 'dice') {
-    const faces = Math.max(2, Math.floor(params.faces ?? 6))
-    const count = Math.max(1, Math.min(20, Math.floor(params.count ?? 1)))
-    const modifier = Math.floor(params.modifier ?? 0)
-    const keepHighest = params.keepHighest != null ? Math.max(1, Math.floor(params.keepHighest)) : undefined
-    const keepLowest = params.keepLowest != null ? Math.max(1, Math.floor(params.keepLowest)) : undefined
-
-    const rolls = Array.from({ length: count }, () => Math.floor(Math.random() * faces) + 1)
-    let kept: number[]
-    if (keepHighest != null) {
-      kept = [...rolls].sort((a, b) => b - a).slice(0, Math.min(keepHighest, count))
-    } else if (keepLowest != null) {
-      kept = [...rolls].sort((a, b) => a - b).slice(0, Math.min(keepLowest, count))
-    } else {
-      kept = [...rolls]
-    }
-    const total = kept.reduce((a, b) => a + b, 0) + modifier
-    return { tool: 'dice', faces, count, rolls, kept, keepHighest, keepLowest, modifier, total }
-  }
-  return null
+  const pending = sanitizePendingRandomTool(tool, params)
+  return pending ? computeRandomResult(pending) : null
 }
 
 // ── 圖片附件驗證 ───────────────────────────────────────────

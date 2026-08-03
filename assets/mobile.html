@@ -997,6 +997,12 @@
   }
 
   // Compute a random result client-side (no server call needed)
+  //
+  // ⚠️ 這是 src/core/random/dice.ts 的**第三份實作**，蓄意保留：
+  //    本檔是純 vanilla HTML，沒有建置步驟，無法 import TypeScript。
+  //    依 roadmap §4.5，本檔會在 B6 由「手機 UI 的 web build」整份取代，
+  //    屆時這段自然消失。**在那之前，改 core 的機率表要記得同步這裡。**
+  //    2026-08-04 已與 core 對齊（原本擲筊是 50/25/25，與桌面版不同）。
   function computeRandomResult(tool, params) {
     if (tool === 'coin') {
       return { tool: 'coin', result: Math.random() < 0.5 ? '正面' : '反面' };
@@ -1009,8 +1015,11 @@
       return { tool: 'omikuji', result: '吉' };
     }
     if (tool === 'jiao') {
-      const r = Math.random();
-      return { tool: 'jiao', result: r < 0.5 ? '聖筊' : r < 0.75 ? '笑筊' : '陰筊' };
+      const tiers = [['聖筊',40],['笑筊',30],['陰筊',30]];
+      const total = tiers.reduce((s,[,w]) => s+w, 0);
+      let r = Math.random() * total;
+      for (const [t,w] of tiers) { r -= w; if (r <= 0) return { tool: 'jiao', result: t }; }
+      return { tool: 'jiao', result: '聖筊' };
     }
     if (tool === 'dice') {
       const faces    = Math.max(2, params.faces ?? 6);
