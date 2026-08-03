@@ -18,7 +18,10 @@
 ### 設計原則
 - **介面比 SillyTavern 簡單**：避免大量設定面板，多用浮動式 UI
 - **桌面寵物為主、聊天介面為輔**：與傳統聊天機器人介面區別
-- **可擴充**：保留 Lorebook 等進階功能的擴充空間，但第一版不實作
+- **可擴充**：保留進階功能的擴充空間
+  - ⚠️ **Lorebook 已於 2026-08-03 改為要做**（owner 決議）。本規格書多處仍寫「不實作」，
+    以 `docs/future-lorebook.md` 為準。實作範圍是**用語解說**（角色聽得懂專有名詞），
+    非完整 ST World Info；資料格式吃 ST `character_book` 子集
 
 ---
 
@@ -953,10 +956,10 @@ admiration, amusement, anger, ..., neutral
 | `scenario` | `scenario` |
 | `creator_notes` | `creatorNotes` |
 | `system_prompt` | `systemPromptOverride` |
-| `character_book` | `lorebook`（保留，不實作）|
+| `character_book` | `lorebook`（⚠️ **改為要做**，見 `docs/future-lorebook.md`；匯入時轉成一本獨立 lorebook 並掛到該角色）|
 
 ### 8.3 不支援項目（第一版）
-- Character Book / Lorebook
+- ~~Character Book / Lorebook~~ → **改為要做**（2026-08-03 owner 決議，排程 B2.5／B2.6）
 - World Info
 - Author's Note
 - Regex scripts
@@ -1060,7 +1063,7 @@ admiration, amusement, anger, ..., neutral
 - [ ] 使用者自訂情緒名稱
 
 ### 階段 6：未來擴充（不在近期規劃）
-- [ ] Lorebook
+- [ ] ~~Lorebook~~ → **已移入近期規劃**（B2.5／B2.6，見 `docs/future-lorebook.md`）
 - [ ] TTS 語音
 - [ ] Live2D 動態角色
 - [ ] 跨平台（macOS、Linux）

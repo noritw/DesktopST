@@ -1,8 +1,16 @@
 # Lorebook / 用語解說 —— 評估與提案
 
 > 狀態：**規格已定案，尚未實作**（設計決議見 §10，無待決事項）
+> **owner 2026-08-03 決議：要做，且含桌面 UI（B2.5 ＋ B2.6），排在 B3 之前。**
 > 討論日期：2026-08-03｜最後更新：2026-08-03
-> 基準：`feat/mobile-standalone` @ `a87829c`（B1／B2 皆已完成，B3 未開工）
+> 基準：`main`（B1／B2 已完成並合併，B3 未開工）
+>
+> ⚠️ **§3.2 稱排在 B3 前「成本 ≈ 0 額外」講得太滿。** 桌面 UI 與手機 UI 本來就是兩份
+> （roadmap §4.2），任何功能都要寫兩次 UI。正確說法是「在 B3 那一趟裡順路加，
+> 比 B3 結束後專程回頭補便宜」。見 `pre-b3-work-assessment.md` §3.2。
+>
+> ⚠️ **順序提醒**：B2.7（`fileStore` 抽 core）優先度**高於**本提案 ——
+> 它是 B3 的真前提，見 `pre-b3-work-assessment.md` §2。
 >
 > 相關文件：`docs/multi-device-platform-roadmap.md`（§4.1 drift、§10 順序）、
 > `docs/news-future-keyword-groups.md`（關鍵字組的取代式切換心智模型）

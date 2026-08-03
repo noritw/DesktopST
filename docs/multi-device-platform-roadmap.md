@@ -1,18 +1,27 @@
 # DeST 多裝置與平台擴充 — 評估與規劃
 
-> 狀態：**階段 A 完成，階段 B 待開工**
-> 基準版本：v0.3.10（`b2f3b8c`）
-> 討論日期：2026-08-02｜最後更新：2026-08-02
+> 狀態：**A 完成、B1 完成、B2 完成；下一步是 B2.7（不是 B3）**
+> 基準版本：v0.3.11｜討論日期：2026-08-02｜最後更新：**2026-08-03**
 >
 > **進度一覽**
 > - ✅ **A1 Google Calendar 模組** —— 已完成並實機驗證（見 §6.1、`CLAUDE.md`）
-> - ✅ **B1 抽出 `core/` 第一刀** —— 已完成（2026-08-02，見 §4.4）
-> - ✅ **B1 續刀（第二刀）** —— 已完成（2026-08-03）：`stCardMapper.ts`、
->   新聞 `types.ts` / 4 個純 helper / `filter.ts`、`topicState.ts` 全數進 core（見 §4.4）
-> - ⬜ **B2 ← 下一個要做的**：Capacitor 骨架 ＋ **定義 adapter 介面**
->   （儲存／金鑰／HTTP／排程／通知）。B1 剩下的都卡在這裡，介面定完再回頭收尾
-> - ⚠️ 已知未處理：renderer 端重複了一份 news types 與兩個 helper（見 §4.4 末段）
-> 相關：`docs/module-system-roadmap.md`、`docs/news-reader-mobile-plan.md`、`docs/remote-control-plan.md`
+> - ✅ **B1 抽出 `core/`** —— **四刀全數完成**（2026-08-03，見 §4.4b）。
+>   `llm/` 全部、`summarizer`、`news/trigger`、`reminder/nextFire`、`pngCard`、base64 皆已進 core
+> - ✅ **B2 Capacitor 骨架 ＋ 五個 adapter 介面** —— 已完成（2026-08-03，見 §4.4b）
+> - ✅ ~~renderer 重複一份 news types~~ —— **已解**（改為轉出檔指向 `@core/news/`）
+> - ✅ **已實機驗證並合併回 `main`**（2026-08-03）：owner 實測四家 LLM、傳圖、
+>   API Key 持久化皆正常；另有 prompt 全等比對 48 情境逐字相同（`scripts/README-prompt-equivalence.md`）
+>
+> ### 👉 下一步是 **B2.7（`fileStore` 抽 core），不是 B3**
+>
+> 2026-08-03 盤點發現規劃缺一塊：**五個 adapter 裡只有 `HttpAdapter` 有呼叫端**，
+> 儲存／金鑰／排程／通知都是 0 個，而 `fileStore.ts`（989 行、128 處 `fs`）
+> 內含設定遷移等真邏輯。不抽則 B3 會在手機端重寫一份 → 最核心資料的 drift。
+>
+> **完整順序與測試策略見 `docs/pre-b3-work-assessment.md`（開工前必讀）。**
+>
+> 相關：`docs/module-system-roadmap.md`、`docs/news-reader-mobile-plan.md`、
+> `docs/remote-control-plan.md`、`docs/future-lorebook.md`、`docs/future-character-impression.md`
 
 本文件記錄「手機獨立版 / 跨平台 / 多電腦 / 開源散布」的完整評估結論。
 **若換對話或換 AI 接手，先讀完這份再動工**，尤其是：
@@ -189,6 +198,10 @@ README 應明確標示「台灣向」，避免國際使用者誤裝後失望。
 現況所有業務邏輯綁死在 Electron main：`ipcHandlers.ts`(4,551 行)、`fileStore.ts`(989 行)、
 `promptUtils.ts`(577 行)、`llm/`、`modules/`，依賴 `fs` / `ipcMain` / `BrowserWindow`。
 
+> 📌 **上段是 2026-08-02 的現況描述，保留原文。**
+> B1 完成後（2026-08-03）：`promptUtils` 與 `llm/` 已全數進 `core/`、
+> `ipcHandlers.ts` 為 4,514 行；**`fileStore.ts` 仍是 989 行、尚未抽（＝ B2.7）**。
+
 若不抽而直接在手機重寫一份，會產生 **drift**：
 > 同一份邏輯在兩地各自實作，隨時間慢慢長歪。
 > 例：桌面改了新聞篩選權重，手機忘了同步 → 同一則新聞桌面抽得到、手機抽不到。
@@ -218,9 +231,13 @@ UI 仍是兩份（桌寵 UI 與手機 UI 資訊架構本就不同），這是預
 **已知細節**：Capacitor 原生 HTTP 對 fetch streaming 支援不佳，
 串流輸出可能要退回非串流或改走其他機制。
 
-### 4.4 具體切法（**盤點結果，接手時直接照這份走**）
+### 4.4 具體切法（**2026-08-02 的盤點，內容已全數執行完畢**）
 
-#### 可直接搬進 `core/`（純邏輯，無 Node/Electron 依賴）
+> ✅ **本節是歷史紀錄，不是待辦清單。** 下列項目 **B1 四刀已全部搬完**，
+> 實際結果、與計畫的偏離、以及六個設計決定見 **§4.4b**。
+> 接手時看 §4.4b 與 §10.5，本節僅供對照當初怎麼判斷。
+
+#### 可直接搬進 `core/`（純邏輯，無 Node/Electron 依賴）— ✅ 全數完成
 
 | 來源 | 內容 |
 |---|---|
@@ -929,9 +946,14 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 
 **合計約 3–4 個月**（單人 + AI 協作）。
 
-> ⚠️ **B3 開工前另有三件不在上表的雜項**（驗證並合併 B1／B2 分支、Hello World APK 試打、
-> `mobile.html` 功能對照清單），以及一份**測試策略**（哪些能自動測、哪些只能靠 owner 手動測）
-> —— 全部見 **`docs/pre-b3-work-assessment.md`**。
+> ⚠️ **B3 開工前另有幾件不在上表的雜項**，以及一份**測試策略**
+> （哪些能自動測、哪些只能靠 owner 手動測）—— 全部見 **`docs/pre-b3-work-assessment.md`**。
+>
+> - ✅ 驗證並合併 B1／B2 分支 —— **已完成 2026-08-03**
+> - ⬜ Hello World APK 試打（1–2 天）：順便驗 Gemini 靠全域 fetch patch 繞 CORS，
+>   以及 `rss-parser` 能否在 WebView 跑（新聞已確定納入手機 MVP）
+> - ⬜ `mobile.html` 功能對照清單（半天）
+> - ⬜ Android keystore：**不擋開發**，發第一版前要弄好並備份（操作說明見該文件 §9）
 
 ### 階段 C — 進階需求（owner 自用為主，第三層）
 

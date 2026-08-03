@@ -77,7 +77,10 @@ DesktopST\
 ## 開發原則
 
 - 不要做規格書範圍外的功能，有想法先提出討論
-- 第一版不實作：Lorebook、自動發話、TTS、Live2D、ST 對話記錄匯入
+- 第一版不實作：自動發話、TTS、Live2D、ST 對話記錄匯入
+  - ⚠️ **Lorebook 已於 2026-08-03 改為要做**（owner 決議），規格見 `docs/future-lorebook.md`。
+    做的是**用語解說**（角色聽得懂專有名詞）而非完整 ST World Info，
+    但資料格式吃 ST `character_book` 子集。排程為 B2.5／B2.6，見 roadmap §10
 - 桌面上至少保留一個角色，只剩一個時隱藏移除按鈕
 - API Key 必須加密（`safeStorage`），不可存純文字
 - 所有使用者資料存 `%APPDATA%\DesktopST\`，解除安裝不刪資料
@@ -443,10 +446,22 @@ npm run typecheck # 型別檢查
   - 這把鍵順帶解掉「TRPG 劇情被記成現實」：`ScenePreset.activePersonaId` 是必填，
     **切情境必然切 Persona** → TRPG 印象天然存在另一把鍵底下，不會污染日常
   - 必須可全域開關 ＋ 可看可編可刪（owner 明確要求）；TRPG 情境**也保留**此功能
-  - **時機：等 `core/` 抽乾淨後再做**，否則桌面與手機會各寫一次（roadmap §4.1 的 drift）
+  - 追加規格：**角色對「角色」的印象**（鍵是觀察者 × 被觀察者 × Persona，
+    手動觸發、只生成勾選的角色、產出可編輯），見該文件 §3.4。**不能單獨插隊**，
+    地基與主功能共用
+  - ~~時機：等 `core/` 抽乾淨後再做~~ → **`core/` 已於 2026-08-03 抽乾淨，該等待理由消失**。
+    但 owner 決議**仍排在 B3 之後（B8）**：它是 LLM 自動寫入、驗收靠手感、會持續花 token，
+    不宜與 B3（4–8 週）同時點火。理由見 `docs/pre-b3-work-assessment.md` §4
+
+**已排程、尚未實作：**
+- **Lorebook（用語解說）** → `docs/future-lorebook.md`（規格已定案，無待決事項）。
+  排程 B2.5（core，擋 B3）／B2.6（桌面 UI）。**2026-08-03 owner 決議要做**，
+  不再屬於「第一版排除」
+- **角色對使用者／角色對角色的印象** → `docs/future-character-impression.md`。
+  排程 **B8（B3 之後）**，owner 2026-08-03 決議完全延後、連型別都不先定
+  （理由見 `docs/pre-b3-work-assessment.md` §8）
 
 **尚未實作（第一版排除）：**
-- Lorebook
 - TTS（文字轉語音）
 - Live2D
 - SillyTavern 對話記錄匯入
