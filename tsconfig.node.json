@@ -13,5 +13,5 @@
     "resolveJsonModule": true,
     "outDir": "out"
   },
-  "include": ["src/core", "src/main", "src/preload", "electron.vite.config.ts"]
+  "include": ["src/core", "src/main", "src/preload", "electron.vite.config.ts", "capacitor.config.ts"]
 }
