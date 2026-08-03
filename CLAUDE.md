@@ -221,6 +221,11 @@ npm run typecheck # 型別檢查
     owner 2026-08-03 認為一般聊天也該注入，否則失去釘選的意義 → 提案未實作，
     見 `docs/news-future-topic-in-chat.md`（注意：一般聊天要用**弱化的 directive**，
     照抄說點什麼那份會讓角色硬把話題扯回新聞）
+  - ⚠️ 新聞設定最上方那排群組 chip 是**「編輯哪一組」**，不是「使用中的組」；
+    聊天實際用哪組只看**情境**綁定（`activeScene.newsKeywordGroupId`），
+    下方「個人新聞報要看哪些組」則只影響新聞報。三種語意擠在同一頁，
+    owner 2026-08-03 實際誤判成 bug → UI 待調整（優先度中低），
+    見 `docs/news-future-keyword-groups.md` §8
   - 標題主觀／情緒評分（規格外，已實作）：抽中新聞時用輔助模型輕量評分（0~5 分 + 簡短理由），只記錄到 LogWindow 新聞 debug 面板觀察、不參與篩選、不影響角色語氣；門檻值刻意不開放使用者調整 → 見 `docs/news-future-sensational-score.md`
 - [x] 情境模組開關覆蓋（Scene Module Overrides）
   - `ScenePreset.moduleOverrides?: Record<string, 'on' | 'off'>`：每個情境對每個模組三態（強制開／強制關／無 key＝跟隨全域），例如 TRPG 情境關新聞天氣、留 Spotify 當 BGM
