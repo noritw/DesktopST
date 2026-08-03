@@ -316,9 +316,15 @@ npm run typecheck # 型別檢查
   - 中文字串規則：**送進 LLM prompt 的中文可留在 `core/prompt/`（檔頭有註明），
     UI 文案一律不得進 core**（roadmap §3.3 例外條款，owner 2026-08-02 拍板）
   - `tsconfig.node.json` 的 `include` 已加 `src/core`
-  - **尚未搬**：`llm/index.ts` 與四家 provider adapter、`llm/summarizer.ts`、
-    `modules/news/`、`stCardMapper.ts` / `pngUtils.ts`。
-    共通卡點是 adapter 介面還沒定義 → 那是 B2 的內容，故先做 B2 再回頭搬完
+  - **下一步（B1 續刀，三塊都不需要 adapter，已實地盤點）**：
+    ① `stCardMapper.ts`(189，只 import 型別，純位移)
+    ② `modules/news/types.ts` ＋ `settings.ts` 的 4 個純 helper
+    （`effectiveGroupId` / `keywordSourceInGroup` / `keywordSourceInReaderGroups` /
+    `weightToValue`）＋ `filter.ts`(435)——要拆檔，`settings.ts` 的 load/save 留 `main/`
+    ③ `modules/news/topicState.ts`(27，零 import，但是可變單例，別順手改設計)
+  - **確定卡住、要等 B2 定 adapter 介面**：`llm/index.ts` 與四家 provider adapter、
+    `llm/summarizer.ts`（依賴 `chatWithLLM`）、`modules/news/trigger.ts`（網路＋檔案）、
+    `pngUtils.ts`（`fs` ＋ `Buffer`）
 - [ ] **手機獨立版與平台擴充（B2 起待開工）** → `docs/multi-device-platform-roadmap.md`
   - **定位修正**：DeST 從「桌寵程式」擴張為「AI 角色聊天平台，有桌寵版與手機版」。
     目標客群的路徑（卿卿我我 → SillyTavern → DeST）起點在手機，一般使用者不見得有電腦

@@ -6,9 +6,10 @@
 >
 > **進度一覽**
 > - ✅ **A1 Google Calendar 模組** —— 已完成並實機驗證（見 §6.1、`CLAUDE.md`）
-> - ✅ **B1 抽出 `core/` 第一刀** —— 已完成（2026-08-02，見 §4.4、§10.5）
-> - ⬜ **B2 Capacitor 專案骨架 ＋ 儲存／金鑰 adapter** —— **下一個要做的**
-> - ⬜ B3 之後（手機 UI）尚未開始
+> - ✅ **B1 抽出 `core/` 第一刀** —— 已完成（2026-08-02，見 §4.4）
+> - ⬜ **B1 續刀** —— **下一個要做的**：`stCardMapper.ts`、新聞 `filter.ts`、
+>   `topicState.ts`（三塊都不需要 adapter，見 §4.4「下一刀怎麼切」、§10.5）
+> - ⬜ B2 之後（Capacitor、手機 UI）尚未開始
 > 相關：`docs/module-system-roadmap.md`、`docs/news-reader-mobile-plan.md`、`docs/remote-control-plan.md`
 
 本文件記錄「手機獨立版 / 跨平台 / 多電腦 / 開源散布」的完整評估結論。
@@ -288,14 +289,37 @@ stripOtherCharacterSpeakerLines(text, selfCharId, characters)  // 第三參數�
 **驗收結果**：`npm run typecheck` ＋ `electron-vite build` 通過；
 owner 實機驗過聊天 / 群聊 / 新聞 / 抽籤 / 骰子，行為無異常。
 
-#### 下一刀怎麼切（尚未開工）
+#### 下一刀怎麼切（**已實地盤點，直接照這份走**）
 
-依 §4.4 的清單，剩下的順序建議：`llm/summarizer.ts`(92) → `llm/index.ts` 與四家
-provider adapter（要先定義注入的 HTTP client 介面）→ `modules/news/` 的
-`filter.ts` / `trigger.ts` / `topicState.ts` → `stCardMapper.ts` / `pngUtils.ts`
-（`pngUtils` 要確認 Buffer 能否改 Uint8Array）。
-**adapter 介面（儲存／金鑰／HTTP／排程／通知）目前一個都還沒定義**，
-碰到 `llm/index.ts` 就必須先定，那是 B2 的主要內容。
+> ⚠️ **本節曾一度寫成「剩下的都卡在 adapter，先去做 B2」，那個判斷是錯的。**
+> 實際逐檔查過 import 之後，**還有三塊完全不需要任何 adapter**。先把它們搬完再進 B2。
+
+**現在就能搬（零 adapter 需求）**
+
+| 目標 | 行數 | 現況 | 性質 |
+|---|---|---|---|
+| `stCardMapper.ts` | 189 | **只 import 型別**，無 `fs` / `path` / `Buffer` | 純位移 |
+| `modules/news/filter.ts` | 435 | 無 `fs` / `path` / `Buffer`，但 import 了 `./settings` 的 4 個 helper | 要先拆 `settings.ts` |
+| `modules/news/topicState.ts` | 27 | **零 import** | 純位移，但是可變單例（見下） |
+
+`filter.ts` 依賴的 `effectiveGroupId` / `keywordSourceInGroup` /
+`keywordSourceInReaderGroups` / `weightToValue` **四個都是純函式**（已逐一確認），
+只是住在會讀寫檔案的 `settings.ts` 裡 → 把純的抽出來進 core，
+**`settings.ts` 的 load/save 留在 `main/` 不要動**。
+順序上要先搬 `modules/news/types.ts`（它只 import 一個 `ReminderSchedule`）。
+
+這一刀是新聞篩選與加權隨機，屬 §3.1 手機版必做項，**邏輯收益最大**。
+
+`topicState.ts` 是模組層可變單例（`activeTopic`）。桌面與手機各自一個 process
+所以沒問題，但若日後 core 要在同一 process 內多實例共用會踩到。
+**B1 是純重構，不要順手改成 class 或注入式 —— 若判斷是隱患，先問 owner。**
+
+**確定卡住，要等 B2 定義 adapter 介面**
+
+`llm/index.ts` 與四家 provider adapter（HTTP client）、
+`llm/summarizer.ts`（依賴 `chatWithLLM`）、
+`modules/news/trigger.ts`（依賴 `sources` 網路 ＋ `settings` 檔案）、
+`pngUtils.ts`（`fs` ＋ `Buffer`，還要確認能否改 `Uint8Array`）。
 
 ### 4.5 手機 UI：**一份程式碼，兩種資料來源，三種散布**（關鍵決議）
 
@@ -729,8 +753,8 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 
 | # | 項目 | 估時 |
 |---|---|---|
-| B1 | **抽出 `core/`**（純 TS，adapter 介面）— **第一刀 ✅ 完成，其餘待 B2 定介面後續做** | 3–5 週 |
-| B2 | Capacitor 專案骨架 ＋ 儲存／金鑰 adapter ← **下一個** | 1 週 |
+| B1 | **抽出 `core/`**（純 TS，adapter 介面）— 第一刀 ✅ 完成；**續刀 ← 下一個**（三塊零 adapter，見 §4.4）；其餘待 B2 定介面 | 3–5 週 |
+| B2 | Capacitor 專案骨架 ＋ 儲存／金鑰 adapter | 1 週 |
 | B3 | 手機 UI（含 §3.0 全部功能 ＋ §4.8 設定 UI，資料來源可抽換見 §4.5） | 4–8 週 |
 | B3.5 | S1 掃 QR 一鍵初始化匯入（見 §4.7） | 3–5 天 |
 | B6 | 手機 UI 的 web build 接手 `mobile.html`（含遙控 UI 搬移）。**掃 QR 連線方式不變** | 1 週 |
@@ -762,15 +786,21 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 
 **開工前必讀**：本文件 §2（四大目標）、§4.4（抽 core 切法）、§8（已否決清單）、§11（提醒）。
 
-> ## 👉 現在的下一步是 **B2（Capacitor 專案骨架 ＋ adapter 介面）**
+> ## 👉 現在的下一步是 **B1 續刀（還有三塊可以搬，不需要 adapter）**
 >
 > A1 已完成、**B1 的第一刀已完成**（見 §4.4）。**不要再從 A1 或 B1 第一刀找事做**。
 >
-> ⚠️ **B1 尚未全部做完** —— 已搬的只有群組聊天那批純函式 ＋ types ＋ promptUtils。
-> `llm/index.ts`、四家 provider adapter、`modules/news/`、角色卡解析都還在 `main/`。
-> 這些的共通卡點是 **adapter 介面（儲存／金鑰／HTTP／排程／通知）一個都還沒定義**，
-> 而那正是 B2 的主要內容 → 所以順序上先做 B2，再回頭把剩下的 core 搬完。
-> 剩餘切法見 §4.4 末段「下一刀怎麼切」。
+> **接著搬這三塊，照順序、每塊一個 commit**（依據見 §4.4「下一刀怎麼切」）：
+>
+> 1. `stCardMapper.ts`(189) —— 純位移，最安全
+> 2. `modules/news/` 的 `types.ts` ＋ `settings.ts` 的 4 個純 helper ＋ `filter.ts`(435)
+>    —— 本次最大收益，要拆檔，`settings.ts` 的 load/save 留在 `main/`
+> 3. `modules/news/topicState.ts`(27) —— 純位移，注意它是可變單例
+>
+> **三塊搬完之後才進 B2。** 屆時剩下的（`llm/index.ts`、四家 provider、
+> `summarizer.ts`、`trigger.ts`、`pngUtils.ts`）確實都卡在
+> **adapter 介面（儲存／金鑰／HTTP／排程／通知）一個都還沒定義**，
+> 而那正是 B2 的主要內容 → B2 定完介面，再回頭把 core 收尾。
 >
 > 依 §11.1，純重構的部分繼續**在 `main` 上分批小 commit**；
 > B2 開始（Capacitor 專案、手機 UI）才進 `feat/mobile-standalone`。
