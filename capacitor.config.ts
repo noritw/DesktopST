@@ -22,6 +22,12 @@ const config: CapacitorConfig = {
   },
   server: {
     androidScheme: 'https'
+  },
+  plugins: {
+    // 原生 HTTP 接管全域 fetch，讓 WebView 的跨網域請求不受 CORS 限制。
+    // 這是 Gemini 唯一可行的路：`@google/generative-ai` v0.21 沒有 fetch 注入選項，
+    // 只會呼叫全域 fetch（見 `core/llm/deps.ts`）。RSS 抓取同樣依賴這個。
+    CapacitorHttp: { enabled: true }
   }
 }
 

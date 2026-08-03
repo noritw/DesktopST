@@ -421,6 +421,23 @@ npm run typecheck # 型別檢查
     用法見 `scripts/README-settings-hydration.md`）。18 個人造樣本，
     **golden 產自重構前的 `7f5ef7b`**，重構後逐字比對零差異；
     反向驗證改壞一行只抓到該樣本、不誤報。prompt 全等 48/48 亦維持零差異
+- [x] **APK 試打（2026-08-03，實機 Pixel 10a／Android 17）** → 詳見 `docs/pre-b3-work-assessment.md` §5.1
+  - Capacitor 殼、`cap add android`、Gradle 建置、裝機、執行**全線打通**（APK 4.2 MB）
+  - **Gemini 靠 Capacitor 全域 fetch patch 繞 CORS：實機證實可行**
+    （不帶金鑰打 endpoint 收到 **403** ＝ 請求真的到了 Google；被 CORS 擋會是 `TypeError`、
+    連狀態碼都拿不到 —— 兩者必須分清楚）。需 `capacitor.config.ts` 開
+    `plugins.CapacitorHttp.enabled`
+  - ⚠️ **`rss-parser` 不能直接 import**：預設進入點 require Node 的
+    `http`／`https`／`url`／`events`／`timers`，打包給瀏覽器會五個錯誤全開。
+    改用套件自帶的 `rss-parser/dist/rss-parser.min.js`（UMD，`window.RSSParser`）即可；
+    `DOMParser` 備案實測結果相同，**這項有兩條路不會卡死**
+  - ⚠️ **Android Studio 內建 JDK 太新，Gradle 不吃**：Studio 附 JDK 25，
+    Capacitor 8 的專案用 Gradle 8.14.3（上限 Java 24）→ `Unsupported class file major version 69`。
+    解法是另裝 **Temurin JDK 21** 專給 Gradle 用（`winget install --id EclipseAdoptium.Temurin.21.JDK`），
+    **不要動 Studio 自己那份**。每次 Studio 大改版都可能再撞一次
+  - 探針原始碼 `src/mobile/smoketest/`（一次性驗證，非產品程式碼）。
+    結果讀取走 `adb forward` ＋ WebView devtools socket（CDP 取 `innerText`），不必人工看螢幕
+  - **仍未解**：`sources.ts` 的 `crypto.createHash` 要換純 JS hash 才能進 core
 - [ ] **手機獨立版與平台擴充** → `docs/multi-device-platform-roadmap.md`
   - ⚠️ **下一步不是 B3。** 2026-08-03 盤點發現規劃缺一塊、且 B1／B2 尚未實機驗證
     → **先讀 `docs/pre-b3-work-assessment.md`**（含測試策略：哪些能自動測、

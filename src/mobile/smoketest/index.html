@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DeST 手機殼試打</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    margin: 0; padding: 16px 14px 40px;
+    font-family: system-ui, -apple-system, "Noto Sans TC", sans-serif;
+    background: #F7FFFC; color: #3D5A52;
+    -webkit-text-size-adjust: 100%;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { font-size: 13px; opacity: .7; margin: 0 0 16px; }
+  .card {
+    background: #fff; border-radius: 16px; padding: 12px 14px; margin-bottom: 10px;
+    border: 1px solid #DCEFE8;
+  }
+  .row { display: flex; align-items: baseline; gap: 8px; }
+  .badge {
+    flex: none; width: 22px; height: 22px; border-radius: 50%;
+    display: grid; place-items: center; font-size: 13px; align-self: center;
+  }
+  .pending { background: #E8EEF0; }
+  .pass { background: #CBFBC4; }
+  .fail { background: #FFBBBB; }
+  .name { font-weight: 600; font-size: 15px; }
+  .detail {
+    margin: 6px 0 0; font-size: 12.5px; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word; opacity: .85;
+    font-family: ui-monospace, "Cascadia Mono", monospace;
+  }
+  .summary {
+    border-radius: 16px; padding: 12px 14px; margin-bottom: 14px;
+    font-size: 15px; font-weight: 600; background: #AAEEDD;
+  }
+</style>
+</head>
+<body>
+  <h1>DeST 手機殼試打</h1>
+  <p class="sub">驗證 Capacitor 殼與兩個 B3 前的未知數。全部自動執行。</p>
+  <div id="summary" class="summary">執行中…</div>
+  <div id="results"></div>
+  <!-- rss-parser 的瀏覽器版（UMD，掛成 window.RSSParser）。
+       不能走 bundler：它的預設進入點 require 了 Node 的 http/https/url/events/timers。 -->
+  <script src="./rss-parser.min.js"></script>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

@@ -180,10 +180,82 @@ Lorebook 是「加一個功能」；印象是「開一條需要持續觀察的�
 | 項目 | 時機 | 說明 |
 |---|---|---|
 | ~~驗證並合併 B1／B2 分支~~ | ✅ **已完成 2026-08-03** | 四家 LLM 實測 ＋ 48 情境全等比對，已合併回 `main` |
-| **Hello World APK 試打** | B3 前，1–2 天 | 證明殼跑得起來；順便驗 Gemini 那個「靠 Capacitor 全域 fetch patch 繞 CORS」到底成不成立（B1 收尾發現的已知限制）。不做等於閉著眼睛寫 4–8 週 UI |
+| ~~**Hello World APK 試打**~~ | ✅ **已完成 2026-08-03** | 七項探針全過，詳見 §5.1。三個未知數皆已有答案 |
 | **`mobile.html` 功能對照清單** | B3 前，半天 | roadmap §3.0 是**硬性基準**：手機獨立版必須具備現行行動網頁版全部功能。3,290 行靠記憶對不完，要先列成可勾選的清單 |
-| **`sources.ts` 的手機方案** | **B3 前**（新聞已確定納入手機 MVP，見 §8） | 用了 `crypto.createHash`（Node 專屬）與 `rss-parser`（需確認 WebView 可跑）。建議在 APK 試打時一併驗證 |
+| **`sources.ts` 的手機方案** | 部分已解，見 §5.1 | `rss-parser` ✅ 已驗可行（走 dist 瀏覽器版）。**剩 `crypto.createHash` 未解**，仍需換純 JS hash |
 | **Android keystore** | 第一次發佈前 | **不擋 B3**。§10.5 仍待 owner 決定；弄丟等於所有使用者無法升級，AI 不應自行產生 |
+
+### 5.1 APK 試打結果（2026-08-03，實機 Google Pixel 10a／Android 17）
+
+探針原始碼在 `src/mobile/smoketest/`，**是一次性能力驗證，不是產品程式碼**。
+七項全過。結果讀取方式：`adb forward` 接上 WebView 的 devtools socket，
+用 CDP 取 `document.body.innerText`（不必人工看螢幕回報）。
+
+| # | 探針 | 結果 |
+|---|---|---|
+| 1 | WebView 版本 | Chromium **150.0.7871.181** |
+| 2 | Capacitor bridge | `platform = android`、`isNative = true` |
+| 3 | CapacitorHttp 接管全域 `fetch` | ✅ **成立** —— `fetch.toString()` 已非 native code |
+| 4 | 跨網域抓 RSS（Google News 台灣）| ✅ HTTP 200、90,798 字元 |
+| 5 | `rss-parser` 解析 | ✅ 34 則，標題正確（含中文）|
+| 6 | `DOMParser` 解析同一份（備案）| ✅ 34 則，與 #5 一致 |
+| 7 | Gemini endpoint 可達性 | ✅ HTTP **403**（`unregistered callers`）|
+
+#### 三個結論
+
+**一、Gemini 那條路成立。** 第 7 項刻意不帶金鑰：**收到 403 代表請求真的送到了 Google**，
+而不是被瀏覽器的 CORS 擋在本機。被 CORS 擋會是 `TypeError`、連狀態碼都拿不到——
+兩者必須分清楚，否則會把「打不到」誤判成「打得到但被拒絕」。
+搭配第 3 項（fetch 確實被原生接管），B1 收尾記下的
+「`@google/generative-ai` v0.21 沒有 fetch 注入選項，只能靠 Capacitor 全域 patch」
+**經實機證實可行**。
+
+**二、`rss-parser` 可用，但不能照現在的方式 import。**
+
+> ⚠️ **預設進入點（`lib/parser.js`）會 require Node 的 `http`／`https`／`url`／
+> `events`／`timers`，bundle 給瀏覽器會五個錯誤全開。**
+
+解法是改用套件自帶的預先打包瀏覽器版 `rss-parser/dist/rss-parser.min.js`
+（UMD，掛在 `window.RSSParser`），實測解析結果與桌面一致。
+第 6 項顯示 `DOMParser` 備案同樣可行且結果一致，
+所以**這一項有兩條路，不會卡死**。
+
+**三、`crypto.createHash` 仍未解。** §8 列的兩個依賴只解掉一個。
+新聞 id 只需要穩定去重、不需要密碼學強度，換成純 JS hash 即可進 `core/`。
+
+#### ⚠️ 環境上的坑（下一個接手的人會撞到同一道牆）
+
+**Android Studio 內建的 JDK 版本太新，Gradle 不吃。**
+
+實測：Android Studio 附 **JDK 25**，而 Capacitor 8 產生的專案用 **Gradle 8.14.3**，
+官方支援上限是 Java 24 → 建置在 55 秒後失敗，訊息是
+`Unsupported class file major version 69`（69 就是 Java 25 的內部編號）。
+
+解法：**另外裝一個 JDK 21（LTS）專給 Gradle 用**，不要動 Android Studio 自己那份。
+
+```
+winget install --id EclipseAdoptium.Temurin.21.JDK
+```
+
+建置時把 `JAVA_HOME` 指向它即可（本機路徑：
+`C:\Program Files\Eclipse Adoptium\jdk-21.0.12.8-hotspot`）。
+換好之後建置 2 分 7 秒完成、93 個 task 全過、APK 4.2 MB。
+
+> 📌 這不是「裝錯了」。Android Studio 一律附最新 JDK，Gradle 一律落後幾版，
+> 所以**每次 Android Studio 大改版都可能再撞一次**。看到
+> `Unsupported class file major version` 就是這個問題。
+
+#### 本機環境（供日後對照）
+
+| 項目 | 值 |
+|---|---|
+| Android Studio ／ SDK | `D:\Android\Android Studio` ／ `D:\Android\Sdk`（非預設位置）|
+| SDK platform ／ build-tools | `android-37.0` ／ `36.0.0` |
+| Gradle 用的 JDK | Temurin 21.0.12 LTS |
+| 測試機 | Google Pixel 10a、Android 17（API 37）、WebView Chromium 150 |
+
+⚠️ **Pixel 跑得動不代表所有 Android 跑得動。** 這次驗的是「架構可不可行」，
+不是相容性；低階機或舊機的 WebView 可能停在 100 出頭。相容性要等真的有 APK 再談。
 
 ---
 
@@ -287,7 +359,7 @@ prompt 組裝是純函式、不需要 API Key、不花錢、不連網。
    ├─ 6.2 自動測試導入（2–3 天，AI 做）
    └─ 6.4 手動七項（owner，約 15 分鐘）
 
-1. Hello World APK 試打                       1–2 天
+1. ~~Hello World APK 試打~~                    ✅ 完成 2026-08-03（§5.1）
 2. mobile.html 功能對照清單                   半天
 3. B2.7 fileStore 抽 core（**新增項目**）      1–2 週   ← B3 真前提
 4. B2.5 Lorebook core                         3–5 天   ← 擋 B3
@@ -327,13 +399,12 @@ B2.5／B2.6（lorebook），並把角色印象明確排在 B3 之後。
 
 兩個待解項目：
 
-| 依賴 | 問題 | 可能方向 |
+| 依賴 | 問題 | 現況 |
 |---|---|---|
-| `crypto.createHash` | Node 專屬，手機端沒有 | 換成純 JS hash（新聞 id 只需穩定去重，不需密碼學強度）→ 可進 `core/` |
-| `rss-parser` | 需確認能否在 WebView 跑（它依賴 `xml2js`） | 若不行，改用瀏覽器內建 `DOMParser` 解析 RSS，或走 §3.3 的 news provider 介面 |
+| `crypto.createHash` | Node 專屬，手機端沒有 | ⏳ **仍待解**。換成純 JS hash（新聞 id 只需穩定去重，不需密碼學強度）→ 可進 `core/` |
+| `rss-parser` | 需確認能否在 WebView 跑（它依賴 `xml2js`） | ✅ **已驗（§5.1）**：不能走預設進入點，但自帶的 `dist/rss-parser.min.js` 可用；`DOMParser` 備案也實測可行 |
 
-**建議在 Hello World APK 試打時順便驗 `rss-parser`** —— 那是唯一能確定答案的方式，
-且該次試打本來就要做。
+~~建議在 Hello World APK 試打時順便驗 `rss-parser`~~ → 已於 2026-08-03 驗畢，見 §5.1。
 
 ---
 

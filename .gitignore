@@ -27,3 +27,7 @@ assets/*.dstpack
 .eq*.json
 .sh*.cjs
 .sh*.json
+
+# Capacitor 產生的原生樹（試打階段先不進 repo，B3 再決定是否納管）
+/android/
+/out/mobile/
