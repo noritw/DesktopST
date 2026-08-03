@@ -1,0 +1,40 @@
+{
+  "_說明": "改這個檔就好，改完重跑指令。keys 填同一件事的各種叫法，任一被提到就生效；constant=true 是常駐（不必被提到）。",
+
+  "lorebook": {
+    "name": "我的用語解說",
+    "scan_depth": 5,
+    "token_budget": 2000,
+    "entries": [
+      {
+        "keys": ["DeST", "DesktopST", "桌友", "我的桌面小程式"],
+        "content": "DeST（DesktopST）是使用者本人開發的 Windows 桌面 AI 角色程式，使用者暱稱它「桌友」。Electron + React，個人專案。",
+        "constant": true,
+        "enabled": true
+      },
+      {
+        "keys": ["小明"],
+        "content": "小明是使用者的同事，負責企劃，個性穩重。",
+        "constant": false,
+        "enabled": true
+      },
+      {
+        "keys": ["蘋果"],
+        "content": "這裡的蘋果指水果，不是手機廠牌。",
+        "constant": false,
+        "enabled": true,
+        "selective": true,
+        "secondary_keys": ["吃", "水果"]
+      }
+    ]
+  },
+
+  "_掃描文字": "模擬「這一輪聊天會被掃描的內容」。摘要 + 最近幾則訊息 + 你正要送出的這句。",
+  "summary": "使用者最近在忙一個叫桌友的專案。",
+  "recentContents": [
+    "今天天氣不錯",
+    "早上開了會",
+    "下午繼續寫程式"
+  ],
+  "currentInput": "小明說他想吃蘋果"
+}

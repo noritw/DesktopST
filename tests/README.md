@@ -37,7 +37,7 @@ npm run test:watch
 前者要真的 Electron 環境，後者要真的畫面，兩者都在
 `pre-b3-work-assessment.md` §6.4「只能靠人」那一側。
 
-## 目前涵蓋範圍（149 項）
+## 目前涵蓋範圍（206 項）
 
 | 檔案 | 測什麼 | 對應 §6.2 |
 |---|---|---|
@@ -48,6 +48,10 @@ npm run test:watch
 | `card/stCardMapper.test.ts` | ST 卡匯入匯出往返、PNG 嵌入取出 | 第 5、6 項 |
 | `util/base64.test.ts` | 與 Node `Buffer` 逐位元組比對 | 第 7 項 |
 | `reminder/nextFire.test.ts` | daily／weekly／interval 觸發時刻 | 第 8 項 |
+| `lore/scan.test.ts` | Lorebook 觸發判定（keys／constant／selective）、排序、預算裁切 | B2.5 |
+| `lore/format.test.ts` | `[Glossary]` 區塊組裝、無條目時完全不出現 | B2.5 |
+| `lore/resolve.test.ts` | 疊加（角色卡＋世界觀）vs 取代（情境）、載入失敗略過 | B2.5 |
+| `lore/stLorebook.test.ts` | ST `character_book` 往返、`_passthrough` 不掉欄位 | B2.5 |
 
 **還沒補的**：`store/`（設定遷移、正規化）、`llm/summarizer` 的訊息挑選、
 `news/trigger` 的六個 builder 快照。這幾塊有各自的替代驗證
@@ -93,6 +97,8 @@ npx vitest run -u
 |---|---|
 | `core/random/dice.ts` 擲筊權重 40/30/30 → 60/20/20 | 精準抓到 1 項（機率分布那支）|
 | `core/prompt/promptUtils.ts` trigger 訊息大小寫 | 精準抓到 3 項（`buildTriggerMessage` 那組）|
+| `core/lore/format.ts` 標籤 `[Glossary]` → `[Lore]` | 精準抓到 3 項（format 那支）|
+| `core/lore/scan.ts` 裁切改成「先砍高 priority」 | 精準抓到 2 項（預算裁切那組）|
 
 兩次都**只有相關的測試變紅**，其餘照常通過。
 

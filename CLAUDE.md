@@ -493,12 +493,45 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
   - ⚠️ `mobile.html` 那份**蓄意保留**（純 vanilla、無建置步驟、不能 import TS），
     已加註解：**改 core 的機率表要同步過去**。B6 整份取代後自然消失
   - 驗證：新舊實作吃同一串偽亂數比對，**3,819 項零差異**（一次性，未保留成常設測試）
+- [x] **B2.5 Lorebook core（2026-08-04）** → `src/core/lore/`，規格 `docs/future-lorebook.md`
+  - **純函式、零 I/O、目前零呼叫端**（B2.6 桌面 UI 才會接上）。做的是**用語解說子集**，
+    不是完整 ST World Info：`recursive_scanning`、`position` / `depth`、真 tokenizer 一律不做
+  - 五個檔：`types.ts`（`LoreEntry` / `Lorebook` / `LoreError`）、
+    `scan.ts`（`buildScanText` / `matchesEntry` / `selectLoreEntries` / `resolveScanDepth`）、
+    `format.ts`（`formatLoreBlock` → `[Glossary]`）、
+    `resolve.ts`（`resolveLorebookIds` / `orderLorebooks`）、
+    `stLorebook.ts`（`importStLorebook` / `exportStLorebook` / `extractCharacterBook`）
+  - 型別欄位已定案（B3 手機 UI 要接的就是這幾個）：`Character.lorebookIds?`、
+    `WorldPreset.lorebookIds?`（皆**疊加**，角色卡排前面）、
+    `ScenePreset.lorebookIds?`（**取代式**，空陣列＝這情境一本都不用）。
+    儲存 key `lorebooks/<id>.json`（`core/store/keys.ts`），`DATA_SUBDIRS` 已加
+  - ⚠️ **掃描文字必須用 `contextMessages()` 的結果**（規格 §6.2）：
+    否則會出現「已被摘要吃掉的舊訊息還在觸發 lore」—— 角色手上沒那段對話卻收到術語解說。
+    `buildScanText` 收的是已過濾的內容，過濾本身留在平台層
+  - ⚠️ **`[Glossary]` 不是 `[Lore]`**（規格 §5.4 已定案）：前者讓模型被動查閱、
+    後者會讓模型主動科普使用者自己的設定，日常閒聊很煩。**沒有任何條目時回空字串**，
+    連空標籤都不出現（§6.1 新手不受影響）
+  - 裁切語意沿用 ST：`insertion_order` 管**順序**、`priority` 管**超預算先砍誰**（低的先砍，
+    未設＝100）。預算是**字元數近似非真 token**；多本書取**最大**的 `token_budget`，
+    小上限不連坐砍掉別本
+  - ST 未實作欄位一律進 `_passthrough`（條目層與書層各一份），匯出原樣吐回 →
+    ST → DeST → ST 不掉資料。**唯二例外**：`enabled` / `constant` 有明確預設值，匯出一律寫明
+  - core 不生亂數也不讀時間：`importStLorebook` 的 `id` / `now` / `makeEntryId` 全部由呼叫端注入
+  - **手動預覽工具** `scripts/lore-preview.ts`（用法見 `scripts/README-lore-preview.md`）：
+    改一個 JSON 就能看見「哪些條目被觸發、為什麼、實際注入 prompt 的逐字內容」。
+    core 零呼叫端期間唯一能親眼驗證的方式；B2.6 接上 UI 後由設定視窗取代
+  - 測試 `tests/lore/`（**57 項**，總數 149 → 206）。反向驗證過兩次（改標籤 → 抓到 3 項；
+    改裁切方向 → 抓到 2 項），皆不誤報
+  - **B2.6 待辦**（本次刻意不做）：世界觀分頁編輯器、情境綁定 UI、ST `.json` ／
+    `character_book` 匯入匯出接線、角色卡自動生成條目（規格 §8）、
+    `applySceneModuleOverrides()` 加 `desktopst.lorebook`（`LORE_MODULE_ID` 常數已備好）、
+    DST Pack 匯出勾選框（規格 §7.3，預設不勾）
 - [ ] **手機獨立版與平台擴充** → `docs/multi-device-platform-roadmap.md`
   - ⚠️ **下一步不是 B3。** 2026-08-03 盤點發現規劃缺一塊、且 B1／B2 尚未實機驗證
     → **先讀 `docs/pre-b3-work-assessment.md`**（含測試策略：哪些能自動測、
     哪些只能 owner 手動測）。順序：~~驗證合併~~ ✅ → ~~APK 試打~~ ✅ →
     ~~B2.7 `fileStore` 抽 core~~ ✅ → ~~`mobile.html` 對照清單~~ ✅（2026-08-03）→
-    **B2.5 Lorebook core（下一步）** → B2.6 → B3
+    ~~B2.5 Lorebook core~~ ✅（2026-08-04）→ **B2.6 Lorebook 桌面 UI（下一步，不擋 B3）** → B3
   - **B2.7 是新增項目**：`fileStore` 989 行、128 處 `fs`，內含設定遷移等真邏輯；
     五個 adapter 目前只有 HTTP 有呼叫端，**儲存／金鑰／排程／通知零呼叫端**。
     不抽的話 B3 會在手機端重寫一份 → 最核心資料的 drift
@@ -554,8 +587,8 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
 
 **已排程、尚未實作：**
 - **Lorebook（用語解說）** → `docs/future-lorebook.md`（規格已定案，無待決事項）。
-  排程 B2.5（core，擋 B3）／B2.6（桌面 UI）。**2026-08-03 owner 決議要做**，
-  不再屬於「第一版排除」
+  **B2.5 core 已於 2026-08-04 完成**（見上），剩 **B2.6 桌面 UI**（不擋 B3）。
+  **2026-08-03 owner 決議要做**，不再屬於「第一版排除」
 - **角色對使用者／角色對角色的印象** → `docs/future-character-impression.md`。
   排程 **B8（B3 之後）**，owner 2026-08-03 決議完全延後、連型別都不先定
   （理由見 `docs/pre-b3-work-assessment.md` §8）
