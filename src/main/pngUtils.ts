@@ -1,14 +1,24 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import extractChunks from 'png-chunks-extract'
-import encodeChunks from 'png-chunks-encode'
-import * as pngChunkText from 'png-chunk-text'
+import {
+  MINIMAL_TRANSPARENT_PNG_BASE64,
+  PngCardError,
+  extractCharaJson as extractCharaJsonCore,
+  embedCharaJson as embedCharaJsonCore
+} from '../core/card/pngCard'
+
+/**
+ * 角色卡 PNG 的桌面端外殼。
+ *
+ * chunk 讀寫的純邏輯已搬到 `core/card/pngCard.ts`（用 `Uint8Array`，不依賴 `Buffer`）。
+ * 這裡只剩桌面專屬的兩件事：用 `fs` 讀佔位圖、把 core 的錯誤代碼翻成給使用者看的中文
+ * （UI 文案依 roadmap §3.3 不得進 `core/`）。
+ *
+ * 對外簽名與訊息維持原樣，呼叫端一行未改。
+ */
 
 /** 1×1 透明 PNG（內建佔位） */
-export const MINIMAL_TRANSPARENT_PNG: Buffer = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-  'base64'
-)
+export const MINIMAL_TRANSPARENT_PNG: Buffer = Buffer.from(MINIMAL_TRANSPARENT_PNG_BASE64, 'base64')
 
 function loadPlaceholderFromAssets(appRoot: string): Buffer | null {
   try {
@@ -25,27 +35,22 @@ export function getExportPngBaseBuffer(appRoot: string): Buffer {
   return loadPlaceholderFromAssets(appRoot) ?? MINIMAL_TRANSPARENT_PNG
 }
 
+/** core 的錯誤代碼 → 使用者看得懂的中文訊息（維持搬移前的字句）。 */
+function toUserFacingError(e: unknown): Error {
+  if (e instanceof PngCardError && e.code === 'no-chara-chunk') {
+    return new Error('此 PNG 不包含 ST 角色卡資料')
+  }
+  return new Error(e instanceof Error ? e.message : String(e))
+}
+
 /**
  * 從 PNG 讀取 ST `chara` tEXt chunk，解碼為 UTF-8 JSON 字串。
  */
 export function extractCharaJson(buffer: Buffer): string {
   try {
-    const chunks = extractChunks(buffer)
-    for (const ch of chunks) {
-      if (ch.name !== 'tEXt') continue
-      try {
-        const { keyword, text } = pngChunkText.decode(ch.data)
-        if (keyword !== 'chara') continue
-        const jsonUtf8 = Buffer.from(text, 'base64').toString('utf8')
-        return jsonUtf8
-      } catch {
-        continue
-      }
-    }
-    throw new Error('此 PNG 不包含 ST 角色卡資料')
+    return extractCharaJsonCore(buffer)
   } catch (e) {
-    if (e instanceof Error && e.message === '此 PNG 不包含 ST 角色卡資料') throw e
-    throw new Error(e instanceof Error ? e.message : String(e))
+    throw toUserFacingError(e)
   }
 }
 
@@ -54,29 +59,8 @@ export function extractCharaJson(buffer: Buffer): string {
  */
 export function embedCharaJson(pngBuffer: Buffer, jsonStr: string): Buffer {
   try {
-    const chunks = extractChunks(pngBuffer)
-    const base64Payload = Buffer.from(jsonStr, 'utf8').toString('base64')
-    const textChunk = pngChunkText.encode('chara', base64Payload)
-
-    const filtered: Array<{ name: string; data: Uint8Array }> = []
-    for (const ch of chunks) {
-      if (ch.name === 'tEXt') {
-        try {
-          const { keyword } = pngChunkText.decode(ch.data)
-          if (keyword === 'chara') continue
-        } catch {
-          /* keep chunk */
-        }
-      }
-      filtered.push({ name: ch.name, data: ch.data })
-    }
-
-    const idatIdx = filtered.findIndex(c => c.name === 'IDAT')
-    const insertAt = idatIdx >= 0 ? idatIdx : filtered.length
-    filtered.splice(insertAt, 0, textChunk)
-
-    return Buffer.from(encodeChunks(filtered))
+    return Buffer.from(embedCharaJsonCore(pngBuffer, jsonStr))
   } catch (e) {
-    throw new Error(e instanceof Error ? e.message : String(e))
+    throw toUserFacingError(e)
   }
 }
