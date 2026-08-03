@@ -102,3 +102,50 @@
 5. 修改 `hideSpeechBubble` / `closeBubble` → 呼叫 `demoteAfterSpeaking()`
 6. 修改 `beginCharacterDrag` → 呼叫 `demoteAfterSpeaking()`
 7. 修改 `reconcileSpeechBubbleAfterCharacterDrag` → 呼叫 `promoteForSpeaking()`
+
+---
+
+## 泡泡間歇性不顯示的排查紀錄（2026-08-03，v0.3.11）
+
+症狀：多角色連續發話時，偶爾有角色的泡泡完全不出現（Log 有訊息），或出現了但內容是上一句。
+去 Log 點該則訊息（`bubble:debug-show`）也叫不出來。
+
+### 根因：顯示路徑不該信任 `isVisible()`
+
+`hideSpeechBubble()` 執行 `bw.hide()` 之後，Electron 的 `bw.isVisible()` **仍會回報 `true`**
+（主程序 log 實測：hide 後的下一次 `showSpeechBubble` 讀到 `wasVisible=true`）。
+
+而顯示路徑上兩處 `showInactive()` 都拿它當守衛：
+
+- `dispatchShow`：`if (!alreadyVisible) bw.showInactive()`
+- `revealSpeechBubble`：`if (!bw.isVisible()) bw.showInactive()`
+
+於是**被關閉過的泡泡再也沒有人叫它 show**。後續的 `setBounds` / `setOpacity(1)` / `moveTop()`
+全部作用在未顯示的視窗上（都會「成功」），而且沒有任何路徑能恢復
+→ 那個角色的泡泡從此不再出現。這解釋了「手動按 X 關掉之後，下一輪那個角色就沒泡泡」。
+
+**修法**：兩處都改為無條件 `bw.showInactive()`。對已顯示的視窗重複呼叫無副作用（不奪焦）。
+
+### 一併修掉的其他競態
+
+| 問題 | 修法 |
+|---|---|
+| 內容純推送、無拉取，推送早於 React 掛載就丟事件；保底逾時卻無條件 reveal → 掀開空白／上一句 | payload 帶 `seq`；renderer 掛好 listener 後主動 `bubble:request-latest` 拉取，套用後 `bubble:ack`；保底逾時**只在 ack 之後**才准 reveal |
+| 上一次現身的 measure 慢一拍回報，掀開新內容 | `bubble:reveal` 需帶 `seq` 且與 pending 相符 |
+| 上一句的自動消失計時器在新對白在途時燒完，`bubble:close` 把 pending 清掉 → 該則永遠不出現 | `bubble:close` 帶 `seq`，主程序若已排入更新的一次現身則忽略 |
+| `setAlwaysOnTop` 造成 DWM 位移，`moved` 誤判成使用者拖曳寫入 `bubbleUserOffset`（實測 -14,66 / -32,62），泡泡越用越歪 | `promoteForSpeaking` 期間 `suppressBubbleOffsetWrite()` |
+
+### 查過但**不是**成因的方向（不要重查）
+
+- **B1 抽 core**：`windowManager.ts` 完全沒被碰過，與本問題無關
+- **訊息產生／持久化／廣播**：對話正常寫入、LogWindow 顯示正常
+- **泡泡位置跑掉**：log 顯示每次 reveal 的 bounds 都在螢幕內、尺寸合理
+- **opacity 被壓成 0**：每次 reveal 都是 `opacity=1`
+- **renderer 沒收到內容**：renderer 端 log 確認 `applyShow` 有套用、`measure` 量到真實文字長度
+- **LRU `pruneSpeechBubbleWindows` 砍掉 renderer**：會提高重建頻率，但不是本症狀的成因
+
+排查方式：在 `showSpeechBubble` / `revealSpeechBubble` / `hideSpeechBubble` /
+`refreshBubbleUserOffsetFromWindow` 印狀態，再加一個 `bubble:diag` IPC 把 renderer 端
+（`applyShow` / `measure` / 收到 `bubble:hide`）轉發到同一個終端機對時序。
+**決定性線索是 hide 之後的 `wasVisible=true`** —— 主程序每一環都「正常」卻看不到畫面時，
+要先懷疑視窗狀態查詢本身，而不是繼續調時序。診斷 log 已於包版前移除。
