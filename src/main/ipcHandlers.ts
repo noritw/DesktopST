@@ -58,7 +58,7 @@ import {
   toggleInputWindow, toggleLogWindow, openLogWindow, openSettingsWindow,
   broadcastToAll, broadcastDesktopCharactersToCharacterWindows, getAllCharacterWindows, setCharacterWindowClickThrough,
   restoreAuxWindowsFromRememberedState, bringCharacterToFront, raiseAuxAboveCharacters, raiseAuxWindowToFront,
-  hideSpeechBubble, persistSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition, revealSpeechBubble,
+  hideSpeechBubble, persistSpeechBubble, hideAllCharacterSpeechBubbles, updateSpeechBubbleSize, syncSpeechBubblePosition, revealSpeechBubble, getPendingBubbleShowPayload, ackBubbleShow,
   showUserSpeechBubble, hideUserSpeechBubble, updateUserSpeechBubbleSize,
   reconcileSpeechBubbleAfterCharacterDrag, setCharacterHitRects, setCharacterInteractable, updateSpriteActualHeight,
   beginCharacterDrag, moveDraggedCharacter, endCharacterDrag, suppressAuxAutoHide, configureAuxWindowPersistence,
@@ -2715,13 +2715,25 @@ export function registerIpcHandlers() {
     return updateSpeechBubbleSize(characterId, size)
   })
 
-  ipcMain.handle('bubble:close', (_, characterId: string) => {
-    return hideSpeechBubble(characterId)
+  // seq＝renderer 目前顯示的那一次現身；主程序若已排入更新的一次，這個關閉請求視為過期並忽略
+  ipcMain.handle('bubble:close', (_, characterId: string, seq?: number) => {
+    return hideSpeechBubble(characterId, seq == null ? undefined : Number(seq))
+  })
+
+  // renderer 掛好 bubble:show listener 後主動拉取進行中的 payload
+  // （純推送會在 React 掛載前丟事件；拉取讓交握不依賴時序）
+  ipcMain.handle('bubble:request-latest', (_, characterId: string) => {
+    return getPendingBubbleShowPayload(characterId)
+  })
+
+  // renderer 確認已套用 payload；在此之前主程序的保底逾時不得把泡泡掀開
+  ipcMain.handle('bubble:ack', (_, characterId: string, seq: number) => {
+    return ackBubbleShow(characterId, Number(seq))
   })
 
   // renderer 畫好新對白後才真正顯示泡泡視窗（先畫好再現身，避免舊對白殘影）
-  ipcMain.handle('bubble:reveal', (_, characterId: string) => {
-    return revealSpeechBubble(characterId)
+  ipcMain.handle('bubble:reveal', (_, characterId: string, seq?: number) => {
+    return revealSpeechBubble(characterId, seq == null ? undefined : Number(seq))
   })
 
   // 後續聊天主題：釘住一則新聞，桌面浮出主題泡泡；主動發話圍繞它聊

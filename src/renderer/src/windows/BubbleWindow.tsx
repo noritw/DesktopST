@@ -62,6 +62,10 @@ export default function BubbleWindow({ characterId }: Props) {
   const pendingPinArgsRef = useRef<{ title: string; pos: { x: number; y: number }; content: string } | null>(null)
   /** 收到 bubble:show 後，等新內容量完尺寸才通知主程序顯示視窗（先畫好再現身） */
   const revealPendingRef = useRef(false)
+  /** 已套用的 bubble:show 序號；推送與主動拉取共用，用來去重與擋掉過期推送 */
+  const appliedSeqRef = useRef(0)
+  /** 待 reveal 的序號；隨 bubble:reveal 回傳給主程序，避免舊 measure 掀開新內容 */
+  const revealSeqRef = useRef(0)
 
   const outerRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -86,7 +90,9 @@ export default function BubbleWindow({ characterId }: Props) {
     clearTimer()
     setIsLatestSpeaker(false)
     setVisible(false)
-    window.api.invoke('bubble:close', characterId)
+    // 帶上目前顯示的現身序號：主程序若已排入更新的一次，這個關閉請求會被當成過期忽略，
+    // 避免上一句的自動消失計時器把還沒現身的新對白吞掉
+    window.api.invoke('bubble:close', characterId, appliedSeqRef.current)
     // demoteAfterSpeaking() 在 main process 的 hideSpeechBubble 裡處理降層
   }
 
@@ -178,9 +184,12 @@ export default function BubbleWindow({ characterId }: Props) {
   }
 
   useEffect(() => {
-    const unsubShow = window.api.on('bubble:show', (payload) => {
+    let disposed = false
+
+    const applyShow = (payload: unknown) => {
       const p = payload as {
         characterId: string
+        seq?: number
         speakerName: string
         text: string
         autoCloseMs?: number
@@ -189,8 +198,12 @@ export default function BubbleWindow({ characterId }: Props) {
         news?: BubbleNewsMeta | null
         messageId?: string
         reaction?: string | null
-      }
-      if (p.characterId !== characterId) return
+      } | null
+      if (!p || p.characterId !== characterId) return
+      // 同一次現身可能同時經由推送與主動拉取抵達，靠 seq 去重；舊的推送也不得蓋掉新內容
+      const seq = Number(p.seq ?? 0)
+      if (seq && seq <= appliedSeqRef.current) return
+      appliedSeqRef.current = seq
 
       clearTimer()
       setConfirmPin(false)
@@ -203,8 +216,11 @@ export default function BubbleWindow({ characterId }: Props) {
       setReaction(p.reaction ?? null)
       setShowReactionPicker(false)
       setIsLatestSpeaker(p.isLatestSpeaker !== false)
+      revealSeqRef.current = seq
       revealPendingRef.current = true
       setVisible(true)
+      // 告訴主程序內容已進到 renderer；主程序的保底逾時要看到這個才准 reveal
+      void window.api.invoke('bubble:ack', characterId, seq)
 
       if (!p.persistUntilClosed) {
         // 優先使用設定中的自動消失時間（ref：避免 settings 載入時重掛 listener 丟事件）
@@ -217,7 +233,19 @@ export default function BubbleWindow({ characterId }: Props) {
         }
         timerRef.current = setTimeout(closeBubble, autoCloseMs)
       }
-    })
+    }
+
+    const unsubShow = window.api.on('bubble:show', applyShow)
+
+    // listener 已掛好，主動向主程序拉一次進行中的 payload。
+    // did-finish-load 早於 React 掛載，純推送會丟事件；這條拉取讓交握不依賴時序。
+    void window.api
+      .invoke('bubble:request-latest', characterId)
+      .then((cached) => {
+        if (disposed) return
+        applyShow(cached)
+      })
+      .catch(() => {})
 
     const unsubPersist = window.api.on('bubble:persist', (payload) => {
       const p = payload as { characterId: string }
@@ -248,6 +276,7 @@ export default function BubbleWindow({ characterId }: Props) {
     })
 
     return () => {
+      disposed = true
       clearTimer()
       unsubShow()
       unsubPersist()
@@ -294,9 +323,10 @@ export default function BubbleWindow({ characterId }: Props) {
       lastSizeRef.current = { width: w, height: h }
       // 先等 set-size 完成再 reveal，避免以舊的窄 bounds 現身導致右邊被裁切
       const shouldReveal = revealPendingRef.current
+      const revealSeq = revealSeqRef.current
       if (shouldReveal) revealPendingRef.current = false
       void window.api.invoke('bubble:set-size', characterId, { width: w, height: h }).then(() => {
-        if (shouldReveal) void window.api.invoke('bubble:reveal', characterId)
+        if (shouldReveal) void window.api.invoke('bubble:reveal', characterId, revealSeq)
       })
     }
 

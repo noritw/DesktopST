@@ -1223,22 +1223,73 @@ type CachedBubbleShowPayload = {
 }
 
 const lastBubbleShowPayload = new Map<string, CachedBubbleShowPayload>()
-/** 等 renderer 畫好新對白（bubble:reveal）才顯示的泡泡；value 為保底逾時 timer，避免 renderer 沒回應時永遠不顯示 */
-const pendingBubbleReveal = new Map<string, ReturnType<typeof setTimeout>>()
+
+/** 每次 showSpeechBubble 遞增；bubble:show payload 與 bubble:reveal 都帶著它，用來辨識「哪一次現身」 */
+let bubbleShowSeqCounter = 0
+
+/**
+ * 進行中的一次泡泡現身（透明 → renderer 畫好 → reveal）。
+ *
+ * 過去這裡只存一個保底 timer，逾時就無條件 reveal。但主程序無從得知 renderer 的
+ * bubble:show listener 掛好了沒（純推送、無拉取），推送早於 React 掛載時內容根本沒進去，
+ * 逾時卻照樣把「空的／還是上一句」的泡泡掀開並把角色抬升 —— 就是回報的兩個症狀。
+ *
+ * 現在改為交握：payload 快取在這裡，renderer 掛好 listener 會主動拉（bubble:request-latest），
+ * 套用後回報 bubble:ack 標記 delivered。reveal 只發生在 delivered 之後，
+ * 且必須 seq 相符，因此結構上不可能掀開未送達或過期的內容。
+ */
+type PendingBubbleReveal = {
+  seq: number
+  timer: ReturnType<typeof setTimeout>
+  /** renderer 是否已確認收到本次 payload */
+  delivered: boolean
+  /** 完整 bubble:show payload，供 renderer 掛好 listener 後主動拉取 */
+  payload: Record<string, unknown>
+}
+const pendingBubbleReveal = new Map<string, PendingBubbleReveal>()
 
 function cancelPendingBubbleReveal(characterId: string): void {
-  const timer = pendingBubbleReveal.get(characterId)
-  if (timer) clearTimeout(timer)
+  const pending = pendingBubbleReveal.get(characterId)
+  if (pending) clearTimeout(pending.timer)
   pendingBubbleReveal.delete(characterId)
 }
 
+/**
+ * renderer 掛好 listener 後主動拉取本次 payload（IPC bubble:request-latest）。
+ * 沒有進行中的現身就回 null，避免重新掛載時把早已關掉的舊對白又叫出來。
+ */
+export function getPendingBubbleShowPayload(characterId: string): Record<string, unknown> | null {
+  const pending = pendingBubbleReveal.get(characterId)
+  return pending ? pending.payload : null
+}
+
+/**
+ * renderer 確認已套用本次 payload（IPC bubble:ack）。
+ * 在此之前保底逾時不得 reveal；標記後改用較寬鬆的保底時間等 measure 完成。
+ */
+export function ackBubbleShow(characterId: string, seq: number): boolean {
+  const pending = pendingBubbleReveal.get(characterId)
+  if (!pending || pending.seq !== seq || pending.delivered) return false
+  pending.delivered = true
+  clearTimeout(pending.timer)
+  pending.timer = setTimeout(() => revealSpeechBubble(characterId, seq), 1500)
+  return true
+}
+
 /** renderer 畫好新對白後回呼（IPC bubble:reveal），把透明現身中的泡泡調回不透明；保底逾時也走這裡 */
-export function revealSpeechBubble(characterId: string): boolean {
-  if (!pendingBubbleReveal.has(characterId)) return false
+export function revealSpeechBubble(characterId: string, seq?: number): boolean {
+  const pending = pendingBubbleReveal.get(characterId)
+  if (!pending) return false
+  // 上一次現身的 measure 慢了一拍才回報：不得拿舊 seq 把新內容提前掀開
+  if (seq != null && seq !== pending.seq) return false
   cancelPendingBubbleReveal(characterId)
   const bw = bubbleWindows.get(characterId)
   if (!bw || bw.isDestroyed()) return false
-  if (!bw.isVisible()) bw.showInactive()
+  // 一律 showInactive()，不以 isVisible() 當前置條件：實測 hide() 之後 isVisible() 仍會回報 true
+  // （見 dispatchShow 註解），一旦拿它當守衛，被關過的泡泡就再也不會被 show，
+  // 之後的 setBounds／setOpacity／moveTop 全部作用在沒顯示的視窗上＝永遠看不到。
+  // 對已顯示的視窗重複呼叫 showInactive() 無副作用（不奪焦）。
+  bw.showInactive()
   bw.setOpacity(1)
   raiseBubbleAndCharacterForShow(characterId, bw)
   return true
@@ -1309,6 +1360,10 @@ function pruneSpeechBubbleWindows(activeCharacterId: string): void {
  * 只在泡泡從 hidden 首次出現時呼叫。
  */
 function promoteForSpeaking(characterId: string, bw: BrowserWindow): void {
+  // setAlwaysOnTop 在 Windows 上會讓透明視窗被 DWM 位移一次並觸發 moved。
+  // 實測寫出 -14,66 / -32,62 這類偏移，被誤判成使用者拖曳存進 bubbleUserOffset，
+  // 之後每一輪泡泡都跟著歪掉。抬層期間一律不接受偏移寫入。
+  suppressBubbleOffsetWrite(characterId, 400)
   const cw = characterWindows.get(characterId)
   if (cw && !cw.isDestroyed()) {
     cw.setAlwaysOnTop(true, BUBBLE_ALWAYS_ON_TOP_LEVEL)
@@ -1386,6 +1441,8 @@ export function showSpeechBubble(
   if (bw.isDestroyed()) return
   bubbleLastActiveAt.set(characterId, Date.now())
   pruneSpeechBubbleWindows(characterId)
+  // prune 可能連同剛取得的視窗一起處理掉，之後的操作都會失效，這裡再確認一次
+  if (bw.isDestroyed()) return
 
   const anchor = resolveBubbleAnchorBounds(characterId, anchorFallback)
   // 先撐到量測地板寬度（opacity 0 時使用者看不見），避免沿用上一句的窄 bounds
@@ -1401,8 +1458,11 @@ export function showSpeechBubble(
     characterId
   )
 
+  bubbleShowSeqCounter += 1
+  const seq = bubbleShowSeqCounter
   const payload = {
     characterId,
+    seq,
     speakerName,
     text,
     emotion: emotion ?? 'neutral',
@@ -1432,16 +1492,35 @@ export function showSpeechBubble(
     // - 已顯示：狀態機 SPEAKING→SPEAKING 只 moveTop、不碰 setAlwaysOnTop；
     //   Windows 透明視窗常因此不重繪內容，變成「角色跳上層了、文字還是上一句」
     const alreadyVisible = bw.isVisible()
-    pendingBubbleReveal.set(characterId, setTimeout(() => revealSpeechBubble(characterId), 500))
+    pendingBubbleReveal.set(characterId, {
+      seq,
+      delivered: false,
+      payload,
+      // 保底逾時：只有在 renderer 已確認收到內容（ack）卻遲遲沒量完尺寸時才 reveal。
+      // 內容從未送達就什麼都不做，改由 renderer 掛好 listener 後主動拉取來收尾。
+      timer: setTimeout(() => {
+        const pending = pendingBubbleReveal.get(characterId)
+        if (!pending || pending.seq !== seq) return
+        if (!pending.delivered) {
+          // 內容還沒進到 renderer。此時掀開只會顯示空白或上一句，所以繼續等
+          // （renderer 掛好會主動拉取）。留紀錄以便判斷是否卡在這裡。
+          console.warn(`[bubble] show #${seq} for ${characterId} not delivered after 500ms; waiting for renderer pull`)
+          return
+        }
+        revealSpeechBubble(characterId, seq)
+      }, 500)
+    })
     bw.setOpacity(0)
-    if (!alreadyVisible) bw.showInactive()
+    // 一律 show：hideSpeechBubble 之後 isVisible() 會錯報 true（實測 wasVisible=true），
+    // 用它當守衛會讓被關過的泡泡永遠不再顯示。alreadyVisible 只拿來決定要不要提早抬層。
+    bw.showInactive()
     // 已可見時立刻 raise，讓角色跳上層的回饋不需等 measure；首次現身等 reveal 再 raise
     if (alreadyVisible) raiseBubbleAndCharacterForShow(characterId, bw)
     bw.webContents.send('bubble:show', payload)
   }
-  // did-finish-load 早於 React useEffect 掛上 bubble:show listener。
-  // 只送一次會丟事件 → 保底 reveal 把空窗調成不透明並 raise 角色，看起來像「人跳上層、對白沒出來」。
-  // 提醒常在閒置後新建泡泡，特別容易踩到；比照 user-bubble 重送內容（不重跑透明流程）。
+  // did-finish-load 早於 React useEffect 掛上 bubble:show listener，只送一次會丟事件。
+  // 正確性已由「renderer 掛好後主動拉取（bubble:request-latest）」保證，這裡的重送純粹是快路徑：
+  // 掛載恰好落在 80/260ms 之間時可以少等一趟 IPC 往返。renderer 以 seq 去重，重複收到無副作用。
   const resendContent = () => {
     if (bw.isDestroyed()) return
     bw.webContents.send('bubble:show', payload)
@@ -1477,10 +1556,24 @@ export function persistSpeechBubble(characterId: string): void {
   bw.webContents.send('bubble:persist', { characterId })
 }
 
-export function hideSpeechBubble(characterId: string): boolean {
+/**
+ * 隱藏泡泡。`fromSeq` 是 renderer 發起關閉時所屬的那一次現身序號（自動消失／關閉鍵）。
+ *
+ * renderer 的自動關閉計時器屬於「上一次現身」。若計時器剛好在主程序已排入新的一次現身、
+ * 而 renderer 還沒套用新 payload 的空檔燒完，照舊執行關閉就會把還沒現身的新對白整個吞掉
+ * ——桌面沒泡泡、Log 有訊息，且因為 pending 被清掉，之後的 ack／reveal 全部落空，
+ * 那一則就永遠不會出現。用序號擋掉這種過期的關閉請求。
+ */
+export function hideSpeechBubble(characterId: string, fromSeq?: number): boolean {
   const bw = bubbleWindows.get(characterId)
   if (!bw || bw.isDestroyed()) return false
+  const pending = pendingBubbleReveal.get(characterId)
+  if (fromSeq != null && pending && pending.seq !== fromSeq) return false
   cancelPendingBubbleReveal(characterId)
+  // 隱藏會改 always-on-top band，Windows 上常伴隨一次 DWM 位移並觸發 moved。
+  // 那不是使用者拖曳，不可寫進 bubbleUserOffset（實測會寫出 -20,54 這種偏移，
+  // 讓下一輪泡泡整個位移）。比照拖曳結束的作法先壓制偏移寫入。
+  suppressBubbleOffsetWrite(characterId, 400)
   bubbleLastActiveAt.set(characterId, Date.now())
   bw.webContents.send('bubble:latest-speaker', { characterId, isLatest: false })
   bw.webContents.send('bubble:hide', { characterId })
