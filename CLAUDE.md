@@ -392,7 +392,14 @@ npm run typecheck # 型別檢查
   - **刻意沒做**：`npx cap add android`（還沒有 `webDir`，生成的原生樹會過時，
     等 B3 能 build 出 `out/mobile` 再說）、簽章 keystore（owner 未決定，
     **不要自行產一把**）、預裝 Filesystem／LocalNotifications 等外掛（用到再裝）
-- [ ] **手機獨立版與平台擴充（B3 起待開工）** → `docs/multi-device-platform-roadmap.md`
+- [ ] **手機獨立版與平台擴充** → `docs/multi-device-platform-roadmap.md`
+  - ⚠️ **下一步不是 B3。** 2026-08-03 盤點發現規劃缺一塊、且 B1／B2 尚未實機驗證
+    → **先讀 `docs/pre-b3-work-assessment.md`**（含測試策略：哪些能自動測、
+    哪些只能 owner 手動測）。順序：驗證合併 → APK 試打 → **B2.7 `fileStore` 抽 core**
+    → B2.5 Lorebook core → B3
+  - **B2.7 是新增項目**：`fileStore` 989 行、128 處 `fs`，內含設定遷移等真邏輯；
+    五個 adapter 目前只有 HTTP 有呼叫端，**儲存／金鑰／排程／通知零呼叫端**。
+    不抽的話 B3 會在手機端重寫一份 → 最核心資料的 drift
   - **定位修正**：DeST 從「桌寵程式」擴張為「AI 角色聊天平台，有桌寵版與手機版」。
     目標客群的路徑（卿卿我我 → SillyTavern → DeST）起點在手機，一般使用者不見得有電腦
     → **手機獨立版是主線，不是進階選項**
