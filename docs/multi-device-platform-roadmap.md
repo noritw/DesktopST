@@ -439,6 +439,37 @@ src/main/adapters/     桌面實作（包裝既有能力，沒有重寫任何邏
 檔案讀寫留在呼叫端比塞進 core 更乾淨。`llm/` 那幾塊搬的時候照同一個形狀走：
 core 收「已經讀好的資料」，不要讓 core 去讀檔。
 
+#### B1 收尾（2026-08-03，同分支）
+
+介面定完後把剩下四塊搬完，`core/` 至此收乾淨：
+
+| 進 core | 內容 | 改動 |
+|---|---|---|
+| `core/llm/{index,openai,claude,gemini}.ts` | 主流程 ＋ 四家 provider | 加 `deps` 參數、SDK 注入 fetch、圖片本機路徑移出、錯誤代碼化。**其餘逐字沿用**（已逐檔 diff 核對） |
+| `core/llm/summarizer.ts` | 記憶摘要 | 只多一個 `deps`（diff 三行） |
+| `core/news/trigger.ts` | 新聞發話的**全部措辭** | prompt 字串逐字相同；`markNewsSeen` 改純函式（不存檔） |
+| `core/reminder/nextFire.ts` | 下次觸發時刻計算 | 從 `reminderScheduler` 抽出，可注入 `now` |
+
+`src/main/llm/index.ts` 從 368 行縮成 68 行的外殼。**所有呼叫端一行未改。**
+
+**兩個搬移中才發現的問題**（紙上設計不會發現的那種）：
+
+1. **`HttpAdapter.fetch` 原本收窄成 `(input: string, ...)`，是錯的。**
+   SDK 內部會傳 `Request` 物件進來，收窄就不能指派給 SDK 的 `fetch` 選項，
+   等於這個介面失去存在意義。已改為 `typeof globalThis.fetch`，實作端負責正規化。
+2. **`@google/generative-ai` v0.21 沒有 fetch 選項**，直接呼叫全域 `fetch`。
+   Gemini 在手機端得靠 **Capacitor 的全域 fetch patch** 繞過 CORS，不是靠注入。
+   簽名仍收 `deps` 以維持四家一致。已記在 `core/llm/deps.ts` 與 `src/mobile/README.md`。
+
+**圖片：`fs` 怎麼離開 `llm/`。** provider 原本各自 `fs.readFileSync` 把本機圖檔轉 base64。
+改成**平台層在呼叫前先轉成 data URI**（`main/llm/imageResolver.ts`），
+core 只認得 `data:` 與 `http(s):`。實務上使用者的圖一律已是 data URI
+（輸入視窗走 `FileReader.readAsDataURL`、截圖走 `dataUrl`、手機端亦然），
+所以那支通常一個檔案都不會讀。手機端 Filesystem 是非同步的，也只有先轉才可行。
+
+> ⚠️ `resolveLocalImages` 必須**複製**而非就地修改：`params.messages` 是記憶體裡的
+> 對話物件，就地改會把整段 base64 寫進對話記錄。
+
 #### 中文文案的處理方式（新增的落地慣例）
 
 `extractCharaJson` 原本會拋中文訊息給 UI 顯示。搬進 core 後改成
@@ -883,7 +914,7 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 
 | # | 項目 | 估時 |
 |---|---|---|
-| B1 | **抽出 `core/`**（純 TS，adapter 介面）— 第一刀／第二刀／`pngUtils` ✅ 完成；**剩 `llm/`、`summarizer`、`news/trigger`、`reminderScheduler` ← 下一個**（介面已就緒，見 §10.5 的表） | 3–5 週 |
+| B1 | **抽出 `core/`**（純 TS，adapter 介面）— ✅ **完成（2026-08-03）**，四刀全數搬完，見 §4.4b。刻意留在 `main/` 的清單見 §10.5 | 3–5 週 |
 | B2 | Capacitor 專案骨架 ＋ 五個 adapter 介面與桌面實作 — ✅ **完成（2026-08-03，見 §4.4b）** | 1 週 |
 | B3 | 手機 UI（含 §3.0 全部功能 ＋ §4.8 設定 UI，資料來源可抽換見 §4.5） | 4–8 週 |
 | B3.5 | S1 掃 QR 一鍵初始化匯入（見 §4.7） | 3–5 天 |
@@ -916,28 +947,29 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 
 **開工前必讀**：本文件 §2（四大目標）、§4.4（抽 core 切法）、§8（已否決清單）、§11（提醒）。
 
-> ## 👉 現在的下一步是 **B1 收尾（把 `llm/` 與 `news/trigger` 搬進 core）**
+> ## 👉 現在的下一步是 **B3（手機 UI）**
 >
-> A1 完成、**B1 第一刀與第二刀完成、B2 完成**。
-> 工作分支已是 **`feat/mobile-standalone`**（依 §11.1，B2 起不在 `main` 上做）。
+> A1 完成、**B1 完成、B2 完成**。
+> 工作分支是 **`feat/mobile-standalone`**（依 §11.1）。
 >
-> **不要重做已完成的部分**：`stCardMapper`、新聞 `filter`／`types`／helper、
-> `topicState`、`pngUtils` 都已經在 `core/` 裡；五個 adapter 介面與桌面實作
-> 也都寫好了（`src/core/adapters/`、`src/main/adapters/`）；
-> renderer 重複那份 news types 已改成轉出檔。
+> **不要重做已完成的部分**——`core/` 目前已含：
+> `types`、prompt 組裝、群組接龍、`stCardMapper`、`pngCard`、base64、
+> 新聞 `types`／`keywordGroups`／`filter`／`topicState`／`trigger`（指令組裝）、
+> **`llm/` 全部（主流程 ＋ 四家 provider ＋ 記憶摘要）**、
+> `reminder/nextFire`（下次觸發計算）、五個 adapter 介面。
+> 桌面實作在 `src/main/adapters/`；renderer 已直接吃 core（`@core/*` alias）。
 >
-> **剩下四塊**，介面已就緒、可以直接動工：
+> **開工前先讀 §4.4b**——六個已定案的設計決定與三個落地慣例。照著走，不要重新發明。
 >
-> | 目標 | 需要的 adapter | 注意 |
-> |---|---|---|
-> | `llm/index.ts` ＋ 四家 provider | `HttpAdapter` | 走的是**官方 SDK 不是裸 HTTP**，把 adapter 的 fetch 注入 SDK 即可，別重寫請求對映 |
-> | `llm/summarizer.ts` | 隨 `chatWithLLM` 走 | 92 行，`index.ts` 搬完就順手 |
-> | `modules/news/trigger.ts` ＋ `sources.ts` | `HttpAdapter` | `sources.ts` 另外用了 `crypto.createHash` 與 `rss-parser`，要先確認手機端替代方案 |
-> | `reminderScheduler.ts` | `SchedulerAdapter` ＋ `NotifierAdapter` | 排程換算邏輯進 core，`setTimeout` 留平台層 |
+> ### B1 蓄意留在 `main/` 的東西（**不是漏做**）
 >
-> **開工前先讀 §4.4b**——那裡有六個已定案的設計決定與兩個落地慣例
-> （core 拋錯誤代碼、平台層翻文案；core 收「已讀好的資料」不自己讀檔）。
-> 照著走，不要重新發明。
+> | 留下的 | 為什麼 |
+> |---|---|
+> | `modules/news/sources.ts` | 用了 `crypto.createHash` 與 `rss-parser`。手機端要純 JS hash、且要確認 `rss-parser` 能否在 WebView 跑，或改走 §3.3 的 news provider 介面。**這是 B4 的決定，不該在純重構階段順手決定** |
+> | `modules/news/settings.ts` 的 load/save/normalize | 走檔案存取 |
+> | `reminderScheduler` 的 `setTimeout`／存檔／`powerMonitor` | 平台生命週期 |
+> | `llm/imageResolver.ts` | 用 `fs` 把本機圖片路徑先讀成 data URI（見 §4.4b） |
+> | `fileStore`、`windowManager`、`ipcHandlers` 的視窗定位、遙控模組、`cloudflaredManager`、`mobileServer`、`dstPack` | 原本就規劃留在 `main/` |
 >
 > **A1 留下的可複用範例**：`src/main/calendar/` 是目前唯一「已經照 provider 介面切乾淨」的模組
 > —— 純邏輯（格式化、注入判斷）在 `index.ts`，平台/服務商細節在 `googleProvider.ts`。

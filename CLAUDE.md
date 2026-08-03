@@ -337,9 +337,29 @@ npm run typecheck # 型別檢查
   - ~~⚠️ 已知重複實作~~ ✅ **已解**（B2）：`src/renderer/src/modules/news/types.ts`
     改為薄轉出檔指向 `@core/news/`，既有 import 路徑一行未改；前端專屬的
     `NewsPreviewItem` / `NewsPreviewResult` 與 UI 文案 `WEIGHT_LABELS` 等留在原檔
-  - **剩下四塊待搬**（B2 已定介面，可直接動工）：`llm/index.ts` 與四家 provider、
-    `llm/summarizer.ts`、`modules/news/trigger.ts`（＋`sources.ts`）、
-    `reminderScheduler.ts`。`pngUtils.ts` 已於 B2 搬完
+  - ✅ **B1 收尾完成（2026-08-03）**，四塊全數搬完，所有呼叫端一行未改：
+    - `core/llm/{index,openai,claude,gemini}.ts`：主流程 ＋ 四家 provider。
+      改動只有加 `deps` 參數、SDK 注入 fetch、圖片本機路徑移出、錯誤代碼化，
+      其餘逐字沿用（已逐檔 diff 核對）。`main/llm/index.ts` 從 368 行縮成 68 行外殼
+    - `core/llm/summarizer.ts`：只多一個 `deps`（diff 三行）
+    - `core/news/trigger.ts`：新聞發話的**全部措辭**，prompt 字串逐字相同；
+      `markNewsSeen` 改純函式（算出新設定不存檔，存檔留 main）
+    - `core/reminder/nextFire.ts`：下次觸發時刻計算（daily／weekly／interval），
+      可注入 `now`。與搬移前在 20000 個隨機時刻上逐一比對，結果完全相同
+  - **圖片：`fs` 怎麼離開 `llm/`** —— provider 原本各自 `fs.readFileSync`。
+    改成平台層呼叫前先轉 data URI（`main/llm/imageResolver.ts`），
+    core 只認得 `data:` 與 `http(s):`。實務上使用者的圖一律已是 data URI，
+    那支通常一個檔案都不會讀。⚠️ 它必須**複製**而非就地修改 params，
+    否則會把 base64 寫進記憶體裡的對話物件
+  - **兩個搬移中才發現的問題**（紙上設計不會發現）：
+    - `HttpAdapter.fetch` 原本收窄成 `(input: string, ...)` 是錯的，
+      SDK 內部會傳 `Request` 進來 → 已改 `typeof globalThis.fetch`
+    - `@google/generative-ai` v0.21 **沒有 fetch 選項**，直接用全域 `fetch`。
+      Gemini 手機端要靠 Capacitor 全域 fetch patch 繞 CORS，不是靠注入
+  - **蓄意留在 `main/`（不是漏做）**：`modules/news/sources.ts`
+    （用了 `crypto.createHash` ＋ `rss-parser`，手機端替代方案是 **B4** 的決定）、
+    `news/settings.ts` 的 load/save、`reminderScheduler` 的 setTimeout／存檔／
+    `powerMonitor`、`llm/imageResolver.ts`
 
 - [x] **B2 Capacitor 骨架 ＋ 五個 adapter 介面（分支 `feat/mobile-standalone`）**
   - **產出是介面，不是跑起來的手機 app**。`src/core/adapters/`（純型別）＋
@@ -372,7 +392,7 @@ npm run typecheck # 型別檢查
   - **刻意沒做**：`npx cap add android`（還沒有 `webDir`，生成的原生樹會過時，
     等 B3 能 build 出 `out/mobile` 再說）、簽章 keystore（owner 未決定，
     **不要自行產一把**）、預裝 Filesystem／LocalNotifications 等外掛（用到再裝）
-- [ ] **手機獨立版與平台擴充（B1 收尾 → B3 起待開工）** → `docs/multi-device-platform-roadmap.md`
+- [ ] **手機獨立版與平台擴充（B3 起待開工）** → `docs/multi-device-platform-roadmap.md`
   - **定位修正**：DeST 從「桌寵程式」擴張為「AI 角色聊天平台，有桌寵版與手機版」。
     目標客群的路徑（卿卿我我 → SillyTavern → DeST）起點在手機，一般使用者不見得有電腦
     → **手機獨立版是主線，不是進階選項**
