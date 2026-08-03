@@ -300,7 +300,7 @@ npm run typecheck # 型別檢查
   - 相關檔案：`src/main/calendar/{types,googleProvider,index}.ts`、
     `src/renderer/src/windows/CalendarSettingsWindow.tsx`
 
-- [x] **B1 抽出 `src/core/`（第一刀完成）**
+- [x] **B1 抽出 `src/core/`（第一刀 ＋ 第二刀完成，其餘卡在 B2 的 adapter 介面）**
   - 純 TypeScript 層，**不得 import `electron` / `fs` / `path`，也不得反向 import `src/main/`**；
     儲存與網路一律走注入的 adapter。目的是防止桌面版與手機版邏輯 drift（roadmap §4.1）
   - 已搬：`types.ts`、`llm/promptUtils.ts`（皆逐字相同的檔案位移）＋
@@ -316,12 +316,18 @@ npm run typecheck # 型別檢查
   - 中文字串規則：**送進 LLM prompt 的中文可留在 `core/prompt/`（檔頭有註明），
     UI 文案一律不得進 core**（roadmap §3.3 例外條款，owner 2026-08-02 拍板）
   - `tsconfig.node.json` 的 `include` 已加 `src/core`
-  - **下一步（B1 續刀，三塊都不需要 adapter，已實地盤點）**：
-    ① `stCardMapper.ts`(189，只 import 型別，純位移)
-    ② `modules/news/types.ts` ＋ `settings.ts` 的 4 個純 helper
-    （`effectiveGroupId` / `keywordSourceInGroup` / `keywordSourceInReaderGroups` /
-    `weightToValue`）＋ `filter.ts`(435)——要拆檔，`settings.ts` 的 load/save 留 `main/`
-    ③ `modules/news/topicState.ts`(27，零 import，但是可變單例，別順手改設計)
+  - **第二刀已完成（2026-08-03，`4781e6f`..`641932f`，五個小 commit）**，
+    原列的三塊已全數進 core，**全部逐字相同、零簽名變更**：
+    `core/card/stCardMapper.ts`、`core/news/types.ts`、`core/news/keywordGroups.ts`
+    （`DEFAULT_KEYWORD_GROUP_ID` / `effectiveGroupId` / `keywordSourceInGroup` /
+    `keywordSourceInReaderGroups` / `weightToValue`）、`core/news/filter.ts`、
+    `core/news/topicState.ts`。五個原路徑一律 re-export 轉出檔，既有 import 一行未改
+  - `modules/news/settings.ts` 的 **load/save/normalize 留在 `main/`**（走檔案存取），
+    只搬走上述 5 個純項目；`topicState` **設計零改動**（process 級單例，
+    前提是同一 process 內不會有多個 DeST 實例，owner 2026-08-03 確認）
+  - ⚠️ **已知重複實作，尚未處理**：`src/renderer/src/modules/news/types.ts`
+    是手動同步的第二份，還自帶一份 `DEFAULT_KEYWORD_GROUP_ID` / `effectiveGroupId`。
+    這是 drift 來源，**B3（手機 UI）開工前必解**，解法選項見 roadmap §4.4 末段
   - **確定卡住、要等 B2 定 adapter 介面**：`llm/index.ts` 與四家 provider adapter、
     `llm/summarizer.ts`（依賴 `chatWithLLM`）、`modules/news/trigger.ts`（網路＋檔案）、
     `pngUtils.ts`（`fs` ＋ `Buffer`）

@@ -7,9 +7,11 @@
 > **進度一覽**
 > - ✅ **A1 Google Calendar 模組** —— 已完成並實機驗證（見 §6.1、`CLAUDE.md`）
 > - ✅ **B1 抽出 `core/` 第一刀** —— 已完成（2026-08-02，見 §4.4）
-> - ⬜ **B1 續刀** —— **下一個要做的**：`stCardMapper.ts`、新聞 `filter.ts`、
->   `topicState.ts`（三塊都不需要 adapter，見 §4.4「下一刀怎麼切」、§10.5）
-> - ⬜ B2 之後（Capacitor、手機 UI）尚未開始
+> - ✅ **B1 續刀（第二刀）** —— 已完成（2026-08-03）：`stCardMapper.ts`、
+>   新聞 `types.ts` / 4 個純 helper / `filter.ts`、`topicState.ts` 全數進 core（見 §4.4）
+> - ⬜ **B2 ← 下一個要做的**：Capacitor 骨架 ＋ **定義 adapter 介面**
+>   （儲存／金鑰／HTTP／排程／通知）。B1 剩下的都卡在這裡，介面定完再回頭收尾
+> - ⚠️ 已知未處理：renderer 端重複了一份 news types 與兩個 helper（見 §4.4 末段）
 > 相關：`docs/module-system-roadmap.md`、`docs/news-reader-mobile-plan.md`、`docs/remote-control-plan.md`
 
 本文件記錄「手機獨立版 / 跨平台 / 多電腦 / 開源散布」的完整評估結論。
@@ -289,7 +291,61 @@ stripOtherCharacterSpeakerLines(text, selfCharId, characters)  // 第三參數�
 **驗收結果**：`npm run typecheck` ＋ `electron-vite build` 通過；
 owner 實機驗過聊天 / 群聊 / 新聞 / 抽籤 / 骰子，行為無異常。
 
-#### 下一刀怎麼切（**已實地盤點，直接照這份走**）
+#### 第二刀 —— ✅ **已完成（2026-08-03）**
+
+原「下一刀怎麼切」列的三塊已全數搬完，五個小 commit（`4781e6f`..`641932f`，
+直接在 `main` 上，依 §11.1）：
+
+```
+src/core/
+  card/stCardMapper.ts    ← 原 src/main/stCardMapper.ts（逐字相同）
+  news/types.ts           ← 原 modules/news/types.ts（逐字相同，全為型別）
+  news/keywordGroups.ts   ← settings.ts 的 5 個純項目（逐字相同）
+  news/filter.ts          ← 原 modules/news/filter.ts（逐字相同）
+  news/topicState.ts      ← 原 modules/news/topicState.ts（僅加註解）
+```
+
+**全部逐字相同，一個函式簽名都沒改**（與第一刀不同，這批本來就沒有偷讀模組層變數）。
+五個原路徑一律改為 re-export 轉出檔，**既有 import 一行未改**。
+
+幾個實作決定：
+
+- `stCardMapper` 放 `core/card/` 而非 `core/character/` —— `core/character.ts`
+  第一刀已定案，改成資料夾會動到既有路徑；且卡片格式對映與角色語意是兩件事
+- `settings.ts` 只搬走 5 個純項目（`DEFAULT_KEYWORD_GROUP_ID` / `effectiveGroupId` /
+  `keywordSourceInGroup` / `keywordSourceInReaderGroups` / `weightToValue`）。
+  **load/save/normalize 走 `moduleSettings` 檔案存取，留在 `main/`**；
+  `VALID_WEIGHTS` 等常數只服務 normalize，一併留下（那 5 個純項目沒用到它們）
+- `topicState.ts` **設計零改動**，仍是 process 級可變單例。
+  Owner 2026-08-03 確認前提成立：**同一 process 內不應有多個 DeST 實例共存**。
+  檔頭已註明此前提與日後若不成立時的方向。轉出檔不會產生第二份狀態
+  （所有 import 最終解析到同一個 core 模組）
+
+**驗收結果**：每刀各跑一次 `npm run typecheck` ＋ `electron-vite build`，全數通過；
+`src/core/` 經 grep 確認無 `electron` / `fs` / `path` / `node:` / 反向 import `main/`。
+
+#### ⚠️ 已知的重複實作，尚未處理（留給之後）
+
+`src/renderer/src/modules/news/types.ts` 檔頭自己寫著
+「與 `src/main/modules/news/types.ts` 對應（**兩邊手動同步**）」，
+而且它**另外複製了一份 `DEFAULT_KEYWORD_GROUP_ID` 與 `effectiveGroupId`**
+（被 `components/newsReader/groupNewsItems.ts` 使用）。
+
+**這正是 §4.1 要防的 drift**，而且已經是「同一段邏輯寫兩次」的實例。
+本次沒動它，因為讓 renderer 直接吃 `core/` 牽涉 `tsconfig.web` 的 `include`
+與 Vite 的路徑解析，超出「純位移」範圍，混進來會讓 diff 不再只是「刪掉本體」。
+
+**可能的解法（擇一，未定案）**：
+
+1. **讓 renderer 直接 import `core/`** —— 最乾淨，一份邏輯。
+   需確認 `core/` 完全不含 Node 依賴（目前成立）並設好 web 端的 include／alias
+2. renderer 那份改為薄轉出檔，指向 `core/news/`（同 1，只是保留現有路徑）
+3. 維持兩份但加自動檢查（不建議：治標，且違反「同樣的程式碼不要寫兩次」）
+
+傾向 1 或 2。**建議在 B3（手機 UI）開工前處理**——手機 UI 是 React，
+屆時一定要解決「renderer 端怎麼吃 core」這件事，兩者是同一個問題。
+
+#### 原「下一刀怎麼切」盤點（保留供對照，內容已全數完成）
 
 > ⚠️ **本節曾一度寫成「剩下的都卡在 adapter，先去做 B2」，那個判斷是錯的。**
 > 實際逐檔查過 import 之後，**還有三塊完全不需要任何 adapter**。先把它們搬完再進 B2。
@@ -786,23 +842,20 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 
 **開工前必讀**：本文件 §2（四大目標）、§4.4（抽 core 切法）、§8（已否決清單）、§11（提醒）。
 
-> ## 👉 現在的下一步是 **B1 續刀（還有三塊可以搬，不需要 adapter）**
+> ## 👉 現在的下一步是 **B2（Capacitor 骨架 ＋ 定義 adapter 介面）**
 >
-> A1 已完成、**B1 的第一刀已完成**（見 §4.4）。**不要再從 A1 或 B1 第一刀找事做**。
+> A1 完成、**B1 的第一刀與第二刀都已完成**（見 §4.4）。
+> **不要再從 A1 或 B1 已完成的部分找事做**，那三塊（`stCardMapper`、
+> 新聞 `filter`／`types`／helper、`topicState`）已經全部在 `core/` 裡了。
 >
-> **接著搬這三塊，照順序、每塊一個 commit**（依據見 §4.4「下一刀怎麼切」）：
+> B1 剩下的（`llm/index.ts`、四家 provider、`summarizer.ts`、`trigger.ts`、
+> `pngUtils.ts`）確實都卡在 **adapter 介面（儲存／金鑰／HTTP／排程／通知）
+> 一個都還沒定義**，而那正是 B2 的主要內容 → **B2 定完介面，再回頭把 core 收尾**。
 >
-> 1. `stCardMapper.ts`(189) —— 純位移，最安全
-> 2. `modules/news/` 的 `types.ts` ＋ `settings.ts` 的 4 個純 helper ＋ `filter.ts`(435)
->    —— 本次最大收益，要拆檔，`settings.ts` 的 load/save 留在 `main/`
-> 3. `modules/news/topicState.ts`(27) —— 純位移，注意它是可變單例
+> 另有一件可以隨時插隊、且 B3 前一定要解的：
+> **renderer 端重複了一份 news types 與兩個 helper**（見 §4.4 末段的解法選項）。
 >
-> **三塊搬完之後才進 B2。** 屆時剩下的（`llm/index.ts`、四家 provider、
-> `summarizer.ts`、`trigger.ts`、`pngUtils.ts`）確實都卡在
-> **adapter 介面（儲存／金鑰／HTTP／排程／通知）一個都還沒定義**，
-> 而那正是 B2 的主要內容 → B2 定完介面，再回頭把 core 收尾。
->
-> 依 §11.1，純重構的部分繼續**在 `main` 上分批小 commit**；
+> 依 §11.1，純重構的部分若還有，繼續**在 `main` 上分批小 commit**；
 > B2 開始（Capacitor 專案、手機 UI）才進 `feat/mobile-standalone`。
 >
 > **A1 留下的可複用範例**：`src/main/calendar/` 是目前唯一「已經照 provider 介面切乾淨」的模組
