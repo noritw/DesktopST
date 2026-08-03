@@ -19,6 +19,7 @@ export const CONVERSATIONS_DIR = 'conversations'
 export const PERSONAS_DIR = 'personas'
 export const WORLDS_DIR = 'worlds'
 export const SCENES_DIR = 'scenes'
+export const LOREBOOKS_DIR = 'lorebooks'
 
 /** 啟動時需要先確保存在的目錄（相對 key，不含資料根目錄本身）。 */
 export const DATA_SUBDIRS = [
@@ -27,13 +28,15 @@ export const DATA_SUBDIRS = [
   CONVERSATIONS_DIR,
   PERSONAS_DIR,
   WORLDS_DIR,
-  SCENES_DIR
+  SCENES_DIR,
+  LOREBOOKS_DIR
 ] as const
 
 export const personaKey = (id: string): string => `${PERSONAS_DIR}/${id}.json`
 export const worldKey = (id: string): string => `${WORLDS_DIR}/${id}.json`
 export const sceneKey = (id: string): string => `${SCENES_DIR}/${id}.json`
 export const conversationKey = (id: string): string => `${CONVERSATIONS_DIR}/${id}.json`
+export const lorebookKey = (id: string): string => `${LOREBOOKS_DIR}/${id}.json`
 
 /** 角色是一個資料夾（卡片 ＋ 圖片），卡片本體固定叫 card.json。 */
 export const characterDirKey = (id: string): string => `${CHARACTERS_DIR}/${id}`

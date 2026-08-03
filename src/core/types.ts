@@ -15,6 +15,8 @@ export interface Character {
   /** 角色自帶新聞興趣關鍵字（疊加在當前興趣池上，普通權重）。純字串、不帶權重。 */
   newsKeywords?: string[]
   lorebook?: null
+  /** 角色卡掛的用語解說 id（疊加，注入時排在世界觀之前）。見 docs/future-lorebook.md §4.2 */
+  lorebookIds?: string[]
   lastDesktopSize?: number
   lastDesktopFlipped?: boolean
   lastDesktopPosition?: { x: number; y: number }
@@ -155,6 +157,8 @@ export interface WorldPreset {
   name: string
   worldSetting: string
   interactionExample: string
+  /** 世界觀掛的用語解說 id（疊加）。見 docs/future-lorebook.md §4.2 */
+  lorebookIds?: string[]
   builtIn?: boolean
   createdAt: number
   updatedAt: number
@@ -174,6 +178,11 @@ export interface ScenePreset {
   logWindowBounds?: WindowBoundsState
   /** 綁定的新聞關鍵字組 id；未綁（undefined）= 用預設組（取代式切換興趣池） */
   newsKeywordGroupId?: string
+  /**
+   * 綁定的用語解說；未綁（undefined）＝用角色卡＋世界觀的疊加結果，
+   * 有值＝**取代式**切換（空陣列＝這個情境一本都不用）。見 docs/future-lorebook.md §6.4
+   */
+  lorebookIds?: string[]
   /** 各模組在此情境的開關覆蓋：'on' 強制開、'off' 強制關、無 key＝跟隨全域設定 */
   moduleOverrides?: Record<string, 'on' | 'off'>
   createdAt: number
