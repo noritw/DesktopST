@@ -395,11 +395,37 @@ npm run typecheck # 型別檢查
   - **刻意沒做**：`npx cap add android`（還沒有 `webDir`，生成的原生樹會過時，
     等 B3 能 build 出 `out/mobile` 再說）、簽章 keystore（owner 未決定，
     **不要自行產一把**）、預裝 Filesystem／LocalNotifications 等外掛（用到再裝）
+- [x] **B2.7 `fileStore` 邏輯抽 core（2026-08-03）**
+  - **形狀：core 完全不碰 I/O**（owner 拍板的選項 C）。`core/store/` 只做「資料進、資料出」，
+    檔案由平台層讀好後傳進來、該回寫什麼由回傳值告知。
+    **同步／非同步的難題因此直接消失** —— 純函式沒有同步非同步之分，
+    桌面照舊同步、手機照舊非同步，兩邊呼叫同一份核心邏輯。
+    `SyncStorageAdapter` 維持原用途，不必為了跨平台把桌面存檔鏈改成非同步
+  - 進 core：`store/normalize.ts`（模型 id 改名對照、`isPinnedNote`）、
+    `store/prune.ts`（debug prompt 剪枝）、`store/migrate.ts`（舊 `persona`／`worldSetting`
+    欄位遷移，**改成純函式：回傳待建 preset、不再自己存檔**）、
+    `store/settings.ts`（`hydrateSettings` ＋ `toPersistedSettings`：`DEFAULT_SETTINGS`
+    深層合併、金鑰加解密編排、`needsResave` 判定）、`store/keys.ts`（檔案佈局的單一真相）
+  - `fileStore.ts` 989 → 777 行；**所有對外簽名一行未改**，`ipcHandlers.ts` 那 144 處零改動
+  - **兩個為了守住約束而做的小改寫**：preset 名稱與暱稱預設值（「我的設定」「主人」等）
+    改由平台層以 `MIGRATE_LABELS` 傳入（core 不寫死中文，roadmap §3.3）；
+    金鑰改收 `SecretAdapter`（`electronSecrets`，加解密邏輯零改動）
+  - ⚠️ `fileStore` 引用 `SecretAdapter` 必須**直接指到 `./adapters/secretAdapter`**，
+    不可走 `adapters/index` —— index 會拉進 `storageAdapter`，而那支 import 本檔 → 循環
+  - **蓄意不搬（桌面平台行為，非業務邏輯）**：`relocateDataDir`、`getPathSizeBytes`、
+    `getDataDirSummary`、`initDefaultCharacters`／`initDefaultPresets`（吃 `appRoot` 與
+    dstpack 解壓）、全部 debounce 計時器、`_scenesCache`
+  - **仍未解**：`StorageAdapter` 的呼叫端依然是 0。要接上得先反轉
+    `storageAdapter → fileStore` 的依賴方向，那超出 B2.7 範圍 → 留給 B3
+  - 驗證：新增**設定載入全等比對**（`scripts/settings-hydration-harness.ts`，
+    用法見 `scripts/README-settings-hydration.md`）。18 個人造樣本，
+    **golden 產自重構前的 `7f5ef7b`**，重構後逐字比對零差異；
+    反向驗證改壞一行只抓到該樣本、不誤報。prompt 全等 48/48 亦維持零差異
 - [ ] **手機獨立版與平台擴充** → `docs/multi-device-platform-roadmap.md`
   - ⚠️ **下一步不是 B3。** 2026-08-03 盤點發現規劃缺一塊、且 B1／B2 尚未實機驗證
     → **先讀 `docs/pre-b3-work-assessment.md`**（含測試策略：哪些能自動測、
-    哪些只能 owner 手動測）。順序：驗證合併 → APK 試打 → **B2.7 `fileStore` 抽 core**
-    → B2.5 Lorebook core → B3
+    哪些只能 owner 手動測）。順序：驗證合併 → APK 試打 → ~~B2.7 `fileStore` 抽 core~~
+    ✅ **已完成 2026-08-03** → B2.5 Lorebook core → B3
   - **B2.7 是新增項目**：`fileStore` 989 行、128 處 `fs`，內含設定遷移等真邏輯；
     五個 adapter 目前只有 HTTP 有呼叫端，**儲存／金鑰／排程／通知零呼叫端**。
     不抽的話 B3 會在手機端重寫一份 → 最核心資料的 drift
