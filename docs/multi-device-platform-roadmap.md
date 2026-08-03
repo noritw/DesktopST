@@ -932,8 +932,8 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 | # | 項目 | 估時 |
 |---|---|---|
 | B1 | **抽出 `core/`**（純 TS，adapter 介面）— ✅ **完成（2026-08-03）**，四刀全數搬完，見 §4.4b。刻意留在 `main/` 的清單見 §10.5 | 3–5 週 |
-| B2 | Capacitor 專案骨架 ＋ 五個 adapter 介面與桌面實作 — ✅ **完成（2026-08-03，見 §4.4b）**。⚠️ 尚未實機驗證，見 `pre-b3-work-assessment.md` §1.2 | 1 週 |
-| **B2.7** | **`fileStore` 抽 core，I/O 走 `StorageAdapter`** — 989 行、128 處 `fs`，內含設定遷移等真邏輯。**目前四個 adapter 零呼叫端**；不做則 B3 會在手機端重寫一份 → drift。**B3 的真前提**，見 `pre-b3-work-assessment.md` §2 | 1–2 週 |
+| B2 | Capacitor 專案骨架 ＋ 五個 adapter 介面與桌面實作 — ✅ **完成（2026-08-03，見 §4.4b）**。**已實機驗證**：owner 實測四家 LLM ＋ 傳圖 ＋ 金鑰持久化，另有 APK 試打七項全過（`pre-b3-work-assessment.md` §5.1）| 1 週 |
+| **B2.7** | **`fileStore` 抽 core** — ✅ **完成（2026-08-03）**。989 → 777 行、對外簽名一行未改。**採用的形狀：core 完全不碰 I/O**（資料進、資料出），因此同步／非同步的難題直接消失。⚠️ `StorageAdapter` 呼叫端仍是 0，要接上須先反轉 `storageAdapter → fileStore` 的依賴方向 → 留給 B3。見 `CLAUDE.md` 的 B2.7 條目 | 1–2 週 |
 | B2.5 | Lorebook core（`src/core/lore/`，純函式，ST 格式子集）— 見 `future-lorebook.md`。**擋 B3**（手機 UI 要有東西可接） | 3–5 天 |
 | B2.6 | Lorebook 桌面 UI ＋ ST 匯入匯出 ＋ 情境綁定 ＋ 角色卡自動生成條目 — **不擋 B3，可延後** | 4–7 天 |
 | B3 | 手機 UI（含 §3.0 全部功能 ＋ §4.8 設定 UI，資料來源可抽換見 §4.5） | 4–8 週 |
@@ -950,9 +950,12 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 > （哪些能自動測、哪些只能靠 owner 手動測）—— 全部見 **`docs/pre-b3-work-assessment.md`**。
 >
 > - ✅ 驗證並合併 B1／B2 分支 —— **已完成 2026-08-03**
-> - ⬜ Hello World APK 試打（1–2 天）：順便驗 Gemini 靠全域 fetch patch 繞 CORS，
->   以及 `rss-parser` 能否在 WebView 跑（新聞已確定納入手機 MVP）
-> - ⬜ `mobile.html` 功能對照清單（半天）
+> - ✅ Hello World APK 試打 —— **已完成 2026-08-03**，實機 Pixel 10a 七項全過。
+>   **Gemini 靠全域 fetch patch 繞 CORS 經實機證實可行**；`rss-parser` 需改用自帶的
+>   `dist/rss-parser.min.js`（預設進入點 require 了 Node 內建模組）。
+>   ⚠️ 另撞到「Android Studio 內建 JDK 太新，Gradle 不吃」，解法見
+>   `pre-b3-work-assessment.md` §5.1
+> - ⬜ `mobile.html` 功能對照清單（半天）← **下一步建議做這個**
 > - ⬜ Android keystore：**不擋開發**，發第一版前要弄好並備份（操作說明見該文件 §9）
 
 ### 階段 C — 進階需求（owner 自用為主，第三層）
@@ -966,8 +969,13 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 
 ### 建議
 
-**A1 先做**（獨立、3–5 天、立刻有用、抽 core 後可直接移植到手機）。
-**接著直攻 B1**——階段 B 是主線，越早開始越好，且 B1 是所有後續的前置。
+~~**A1 先做**（獨立、3–5 天、立刻有用、抽 core 後可直接移植到手機）。
+**接著直攻 B1**~~ —— A1／B1／B2／B2.7 與 APK 試打皆已完成（截至 2026-08-03）。
+
+**目前位置**：B3 前只剩兩件事 —— `mobile.html` 功能對照清單（半天，不擋 B3）
+與 B2.5 Lorebook core（3–5 天，**擋 B3**）。
+建議**先做對照清單**：它會定義出 B3 的實際範圍，而 Lorebook 是在那個範圍之上再加東西；
+範圍沒盤清楚就先加功能，容易低估工作量。
 
 階段 C 隨時可插隊，但不應阻擋 B。
 
