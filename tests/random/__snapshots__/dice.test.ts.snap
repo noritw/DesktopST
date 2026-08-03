@@ -1,0 +1,7 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`formatRandomResultForPrompt > kh/kl 會列出骰出與採計 1`] = `"骰子結果：4d6 = 15（骰出：5, 4, 6, 1，採計：6+5+4=15）"`;
+
+exports[`formatRandomResultForPrompt > 單顆有修正值時明確說明「修正已計入」（避免 LLM 重複加） 1`] = `"骰子結果：1d20+3 = 12（骰面 9，修正 +3 已計入，最終結果 12）"`;
+
+exports[`內嵌 token 系統 > 展開文字格式固定（會進對話與 prompt） 1`] = `"｛🎲骰子2d6+3結果：6（1+2+3=6）｝ ｛🪙硬幣結果：反面｝ ｛🙏擲茭結果：聖筊｝"`;

@@ -11,7 +11,9 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": { "@core/*": ["./src/core/*"] },
     "outDir": "out"
   },
-  "include": ["src/core", "src/main", "src/preload", "electron.vite.config.ts", "capacitor.config.ts"]
+  "include": ["tests", "vitest.config.ts", "src/core", "src/main", "src/preload", "electron.vite.config.ts", "capacitor.config.ts"]
 }

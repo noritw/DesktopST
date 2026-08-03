@@ -94,7 +94,11 @@ npm install       # 安裝套件（第一次）
 npm run dev       # 開發模式（熱重載）
 npm run build     # 打包成 .exe
 npm run typecheck # 型別檢查
+npm test          # 自動測試（vitest，只測 src/core/）
+npm run test:watch # 測試 watch 模式（存檔自動重跑）
 ```
+
+測試說明見 `tests/README.md`（測什麼、不測什麼、快照怎麼更新）。
 
 ---
 
@@ -453,6 +457,21 @@ npm run typecheck # 型別檢查
     隨機工具那份 ✅ 已解，見下條
   - B3 估時因決議 ④ 上修為 **8–12 週**；但 owner 明示**時間非限制條件**，
     取捨一律選「架構漂亮、好維護」
+- [x] **自動測試導入（vitest，2026-08-04）** → `tests/README.md`
+  - **149 項測試、7 個檔案**，只測 `src/core/`（純函式層）。`npm test` ／ `npm run test:watch`
+  - 涵蓋 `pre-b3-work-assessment.md` §6.2 的第 1、2、3、5、6、7、8 項：
+    prompt 組裝（快照）、群組接龍、新聞六層篩選與加權抽選、隨機工具、
+    ST 角色卡往返、PNG 卡嵌入取出、base64、提醒觸發時刻
+  - **還沒補**：`store/`（設定遷移）、`summarizer` 的訊息挑選、`news/trigger` 六個 builder。
+    這幾塊有既有 harness 當替代驗證，不是零防護
+  - 兩條硬規則：**不准依賴當下時間與亂數**（時間用 `vi.setSystemTime`，
+    亂數用 `fixtures.ts` 的 `makeSeededRandom`）；**測試紅了先確認是程式錯還是測試寫錯**
+    —— 導入時有四次是後者
+  - 反向驗證過：故意改壞擲筊權重 → 精準抓到 1 項；改壞 trigger 措辭 → 精準抓到 3 項，皆不誤報
+  - ⚠️ **發現一個既有行為疑點**（非重構造成）：`nextIntervalMs` 在沒有
+    `lastTriggeredAt` 時（＝剛建立的 interval 提醒）回傳 `MIN_INTERVAL_MS`，
+    也就是「每 N 小時提醒」設好後**第一次是 1 分鐘後就跳**。
+    測試如實記錄現況並加註，**未擅自修改**（是產品決定）
 - [x] **隨機工具搬進 `core/`（2026-08-04）**
   - 原本**三份實作且機率已長歪**：御神籤與擲筊在桌面、`mobileServer`、`mobile.html`
     三處的權重互不相同（對照表見 `docs/mobile-html-feature-inventory.md` §4）

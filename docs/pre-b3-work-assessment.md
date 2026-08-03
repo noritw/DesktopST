@@ -273,7 +273,21 @@ winget install --id EclipseAdoptium.Temurin.21.JDK
 B1 抽 core 的結果剛好把大量邏輯變成純函式（不碰網路、檔案、視窗），
 **這些全部落在「可自動」那一側**。
 
-### 6.2 可以自動測的（建議導入 vitest）
+### 6.2 可以自動測的（建議導入 vitest）—— ✅ **已導入 2026-08-04**
+
+> **現況：149 項測試、7 個檔案，`npm test` 一秒跑完。用法見 `tests/README.md`。**
+>
+> 已涵蓋下表的 **1、2、3、5、6、7、8**（＋隨機工具，不在原表內）。
+> **尚未補：4（news/trigger 六個 builder）、9（summarizer 訊息挑選）、10（imageRef）**，
+> 另有 `store/`（設定遷移）也值得補 —— 該塊目前靠
+> `scripts/settings-hydration-harness.ts` 手動驗證。
+>
+> 反向驗證做過：故意改壞擲筊權重與 trigger 措辭，各自精準抓到 1 項與 3 項且不誤報。
+>
+> ⚠️ 順帶發現一個**既有行為疑點**（非重構造成）：`nextIntervalMs` 在沒有
+> `lastTriggeredAt` 時回傳 `MIN_INTERVAL_MS` → 剛建立的 interval 提醒
+> **第一次是 1 分鐘後就跳**，不是等一整個間隔。測試如實記錄現況並加註，未擅自修改。
+
 
 | # | 測什麼 | 為什麼有價值 |
 |---|---|---|
