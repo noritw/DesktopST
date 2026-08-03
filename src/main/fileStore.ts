@@ -2,9 +2,14 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { app } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
-import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, ScenePreset, LegacyAppSettings, PinnedNote, Reminder } from './types'
+import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder } from './types'
 import { DEFAULT_SETTINGS } from './types'
-import * as secureStore from './secureStore'
+import { isPinnedNote } from '../core/store/normalize'
+import { pruneConversationDebugPrompts } from '../core/store/prune'
+import { hydrateSettings, toPersistedSettings } from '../core/store/settings'
+import * as keys from '../core/store/keys'
+// 直接指到實作檔而非 adapters/index：index 會拉進 storageAdapter，那支 import 本檔 → 循環。
+import { electronSecrets } from './adapters/secretAdapter'
 import { loadDstPackZip, readCharacterFromZip, extractCharacterDirFromZip } from './dstPack'
 import {
   hasRemoteControlModuleSettings,
@@ -24,28 +29,36 @@ let DATA_DIR = DEFAULT_DATA_DIR
  * 防止 renderer 送回空字串時把加密值覆寫掉。
  */
 export const encryptedApiKeyFallbacks = new Map<string, string>()
-let SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
-let PINNED_NOTES_FILE = path.join(DATA_DIR, 'pinned-notes.json')
-let REMINDERS_FILE = path.join(DATA_DIR, 'reminders.json')
-let CHARS_DIR = path.join(DATA_DIR, 'characters')
-let CONVS_DIR = path.join(DATA_DIR, 'conversations')
-let PERSONAS_DIR = path.join(DATA_DIR, 'personas')
-let WORLDS_DIR = path.join(DATA_DIR, 'worlds')
-let SCENES_DIR = path.join(DATA_DIR, 'scenes')
+/**
+ * 把 core 的平台無關 key（`'personas/abc.json'`）解析成本機絕對路徑。
+ * 檔案佈局的定義在 `core/store/keys.ts`，桌面與手機共用同一份（B2.7）。
+ */
+function resolveKey(key: string): string {
+  return path.join(DATA_DIR, ...key.split('/'))
+}
+
+let SETTINGS_FILE = resolveKey(keys.SETTINGS_KEY)
+let PINNED_NOTES_FILE = resolveKey(keys.PINNED_NOTES_KEY)
+let REMINDERS_FILE = resolveKey(keys.REMINDERS_KEY)
+let CHARS_DIR = resolveKey(keys.CHARACTERS_DIR)
+let CONVS_DIR = resolveKey(keys.CONVERSATIONS_DIR)
+let PERSONAS_DIR = resolveKey(keys.PERSONAS_DIR)
+let WORLDS_DIR = resolveKey(keys.WORLDS_DIR)
+let SCENES_DIR = resolveKey(keys.SCENES_DIR)
 
 type DataDirMeta = { dataDir?: string }
 
 function refreshPaths(nextDir: string): void {
   DATA_DIR = path.resolve(nextDir)
   configureModuleSettingsRoot(DATA_DIR)
-  SETTINGS_FILE = path.join(DATA_DIR, 'settings.json')
-  PINNED_NOTES_FILE = path.join(DATA_DIR, 'pinned-notes.json')
-  REMINDERS_FILE = path.join(DATA_DIR, 'reminders.json')
-  CHARS_DIR = path.join(DATA_DIR, 'characters')
-  CONVS_DIR = path.join(DATA_DIR, 'conversations')
-  PERSONAS_DIR = path.join(DATA_DIR, 'personas')
-  WORLDS_DIR = path.join(DATA_DIR, 'worlds')
-  SCENES_DIR = path.join(DATA_DIR, 'scenes')
+  SETTINGS_FILE = resolveKey(keys.SETTINGS_KEY)
+  PINNED_NOTES_FILE = resolveKey(keys.PINNED_NOTES_KEY)
+  REMINDERS_FILE = resolveKey(keys.REMINDERS_KEY)
+  CHARS_DIR = resolveKey(keys.CHARACTERS_DIR)
+  CONVS_DIR = resolveKey(keys.CONVERSATIONS_DIR)
+  PERSONAS_DIR = resolveKey(keys.PERSONAS_DIR)
+  WORLDS_DIR = resolveKey(keys.WORLDS_DIR)
+  SCENES_DIR = resolveKey(keys.SCENES_DIR)
   _dirsEnsured = false
   _scenesCache = null
 }
@@ -81,22 +94,9 @@ refreshPaths(loadDataDirFromMeta())
 function ensureDirs() {
   if (_dirsEnsured) return
   _dirsEnsured = true
-  for (const dir of [DATA_DIR, path.join(DATA_DIR, 'modules'), CHARS_DIR, CONVS_DIR, PERSONAS_DIR, WORLDS_DIR, SCENES_DIR]) {
+  for (const dir of [DATA_DIR, ...keys.DATA_SUBDIRS.map(resolveKey)]) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   }
-}
-
-function isPinnedNote(value: unknown): value is PinnedNote {
-  if (!value || typeof value !== 'object') return false
-  const note = value as PinnedNote
-  return typeof note.id === 'string' &&
-    typeof note.title === 'string' &&
-    typeof note.content === 'string' &&
-    typeof note.color === 'string' &&
-    typeof note.visible === 'boolean' &&
-    !!note.position &&
-    typeof note.position.x === 'number' &&
-    typeof note.position.y === 'number'
 }
 
 export function loadPinnedNotes(): PinnedNote[] {
@@ -113,79 +113,12 @@ export function loadPinnedNotes(): PinnedNote[] {
 
 // ── Settings ──────────────────────────────────────────────
 
-function migrateLegacySettings(raw: Record<string, unknown>): { migratedPersonaId: string; migratedWorldId: string } {
-  ensureDirs()
-  let migratedPersonaId = ''
-  let migratedWorldId = ''
-
-  const legacy = raw as unknown as LegacyAppSettings
-
-  if (legacy.persona && typeof legacy.persona === 'object' && 'displayName' in legacy.persona) {
-    const id = uuidv4()
-    const preset: PersonaPreset = {
-      id,
-      name: '我的設定',
-      displayName: legacy.persona.displayName ?? '主人',
-      nickname: legacy.persona.nickname ?? '主人',
-      description: legacy.persona.description ?? '',
-      builtIn: false,
-      createdAt: Date.now(),
-      updatedAt: Date.now()
-    }
-    savePersonaPreset(preset)
-    migratedPersonaId = id
-    delete (raw as Record<string, unknown>).persona
-  }
-
-  if (typeof legacy.worldSetting === 'string' || typeof legacy.interactionExample === 'string') {
-    const ws = typeof legacy.worldSetting === 'string' ? legacy.worldSetting : ''
-    const ie = typeof legacy.interactionExample === 'string' ? legacy.interactionExample : ''
-    if (ws.trim() || ie.trim()) {
-      const id = uuidv4()
-      const preset: WorldPreset = {
-        id,
-        name: '我的世界觀',
-        worldSetting: ws,
-        interactionExample: ie,
-        builtIn: false,
-        createdAt: Date.now(),
-        updatedAt: Date.now()
-      }
-      saveWorldPreset(preset)
-      migratedWorldId = id
-    }
-    delete (raw as Record<string, unknown>).worldSetting
-    delete (raw as Record<string, unknown>).interactionExample
-  }
-
-  return { migratedPersonaId, migratedWorldId }
-}
-
-/**
- * 官方改名／下架的模型 ID 對照。舊 settings.json 存的值在載入時自動換成新 ID，
- * 避免打到已失效的 endpoint。新增項目時左邊放舊 ID、右邊放官方現行 ID。
- */
-const RENAMED_MODEL_IDS: Record<string, string> = {
-  // xAI 官方文件改用帶日期的完整 ID
-  'grok-4.20-reasoning': 'grok-4.20-0309-reasoning',
-  'grok-4.20-non-reasoning': 'grok-4.20-0309-non-reasoning',
-  // xAI 已下架 grok-4-1-fast 系列
-  'grok-4-1-fast-reasoning': 'grok-4.3',
-  'grok-4-1-fast-non-reasoning': 'grok-4.3',
-  // OpenAI 已下架 o1-mini
-  'o1-mini': 'o4-mini'
-}
-
-function renameModelId(id: string | undefined): string | undefined {
-  if (!id) return id
-  return RENAMED_MODEL_IDS[id] ?? id
-}
-
-function renameModelIdMap(map: Record<string, string> | undefined): Record<string, string> | undefined {
-  if (!map) return map
-  const out: Record<string, string> = {}
-  for (const [provider, id] of Object.entries(map)) out[provider] = renameModelId(id) ?? id
-  return out
+/** 遷移出來的 preset 名稱與暱稱預設值（core 不寫死中文，由此處傳入）。 */
+const MIGRATE_LABELS = {
+  personaPresetName: '我的設定',
+  worldPresetName: '我的世界觀',
+  fallbackDisplayName: '主人',
+  fallbackNickname: '主人'
 }
 
 export function loadSettings(): AppSettings {
@@ -203,121 +136,36 @@ export function loadSettings(): AppSettings {
   }
   try {
     const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8')) as Record<string, unknown> | null
-    const s = raw && typeof raw === 'object' ? raw : {} as Record<string, unknown>
 
-    const needsMigration = Object.prototype.hasOwnProperty.call(s, 'persona') ||
-      (Object.prototype.hasOwnProperty.call(s, 'worldSetting') && typeof (s as any).worldSetting === 'string')
-
-    let migratedPersonaId = ''
-    let migratedWorldId = ''
-    if (needsMigration) {
-      const result = migrateLegacySettings(s)
-      migratedPersonaId = result.migratedPersonaId
-      migratedWorldId = result.migratedWorldId
-    }
-
-    const typed = s as Partial<AppSettings>
-    const hasLegacyPinnedNotesField = !!typed.ui && Object.prototype.hasOwnProperty.call(typed.ui, 'pinnedNotes')
-    const legacyPinnedNotes = Array.isArray(typed.ui?.pinnedNotes) ? typed.ui.pinnedNotes.filter(isPinnedNote) : []
-    const pinnedNotesFromFile = loadPinnedNotes()
-    const shouldMigratePinnedNotes = pinnedNotesFromFile.length === 0 && legacyPinnedNotes.length > 0
-    const pinnedNotes = shouldMigratePinnedNotes ? legacyPinnedNotes : pinnedNotesFromFile
-    const legacyRemoteControl = normalizeRemoteControlSettings({
-      ...DEFAULT_SETTINGS.remoteControl!,
-      ...typed.remoteControl
+    const result = hydrateSettings(raw, loadPinnedNotes(), {
+      secrets: electronSecrets,
+      migrate: { newId: uuidv4, now: () => Date.now(), labels: MIGRATE_LABELS },
+      resolveRemoteControl: (legacy) => {
+        const legacyRemoteControl = normalizeRemoteControlSettings({
+          ...DEFAULT_SETTINGS.remoteControl!,
+          ...legacy
+        })
+        return hasRemoteControlModuleSettings()
+          ? loadRemoteControlModuleSettings() ?? legacyRemoteControl
+          : saveRemoteControlModuleSettings(legacyRemoteControl)
+      }
     })
-    const remoteControl = hasRemoteControlModuleSettings()
-      ? loadRemoteControlModuleSettings() ?? legacyRemoteControl
-      : saveRemoteControlModuleSettings(legacyRemoteControl)
+    const settings = result.settings
 
-    const settings: AppSettings = {
-      ...DEFAULT_SETTINGS,
-      ...typed,
-      activePersonaId: typed.activePersonaId || migratedPersonaId || '',
-      activeWorldId: typed.activeWorldId || migratedWorldId || '',
-      llm: {
-        ...DEFAULT_SETTINGS.llm,
-        ...typed.llm,
-        // Migrate: 官方改名／下架的模型 ID 自動換成現行 ID
-        model: renameModelId(typed.llm?.model) ?? DEFAULT_SETTINGS.llm.model,
-        models: renameModelIdMap(typed.llm?.models) ?? DEFAULT_SETTINGS.llm.models,
-        utilityModels: renameModelIdMap(typed.llm?.utilityModels) ?? DEFAULT_SETTINGS.llm.utilityModels,
-        // Migrate: if apiKeys missing but legacy apiKey exists, seed openai key
-        apiKeys: typed.llm?.apiKeys ?? {
-          openai: typed.llm?.apiKey ?? '',
-          claude: '',
-          gemini: '',
-          grok: ''
-        }
-      },
-      memory: {
-        ...DEFAULT_SETTINGS.memory,
-        ...typed.memory
-      },
-      remoteControl,
-      ui: {
-        ...DEFAULT_SETTINGS.ui,
-        ...typed.ui,
-        pinnedNotes,
-        desktopCharacters: (typed.ui?.desktopCharacters ?? DEFAULT_SETTINGS.ui.desktopCharacters).map(dc => ({
-          ...dc,
-          flipped: !!dc?.flipped
-        })),
-        ...((() => {
-          const rawUi = typed.ui
-          const hadOnboardingKey = !!(rawUi && Object.prototype.hasOwnProperty.call(rawUi, 'onboardingCompleted'))
-          // If the key doesn't exist in saved settings (legacy/first-run), default to false
-          // so onboarding screen appears. Never automatically skip onboarding.
-          return !hadOnboardingKey ? { onboardingCompleted: false as const } : {}
-        })())
-      }
+    // 遷移出來的 preset 由平台層存檔（core 不碰 I/O）
+    if (result.personaToSave) savePersonaPreset(result.personaToSave)
+    if (result.worldToSave) saveWorldPreset(result.worldToSave)
+
+    if (result.shouldSavePinnedNotes) {
+      savePinnedNotes(settings.ui.pinnedNotes ?? [])
     }
 
-    if (shouldMigratePinnedNotes) {
-      savePinnedNotes(pinnedNotes)
-    }
-
-    // Detect plaintext keys that need migration to encrypted storage
-    const rawApiKeys = typed.llm?.apiKeys ?? {}
-    const needsKeyMigration = Object.values(rawApiKeys).some(
-      v => typeof v === 'string' && v.trim() && !v.startsWith('enc:v1:')
-    )
-
-    // Decrypt API keys for in-memory use
-    // If decryption fails, secureStore.decrypt returns the original 'enc:v1:...' string.
-    // We convert those to '' so the UI shows an empty field (prompting re-entry)
-    // instead of showing the garbage encrypted blob which users tend to clear and save,
-    // accidentally destroying the stored value.
-    // The encrypted blob is preserved in encryptedApiKeyFallbacks so settings:save
-    // can write it back when the renderer sends '' without the user explicitly clearing it.
-    for (const k of Object.keys(settings.llm.apiKeys)) {
-      const stored = settings.llm.apiKeys[k] ?? ''
-      const decrypted = secureStore.decrypt(stored)
-      if (decrypted.startsWith('enc:v1:')) {
-        encryptedApiKeyFallbacks.set(k, decrypted)
-        settings.llm.apiKeys[k] = ''
-      } else {
-        encryptedApiKeyFallbacks.delete(k)
-        settings.llm.apiKeys[k] = decrypted
-      }
-    }
-
-    // Decrypt CWA API Key (same pattern as LLM keys)
-    const rq = settings.weather?.realtimeQuery
-    if (rq?.cwaApiKey) {
-      const decrypted = secureStore.decrypt(rq.cwaApiKey)
-      if (decrypted.startsWith('enc:v1:')) {
-        encryptedApiKeyFallbacks.set('cwaApiKey', decrypted)
-        rq.cwaApiKey = ''
-      } else {
-        encryptedApiKeyFallbacks.delete('cwaApiKey')
-        rq.cwaApiKey = decrypted
-      }
-    }
+    for (const [k, v] of Object.entries(result.apiKeyFallbacksToSet)) encryptedApiKeyFallbacks.set(k, v)
+    for (const k of result.apiKeyFallbacksToDelete) encryptedApiKeyFallbacks.delete(k)
 
     _keepDebugPromptN = settings.memory.keepDebugPromptN
 
-    if (needsMigration || hasLegacyPinnedNotesField || needsKeyMigration) {
+    if (result.needsResave) {
       saveSettings(settings)
     }
 
@@ -391,27 +239,7 @@ export function saveSettings(settings: AppSettings): void {
   if (settings.remoteControl) {
     settings.remoteControl = saveRemoteControlModuleSettings(settings.remoteControl)
   }
-  const encryptedApiKeys: Record<string, string> = {}
-  for (const [k, v] of Object.entries(settings.llm.apiKeys)) {
-    encryptedApiKeys[k] = secureStore.encrypt(v)
-  }
-  const persisted: AppSettings = {
-    ...settings,
-    llm: { ...settings.llm, apiKeys: encryptedApiKeys },
-    ui: { ...settings.ui }
-  }
-  // Encrypt CWA API Key before persisting
-  if (persisted.weather?.realtimeQuery) {
-    persisted.weather = {
-      ...persisted.weather,
-      realtimeQuery: {
-        ...persisted.weather.realtimeQuery,
-        cwaApiKey: secureStore.encrypt(persisted.weather.realtimeQuery.cwaApiKey)
-      }
-    }
-  }
-  delete persisted.ui.pinnedNotes
-  delete persisted.remoteControl
+  const persisted = toPersistedSettings(settings, electronSecrets)
   _pendingSettingsJson = JSON.stringify(persisted, null, 2)
   if (_saveSettingsTimer) clearTimeout(_saveSettingsTimer)
   _saveSettingsTimer = setTimeout(() => {
@@ -461,16 +289,16 @@ export function loadPersonaPresets(): PersonaPreset[] {
 
 export function savePersonaPreset(preset: PersonaPreset): void {
   ensureDirs()
-  fs.writeFileSync(path.join(PERSONAS_DIR, `${preset.id}.json`), JSON.stringify(preset, null, 2), 'utf-8')
+  fs.writeFileSync(resolveKey(keys.personaKey(preset.id)), JSON.stringify(preset, null, 2), 'utf-8')
 }
 
 export function deletePersonaPreset(id: string): void {
-  const file = path.join(PERSONAS_DIR, `${id}.json`)
+  const file = resolveKey(keys.personaKey(id))
   if (fs.existsSync(file)) fs.unlinkSync(file)
 }
 
 export function loadPersonaPreset(id: string): PersonaPreset | null {
-  const file = path.join(PERSONAS_DIR, `${id}.json`)
+  const file = resolveKey(keys.personaKey(id))
   if (!fs.existsSync(file)) return null
   try {
     return JSON.parse(fs.readFileSync(file, 'utf-8')) as PersonaPreset
@@ -494,16 +322,16 @@ export function loadWorldPresets(): WorldPreset[] {
 
 export function saveWorldPreset(preset: WorldPreset): void {
   ensureDirs()
-  fs.writeFileSync(path.join(WORLDS_DIR, `${preset.id}.json`), JSON.stringify(preset, null, 2), 'utf-8')
+  fs.writeFileSync(resolveKey(keys.worldKey(preset.id)), JSON.stringify(preset, null, 2), 'utf-8')
 }
 
 export function deleteWorldPreset(id: string): void {
-  const file = path.join(WORLDS_DIR, `${id}.json`)
+  const file = resolveKey(keys.worldKey(id))
   if (fs.existsSync(file)) fs.unlinkSync(file)
 }
 
 export function loadWorldPreset(id: string): WorldPreset | null {
-  const file = path.join(WORLDS_DIR, `${id}.json`)
+  const file = resolveKey(keys.worldKey(id))
   if (!fs.existsSync(file)) return null
   try {
     return JSON.parse(fs.readFileSync(file, 'utf-8')) as WorldPreset
@@ -529,18 +357,18 @@ export function loadScenePresets(): ScenePreset[] {
 
 export function saveScenePreset(preset: ScenePreset): void {
   ensureDirs()
-  fs.writeFileSync(path.join(SCENES_DIR, `${preset.id}.json`), JSON.stringify(preset, null, 2), 'utf-8')
+  fs.writeFileSync(resolveKey(keys.sceneKey(preset.id)), JSON.stringify(preset, null, 2), 'utf-8')
   _scenesCache = null
 }
 
 export function deleteScenePreset(id: string): void {
-  const file = path.join(SCENES_DIR, `${id}.json`)
+  const file = resolveKey(keys.sceneKey(id))
   if (fs.existsSync(file)) fs.unlinkSync(file)
   _scenesCache = null
 }
 
 export function loadScenePreset(id: string): ScenePreset | null {
-  const file = path.join(SCENES_DIR, `${id}.json`)
+  const file = resolveKey(keys.sceneKey(id))
   if (!fs.existsSync(file)) return null
   try {
     return JSON.parse(fs.readFileSync(file, 'utf-8')) as ScenePreset
@@ -617,7 +445,7 @@ export function loadCharacters(): Character[] {
   if (!fs.existsSync(CHARS_DIR)) return []
   return fs.readdirSync(CHARS_DIR)
     .map(id => {
-      const cardPath = path.join(CHARS_DIR, id, 'card.json')
+      const cardPath = resolveKey(keys.characterCardKey(id))
       if (!fs.existsSync(cardPath)) return null
       try {
         return JSON.parse(fs.readFileSync(cardPath, 'utf-8')) as Character
@@ -630,20 +458,20 @@ export function loadCharacters(): Character[] {
 
 export function saveCharacter(char: Character): void {
   ensureDirs()
-  const dir = path.join(CHARS_DIR, char.id)
+  const dir = resolveKey(keys.characterDirKey(char.id))
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, 'card.json'), JSON.stringify(char, null, 2), 'utf-8')
 }
 
 export function deleteCharacter(id: string): void {
-  const dir = path.join(CHARS_DIR, id)
+  const dir = resolveKey(keys.characterDirKey(id))
   if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true })
 }
 
 // ── Conversations ─────────────────────────────────────────
 
 export function loadConversation(id: string): Conversation | null {
-  const file = path.join(CONVS_DIR, `${id}.json`)
+  const file = resolveKey(keys.conversationKey(id))
   if (!fs.existsSync(file)) return null
   try {
     return JSON.parse(fs.readFileSync(file, 'utf-8')) as Conversation
@@ -665,9 +493,6 @@ const _saveConvTimers = new Map<string, ReturnType<typeof setTimeout>>()
 /** 由 loadSettings / saveSettings 同步；saveConversation 用它決定 debug prompt 保留則數。 */
 let _keepDebugPromptN = DEFAULT_SETTINGS.memory.keepDebugPromptN
 
-/** 新聞原文連結保留則數：只有最近幾則新聞發話訊息事後從對話記錄重開時還能看到連結卡與互動按鈕。 */
-const NEWS_LINK_KEEP_N = 5
-
 export function saveConversation(conv: Conversation): void {
   ensureDirs()
   pruneConversationDebugPrompts(conv, _keepDebugPromptN)
@@ -678,54 +503,17 @@ export function saveConversation(conv: Conversation): void {
     _saveConvTimers.delete(conv.id)
     const json = _pendingConvJson.get(conv.id)
     _pendingConvJson.delete(conv.id)
-    if (json) fs.writeFile(path.join(CONVS_DIR, `${conv.id}.json`), json, 'utf-8', (err) => {
+    if (json) fs.writeFile(resolveKey(keys.conversationKey(conv.id)), json, 'utf-8', (err) => {
       if (err) console.error('[fileStore] saveConversation failed:', err)
     })
   }, 200))
 }
 
-/**
- * 只保留最近 keepN 則訊息的完整 debug prompt，較舊的剪掉以減輕 Log 載入負擔。
- * 就地修改 conv.messages：視窗內有 debug 的標 hasDebugPrompt=true，視窗外的刪 debug 並標 false。
- * keepN <= 0 代表全部剪掉。
- */
-export function pruneConversationDebugPrompts(conv: Conversation, keepN: number): void {
-  const msgs = conv.messages
-  const threshold = msgs.length - Math.max(0, keepN)
-  // 新聞 debug 只保留最近 1 則（避免對話檔膨脹）
-  const newsThreshold = msgs.length - 1
-  // 新聞原文連結只保留最近幾則，供事後從對話記錄重開泡泡時使用（更早的訊息視同「已無視＝沒興趣」，不再保留可互動連結）
-  const newsLinkThreshold = msgs.length - NEWS_LINK_KEEP_N
-  for (let i = 0; i < msgs.length; i++) {
-    const m = msgs[i]
-    // ── 主要 / 輔助 / 對話搜尋 LLM debug ──
-    const hasDebug = !!(m.debugPrompt || m.utilityDebugPrompt || m.convSearchDebugPrompt)
-    if (i >= threshold && hasDebug) {
-      m.hasDebugPrompt = true
-    } else if (m.debugPrompt || m.utilityDebugPrompt || m.convSearchDebugPrompt || m.hasDebugPrompt) {
-      delete m.debugPrompt
-      delete m.utilityDebugPrompt
-      delete m.convSearchDebugPrompt
-      delete m.convSearchInputTokens
-      delete m.convSearchOutputTokens
-      m.hasDebugPrompt = false
-    }
-    // ── 新聞 debug（最近 1 則）──
-    if (i >= newsThreshold && m.newsDebug) {
-      m.hasNewsDebug = true
-    } else if (m.newsDebug || m.hasNewsDebug) {
-      delete m.newsDebug
-      m.hasNewsDebug = false
-    }
-    // ── 新聞原文連結（最近 NEWS_LINK_KEEP_N 則）──
-    if (i < newsLinkThreshold && m.newsLink) {
-      delete m.newsLink
-    }
-  }
-}
+/** @see core/store/prune —— 實體已移入 core，此處轉出以維持既有 import 路徑。 */
+export { pruneConversationDebugPrompts }
 
 export function deleteConversation(id: string): void {
-  const file = path.join(CONVS_DIR, `${id}.json`)
+  const file = resolveKey(keys.conversationKey(id))
   if (fs.existsSync(file)) fs.unlinkSync(file)
 }
 
@@ -758,7 +546,7 @@ export async function initDefaultCharacters(appRoot: string): Promise<{ chars: C
       try {
         const charPreview = await readCharacterFromZip(zip, prefix)
         const newId = uuidv4()
-        const destDir = path.join(CHARS_DIR, newId)
+        const destDir = resolveKey(keys.characterDirKey(newId))
         await extractCharacterDirFromZip(zip, prefix, destDir)
         const extractedFiles = fs.readdirSync(destDir)
         fs.writeFileSync(path.join(destDir, '_extract_debug.txt'), `Extracted ${charPreview.name}\nFiles: ${extractedFiles.join('\n')}`)
