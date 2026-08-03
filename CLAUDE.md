@@ -217,6 +217,10 @@ npm run typecheck # 型別檢查
   - 完整 Prompt 檢視器（LogWindow）主要/輔助分頁各加路由凡例，標示哪些任務走哪個模型
   - 詳細 Prompt 只保留最近 N 則（`memory.keepDebugPromptN`，預設 5，記憶分頁可調）：`Message.hasDebugPrompt` 旗標決定是否顯示「查看完整 Prompt」；`fileStore.pruneConversationDebugPrompts` 在存檔/載入時剪枝，減輕 Log 載入
   - 進階構想（規格外，待討論）：角色卡關鍵字 / 關鍵字分組隨情境切換 → 見 `docs/news-future-keyword-groups.md`
+  - 釘選主題只在「說點什麼」與「提醒」注入，**一般聊天不注入**（原始設計，非 bug）。
+    owner 2026-08-03 認為一般聊天也該注入，否則失去釘選的意義 → 提案未實作，
+    見 `docs/news-future-topic-in-chat.md`（注意：一般聊天要用**弱化的 directive**，
+    照抄說點什麼那份會讓角色硬把話題扯回新聞）
   - 標題主觀／情緒評分（規格外，已實作）：抽中新聞時用輔助模型輕量評分（0~5 分 + 簡短理由），只記錄到 LogWindow 新聞 debug 面板觀察、不參與篩選、不影響角色語氣；門檻值刻意不開放使用者調整 → 見 `docs/news-future-sensational-score.md`
 - [x] 情境模組開關覆蓋（Scene Module Overrides）
   - `ScenePreset.moduleOverrides?: Record<string, 'on' | 'off'>`：每個情境對每個模組三態（強制開／強制關／無 key＝跟隨全域），例如 TRPG 情境關新聞天氣、留 Spotify 當 BGM
