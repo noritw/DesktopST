@@ -324,7 +324,23 @@ src/core/
 **驗收結果**：每刀各跑一次 `npm run typecheck` ＋ `electron-vite build`，全數通過；
 `src/core/` 經 grep 確認無 `electron` / `fs` / `path` / `node:` / 反向 import `main/`。
 
-#### ⚠️ 已知的重複實作，尚未處理（留給之後）
+#### ~~⚠️ 已知的重複實作，尚未處理~~ —— ✅ **已解決（2026-08-03，B2）**
+
+採**解法 2**：`src/renderer/src/modules/news/types.ts` 改為薄轉出檔指向 `@core/news/`，
+既有 import 路徑一行未改。前端專屬的東西留在原檔：`NewsPreviewItem` /
+`NewsPreviewResult`（IPC 形狀）與 `WEIGHT_LABELS` / `WEIGHT_CYCLE` / `nextWeight`
+（UI 文案，依 §3.3 不得進 core）。
+
+配套設定（**「前端怎麼吃 core」這題已經解掉，手機 UI 走同一套，不必再解一次**）：
+
+- `tsconfig.json`：`include` 加 `src/core`、`paths` 加 `@core/*`
+- `electron.vite.config.ts`：renderer `alias` 加 `@core`
+
+順帶驗證：`core/` 在 web tsconfig（`ES2020` + `DOM`、**無 `@types/node`**）底下也編得過
+→ 這是比 grep 更硬的「零 Node 依賴」證明。
+改動後 renderer bundle hash 未變（`index-DG837fMj.js`），輸出位元組相同。
+
+以下保留原始記錄：
 
 `src/renderer/src/modules/news/types.ts` 檔頭自己寫著
 「與 `src/main/modules/news/types.ts` 對應（**兩邊手動同步**）」，
@@ -376,6 +392,64 @@ src/core/
 `llm/summarizer.ts`（依賴 `chatWithLLM`）、
 `modules/news/trigger.ts`（依賴 `sources` 網路 ＋ `settings` 檔案）、
 `pngUtils.ts`（`fs` ＋ `Buffer`，還要確認能否改 `Uint8Array`）。
+
+> **更新（B2 後）**：`pngUtils.ts` **已搬完**（`core/card/pngCard.ts`），
+> `Uint8Array` 確認可行。其餘四塊介面已就緒，可以動工——見 §4.4b。
+
+### 4.4b B2 成果：五個 adapter 介面（2026-08-03）
+
+分支 `feat/mobile-standalone`。**產出是介面，不是跑起來的手機 app**。
+
+```
+src/core/adapters/     介面定義（純型別、零實作）
+  storage.ts  secrets.ts  http.ts  scheduler.ts  notifier.ts  index.ts
+src/main/adapters/     桌面實作（包裝既有能力，沒有重寫任何邏輯）
+```
+
+`main/adapters/` 目前**沒有任何呼叫端**——它是並行路徑，桌面版行為完全沒動。
+之後把 `llm/` 等搬進 core 時，才由 `main/` 把 `electronAdapters` 傳進去。
+
+#### 六個設計決定（**照著走，不要重新發明**）
+
+| 決定 | 理由 |
+|---|---|
+| 儲存 key 是**平台無關的相對路徑字串**（`'personas/abc.json'`），core 不認識絕對路徑 | 桌面解析到資料夾、手機解析到沙箱；core 不該知道 `%APPDATA%` 存在 |
+| 二進位一律 `Uint8Array`，**不用 `Buffer`** | `Buffer` 是 Node 專屬；它是 `Uint8Array` 子類別，所以桌面端可以直接傳入，不需轉換 |
+| 儲存另留一個 `SyncStorageAdapter`，**手機端不實作** | 現行 `fileStore` 全同步，強改非同步會擴散到 `ipcHandlers` 幾乎每支 handler。新 core 邏輯一律用非同步版 |
+| 金鑰介面維持**同步** | 同上；`secureStore` 被存檔鏈直接呼叫。Android Keystore 也能做成同步（解封一次後快取） |
+| **HTTP 介面做成 `fetch` 同形** | 四家 LLM 走的是各自官方 SDK（`openai` / `@anthropic-ai/sdk` / `@google/generative-ai`），**不是**自己打 HTTP。三家 SDK 都能注入自訂 fetch → 跨平台不必重寫四家的請求對映。日後真要拿掉 SDK，介面一行不用改 |
+| HTTP 帶 `supportsStreaming` 旗標 | 容納 §4.3 的限制。**串流是加分項不是前提**：呼叫端先問旗標，false 走非串流路徑，不可退化成錯誤 |
+
+> ⚠️ **§4.4 原本寫「四家 provider 改用注入的 HTTP client 即可跨平台」，那句話預設是自己打 HTTP。**
+> 實際上是官方 SDK。上表最後兩列就是為此而定的。
+
+#### 用 `pngUtils` 當試金石（已搬完）
+
+純紙上介面容易定歪，所以挑最小最獨立的一塊真的搬過去驗證：
+
+- `core/card/pngCard.ts`（`Uint8Array`）＋ `core/util/base64.ts`（自寫）
+- `main/pngUtils.ts` 留 `fs` 讀佔位圖，並把 core 的錯誤代碼翻回原本的中文訊息
+
+**base64 為什麼自己寫**：`Buffer` 是 Node 專屬；`atob`/`btoa` 兩端 runtime 都有，
+但型別不在 `lib: ES2022` 裡，而 `core/` 要同時被桌面與前端兩套 tsconfig 編譯。
+兩邊都成立的只剩自己寫，約 30 行。已與 Node `Buffer` 逐位元組比對驗過
+（長度 0–300 隨機資料、CJK／emoji／代理對、含換行的 base64）。
+
+**搬完學到的一件事**：這塊**不需要 `StorageAdapter`**——
+檔案讀寫留在呼叫端比塞進 core 更乾淨。`llm/` 那幾塊搬的時候照同一個形狀走：
+core 收「已經讀好的資料」，不要讓 core 去讀檔。
+
+#### 中文文案的處理方式（新增的落地慣例）
+
+`extractCharaJson` 原本會拋中文訊息給 UI 顯示。搬進 core 後改成
+**core 拋錯誤代碼、平台層翻成文案**：
+
+```ts
+// core：throw new PngCardError('no-chara-chunk', 'PNG contains no ... chunk')
+// main：code === 'no-chara-chunk' → new Error('此 PNG 不包含 ST 角色卡資料')
+```
+
+對外訊息一字未變。**之後遇到 core 要回報使用者看得見的錯誤，一律照這個形狀。**
 
 ### 4.5 手機 UI：**一份程式碼，兩種資料來源，三種散布**（關鍵決議）
 
@@ -809,8 +883,8 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 
 | # | 項目 | 估時 |
 |---|---|---|
-| B1 | **抽出 `core/`**（純 TS，adapter 介面）— 第一刀 ✅ 完成；**續刀 ← 下一個**（三塊零 adapter，見 §4.4）；其餘待 B2 定介面 | 3–5 週 |
-| B2 | Capacitor 專案骨架 ＋ 儲存／金鑰 adapter | 1 週 |
+| B1 | **抽出 `core/`**（純 TS，adapter 介面）— 第一刀／第二刀／`pngUtils` ✅ 完成；**剩 `llm/`、`summarizer`、`news/trigger`、`reminderScheduler` ← 下一個**（介面已就緒，見 §10.5 的表） | 3–5 週 |
+| B2 | Capacitor 專案骨架 ＋ 五個 adapter 介面與桌面實作 — ✅ **完成（2026-08-03，見 §4.4b）** | 1 週 |
 | B3 | 手機 UI（含 §3.0 全部功能 ＋ §4.8 設定 UI，資料來源可抽換見 §4.5） | 4–8 週 |
 | B3.5 | S1 掃 QR 一鍵初始化匯入（見 §4.7） | 3–5 天 |
 | B6 | 手機 UI 的 web build 接手 `mobile.html`（含遙控 UI 搬移）。**掃 QR 連線方式不變** | 1 週 |
@@ -842,21 +916,28 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 
 **開工前必讀**：本文件 §2（四大目標）、§4.4（抽 core 切法）、§8（已否決清單）、§11（提醒）。
 
-> ## 👉 現在的下一步是 **B2（Capacitor 骨架 ＋ 定義 adapter 介面）**
+> ## 👉 現在的下一步是 **B1 收尾（把 `llm/` 與 `news/trigger` 搬進 core）**
 >
-> A1 完成、**B1 的第一刀與第二刀都已完成**（見 §4.4）。
-> **不要再從 A1 或 B1 已完成的部分找事做**，那三塊（`stCardMapper`、
-> 新聞 `filter`／`types`／helper、`topicState`）已經全部在 `core/` 裡了。
+> A1 完成、**B1 第一刀與第二刀完成、B2 完成**。
+> 工作分支已是 **`feat/mobile-standalone`**（依 §11.1，B2 起不在 `main` 上做）。
 >
-> B1 剩下的（`llm/index.ts`、四家 provider、`summarizer.ts`、`trigger.ts`、
-> `pngUtils.ts`）確實都卡在 **adapter 介面（儲存／金鑰／HTTP／排程／通知）
-> 一個都還沒定義**，而那正是 B2 的主要內容 → **B2 定完介面，再回頭把 core 收尾**。
+> **不要重做已完成的部分**：`stCardMapper`、新聞 `filter`／`types`／helper、
+> `topicState`、`pngUtils` 都已經在 `core/` 裡；五個 adapter 介面與桌面實作
+> 也都寫好了（`src/core/adapters/`、`src/main/adapters/`）；
+> renderer 重複那份 news types 已改成轉出檔。
 >
-> 另有一件可以隨時插隊、且 B3 前一定要解的：
-> **renderer 端重複了一份 news types 與兩個 helper**（見 §4.4 末段的解法選項）。
+> **剩下四塊**，介面已就緒、可以直接動工：
 >
-> 依 §11.1，純重構的部分若還有，繼續**在 `main` 上分批小 commit**；
-> B2 開始（Capacitor 專案、手機 UI）才進 `feat/mobile-standalone`。
+> | 目標 | 需要的 adapter | 注意 |
+> |---|---|---|
+> | `llm/index.ts` ＋ 四家 provider | `HttpAdapter` | 走的是**官方 SDK 不是裸 HTTP**，把 adapter 的 fetch 注入 SDK 即可，別重寫請求對映 |
+> | `llm/summarizer.ts` | 隨 `chatWithLLM` 走 | 92 行，`index.ts` 搬完就順手 |
+> | `modules/news/trigger.ts` ＋ `sources.ts` | `HttpAdapter` | `sources.ts` 另外用了 `crypto.createHash` 與 `rss-parser`，要先確認手機端替代方案 |
+> | `reminderScheduler.ts` | `SchedulerAdapter` ＋ `NotifierAdapter` | 排程換算邏輯進 core，`setTimeout` 留平台層 |
+>
+> **開工前先讀 §4.4b**——那裡有六個已定案的設計決定與兩個落地慣例
+> （core 拋錯誤代碼、平台層翻文案；core 收「已讀好的資料」不自己讀檔）。
+> 照著走，不要重新發明。
 >
 > **A1 留下的可複用範例**：`src/main/calendar/` 是目前唯一「已經照 provider 介面切乾淨」的模組
 > —— 純邏輯（格式化、注入判斷）在 `index.ts`，平台/服務商細節在 `googleProvider.ts`。

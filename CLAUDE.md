@@ -334,13 +334,45 @@ npm run typecheck # 型別檢查
   - `modules/news/settings.ts` 的 **load/save/normalize 留在 `main/`**（走檔案存取），
     只搬走上述 5 個純項目；`topicState` **設計零改動**（process 級單例，
     前提是同一 process 內不會有多個 DeST 實例，owner 2026-08-03 確認）
-  - ⚠️ **已知重複實作，尚未處理**：`src/renderer/src/modules/news/types.ts`
-    是手動同步的第二份，還自帶一份 `DEFAULT_KEYWORD_GROUP_ID` / `effectiveGroupId`。
-    這是 drift 來源，**B3（手機 UI）開工前必解**，解法選項見 roadmap §4.4 末段
-  - **確定卡住、要等 B2 定 adapter 介面**：`llm/index.ts` 與四家 provider adapter、
-    `llm/summarizer.ts`（依賴 `chatWithLLM`）、`modules/news/trigger.ts`（網路＋檔案）、
-    `pngUtils.ts`（`fs` ＋ `Buffer`）
-- [ ] **手機獨立版與平台擴充（B2 起待開工）** → `docs/multi-device-platform-roadmap.md`
+  - ~~⚠️ 已知重複實作~~ ✅ **已解**（B2）：`src/renderer/src/modules/news/types.ts`
+    改為薄轉出檔指向 `@core/news/`，既有 import 路徑一行未改；前端專屬的
+    `NewsPreviewItem` / `NewsPreviewResult` 與 UI 文案 `WEIGHT_LABELS` 等留在原檔
+  - **剩下四塊待搬**（B2 已定介面，可直接動工）：`llm/index.ts` 與四家 provider、
+    `llm/summarizer.ts`、`modules/news/trigger.ts`（＋`sources.ts`）、
+    `reminderScheduler.ts`。`pngUtils.ts` 已於 B2 搬完
+
+- [x] **B2 Capacitor 骨架 ＋ 五個 adapter 介面（分支 `feat/mobile-standalone`）**
+  - **產出是介面，不是跑起來的手機 app**。`src/core/adapters/`（純型別）＋
+    `src/main/adapters/`（桌面實作，包裝既有能力、沒重寫任何邏輯）。
+    桌面實作**目前無呼叫端**，是並行路徑，桌面版行為零改動
+  - 五個介面：`StorageAdapter`（＋手機不實作的 `SyncStorageAdapter`）、
+    `SecretAdapter`、`HttpAdapter`、`SchedulerAdapter`、`NotifierAdapter`
+  - **設計決定見 roadmap §4.4b，照著走不要重新發明。** 最關鍵的兩條：
+    - 四家 LLM 走的是**官方 SDK 不是裸 HTTP**（roadmap §4.4 原本寫錯），
+      故 HTTP 介面做成 **`fetch` 同形**，把 adapter 注入 SDK 即可，
+      不必為跨平台重寫四家的請求對映；日後要拿掉 SDK 也不用改介面
+    - `HttpAdapter.supportsStreaming` 旗標容納 Capacitor 串流支援不佳（§4.3）：
+      **串流是加分項不是前提**，呼叫端先問旗標，false 走非串流路徑，不可當錯誤
+  - 其餘：儲存 key 是平台無關相對路徑（core 不認識絕對路徑）；二進位一律
+    `Uint8Array` 不用 `Buffer`；儲存留同步版給既有桌面路徑沿用（手機端不實作）；
+    金鑰維持同步（改非同步會擴散到整條存檔鏈）
+  - **兩個新的落地慣例**：core 拋**錯誤代碼**、平台層翻成中文文案
+    （`PngCardError` + `toUserFacingError`）；core 收「已讀好的資料」，
+    **不要讓 core 自己讀檔**（`pngCard` 就不需要 `StorageAdapter`）
+  - 順手搬完 `pngUtils`（當介面試金石）：`core/card/pngCard.ts` ＋
+    `core/util/base64.ts`（自寫——`Buffer` 是 Node 專屬，`atob`/`btoa` 型別
+    不在 `lib: ES2022` 裡，而 core 要被兩套 tsconfig 編譯）。
+    base64 已與 Node `Buffer` 逐位元組比對驗過
+  - **前端吃 core 已解決**：`tsconfig.json` 加 `src/core` 與 `@core/*`、
+    `electron.vite.config.ts` renderer alias 加 `@core`。手機 UI（B3）走同一套。
+    core 在 web tsconfig（無 `@types/node`）下編得過 ＝ 零 Node 依賴的硬證明
+  - Capacitor：`capacitor.config.ts`（`appId` = `tw.nori.dest`，發布後不可改）、
+    `src/mobile/README.md`。`@capacitor/*` 放 **devDependencies**，
+    否則會被 electron-builder 打進 `.exe`
+  - **刻意沒做**：`npx cap add android`（還沒有 `webDir`，生成的原生樹會過時，
+    等 B3 能 build 出 `out/mobile` 再說）、簽章 keystore（owner 未決定，
+    **不要自行產一把**）、預裝 Filesystem／LocalNotifications 等外掛（用到再裝）
+- [ ] **手機獨立版與平台擴充（B1 收尾 → B3 起待開工）** → `docs/multi-device-platform-roadmap.md`
   - **定位修正**：DeST 從「桌寵程式」擴張為「AI 角色聊天平台，有桌寵版與手機版」。
     目標客群的路徑（卿卿我我 → SillyTavern → DeST）起點在手機，一般使用者不見得有電腦
     → **手機獨立版是主線，不是進階選項**
