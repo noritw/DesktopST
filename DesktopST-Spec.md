@@ -44,8 +44,12 @@ npm install          # 安裝相依套件
 npm run dev          # 開發模式（熱重載）
 npm run build        # 打包成可執行檔
 npm run typecheck    # 型別檢查
-npm run lint         # 程式碼檢查
+npm test             # 自動測試（vitest，只測 src/core/）
+npm run test:watch   # 測試 watch 模式
 ```
+
+> `npm run lint` 已於 2026-08-04 移除 —— eslint 從未真的安裝、也沒有設定檔，
+> 那行指令指向不存在的工具。防線改由 `typecheck` ＋ `test` 承擔。
 
 ### 平台
 - **第一版**：Windows 10/11 only

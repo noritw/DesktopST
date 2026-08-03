@@ -44,10 +44,16 @@ export const MIN_INTERVAL_MS = 60_000
  *
  * 會把上次觸發後已經過的時間算進去——程式重開後不該從頭再等一輪。
  * 無論如何至少等 `MIN_INTERVAL_MS`。
+ *
+ * ⚠️ **從沒觸發過（剛建立的提醒）＝ 已經過 0，要等滿一整個間隔。**
+ * 2026-08-04 前這裡是 `: clamped`，等於「已經過了一整輪」，
+ * 於是 `clamped - elapsed = 0` 被夾成 1 分鐘 ——
+ * 設「每 2 小時提醒」按下儲存後，第一次是 1 分鐘後就跳。
+ * owner 決議修正為字面語意：每 N 小時就是 N 小時。
  */
 export function nextIntervalMs(intervalMs: number, lastTriggeredAt?: number, nowMs: number = Date.now()): number {
   const clamped = Math.max(MIN_INTERVAL_MS, intervalMs)
-  const elapsed = lastTriggeredAt ? nowMs - lastTriggeredAt : clamped
+  const elapsed = lastTriggeredAt ? nowMs - lastTriggeredAt : 0
   return Math.max(MIN_INTERVAL_MS, clamped - elapsed)
 }
 

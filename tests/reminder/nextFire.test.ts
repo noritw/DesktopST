@@ -65,18 +65,16 @@ describe('nextIntervalMs', () => {
   const now = noonSunday.getTime()
 
   /**
-   * ⚠️ **這是現況，不見得是本意。**
+   * ⚠️ **這支是 2026-08-04 修掉的一個既有行為的迴歸測試。**
    *
-   * 沒有 `lastTriggeredAt`（＝剛建立的提醒）時，`elapsed` 取的是 `clamped` 本身，
-   * 於是 `clamped - elapsed = 0` → 夾成最小間隔 **1 分鐘**。
-   * 也就是「每 2 小時提醒一次」設好之後，**第一次是 1 分鐘後就跳**。
-   *
-   * 這個行為在搬進 core 之前就存在（搬移時與舊版逐一比對過 20,000 個時刻，
-   * 結果相同），所以不是重構造成的。測試先如實記錄現況；
-   * 要不要改成「首次也等一整個間隔」是產品決定，已回報 owner。
+   * 修正前：沒有 `lastTriggeredAt` 時 `elapsed` 取 `clamped` 本身，
+   * 於是 `clamped - elapsed = 0` 被夾成 1 分鐘 ——
+   * 「每 2 小時提醒」設好後第一次是 1 分鐘後就跳。
+   * 這行為在搬進 core 之前就存在（不是重構造成的），由自動測試撞出來，
+   * owner 決議修正為字面語意。
    */
-  it('沒有上次觸發 → 目前是 1 分鐘後就觸發（現況，見上方註解）', () => {
-    expect(nextIntervalMs(2 * HOUR, undefined, now)).toBe(MIN_INTERVAL_MS)
+  it('沒有上次觸發（剛建立）→ 等滿一整個間隔', () => {
+    expect(nextIntervalMs(2 * HOUR, undefined, now)).toBe(2 * HOUR)
   })
 
   it('重開程式時扣掉已經過的時間，不從頭再等一輪', () => {
@@ -115,8 +113,7 @@ describe('nextFireDelayMs', () => {
   it('daily / weekly / interval 各自轉給對應算式', () => {
     expect(nextFireDelayMs({ type: 'daily', hour: 18, minute: 0 } as ReminderSchedule, undefined, noonSunday)).toBe(6 * HOUR)
     expect(nextFireDelayMs({ type: 'weekly', days: [3], hour: 9, minute: 0 } as ReminderSchedule, undefined, noonSunday)).toBe(3 * DAY - 3 * HOUR)
-    // interval 沒有 lastTriggeredAt 時是 1 分鐘（現況，見 nextIntervalMs 那段註解）
-    expect(nextFireDelayMs({ type: 'interval', intervalMs: 2 * HOUR } as ReminderSchedule, undefined, noonSunday)).toBe(MIN_INTERVAL_MS)
+    expect(nextFireDelayMs({ type: 'interval', intervalMs: 2 * HOUR } as ReminderSchedule, undefined, noonSunday)).toBe(2 * HOUR)
     expect(nextFireDelayMs({ type: 'interval', intervalMs: 2 * HOUR } as ReminderSchedule, noonSunday.getTime() - HOUR, noonSunday)).toBe(HOUR)
   })
 

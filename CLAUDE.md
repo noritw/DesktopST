@@ -468,10 +468,11 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
     亂數用 `fixtures.ts` 的 `makeSeededRandom`）；**測試紅了先確認是程式錯還是測試寫錯**
     —— 導入時有四次是後者
   - 反向驗證過：故意改壞擲筊權重 → 精準抓到 1 項；改壞 trigger 措辭 → 精準抓到 3 項，皆不誤報
-  - ⚠️ **發現一個既有行為疑點**（非重構造成）：`nextIntervalMs` 在沒有
-    `lastTriggeredAt` 時（＝剛建立的 interval 提醒）回傳 `MIN_INTERVAL_MS`，
-    也就是「每 N 小時提醒」設好後**第一次是 1 分鐘後就跳**。
-    測試如實記錄現況並加註，**未擅自修改**（是產品決定）
+  - ✅ **順帶撞出並修掉一個既有 bug**（非重構造成，由自動測試發現）：
+    `nextIntervalMs` 在沒有 `lastTriggeredAt` 時（＝剛建立的 interval 提醒）
+    把「已經過的時間」當成一整個間隔 → 夾成 `MIN_INTERVAL_MS`，
+    「每 N 小時提醒」設好後**第一次是 1 分鐘後就跳**。
+    owner 2026-08-04 決議修正為字面語意（`elapsed` 改取 0），已加迴歸測試
 - [x] **隨機工具搬進 `core/`（2026-08-04）**
   - 原本**三份實作且機率已長歪**：御神籤與擲筊在桌面、`mobileServer`、`mobile.html`
     三處的權重互不相同（對照表見 `docs/mobile-html-feature-inventory.md` §4）
