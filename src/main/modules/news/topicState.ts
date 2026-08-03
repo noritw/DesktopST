@@ -1,27 +1,5 @@
 /**
- * 「後續聊天主題」狀態（單例）。
- * 使用者在新聞泡泡按「作為後續聊天主題」後，該則新聞釘成桌面上的主題泡泡；
- * 主題存在期間，角色「主動發話」（說點什麼 / 提醒）會圍繞這則聊，不再隨機抽新。
- * 同一時間只能有一個主題。
+ * 轉出檔：本體已搬到 src/core/news/topicState.ts（B1 抽 core）。
+ * 保留此路徑讓既有 import 不用改；新增檔案請直接 import core/。
  */
-export interface NewsTopic {
-  id: string
-  title: string
-  summary: string
-  url: string
-  source: string
-}
-
-let activeTopic: NewsTopic | null = null
-
-export function getActiveNewsTopic(): NewsTopic | null {
-  return activeTopic
-}
-
-export function setActiveNewsTopic(topic: NewsTopic | null): void {
-  activeTopic = topic
-}
-
-export function hasActiveNewsTopic(): boolean {
-  return activeTopic !== null
-}
+export * from '../../../core/news/topicState'
