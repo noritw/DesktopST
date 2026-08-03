@@ -1,9 +1,12 @@
+// 這三個套件都是純 JS、只吃 Uint8Array，桌面與手機（WebView）皆可用。
+// 宣告檔放 core/ 是因為 core 與 renderer 兩套 tsconfig 都要看得到它
+// （原本在 src/main/，只有 tsconfig.node 掃得到）。
 declare module 'png-chunks-extract' {
   interface PngChunk {
     name: string
     data: Uint8Array
   }
-  export default function extractChunks(data: Buffer | Uint8Array): PngChunk[]
+  export default function extractChunks(data: Uint8Array): PngChunk[]
 }
 
 declare module 'png-chunks-encode' {

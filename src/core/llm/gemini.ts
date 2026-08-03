@@ -1,44 +1,46 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
-import fs from 'fs'
-import path from 'path'
 import {
   buildSystemPrompt, buildTriggerMessage, buildTriggerTimeStr, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
   resolveModel, type ChatLLMParams, type ChatLLMResult
-} from './promptUtils'
+} from '../prompt/promptUtils'
+import { parseImageRef, mimeTypeFromPath } from './imageRef'
+import type { LLMDeps } from './deps'
+
+/**
+ * Gemini（Google）provider。
+ *
+ * 原 `src/main/llm/geminiAdapter.ts`，差異只有本機圖檔那個分支移除
+ * （由平台層先轉 data URI，見 `imageRef.ts`）。
+ *
+ * ⚠️ **這家 SDK 無法注入自訂 fetch**（`@google/generative-ai` v0.21 沒有該選項，
+ * 直接呼叫全域 `fetch`），所以 `deps` 收得到卻用不上。
+ * 手機端要靠 Capacitor 的全域 fetch patch 才能繞過 CORS——見 `deps.ts` 的表格。
+ * 參數仍然收著，是為了讓四家 provider 簽名一致，日後換 SDK 也不必再改一次。
+ *
+ * ⚠️ 本檔含刻意寫死的中文 prompt 字串（如「（開始對話）」佔位輪次），非 UI 文案。
+ *    依 roadmap §3.3 例外條款保留。
+ *
+ */
 
 type GeminiPart =
   | { text: string }
   | { inlineData: { data: string; mimeType: string } }
 
-function imageToGeminiPart(imgPath: string): GeminiPart {
-  let base64: string
-  let mimeType = 'image/png'
-
-  if (imgPath.startsWith('data:')) {
-    const match = imgPath.match(/^data:([^;]+);base64,(.+)$/)
-    if (match) {
-      mimeType = match[1]
-      base64 = match[2]
-    } else {
-      base64 = imgPath.split(',')[1] ?? ''
-    }
-  } else if (imgPath.startsWith('http://') || imgPath.startsWith('https://')) {
-    // Fetch remote image and convert to base64
-    // For now, use a placeholder — remote URLs handled differently
-    // In practice this branch is rare; most images are local attachments
-    return { text: `[image: ${imgPath}]` }
-  } else {
-    const filePath = imgPath.startsWith('file://') ? imgPath.slice(7) : imgPath
-    const ext = path.extname(filePath).toLowerCase()
-    if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg'
-    else if (ext === '.gif') mimeType = 'image/gif'
-    else if (ext === '.webp') mimeType = 'image/webp'
-    base64 = fs.readFileSync(filePath).toString('base64')
+function imageToGeminiPart(imgRef: string): GeminiPart {
+  const parsed = parseImageRef(imgRef)
+  if (parsed.kind === 'data') {
+    return { inlineData: { data: parsed.base64, mimeType: parsed.mimeType } }
   }
-  return { inlineData: { data: base64, mimeType } }
+  if (parsed.kind === 'remote') {
+    // 沿用搬移前的行為：遠端圖不下載，只留文字佔位。
+    return { text: `[image: ${parsed.url}]` }
+  }
+  throw new Error(
+    `local image path reached core LLM layer (expected platform to pre-resolve): ${parsed.path} [${mimeTypeFromPath(parsed.path)}]`
+  )
 }
 
-export async function chatWithGemini(params: ChatLLMParams): Promise<ChatLLMResult> {
+export async function chatWithGemini(params: ChatLLMParams, _deps: LLMDeps): Promise<ChatLLMResult> {
   const { settings, character, messages, images, speakerNameById, persona, world } = params
   const modelName = resolveModel(settings)
 

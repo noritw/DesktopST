@@ -12,7 +12,10 @@ export default defineConfig({
   renderer: {
     resolve: {
       alias: {
-        '@': resolve('src/renderer/src')
+        '@': resolve('src/renderer/src'),
+        // 前端直接吃 core/（純 TS、零 Node 依賴），避免邏輯在 renderer 重寫一份。
+        // 手機 UI（B3）會走同一個 alias。
+        '@core': resolve('src/core')
       }
     },
     plugins: [react()],

@@ -334,13 +334,72 @@ npm run typecheck # 型別檢查
   - `modules/news/settings.ts` 的 **load/save/normalize 留在 `main/`**（走檔案存取），
     只搬走上述 5 個純項目；`topicState` **設計零改動**（process 級單例，
     前提是同一 process 內不會有多個 DeST 實例，owner 2026-08-03 確認）
-  - ⚠️ **已知重複實作，尚未處理**：`src/renderer/src/modules/news/types.ts`
-    是手動同步的第二份，還自帶一份 `DEFAULT_KEYWORD_GROUP_ID` / `effectiveGroupId`。
-    這是 drift 來源，**B3（手機 UI）開工前必解**，解法選項見 roadmap §4.4 末段
-  - **確定卡住、要等 B2 定 adapter 介面**：`llm/index.ts` 與四家 provider adapter、
-    `llm/summarizer.ts`（依賴 `chatWithLLM`）、`modules/news/trigger.ts`（網路＋檔案）、
-    `pngUtils.ts`（`fs` ＋ `Buffer`）
-- [ ] **手機獨立版與平台擴充（B2 起待開工）** → `docs/multi-device-platform-roadmap.md`
+  - ~~⚠️ 已知重複實作~~ ✅ **已解**（B2）：`src/renderer/src/modules/news/types.ts`
+    改為薄轉出檔指向 `@core/news/`，既有 import 路徑一行未改；前端專屬的
+    `NewsPreviewItem` / `NewsPreviewResult` 與 UI 文案 `WEIGHT_LABELS` 等留在原檔
+  - ✅ **B1 收尾完成（2026-08-03）**，四塊全數搬完，所有呼叫端一行未改：
+    - `core/llm/{index,openai,claude,gemini}.ts`：主流程 ＋ 四家 provider。
+      改動只有加 `deps` 參數、SDK 注入 fetch、圖片本機路徑移出、錯誤代碼化，
+      其餘逐字沿用（已逐檔 diff 核對）。`main/llm/index.ts` 從 368 行縮成 68 行外殼
+    - `core/llm/summarizer.ts`：只多一個 `deps`（diff 三行）
+    - `core/news/trigger.ts`：新聞發話的**全部措辭**，prompt 字串逐字相同；
+      `markNewsSeen` 改純函式（算出新設定不存檔，存檔留 main）
+    - `core/reminder/nextFire.ts`：下次觸發時刻計算（daily／weekly／interval），
+      可注入 `now`。與搬移前在 20000 個隨機時刻上逐一比對，結果完全相同
+  - **圖片：`fs` 怎麼離開 `llm/`** —— provider 原本各自 `fs.readFileSync`。
+    改成平台層呼叫前先轉 data URI（`main/llm/imageResolver.ts`），
+    core 只認得 `data:` 與 `http(s):`。實務上使用者的圖一律已是 data URI，
+    那支通常一個檔案都不會讀。⚠️ 它必須**複製**而非就地修改 params，
+    否則會把 base64 寫進記憶體裡的對話物件
+  - **兩個搬移中才發現的問題**（紙上設計不會發現）：
+    - `HttpAdapter.fetch` 原本收窄成 `(input: string, ...)` 是錯的，
+      SDK 內部會傳 `Request` 進來 → 已改 `typeof globalThis.fetch`
+    - `@google/generative-ai` v0.21 **沒有 fetch 選項**，直接用全域 `fetch`。
+      Gemini 手機端要靠 Capacitor 全域 fetch patch 繞 CORS，不是靠注入
+  - **蓄意留在 `main/`（不是漏做）**：`modules/news/sources.ts`
+    （用了 `crypto.createHash` ＋ `rss-parser`，手機端替代方案是 **B4** 的決定）、
+    `news/settings.ts` 的 load/save、`reminderScheduler` 的 setTimeout／存檔／
+    `powerMonitor`、`llm/imageResolver.ts`
+
+- [x] **B2 Capacitor 骨架 ＋ 五個 adapter 介面（分支 `feat/mobile-standalone`）**
+  - **產出是介面，不是跑起來的手機 app**。`src/core/adapters/`（純型別）＋
+    `src/main/adapters/`（桌面實作，包裝既有能力、沒重寫任何邏輯）。
+    桌面實作**目前無呼叫端**，是並行路徑，桌面版行為零改動
+  - 五個介面：`StorageAdapter`（＋手機不實作的 `SyncStorageAdapter`）、
+    `SecretAdapter`、`HttpAdapter`、`SchedulerAdapter`、`NotifierAdapter`
+  - **設計決定見 roadmap §4.4b，照著走不要重新發明。** 最關鍵的兩條：
+    - 四家 LLM 走的是**官方 SDK 不是裸 HTTP**（roadmap §4.4 原本寫錯），
+      故 HTTP 介面做成 **`fetch` 同形**，把 adapter 注入 SDK 即可，
+      不必為跨平台重寫四家的請求對映；日後要拿掉 SDK 也不用改介面
+    - `HttpAdapter.supportsStreaming` 旗標容納 Capacitor 串流支援不佳（§4.3）：
+      **串流是加分項不是前提**，呼叫端先問旗標，false 走非串流路徑，不可當錯誤
+  - 其餘：儲存 key 是平台無關相對路徑（core 不認識絕對路徑）；二進位一律
+    `Uint8Array` 不用 `Buffer`；儲存留同步版給既有桌面路徑沿用（手機端不實作）；
+    金鑰維持同步（改非同步會擴散到整條存檔鏈）
+  - **兩個新的落地慣例**：core 拋**錯誤代碼**、平台層翻成中文文案
+    （`PngCardError` + `toUserFacingError`）；core 收「已讀好的資料」，
+    **不要讓 core 自己讀檔**（`pngCard` 就不需要 `StorageAdapter`）
+  - 順手搬完 `pngUtils`（當介面試金石）：`core/card/pngCard.ts` ＋
+    `core/util/base64.ts`（自寫——`Buffer` 是 Node 專屬，`atob`/`btoa` 型別
+    不在 `lib: ES2022` 裡，而 core 要被兩套 tsconfig 編譯）。
+    base64 已與 Node `Buffer` 逐位元組比對驗過
+  - **前端吃 core 已解決**：`tsconfig.json` 加 `src/core` 與 `@core/*`、
+    `electron.vite.config.ts` renderer alias 加 `@core`。手機 UI（B3）走同一套。
+    core 在 web tsconfig（無 `@types/node`）下編得過 ＝ 零 Node 依賴的硬證明
+  - Capacitor：`capacitor.config.ts`（`appId` = `tw.nori.dest`，發布後不可改）、
+    `src/mobile/README.md`。`@capacitor/*` 放 **devDependencies**，
+    否則會被 electron-builder 打進 `.exe`
+  - **刻意沒做**：`npx cap add android`（還沒有 `webDir`，生成的原生樹會過時，
+    等 B3 能 build 出 `out/mobile` 再說）、簽章 keystore（owner 未決定，
+    **不要自行產一把**）、預裝 Filesystem／LocalNotifications 等外掛（用到再裝）
+- [ ] **手機獨立版與平台擴充** → `docs/multi-device-platform-roadmap.md`
+  - ⚠️ **下一步不是 B3。** 2026-08-03 盤點發現規劃缺一塊、且 B1／B2 尚未實機驗證
+    → **先讀 `docs/pre-b3-work-assessment.md`**（含測試策略：哪些能自動測、
+    哪些只能 owner 手動測）。順序：驗證合併 → APK 試打 → **B2.7 `fileStore` 抽 core**
+    → B2.5 Lorebook core → B3
+  - **B2.7 是新增項目**：`fileStore` 989 行、128 處 `fs`，內含設定遷移等真邏輯；
+    五個 adapter 目前只有 HTTP 有呼叫端，**儲存／金鑰／排程／通知零呼叫端**。
+    不抽的話 B3 會在手機端重寫一份 → 最核心資料的 drift
   - **定位修正**：DeST 從「桌寵程式」擴張為「AI 角色聊天平台，有桌寵版與手機版」。
     目標客群的路徑（卿卿我我 → SillyTavern → DeST）起點在手機，一般使用者不見得有電腦
     → **手機獨立版是主線，不是進階選項**
