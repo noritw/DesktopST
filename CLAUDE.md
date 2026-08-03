@@ -375,6 +375,16 @@ npm run typecheck # 型別檢查
   - **已否決不要重提**：雲端同步後端、RTC 半夜喚醒、Relay 代排程、React Native、
     NAS 當 host（armv7 無 Electron 建置）、付費模式（理由見文件 §8）
 
+**提案中、尚未實作：**
+- **角色對使用者的印象（自動記憶）** → `docs/future-character-impression.md`
+  - 定位是「這個角色從相處中認識的我」，**不是** ChatGPT 式的全域使用者記憶；
+    與 Persona（我希望每個角色都知道的我）分工
+  - 記錄鍵是**角色 × Persona 兩個一起**（換 Persona 等於換一個「我」，關係分開算），
+    惰性建立、存 `impressions.json`，**不加欄位到角色卡**（私人資料不該隨卡片外流）
+  - 必須可全域開關 ＋ 可看可編可刪（owner 明確要求）；TRPG 情境**也保留**此功能，
+    但每筆要記下產生時的情境與時間，方便事後辨識該刪哪條
+  - **時機：等 `core/` 抽乾淨後再做**，否則桌面與手機會各寫一次（roadmap §4.1 的 drift）
+
 **尚未實作（第一版排除）：**
 - Lorebook
 - TTS（文字轉語音）
