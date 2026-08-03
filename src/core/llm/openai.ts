@@ -2,7 +2,15 @@ import OpenAI from 'openai'
 import {
   buildSystemPrompt, buildTriggerMessage, buildTriggerTimeStr, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
   resolveModel, type PromptCharacter, type ChatLLMParams, type ChatLLMResult
-} from './promptUtils'
+} from '../prompt/promptUtils'
+import type { LLMDeps } from './deps'
+
+/**
+ * OpenAI（與 OpenAI 相容的 Grok）provider。
+ *
+ * 原 `src/main/llm/openaiAdapter.ts`，唯一差異是 SDK 注入 `deps.http.fetch`。
+ * 這家原本就沒有讀本機檔案——圖片參照直接當 `image_url` 傳出去。
+ */
 
 function toOpenAIInputContent(text: string, images?: string[]) {
   const cleanText = sanitizePromptText(text)
@@ -43,13 +51,14 @@ function extractResponseText(resp: unknown): string {
 
 export { type PromptCharacter, type ChatLLMParams, type ChatLLMResult }
 
-export async function chatWithOpenAI(params: ChatLLMParams): Promise<ChatLLMResult> {
+export async function chatWithOpenAI(params: ChatLLMParams, deps: LLMDeps): Promise<ChatLLMResult> {
   const { settings, character, messages, images, speakerNameById, persona, world } = params
   const model = resolveModel(settings)
 
   const client = new OpenAI({
     apiKey: resolveApiKey(settings),
-    baseURL: settings.llm.endpoint || undefined
+    baseURL: settings.llm.endpoint || undefined,
+    fetch: deps.http.fetch
   })
 
   const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion, minimal: params.minimal, omitSystemTime: !params.isReminder })

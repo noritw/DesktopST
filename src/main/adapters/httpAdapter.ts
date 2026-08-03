@@ -9,6 +9,6 @@ import type { HttpAdapter } from '../../core/adapters'
  * 綁定 `globalThis` 是必要的：拆下來的 fetch 直接呼叫會拋 Illegal invocation。
  */
 export const electronHttp: HttpAdapter = {
-  fetch: (input: string, init?: RequestInit) => globalThis.fetch(input, init),
+  fetch: globalThis.fetch.bind(globalThis),
   supportsStreaming: true
 }

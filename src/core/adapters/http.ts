@@ -20,8 +20,14 @@
  * 不要寫出「假設一定拿得到 ReadableStream」的程式碼。
  */
 export interface HttpAdapter {
-  /** 與 WHATWG `fetch` 同形，可直接交給各家 SDK 的 `fetch` 選項。 */
-  fetch(input: string, init?: RequestInit): Promise<Response>
+  /**
+   * 與 WHATWG `fetch` 同形，可直接交給各家 SDK 的 `fetch` 選項。
+   *
+   * 型別直接取自環境的 `fetch`，不要自己收窄成 `(url: string, ...)`——
+   * SDK 內部會傳 `Request` 物件進來，收窄會讓它不能指派給 SDK 的 `fetch` 選項，
+   * 也就失去這個介面存在的意義。實作端負責把各種輸入正規化。
+   */
+  fetch: typeof globalThis.fetch
 
   /**
    * 此平台的 fetch 是否支援讀取串流回應主體。

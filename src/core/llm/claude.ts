@@ -1,45 +1,50 @@
 import Anthropic from '@anthropic-ai/sdk'
-import fs from 'fs'
-import path from 'path'
 import {
   buildSystemPrompt, buildTriggerMessage, buildTriggerTimeStr, buildEmotionIdList, parseEmotion, sanitizePromptText, messageSpeakerLabel, resolveApiKey,
   resolveModel, type ChatLLMParams, type ChatLLMResult
-} from './promptUtils'
+} from '../prompt/promptUtils'
+import { parseImageRef, mimeTypeFromPath } from './imageRef'
+import type { LLMDeps } from './deps'
+
+/**
+ * Claude（Anthropic）provider。
+ *
+ * 原 `src/main/llm/claudeAdapter.ts`。與搬移前的差異只有兩處：
+ * 1. `fs` / `path` 讀本機圖檔的分支移除——本機路徑由平台層在呼叫前轉成 data URI
+ *    （見 `imageRef.ts` 的說明）
+ * 2. SDK 注入 `deps.http.fetch`
+ *
+ * 其餘（訊息合併、交替規則、trigger 附加、debugPrompt 格式）逐字沿用。
+ *
+ * ⚠️ 本檔含刻意寫死的中文 prompt 字串（如「（開始對話）」佔位輪次），非 UI 文案。
+ *    依 roadmap §3.3 例外條款保留。
+ *
+ */
 
 type ClaudeContentBlock =
   | { type: 'text'; text: string }
   | { type: 'image'; source: { type: 'base64'; media_type: string; data: string } | { type: 'url'; url: string } }
 
-function imageToClaudePart(imgPath: string): ClaudeContentBlock {
-  if (imgPath.startsWith('http://') || imgPath.startsWith('https://')) {
-    return { type: 'image', source: { type: 'url', url: imgPath } }
+function imageToClaudePart(imgRef: string): ClaudeContentBlock {
+  const parsed = parseImageRef(imgRef)
+  if (parsed.kind === 'remote') {
+    return { type: 'image', source: { type: 'url', url: parsed.url } }
   }
-  let base64: string
-  let mimeType = 'image/png'
-  if (imgPath.startsWith('data:')) {
-    const match = imgPath.match(/^data:([^;]+);base64,(.+)$/)
-    if (match) {
-      mimeType = match[1]
-      base64 = match[2]
-    } else {
-      base64 = imgPath.split(',')[1] ?? ''
-    }
-  } else {
-    const filePath = imgPath.startsWith('file://') ? imgPath.slice(7) : imgPath
-    const ext = path.extname(filePath).toLowerCase()
-    if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg'
-    else if (ext === '.gif') mimeType = 'image/gif'
-    else if (ext === '.webp') mimeType = 'image/webp'
-    base64 = fs.readFileSync(filePath).toString('base64')
+  if (parsed.kind === 'data') {
+    return { type: 'image', source: { type: 'base64', media_type: parsed.mimeType, data: parsed.base64 } }
   }
-  return { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } }
+  // 平台層應該已經把本機路徑轉成 data URI；走到這裡代表漏轉了。
+  // 沿用搬移前的行為方向（讀不到就讓呼叫端知道），但不在 core 裡碰檔案系統。
+  throw new Error(
+    `local image path reached core LLM layer (expected platform to pre-resolve): ${parsed.path} [${mimeTypeFromPath(parsed.path)}]`
+  )
 }
 
-export async function chatWithClaude(params: ChatLLMParams): Promise<ChatLLMResult> {
+export async function chatWithClaude(params: ChatLLMParams, deps: LLMDeps): Promise<ChatLLMResult> {
   const { settings, character, messages, images, speakerNameById, persona, world } = params
   const model = resolveModel(settings)
 
-  const client = new Anthropic({ apiKey: resolveApiKey(settings) })
+  const client = new Anthropic({ apiKey: resolveApiKey(settings), fetch: deps.http.fetch })
   const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion, minimal: params.minimal, omitSystemTime: !params.isReminder })
 
   type ClaudeMessage = { role: 'user' | 'assistant'; content: string | ClaudeContentBlock[] }
