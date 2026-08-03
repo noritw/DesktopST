@@ -1,6 +1,15 @@
 import { powerMonitor } from 'electron'
 import * as fileStore from './fileStore'
+import { nextDailyMs, nextWeeklyMs, nextIntervalMs, validWeeklyDays, MIN_INTERVAL_MS } from '../core/reminder/nextFire'
 import type { Reminder } from './types'
+
+/**
+ * 提醒排程器（桌面端）。
+ *
+ * 「下一次是幾毫秒後」的計算已搬到 `core/reminder/nextFire.ts`——手機端的
+ * AlarmManager 需要同一套算式，算錯不會報錯、只會在錯的時間跳提醒。
+ * 這裡留下的是平台專屬的部分：setTimeout 排程、存檔、powerMonitor 閒置判斷。
+ */
 
 type TriggerFn = (reminder: Reminder) => Promise<void>
 
@@ -74,7 +83,7 @@ function scheduleOne(r: Reminder): void {
   }
 
   if (s.type === 'weekly') {
-    const days = Array.isArray(s.days) ? s.days.filter(d => d >= 0 && d <= 6) : []
+    const days = validWeeklyDays(s.days)
     if (days.length === 0) return
     const scheduleNextWeekly = () => {
       const delay = nextWeeklyMs(days, s.hour, s.minute)
@@ -91,9 +100,8 @@ function scheduleOne(r: Reminder): void {
   }
 
   if (s.type === 'interval') {
-    const intervalMs = Math.max(60_000, s.intervalMs)
-    const elapsed = r.lastTriggeredAt ? Date.now() - r.lastTriggeredAt : intervalMs
-    const firstDelay = Math.max(60_000, intervalMs - elapsed)
+    const intervalMs = Math.max(MIN_INTERVAL_MS, s.intervalMs)
+    const firstDelay = nextIntervalMs(s.intervalMs, r.lastTriggeredAt)
     const scheduleNextInterval = (delay: number) => {
       const t = setTimeout(() => {
         timers.delete(r.id)
@@ -129,26 +137,4 @@ async function fire(r: Reminder): Promise<void> {
   } catch (e) {
     console.error('[reminderScheduler] fire failed:', e)
   }
-}
-
-function nextDailyMs(hour: number, minute: number): number {
-  const now = new Date()
-  const target = new Date(now)
-  target.setHours(hour, minute, 0, 0)
-  if (target <= now) target.setDate(target.getDate() + 1)
-  return target.getTime() - now.getTime()
-}
-
-function nextWeeklyMs(days: number[], hour: number, minute: number): number {
-  const daySet = new Set(days)
-  const now = new Date()
-  for (let add = 0; add < 8; add++) {
-    const target = new Date(now)
-    target.setDate(now.getDate() + add)
-    target.setHours(hour, minute, 0, 0)
-    if (daySet.has(target.getDay()) && target > now) {
-      return target.getTime() - now.getTime()
-    }
-  }
-  return 7 * 24 * 60 * 60 * 1000
 }
