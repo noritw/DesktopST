@@ -14,6 +14,7 @@ export type {
   PresentCharacter,
   PresetListItem,
   PresetsApi,
-  SendMessageInput
+  SendMessageInput,
+  SettingsApi
 } from './types'
 export { DataError } from './types'

@@ -10,7 +10,8 @@ import type {
   MessagesApi,
   PresetListItem,
   PresetsApi,
-  SendMessageInput
+  SendMessageInput,
+  SettingsApi
 } from '@core/data'
 import type { Character, PersonaPreset, ScenePreset, WorldPreset } from '@core/types'
 import { HttpClient } from './httpClient'
@@ -140,6 +141,10 @@ export class RemoteDataSource implements DataSource {
     removePersona: async (): Promise<void> => { throw notYet('presets.removePersona', 5) },
     removeWorld: async (): Promise<void> => { throw notYet('presets.removeWorld', 5) },
     removeScene: async (): Promise<void> => { throw notYet('presets.removeScene', 5) }
+  }
+
+  readonly settings: SettingsApi = {
+    setColorTheme: async (theme) => { await this.http.post('/api/settings/color-theme', { theme }) }
   }
 
   private fetchPresets(): Promise<{

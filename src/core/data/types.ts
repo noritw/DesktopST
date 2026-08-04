@@ -225,6 +225,17 @@ export interface PresetsApi {
   removeScene(id: string): Promise<void>
 }
 
+/**
+ * 設定。目前只有主題，其餘（API Key、模型、記憶參數⋯⋯）在階段 4 補齊。
+ *
+ * ⚠️ **主題不是手機的本機偏好**，是 `settings.ui.colorTheme` 的一部分。
+ * 只存在手機上的話，換裝置或重新整理就會不一致 ——
+ * owner 2026-08-04 回報「配色不會儲存、也不會和桌面同步」正是這個。
+ */
+export interface SettingsApi {
+  setColorTheme(theme: ColorTheme): Promise<void>
+}
+
 export interface DataSource {
   readonly capabilities: Capabilities
 
@@ -240,6 +251,7 @@ export interface DataSource {
   readonly messages: MessagesApi
   readonly characters: CharactersApi
   readonly presets: PresetsApi
+  readonly settings: SettingsApi
 }
 
 /**

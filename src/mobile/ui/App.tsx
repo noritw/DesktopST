@@ -26,6 +26,7 @@ export function App(): JSX.Element {
   const ready = useAppStore((s) => s.ready)
   const status = useAppStore((s) => s.status)
   const loadError = useAppStore((s) => s.loadError)
+  const remoteTheme = useAppStore((s) => s.snapshot?.colorTheme)
   const refresh = useAppStore((s) => s.refresh)
   const headerRef = useRef<HTMLElement>(null)
 
@@ -34,6 +35,17 @@ export function App(): JSX.Element {
   useEffect(() => {
     applyTheme(theme, document.documentElement, document)
   }, [theme])
+
+  /**
+   * 跟著電腦端的主題走（`settings.ui.colorTheme`）。
+   *
+   * 這也是為什麼手機不需要自己存一份：真相在電腦那邊，每次載入與每次
+   * `state-invalidated` 重抓都會帶回來 —— 包含在電腦上改的、或情境切換
+   * 連帶改的（`ScenePreset.colorTheme`）。
+   */
+  useEffect(() => {
+    if (remoteTheme) useUiStore.getState().setTheme(remoteTheme)
+  }, [remoteTheme])
 
   // header 高度給 toast 定位用（見 ToastHost）。不寫死：會隨安全區域與內容變動。
   useEffect(() => {

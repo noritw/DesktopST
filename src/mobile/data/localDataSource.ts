@@ -7,7 +7,8 @@ import type {
   DataSource,
   MessagesApi,
   PresetsApi,
-  SendMessageInput
+  SendMessageInput,
+  SettingsApi
 } from '@core/data'
 
 /**
@@ -93,6 +94,10 @@ export class LocalDataSource implements DataSource {
     removePersona: () => Promise.reject(pending('presets.removePersona', 5)),
     removeWorld: () => Promise.reject(pending('presets.removeWorld', 5)),
     removeScene: () => Promise.reject(pending('presets.removeScene', 5))
+  }
+
+  readonly settings: SettingsApi = {
+    setColorTheme: () => Promise.reject(pending('settings.setColorTheme', 4))
   }
 }
 

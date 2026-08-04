@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets, getDataDir } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect } from './ipcHandlers'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, setColorThemeDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import { loadNewsModuleSettings } from './modules/news/settings'
@@ -539,6 +539,7 @@ function initMobileServer(): void {
     getActivePersonaId: () => getSettings().activePersonaId,
     getActiveWorldId: () => getSettings().activeWorldId,
     getColorTheme: () => getSettings().ui.colorTheme ?? 'mint',
+    setColorTheme: (theme) => setColorThemeDirect(theme),
     getRandomToolsEnabled: () => getSettings().ui.randomToolsEnabled !== false,
     getMaxImagesPerMessage: () => getSettings().llm?.maxImagesPerMessage ?? 5,
     shouldIncludeDeviceNameInPrompt: () => getSettings().mobile?.enabled === true,

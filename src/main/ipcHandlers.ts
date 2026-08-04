@@ -3,7 +3,7 @@ import { checkForUpdates } from './updateChecker'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo } from './types'
+import type { AppSettings, Character, ColorTheme, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo } from './types'
 import { MESSAGE_REACTION_EMOJIS } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM, generateLoreEntryForCharacter } from './llm/index'
@@ -556,6 +556,21 @@ export function activatePersonaDirect(id: string): boolean {
   const preset = fileStore.loadPersonaPreset(id)
   if (!preset) return false
   settings.activePersonaId = id
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return true
+}
+
+/**
+ * 從手機端變更色彩主題。
+ *
+ * 主題是**電腦端設定的一部分**（`settings.ui.colorTheme`），不是手機的本機偏好——
+ * `mobile.html` 一直是唯讀地跟著電腦跑。手機要能改，就得寫回這裡，
+ * 否則會變成「改了看起來有效、重新整理就跳回去」（owner 2026-08-04 回報）。
+ */
+export function setColorThemeDirect(theme: ColorTheme): boolean {
+  if (settings.ui.colorTheme === theme) return true
+  settings.ui.colorTheme = theme
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return true

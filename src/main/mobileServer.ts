@@ -43,6 +43,7 @@ export interface MobileBridge {
   getRandomToolsEnabled: () => boolean
   getMaxImagesPerMessage: () => number
   shouldIncludeDeviceNameInPrompt: () => boolean
+  setColorTheme: (theme: import('./types').ColorTheme) => boolean
   deleteMessage: (id: string) => boolean
   editMessage: (id: string, content: string) => boolean
   resendMessage: (id: string) => Promise<{ ok: boolean } | { error: string }>
@@ -200,6 +201,9 @@ function sanitizeIncomingImages(raw: unknown, maxImages: number): string[] {
   }
   return out
 }
+
+/** 允許的主題值。信任邊界上要夾，不能讓任意字串寫進設定。 */
+const MOBILE_COLOR_THEMES: string[] = ['mint', 'butter', 'peach', 'aqua', 'sky', 'blush', 'lavender', 'white', 'dark']
 
 // ── HTTP 路由 ─────────────────────────────────────────────
 
@@ -520,6 +524,22 @@ async function handleRequest(
     if (!payload.id) { jsonError(res, 400, 'id required'); return }
     const ok = bridge.activateWorld(payload.id)
     jsonOk(res, { ok })
+    return
+  }
+
+  // ── POST /api/settings/color-theme ──
+  // 主題是電腦端設定的一部分，手機改了要寫回來，否則重新整理就跳回舊的。
+  if (method === 'POST' && url === '/api/settings/color-theme') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { theme?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    const theme = String(payload.theme ?? '')
+    if (!MOBILE_COLOR_THEMES.includes(theme)) { jsonError(res, 400, 'Unknown theme'); return }
+    bridge.setColorTheme(theme as import('./types').ColorTheme)
+    // 讓其他已連線的裝置重抓（它們收到後會呼叫 fetchState）。
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, { ok: true })
     return
   }
 
