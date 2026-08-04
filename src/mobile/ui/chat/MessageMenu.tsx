@@ -69,7 +69,13 @@ export function MessageMenu({ messageId }: { messageId: string }): JSX.Element {
         {message.content || '（沒有文字內容）'}
       </p>
 
-      <MenuItem icon="🔄" label="重新發送" hint="刪掉這則之後的內容並重新產生回覆" onClick={() => void resend()} />
+      {/* ⚠️ **只有使用者訊息能重送。**
+          電腦端明文擋著（`ipcHandlers.ts:639`「只能重新發送使用者訊息」），
+          對角色訊息顯示這一項等於給一顆必定失敗的按鈕 ——
+          與 D5 那顆移出鈕同一種錯。 */}
+      {message.role === 'user' && (
+        <MenuItem icon="🔄" label="重新發送" hint="刪掉這則之後的內容並重新產生回覆" onClick={() => void resend()} />
+      )}
       <MenuItem icon="✏️" label="編輯" hint="改內容，不會重新產生回覆" onClick={() => void edit()} />
       <MenuItem icon="🗑" label="刪除" destructive onClick={() => void remove()} />
     </div>

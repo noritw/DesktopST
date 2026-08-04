@@ -75,48 +75,59 @@ function MessageRow({ message, characterName }: { message: MessageSnapshot; char
           <Avatar characterId={message.characterId} size={30} />
         </div>
       )}
-      <div className={`min-w-0 max-w-[78%] ${isUser ? '' : 'flex-1'}`}>
+      <div className={`min-w-0 ${isUser ? 'max-w-[86%]' : 'flex-1'}`}>
         {!isUser && characterName && (
           <div className="mb-0.5 ml-1 text-xs text-[var(--text-sub)]">{characterName}</div>
         )}
-        <div
-          className={`anim-pop-in whitespace-pre-wrap break-words rounded-[16px] px-3.5 py-2.5 text-[15px] leading-relaxed ${
-            isUser
-              ? 'bg-[var(--user-bubble)] text-[var(--text)]'
-              : 'border border-[var(--border)] bg-[var(--surface)] text-[var(--text)]'
-          } ${isOptimistic(message) ? 'opacity-60' : ''}`}
-        >
-          {/* 結果徽章（清單 C5）。放在內容之前，與桌面版及 mobile.html 一致 ——
-              「先看擲出什麼、再看說了什麼」才是這條訊息的閱讀順序。
-              `randomResult` 是舊欄位，只有舊對話還帶著它。 */}
-          {(message.randomResults ?? (message.randomResult ? [message.randomResult] : [])).map(
-            (r, i) => (
-              <div key={i} className="mb-1 text-[13px] text-[var(--text-sub)]">
-                {formatRandomBadge(r)}
-              </div>
-            )
+
+        {/*
+         * 泡泡與 ⋯ 同一列並 `items-center`，⋯ 才會對齊泡泡的垂直中央。
+         *
+         * ⚠️ **不能把 ⋯ 放在最外層那個 flex 裡**：那一層是 `items-start`
+         * （頭像要對齊第一行，這是聊天 UI 的慣例），於是 ⋯ 會被拉到右上角，
+         * 訊息越長看起來越歪 —— owner 2026-08-05 回報的正是這個。
+         * 名字那一行留在外面，不然 ⋯ 會被它一起算進去而偏低。
+         */}
+        <div className={`flex items-center gap-1 ${isUser ? 'justify-end' : ''}`}>
+          <div
+            className={`anim-pop-in min-w-0 whitespace-pre-wrap break-words rounded-[16px] px-3.5 py-2.5 text-[15px] leading-relaxed ${
+              isUser
+                ? 'bg-[var(--user-bubble)] text-[var(--text)]'
+                : 'border border-[var(--border)] bg-[var(--surface)] text-[var(--text)]'
+            } ${isOptimistic(message) ? 'opacity-60' : ''}`}
+          >
+            {/* 結果徽章（清單 C5）。放在內容之前，與桌面版及 mobile.html 一致 ——
+                「先看擲出什麼、再看說了什麼」才是這條訊息的閱讀順序。
+                `randomResult` 是舊欄位，只有舊對話還帶著它。 */}
+            {(message.randomResults ?? (message.randomResult ? [message.randomResult] : [])).map(
+              (r, i) => (
+                <div key={i} className="mb-1 text-[13px] text-[var(--text-sub)]">
+                  {formatRandomBadge(r)}
+                </div>
+              )
+            )}
+            {message.content}
+            {message.imageCount ? (
+              <MessageImages messageId={message.id} count={message.imageCount} />
+            ) : null}
+          </div>
+
+          {/* 訊息選單入口（清單 A6）。
+              **樂觀渲染那則不給** —— 伺服器還不認得那個 id，按下去一定失敗。
+              常駐而不是長按叫出：長按在 WebView 裡會跟系統的選字選單打架，
+              而且沒有任何提示告訴使用者「這裡可以長按」。 */}
+          {!isOptimistic(message) && (
+            <button
+              type="button"
+              aria-label="訊息選單"
+              onClick={() => useUiStore.getState().push('message-menu', message.id)}
+              className="shrink-0 self-center px-1.5 py-2 text-sm leading-none text-[var(--text-sub)] opacity-45 active:opacity-100"
+            >
+              ⋯
+            </button>
           )}
-          {message.content}
-          {message.imageCount ? (
-            <MessageImages messageId={message.id} count={message.imageCount} />
-          ) : null}
         </div>
       </div>
-
-      {/* 訊息選單入口（清單 A6）。
-          **樂觀渲染那則不給** —— 伺服器還不認得那個 id，按下去一定失敗。
-          常駐而不是長按叫出：長按在 WebView 裡會跟系統的選字選單打架，
-          而且沒有任何提示告訴使用者「這裡可以長按」。 */}
-      {!isOptimistic(message) && (
-        <button
-          type="button"
-          aria-label="訊息選單"
-          onClick={() => useUiStore.getState().push('message-menu', message.id)}
-          className="mt-3 shrink-0 px-1 text-sm leading-none text-[var(--text-sub)] opacity-45 active:opacity-100"
-        >
-          ⋯
-        </button>
-      )}
     </div>
   )
 }
