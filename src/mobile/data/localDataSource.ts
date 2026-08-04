@@ -6,6 +6,7 @@ import type {
   ConversationsApi,
   DataSource,
   MessagesApi,
+  LorebooksApi,
   PresetsApi,
   SendMessageInput,
   SettingsApi
@@ -70,6 +71,12 @@ export class LocalDataSource implements DataSource {
     get: () => Promise.reject(pending('characters.get', 3)),
     save: () => Promise.reject(pending('characters.save', 3)),
     remove: () => Promise.reject(pending('characters.remove', 3)),
+    create: () => Promise.reject(pending('characters.create', 3)),
+    saveAvatar: () => Promise.reject(pending('characters.saveAvatar', 3)),
+    importCard: () => Promise.reject(pending('characters.importCard', 3)),
+    exportCard: () => Promise.reject(pending('characters.exportCard', 3)),
+    importPack: () => Promise.reject(pending('characters.importPack', 3)),
+    exportPack: () => Promise.reject(pending('characters.exportPack', 3)),
     setPresent: () => Promise.reject(pending('characters.setPresent', 2)),
     toggleMute: () => Promise.reject(pending('characters.toggleMute', 2)),
     speak: () => Promise.reject(pending('characters.speak', 2)),
@@ -98,6 +105,10 @@ export class LocalDataSource implements DataSource {
 
   readonly settings: SettingsApi = {
     setColorTheme: () => Promise.reject(pending('settings.setColorTheme', 4))
+  }
+
+  readonly lorebooks: LorebooksApi = {
+    list: () => Promise.reject(pending('lorebooks.list', 3))
   }
 }
 

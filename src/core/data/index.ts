@@ -1,8 +1,11 @@
 export type {
   AppStateSnapshot,
   Capabilities,
+  CardFile,
   CharacterListItem,
   CharactersApi,
+  LorebooksApi,
+  PackConflictPolicy,
   ConversationListItem,
   ConversationSnapshot,
   ConversationsApi,

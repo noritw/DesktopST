@@ -2,8 +2,10 @@ import { DataError } from '@core/data'
 import type {
   AppStateSnapshot,
   Capabilities,
+  CardFile,
   CharacterListItem,
   CharactersApi,
+  LorebooksApi,
   ConversationListItem,
   ConversationsApi,
   DataSource,
@@ -14,6 +16,7 @@ import type {
   SettingsApi
 } from '@core/data'
 import type { Character, PersonaPreset, ScenePreset, WorldPreset } from '@core/types'
+import { base64ToBytes, bytesToBase64 } from '@core/util/base64'
 import { HttpClient } from './httpClient'
 import type { HttpClientOptions } from './httpClient'
 
@@ -24,9 +27,8 @@ import type { HttpClientOptions } from './httpClient'
  *
  * ## ⚠️ 尚未有對應端點的方法
  *
- * `mobileServer` 現有 29 個端點**全是讀取與「套用」，沒有任何寫入端點**
- * （角色卡、預設組、設定都不能改）。編輯類方法因此暫時擲出 `not-supported`，
- * 端點會在 B3 階段 3（角色）／階段 5（預設組）補上。
+ * 階段 3 已補上角色卡的寫入端點（建立／存檔／刪除／主圖／匯入匯出）。
+ * **預設組**的寫入仍缺（階段 5），那幾支因此暫時擲出 `not-supported`。
  *
  * **不用「假裝成功」或悄悄退化成唯讀** —— 那會讓使用者以為存檔了。
  * 擲錯誤，UI 顯示「這台電腦的版本還不支援」，是誠實且可行動的。
@@ -110,9 +112,40 @@ export class RemoteDataSource implements DataSource {
       const d = await this.http.get<{ characters: { id: string; name: string; onDesktop: boolean }[] }>('/api/characters/library')
       return d.characters.map((c): CharacterListItem => ({ id: c.id, name: c.name, present: c.onDesktop }))
     },
-    get: async (): Promise<Character> => { throw notYet('characters.get', 3) },
-    save: async (): Promise<void> => { throw notYet('characters.save', 3) },
-    remove: async (): Promise<void> => { throw notYet('characters.remove', 3) },
+    get: async (id) =>
+      (await this.http.get<{ character: Character }>(`/api/characters/card/${encodeURIComponent(id)}`)).character,
+    save: async (character) => { await this.http.post('/api/characters/save', { character }) },
+    remove: async (id) => { await this.http.post('/api/characters/delete', { id }) },
+    create: async (name) =>
+      (await this.http.post<{ character: Character }>('/api/characters/create', { name })).character,
+
+    saveAvatar: async (id, image) =>
+      (await this.http.post<{ avatar: string }>('/api/characters/avatar', {
+        id,
+        data: bytesToBase64(image.bytes),
+        ext: image.ext
+      })).avatar,
+
+    // 二進位一律 base64 過 JSON：`HttpClient` 只講 JSON，為了匯入匯出另開一條
+    // 二進位通道會讓認證與錯誤翻譯多一份實作（正是 httpClient 檔頭要避免的）。
+    importCard: async (file) =>
+      (await this.http.post<{ character: Character }>('/api/characters/import-card', {
+        kind: file.kind,
+        data: bytesToBase64(file.bytes)
+      })).character,
+    exportCard: async (id, kind) => toCardFile(
+      await this.http.post<{ data: string; filename: string }>('/api/characters/export-card', { id, kind })
+    ),
+
+    importPack: async (bytes, opts) =>
+      this.http.post<{ imported: number; skipped: number }>('/api/characters/import-pack', {
+        data: bytesToBase64(bytes),
+        onConflict: opts.onConflict,
+        applyGlobalSettings: opts.applyGlobalSettings
+      }),
+    exportPack: async (ids, opts) => toCardFile(
+      await this.http.post<{ data: string; filename: string }>('/api/characters/export-pack', { ids, ...opts })
+    ),
 
     setPresent: async (id, present) => {
       const r = await this.http.post<{ ok: boolean }>(
@@ -157,6 +190,10 @@ export class RemoteDataSource implements DataSource {
     setColorTheme: async (theme) => { await this.http.post('/api/settings/color-theme', { theme }) }
   }
 
+  readonly lorebooks: LorebooksApi = {
+    list: async () => (await this.http.get<{ lorebooks: PresetListItem[] }>('/api/lorebooks')).lorebooks
+  }
+
   private fetchPresets(): Promise<{
     personas: PresetListItem[]
     worlds: PresetListItem[]
@@ -167,6 +204,10 @@ export class RemoteDataSource implements DataSource {
     // 刻意不快取：呼叫端是 UI 開啟選單時才問，量很小，快取反而要處理失效。
     return this.http.get('/api/presets')
   }
+}
+
+function toCardFile(r: { data: string; filename: string }): CardFile {
+  return { bytes: base64ToBytes(r.data), filename: r.filename }
 }
 
 /** 電腦端還沒有對應端點。標明會在哪個階段補上，免得日後只看到一句 not-supported。 */

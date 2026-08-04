@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets, getDataDir } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, setColorThemeDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect } from './ipcHandlers'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, setColorThemeDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect, createCharacterDirect, saveCharacterDirect, deleteCharacterDirect, saveCharacterAvatarDirect, importCharacterPngDirect, importCharacterJsonDirect, exportCharacterPngDirect, exportCharacterJsonDirect, buildDstPackDirect, importDstPackDirect, listLorebooksDirect } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import { loadNewsModuleSettings } from './modules/news/settings'
@@ -546,6 +546,23 @@ function initMobileServer(): void {
     deleteMessage: deleteMessageDirect,
     editMessage: editMessageDirect,
     resendMessage: resendMessageDirect,
+    // 角色卡寫入（B3 階段 3）：與桌面 IPC 共用同一批 `*Direct`
+    getCharacterCard: (id) => getCharacters().find(c => c.id === id) ?? null,
+    createCharacter: createCharacterDirect,
+    saveCharacter: saveCharacterDirect,
+    deleteCharacter: deleteCharacterDirect,
+    saveCharacterAvatar: (id, buffer, ext) => saveCharacterAvatarDirect({ id, buffer, ext }),
+    importCharacterPng: importCharacterPngDirect,
+    importCharacterJson: (json) => importCharacterJsonDirect({ json }),
+    exportCharacterPng: exportCharacterPngDirect,
+    exportCharacterJson: exportCharacterJsonDirect,
+    buildDstPack: buildDstPackDirect,
+    importDstPack: (buffer, opts) => importDstPackDirect(buffer, {
+      // 手機端沒有「彈對話框問」這個選項，策略在請求裡就決定好了。
+      onConflict: async () => opts.onConflict,
+      confirmGlobalSettings: async () => opts.applyGlobalSettings
+    }),
+    listLorebooks: () => listLorebooksDirect(),
     getRemoteControlSettings: () => getSettings().remoteControl,
     setRemoteControlEnabled: (enabled: boolean) => {
       const s = getSettings()

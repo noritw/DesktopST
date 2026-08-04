@@ -164,6 +164,21 @@ export interface MessagesApi {
   resend(messageId: string): Promise<void>
 }
 
+/**
+ * 角色卡檔案（匯入匯出）。
+ *
+ * ⚠️ **二進位一律 `Uint8Array`，不用 `Buffer`**（roadmap §4.4b）：`Buffer` 是 Node 專屬，
+ * core 必須在瀏覽器 tsconfig 下也編得過。base64 編解碼在平台層做。
+ */
+export interface CardFile {
+  bytes: Uint8Array
+  /** 建議檔名（含副檔名）。UI 拿去當下載檔名，不必自己拼。 */
+  filename: string
+}
+
+/** 匯入 DST Pack 時遇到「本機已有同 id／同名角色」怎麼辦。 */
+export type PackConflictPolicy = 'skip' | 'overwrite' | 'new'
+
 export interface CharactersApi {
   /** 角色庫清單（含是否在場）。 */
   list(): Promise<CharacterListItem[]>
@@ -171,6 +186,38 @@ export interface CharactersApi {
   get(id: string): Promise<Character>
   save(character: Character): Promise<void>
   remove(id: string): Promise<void>
+  /**
+   * 建立一張空白角色卡並存檔，回傳完整卡（含新的 id）。
+   *
+   * ⚠️ **id 由資料來源產生，不由 UI 產生。** 遙控模式下 id 必須是電腦端認得的那一個；
+   * 而手機上 `crypto.randomUUID()` 在非安全內容（`http://192.168.x.x`）根本不存在
+   * —— 計畫書 §4.10 第 3 點踩過同一個坑。
+   */
+  create(name: string): Promise<Character>
+
+  /**
+   * 換主圖。回傳新的 `avatar` 欄位值（平台自訂：桌面是檔案路徑、手機是沙箱路徑）。
+   *
+   * 呼叫端拿到之後要寫回草稿再 `save()` —— 與桌面版 `character:save-avatar` 同語意：
+   * **圖檔先落地、角色卡後存**，這樣中途放棄編輯不會留下半張壞卡。
+   */
+  saveAvatar(id: string, image: { bytes: Uint8Array; ext: string }): Promise<string>
+
+  /** 匯入單張角色卡（SillyTavern PNG 或 JSON）。回傳建立出來的角色。 */
+  importCard(file: { bytes: Uint8Array; kind: 'png' | 'json' }): Promise<Character>
+  /** 匯出單張角色卡。 */
+  exportCard(id: string, kind: 'png' | 'json'): Promise<CardFile>
+
+  /** 匯入 DST Pack（多角色 ＋ 可選的世界觀／使用者）。 */
+  importPack(
+    bytes: Uint8Array,
+    opts: { onConflict: PackConflictPolicy; applyGlobalSettings: boolean }
+  ): Promise<{ imported: number; skipped: number }>
+  /** 打包 DST Pack。`includeLorebooks` 預設不勾（私人資料，規格 §7.3）。 */
+  exportPack(
+    ids: string[],
+    opts: { includeGlobalSettings: boolean; includeLorebooks: boolean }
+  ): Promise<CardFile>
 
   setPresent(id: string, present: boolean): Promise<void>
   toggleMute(id: string): Promise<boolean>
@@ -236,6 +283,17 @@ export interface SettingsApi {
   setColorTheme(theme: ColorTheme): Promise<void>
 }
 
+/**
+ * 用語解說（Lorebook）。
+ *
+ * B3 階段 3 只需要**清單**：角色卡編輯器要讓使用者勾「這個角色帶哪幾本」
+ * （`Character.lorebookIds`，疊加式）。條目的編輯本身屬於世界觀那塊（階段 5），
+ * 現在就把 get／save 放進來只會是一組沒有呼叫端的方法。
+ */
+export interface LorebooksApi {
+  list(): Promise<PresetListItem[]>
+}
+
 export interface DataSource {
   readonly capabilities: Capabilities
 
@@ -252,6 +310,7 @@ export interface DataSource {
   readonly characters: CharactersApi
   readonly presets: PresetsApi
   readonly settings: SettingsApi
+  readonly lorebooks: LorebooksApi
 }
 
 /**

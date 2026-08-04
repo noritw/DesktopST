@@ -647,6 +647,358 @@ export async function resendMessageDirect(id: string): Promise<{ ok: boolean } |
   return _mobileSendImpl({ content, randomResult })
 }
 
+// ── 角色卡寫入（B3 階段 3）────────────────────────────────
+//
+// 這一整段是 IPC handler 與 mobileServer **共用**的實作。
+// 手機端要能編角色，就必須有同一套邏輯；各寫一份的結果是
+// 「桌面存得起來、手機存出一張壞卡」而且沒有任何錯誤訊息（roadmap §4.1 的 drift）。
+// 因此下面每一支都由 `registerIpcHandlers` 裡對應的 handler 直接呼叫，**不重複實作**。
+
+/** 空白角色卡的欄位預設值。與 `CharacterLibraryWindow.handleNew` 同一份。 */
+export function createCharacterDirect(name?: string): Character {
+  const now = Date.now()
+  const char: Character = {
+    id: uuidv4(),
+    name: name?.trim() || '新角色',
+    nicknames: [],
+    avatar: '',
+    description: '',
+    personality: '',
+    firstMessage: '',
+    exampleDialogue: '',
+    emotions: {},
+    scenario: '',
+    systemPromptOverride: '',
+    creatorNotes: '',
+    createdAt: now,
+    updatedAt: now
+  }
+  saveCharacterDirect(char)
+  return char
+}
+
+export function saveCharacterDirect(char: Character): true {
+  char.updatedAt = Date.now()
+  const idx = characters.findIndex(c => c.id === char.id)
+  if (idx >= 0) characters[idx] = char
+  else characters.push(char)
+  fileStore.saveCharacter(char)
+  broadcastToAll('characters:updated', characters)
+  return true
+}
+
+export function deleteCharacterDirect(id: string): true {
+  characters = characters.filter(c => c.id !== id)
+  fileStore.deleteCharacter(id)
+  // Remove from desktop if present
+  settings.ui.desktopCharacters = settings.ui.desktopCharacters.filter(d => d.characterId !== id)
+  fileStore.saveSettings(settings)
+  closeCharacterWindow(id)
+  broadcastToAll('characters:updated', characters)
+  broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
+  return true
+}
+
+export function saveCharacterAvatarDirect(payload: { id: string; buffer: ArrayBuffer; ext: string }): { path: string } | { error: string } {
+  try {
+    const ext = normalizeImageExt(payload.ext)
+    if (!ALLOWED_IMAGE_EXT.has(ext)) return { error: '不支援的圖片格式' }
+    const buf = Buffer.from(payload.buffer ?? new ArrayBuffer(0))
+    if (buf.length > MAX_MEDIA_BYTES) return { error: '檔案超過 10 MB 上限' }
+    const dir = safeCharacterDir(payload.id)
+    if (!dir) return { error: 'Character not found' }
+    const dest = path.join(dir, `avatar-${Date.now()}${ext}`)
+    fs.writeFileSync(dest, buf)
+    cleanupOldAvatarFiles(dir, dest)
+    return { path: dest }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+export function importCharacterPngDirect(buffer: ArrayBuffer): Character | { error: string } {
+  try {
+    const buf = Buffer.from(buffer ?? new ArrayBuffer(0))
+    if (buf.length > MAX_MEDIA_BYTES) return { error: '檔案超過 10 MB 上限' }
+    let jsonStr: string
+    try {
+      jsonStr = extractCharaJson(buf)
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(jsonStr)
+    } catch {
+      return { error: '內容無法解析為有效角色卡資料' }
+    }
+    const id = uuidv4()
+    let char = importStJson(parsed, id)
+    char = attachCharacterBookOnImport(parsed, char)
+    const dir = path.join(fileStore.getDataDir(), 'characters', id)
+    fs.mkdirSync(dir, { recursive: true })
+    const avatarPath = path.join(dir, 'avatar.png')
+    fs.writeFileSync(avatarPath, buf)
+    char = { ...char, avatar: avatarPath }
+    characters.push(char)
+    fileStore.saveCharacter(char)
+    broadcastToAll('characters:updated', characters)
+    return char
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+export function importCharacterJsonDirect(payload: ImportJsonPayload): Character | { error: string } {
+  try {
+    const { json, sourcePath, replaceCharacterId } = normalizeImportJsonPayload(payload)
+    const raw = JSON.parse(json)
+    const existing = replaceCharacterId
+      ? characters.find(c => c.id === replaceCharacterId)
+      : undefined
+    const id = existing?.id ?? uuidv4()
+    let char = importStJson(raw, id)
+    char = attachCharacterBookOnImport(raw, char)
+    char = resolveAssetsFromSourcePath(char, sourcePath)
+    if (existing) {
+      char = mergeImportedCharacterForOverwrite(existing, char)
+    }
+
+    const idx = characters.findIndex(c => c.id === char.id)
+    if (idx >= 0) characters[idx] = char
+    else characters.push(char)
+    fileStore.saveCharacter(char)
+    broadcastToAll('characters:updated', characters)
+    return char
+  } catch (e) {
+    return { error: String(e) }
+  }
+}
+
+export function exportCharacterJsonDirect(char: Character): { json: string } | { error: string } {
+  try {
+    return { json: exportToStJson(char) }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+export function exportCharacterPngDirect(char: Character): { buffer: ArrayBuffer } | { error: string } {
+  try {
+    if (!char?.id?.trim() || !char?.name?.trim()) {
+      return { error: '角色資料不完整' }
+    }
+    const appRoot = app.getAppPath()
+    let baseBuf: Buffer
+    if (char.avatar && fs.existsSync(char.avatar)) {
+      baseBuf = fs.readFileSync(char.avatar)
+    } else {
+      baseBuf = getExportPngBaseBuffer(appRoot)
+    }
+    const jsonStr = exportToStJson(char)
+    const out = embedCharaJson(baseBuf, jsonStr)
+    return { buffer: toArrayBuffer(out) }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+export async function buildDstPackDirect(payload: { characterIds: string[]; includeGlobalSettings: boolean; includeLorebooks?: boolean }): Promise<{ buffer: ArrayBuffer } | { error: string }> {
+  try {
+    const ids = Array.isArray(payload?.characterIds) ? payload.characterIds.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : []
+    if (ids.length === 0) return { error: '尚未選擇任何角色' }
+    // 用語解說預設不外流（§7.3）；勾選時只帶這些角色與當前世界觀實際掛的那幾本
+    const lorebooks: Lorebook[] = []
+    if (payload?.includeLorebooks) {
+      const wanted = new Set<string>()
+      for (const id of ids) for (const bid of getCharacter(id)?.lorebookIds ?? []) wanted.add(bid)
+      for (const bid of getActiveWorld()?.lorebookIds ?? []) wanted.add(bid)
+      for (const bid of wanted) {
+        const book = fileStore.loadLorebook(bid)
+        if (book) lorebooks.push(book)
+      }
+    }
+    const buf = await buildDstPackBuffer({
+      lorebooks,
+      charsRoot: path.join(fileStore.getDataDir(), 'characters'),
+      characterIds: ids,
+      includeGlobalSettings: !!payload?.includeGlobalSettings,
+      settings,
+      persona: getActivePersona(),
+      world: getActiveWorld()
+    })
+    return { buffer: toArrayBuffer(buf) }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** Buffer → 該段位元組的 ArrayBuffer 複本（IPC 與 HTTP 都只能傳這個）。 */
+function toArrayBuffer(buf: Buffer): ArrayBuffer {
+  return new Uint8Array(buf).buffer
+}
+
+/** 用語解說清單（只有 id 與名字）。角色卡編輯器的綁定用。 */
+export function listLorebooksDirect(): { id: string; name: string }[] {
+  return fileStore.loadLorebooks().map(b => ({ id: b.id, name: b.name }))
+}
+
+/** 匯入 DST Pack 遇到同 id ／同名角色時的處置。 */
+export type DstPackConflictChoice = 'overwrite' | 'new' | 'skip'
+
+/**
+ * 匯入 DST Pack 時要問使用者的兩件事。
+ *
+ * **抽成回呼是為了讓手機端也能用同一份匯入邏輯**：桌面版彈 `dialog.showMessageBox`，
+ * 手機端則由使用者在**送出前**就選好策略，一律套用（電腦前面沒有人，
+ * 彈一個對話框在電腦上等著按等於讓手機那邊卡住直到有人回家）。
+ */
+export interface DstPackImportResolvers {
+  onConflict: (info: { name: string; reason: 'same-id' | 'same-name' }) => Promise<DstPackConflictChoice>
+  confirmGlobalSettings: () => Promise<boolean>
+}
+
+export async function importDstPackDirect(
+  buffer: ArrayBuffer,
+  resolvers: DstPackImportResolvers
+): Promise<{ ok: true; imported: number; skipped: number } | { error: string }> {
+  try {
+    const buf = Buffer.from(buffer ?? new ArrayBuffer(0))
+    if (buf.length < 32) return { error: '檔案過小或已損毀' }
+    const { parsed, zip } = await loadDstPackZip(buf)
+    // 用語解說：本機已有同 id 就視為同一本、不覆蓋使用者手邊的版本
+    for (const book of parsed.lorebooks) {
+      if (book?.id && !fileStore.loadLorebook(book.id)) fileStore.saveLorebook(book)
+    }
+    if (parsed.lorebooks.length > 0) broadcastToAll('lorebooks:updated', null)
+    const charsRoot = path.join(fileStore.getDataDir(), 'characters')
+    let imported = 0
+    let skipped = 0
+
+    for (const prefix of parsed.characterZipPrefixes) {
+      const segs = prefix.split('/').filter(Boolean)
+      const packFolderId = segs[1] ?? ''
+      if (!packFolderId) continue
+
+      const charPreview = await readCharacterFromZip(zip, prefix)
+      const idHit = characters.find(c => c.id === charPreview.id)
+      const nameHit = characters.find(
+        c => c.name.trim().toLowerCase() === charPreview.name.trim().toLowerCase()
+      )
+
+      let targetDirId = charPreview.id
+
+      if (idHit) {
+        const choice = await resolvers.onConflict({ name: charPreview.name, reason: 'same-id' })
+        if (choice === 'skip') {
+          skipped++
+          continue
+        }
+        if (choice === 'new') {
+          targetDirId = uuidv4()
+        } else {
+          targetDirId = charPreview.id
+          fs.rmSync(path.join(charsRoot, targetDirId), { recursive: true, force: true })
+        }
+      } else if (nameHit && nameHit.id !== charPreview.id) {
+        const choice = await resolvers.onConflict({ name: charPreview.name, reason: 'same-name' })
+        if (choice === 'skip') {
+          skipped++
+          continue
+        }
+        if (choice === 'new') {
+          targetDirId = uuidv4()
+        } else {
+          targetDirId = nameHit.id
+          fs.rmSync(path.join(charsRoot, targetDirId), { recursive: true, force: true })
+        }
+      }
+
+      const destDir = path.join(charsRoot, targetDirId)
+      await extractCharacterDirFromZip(zip, prefix, destDir)
+
+      let diskCard: Character
+      try {
+        diskCard = JSON.parse(fs.readFileSync(path.join(destDir, 'card.json'), 'utf-8')) as Character
+      } catch {
+        diskCard = charPreview
+      }
+      diskCard.id = targetDirId
+      diskCard.updatedAt = Date.now()
+      if (!diskCard.createdAt) diskCard.createdAt = Date.now()
+      const fixed = fixCharacterPathsAfterImport(diskCard, destDir)
+      fileStore.saveCharacter(fixed)
+      const idx = characters.findIndex(c => c.id === fixed.id)
+      if (idx >= 0) characters[idx] = fixed
+      else characters.push(fixed)
+      imported++
+    }
+
+    broadcastToAll('characters:updated', characters)
+
+    if (parsed.manifest.includeGlobalSettings && parsed.globalPartial) {
+      const g = parsed.globalPartial
+      if (await resolvers.confirmGlobalSettings()) {
+        const now = Date.now()
+        if (g.persona) {
+          const personaName = (g.personaName && g.personaName.trim()) || '匯入的使用者'
+          const existingPersona = fileStore.loadPersonaPresets().find(p => p.name === personaName)
+          const personaPreset: PersonaPreset = existingPersona
+            ? {
+                ...existingPersona,
+                displayName: g.persona.displayName ?? '使用者',
+                nickname: g.persona.nickname ?? '主人',
+                description: g.persona.description ?? '',
+                updatedAt: now
+              }
+            : {
+                id: uuidv4(),
+                name: personaName,
+                displayName: g.persona.displayName ?? '使用者',
+                nickname: g.persona.nickname ?? '主人',
+                description: g.persona.description ?? '',
+                builtIn: false,
+                createdAt: now,
+                updatedAt: now
+              }
+          fileStore.savePersonaPreset(personaPreset)
+          settings.activePersonaId = personaPreset.id
+        }
+        if (g.worldSetting || g.interactionExample) {
+          const worldName = (g.worldName && g.worldName.trim()) || '匯入的世界觀'
+          const existingWorld = fileStore.loadWorldPresets().find(w => w.name === worldName)
+          const worldPreset: WorldPreset = existingWorld
+            ? {
+                ...existingWorld,
+                worldSetting: g.worldSetting ?? '',
+                interactionExample: g.interactionExample ?? '',
+                updatedAt: now
+              }
+            : {
+                id: uuidv4(),
+                name: worldName,
+                worldSetting: g.worldSetting ?? '',
+                interactionExample: g.interactionExample ?? '',
+                builtIn: false,
+                createdAt: now,
+                updatedAt: now
+              }
+          fileStore.saveWorldPreset(worldPreset)
+          settings.activeWorldId = worldPreset.id
+        }
+        settings.injectSystemTime = !!g.injectSystemTime
+        fileStore.saveSettings(settings)
+        broadcastToAll('settings:updated', settings)
+        broadcastToAll('presets:updated', null)
+      }
+    }
+
+    return { ok: true as const, imported, skipped }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 export function initState(
   s: AppSettings,
   chars: Character[],
@@ -2327,27 +2679,9 @@ export function registerIpcHandlers() {
   // Characters
   ipcMain.handle('characters:list', () => characters)
 
-  ipcMain.handle('character:save', (_, char: Character) => {
-    char.updatedAt = Date.now()
-    const idx = characters.findIndex(c => c.id === char.id)
-    if (idx >= 0) characters[idx] = char
-    else characters.push(char)
-    fileStore.saveCharacter(char)
-    broadcastToAll('characters:updated', characters)
-    return true
-  })
+  ipcMain.handle('character:save', (_, char: Character) => saveCharacterDirect(char))
 
-  ipcMain.handle('character:delete', (_, id: string) => {
-    characters = characters.filter(c => c.id !== id)
-    fileStore.deleteCharacter(id)
-    // Remove from desktop if present
-    settings.ui.desktopCharacters = settings.ui.desktopCharacters.filter(d => d.characterId !== id)
-    fileStore.saveSettings(settings)
-    closeCharacterWindow(id)
-    broadcastToAll('characters:updated', characters)
-    broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
-    return true
-  })
+  ipcMain.handle('character:delete', (_, id: string) => deleteCharacterDirect(id))
 
   ipcMain.handle('character-library:open', (_, payload?: { mode?: 'home' | 'edit'; characterId?: string }) => {
     try {
@@ -2359,293 +2693,54 @@ export function registerIpcHandlers() {
     }
   })
 
-  ipcMain.handle('character:import-png', (_, payload: { buffer: ArrayBuffer }) => {
-    try {
-      const buf = Buffer.from(payload.buffer ?? new ArrayBuffer(0))
-      if (buf.length > MAX_MEDIA_BYTES) return { error: '檔案超過 10 MB 上限' }
-      let jsonStr: string
-      try {
-        jsonStr = extractCharaJson(buf)
-      } catch (e) {
-        return { error: e instanceof Error ? e.message : String(e) }
-      }
-      let parsed: unknown
-      try {
-        parsed = JSON.parse(jsonStr)
-      } catch {
-        return { error: '內容無法解析為有效角色卡資料' }
-      }
-      const id = uuidv4()
-      let char = importStJson(parsed, id)
-      char = attachCharacterBookOnImport(parsed, char)
-      const dir = path.join(fileStore.getDataDir(), 'characters', id)
-      fs.mkdirSync(dir, { recursive: true })
-      const avatarPath = path.join(dir, 'avatar.png')
-      fs.writeFileSync(avatarPath, buf)
-      char = { ...char, avatar: avatarPath }
-      characters.push(char)
-      fileStore.saveCharacter(char)
-      broadcastToAll('characters:updated', characters)
-      return char
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) }
-    }
-  })
+  ipcMain.handle('character:import-png', (_, payload: { buffer: ArrayBuffer }) =>
+    importCharacterPngDirect(payload?.buffer ?? new ArrayBuffer(0)))
 
-  ipcMain.handle('character:export-json', (_, char: Character) => {
-    try {
-      return { json: exportToStJson(char) }
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) }
-    }
-  })
+  ipcMain.handle('character:export-json', (_, char: Character) => exportCharacterJsonDirect(char))
 
-  ipcMain.handle('character:export-png', (_, char: Character) => {
-    try {
-      if (!char?.id?.trim() || !char?.name?.trim()) {
-        return { error: '角色資料不完整' }
-      }
-      const appRoot = app.getAppPath()
-      let baseBuf: Buffer
-      if (char.avatar && fs.existsSync(char.avatar)) {
-        baseBuf = fs.readFileSync(char.avatar)
-      } else {
-        baseBuf = getExportPngBaseBuffer(appRoot)
-      }
-      const jsonStr = exportToStJson(char)
-      const out = embedCharaJson(baseBuf, jsonStr)
-      const arrayBuffer = out.buffer.slice(out.byteOffset, out.byteOffset + out.byteLength)
-      return { buffer: arrayBuffer }
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) }
-    }
-  })
+  ipcMain.handle('character:export-png', (_, char: Character) => exportCharacterPngDirect(char))
 
-  ipcMain.handle('character:build-dstpack', async (_, payload: { characterIds: string[]; includeGlobalSettings: boolean; includeLorebooks?: boolean }) => {
-    try {
-      const ids = Array.isArray(payload?.characterIds) ? payload.characterIds.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : []
-      if (ids.length === 0) return { error: '尚未選擇任何角色' }
-      // 用語解說預設不外流（§7.3）；勾選時只帶這些角色與當前世界觀實際掛的那幾本
-      const lorebooks: Lorebook[] = []
-      if (payload?.includeLorebooks) {
-        const wanted = new Set<string>()
-        for (const id of ids) for (const bid of getCharacter(id)?.lorebookIds ?? []) wanted.add(bid)
-        for (const bid of getActiveWorld()?.lorebookIds ?? []) wanted.add(bid)
-        for (const bid of wanted) {
-          const book = fileStore.loadLorebook(bid)
-          if (book) lorebooks.push(book)
-        }
-      }
-      const buf = await buildDstPackBuffer({
-        lorebooks,
-        charsRoot: path.join(fileStore.getDataDir(), 'characters'),
-        characterIds: ids,
-        includeGlobalSettings: !!payload?.includeGlobalSettings,
-        settings,
-        persona: getActivePersona(),
-        world: getActiveWorld()
-      })
-      const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
-      return { buffer: arrayBuffer }
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) }
-    }
-  })
+  ipcMain.handle('character:build-dstpack', (_, payload: { characterIds: string[]; includeGlobalSettings: boolean; includeLorebooks?: boolean }) =>
+    buildDstPackDirect(payload))
 
   ipcMain.handle('character:import-dstpack', async (event, payload: { buffer: ArrayBuffer }) => {
-    try {
-      const win = BrowserWindow.fromWebContents(event.sender)
-      const buffer = Buffer.from(payload?.buffer ?? new ArrayBuffer(0))
-      if (buffer.length < 32) return { error: '檔案過小或已損毀' }
-      const { parsed, zip } = await loadDstPackZip(buffer)
-      // 用語解說：本機已有同 id 就視為同一本、不覆蓋使用者手邊的版本
-      for (const book of parsed.lorebooks) {
-        if (book?.id && !fileStore.loadLorebook(book.id)) fileStore.saveLorebook(book)
-      }
-      if (parsed.lorebooks.length > 0) broadcastToAll('lorebooks:updated', null)
-      const charsRoot = path.join(fileStore.getDataDir(), 'characters')
-      let imported = 0
-      let skipped = 0
-
-      const conflictBox = {
-        type: 'question' as const,
-        buttons: ['覆蓋', '建立新角色', '取消匯入此角色'],
-        defaultId: 2,
-        cancelId: 2,
-        title: 'DesktopST'
-      }
-
-      for (const prefix of parsed.characterZipPrefixes) {
-        const segs = prefix.split('/').filter(Boolean)
-        const packFolderId = segs[1] ?? ''
-        if (!packFolderId) continue
-
-        const charPreview = await readCharacterFromZip(zip, prefix)
-        const idHit = characters.find(c => c.id === charPreview.id)
-        const nameHit = characters.find(
-          c => c.name.trim().toLowerCase() === charPreview.name.trim().toLowerCase()
-        )
-
-        let targetDirId = charPreview.id
-
-        if (idHit) {
-          const r = win && !win.isDestroyed()
-            ? await dialog.showMessageBox(win, {
-              ...conflictBox,
-              message: `角色「${charPreview.name}」匯入衝突`,
-              detail: '本機已存在相同角色 ID。要覆蓋、建立成另一個角色，或略過此角色？'
-            })
-            : await dialog.showMessageBox({
-              ...conflictBox,
-              message: `角色「${charPreview.name}」匯入衝突`,
-              detail: '本機已存在相同角色 ID。要覆蓋、建立成另一個角色，或略過此角色？'
-            })
-          if (r.response === 2) {
-            skipped++
-            continue
-          }
-          if (r.response === 1) {
-            targetDirId = uuidv4()
-          } else {
-            targetDirId = charPreview.id
-            fs.rmSync(path.join(charsRoot, targetDirId), { recursive: true, force: true })
-          }
-        } else if (nameHit && nameHit.id !== charPreview.id) {
-          const r = win && !win.isDestroyed()
-            ? await dialog.showMessageBox(win, {
-              ...conflictBox,
-              message: `角色「${charPreview.name}」匯入衝突`,
-              detail: '本機已存在同名但不同 ID 的角色。要覆蓋本機同名角色、建立成另一個角色，或略過此角色？'
-            })
-            : await dialog.showMessageBox({
-              ...conflictBox,
-              message: `角色「${charPreview.name}」匯入衝突`,
-              detail: '本機已存在同名但不同 ID 的角色。要覆蓋本機同名角色、建立成另一個角色，或略過此角色？'
-            })
-          if (r.response === 2) {
-            skipped++
-            continue
-          }
-          if (r.response === 1) {
-            targetDirId = uuidv4()
-          } else {
-            targetDirId = nameHit.id
-            fs.rmSync(path.join(charsRoot, targetDirId), { recursive: true, force: true })
-          }
-        }
-
-        const destDir = path.join(charsRoot, targetDirId)
-        await extractCharacterDirFromZip(zip, prefix, destDir)
-
-        let diskCard: Character
-        try {
-          diskCard = JSON.parse(fs.readFileSync(path.join(destDir, 'card.json'), 'utf-8')) as Character
-        } catch {
-          diskCard = charPreview
-        }
-        diskCard.id = targetDirId
-        diskCard.updatedAt = Date.now()
-        if (!diskCard.createdAt) diskCard.createdAt = Date.now()
-        const fixed = fixCharacterPathsAfterImport(diskCard, destDir)
-        fileStore.saveCharacter(fixed)
-        const idx = characters.findIndex(c => c.id === fixed.id)
-        if (idx >= 0) characters[idx] = fixed
-        else characters.push(fixed)
-        imported++
-      }
-
-      broadcastToAll('characters:updated', characters)
-
-      if (parsed.manifest.includeGlobalSettings && parsed.globalPartial) {
-        const g = parsed.globalPartial
-        const dialogOpts = {
-          type: 'question' as const,
-          buttons: ['套用', '不要套用'],
-          defaultId: 1,
+    // 匯入邏輯與手機端共用（`importDstPackDirect`）；桌面版的差別只有
+    // 「怎麼問使用者」—— 這裡用系統對話框，手機端則是事先選好的策略。
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const ask = async (opts: Electron.MessageBoxOptions): Promise<number> => {
+      const r = win && !win.isDestroyed()
+        ? await dialog.showMessageBox(win, opts)
+        : await dialog.showMessageBox(opts)
+      return r.response
+    }
+    return importDstPackDirect(payload?.buffer ?? new ArrayBuffer(0), {
+      onConflict: async ({ name, reason }) => {
+        const response = await ask({
+          type: 'question',
+          buttons: ['覆蓋', '建立新角色', '取消匯入此角色'],
+          defaultId: 2,
+          cancelId: 2,
           title: 'DesktopST',
-          message: '此封裝包含世界觀與使用者資訊',
-          detail: '是否套用匯入的世界觀與使用者資訊？（不會變更 API Key）'
-        }
-        const r = win && !win.isDestroyed()
-          ? await dialog.showMessageBox(win, dialogOpts)
-          : await dialog.showMessageBox(dialogOpts)
-        if (r.response === 0) {
-          const now = Date.now()
-          if (g.persona) {
-            const personaName = (g.personaName && g.personaName.trim()) || '匯入的使用者'
-            const existingPersona = fileStore.loadPersonaPresets().find(p => p.name === personaName)
-            const personaPreset: PersonaPreset = existingPersona
-              ? {
-                  ...existingPersona,
-                  displayName: g.persona.displayName ?? '使用者',
-                  nickname: g.persona.nickname ?? '主人',
-                  description: g.persona.description ?? '',
-                  updatedAt: now
-                }
-              : {
-                  id: uuidv4(),
-                  name: personaName,
-                  displayName: g.persona.displayName ?? '使用者',
-                  nickname: g.persona.nickname ?? '主人',
-                  description: g.persona.description ?? '',
-                  builtIn: false,
-                  createdAt: now,
-                  updatedAt: now
-                }
-            fileStore.savePersonaPreset(personaPreset)
-            settings.activePersonaId = personaPreset.id
-          }
-          if (g.worldSetting || g.interactionExample) {
-            const worldName = (g.worldName && g.worldName.trim()) || '匯入的世界觀'
-            const existingWorld = fileStore.loadWorldPresets().find(w => w.name === worldName)
-            const worldPreset: WorldPreset = existingWorld
-              ? {
-                  ...existingWorld,
-                  worldSetting: g.worldSetting ?? '',
-                  interactionExample: g.interactionExample ?? '',
-                  updatedAt: now
-                }
-              : {
-                  id: uuidv4(),
-                  name: worldName,
-                  worldSetting: g.worldSetting ?? '',
-                  interactionExample: g.interactionExample ?? '',
-                  builtIn: false,
-                  createdAt: now,
-                  updatedAt: now
-                }
-            fileStore.saveWorldPreset(worldPreset)
-            settings.activeWorldId = worldPreset.id
-          }
-          settings.injectSystemTime = !!g.injectSystemTime
-          fileStore.saveSettings(settings)
-          broadcastToAll('settings:updated', settings)
-          broadcastToAll('presets:updated', null)
-        }
-      }
-
-      return { ok: true as const, imported, skipped }
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) }
-    }
+          message: `角色「${name}」匯入衝突`,
+          detail: reason === 'same-id'
+            ? '本機已存在相同角色 ID。要覆蓋、建立成另一個角色，或略過此角色？'
+            : '本機已存在同名但不同 ID 的角色。要覆蓋本機同名角色、建立成另一個角色，或略過此角色？'
+        })
+        return response === 2 ? 'skip' : response === 1 ? 'new' : 'overwrite'
+      },
+      confirmGlobalSettings: async () => await ask({
+        type: 'question',
+        buttons: ['套用', '不要套用'],
+        defaultId: 1,
+        title: 'DesktopST',
+        message: '此封裝包含世界觀與使用者資訊',
+        detail: '是否套用匯入的世界觀與使用者資訊？（不會變更 API Key）'
+      }) === 0
+    })
   })
 
-  ipcMain.handle('character:save-avatar', (_, payload: { id: string; buffer: ArrayBuffer; ext: string }) => {
-    try {
-      const ext = normalizeImageExt(payload.ext)
-      if (!ALLOWED_IMAGE_EXT.has(ext)) return { error: '不支援的圖片格式' }
-      const buf = Buffer.from(payload.buffer ?? new ArrayBuffer(0))
-      if (buf.length > MAX_MEDIA_BYTES) return { error: '檔案超過 10 MB 上限' }
-      const dir = safeCharacterDir(payload.id)
-      if (!dir) return { error: 'Character not found' }
-      const dest = path.join(dir, `avatar-${Date.now()}${ext}`)
-      fs.writeFileSync(dest, buf)
-      cleanupOldAvatarFiles(dir, dest)
-      return { path: dest }
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) }
-    }
-  })
+  ipcMain.handle('character:save-avatar', (_, payload: { id: string; buffer: ArrayBuffer; ext: string }) =>
+    saveCharacterAvatarDirect(payload))
 
   ipcMain.handle('character:save-emotion-sprite', (_, payload: { id: string; filename: string; buffer: ArrayBuffer; ext: string }) => {
     try {
@@ -4004,31 +4099,7 @@ export function registerIpcHandlers() {
   })
 
   // Import ST/DesktopST character card (JSON); supports overwrite mode.
-  ipcMain.handle('character:import-json', (_, payload: ImportJsonPayload) => {
-    try {
-      const { json, sourcePath, replaceCharacterId } = normalizeImportJsonPayload(payload)
-      const raw = JSON.parse(json)
-      const existing = replaceCharacterId
-        ? characters.find(c => c.id === replaceCharacterId)
-        : undefined
-      const id = existing?.id ?? uuidv4()
-      let char = importStJson(raw, id)
-      char = attachCharacterBookOnImport(raw, char)
-      char = resolveAssetsFromSourcePath(char, sourcePath)
-      if (existing) {
-        char = mergeImportedCharacterForOverwrite(existing, char)
-      }
-
-      const idx = characters.findIndex(c => c.id === char.id)
-      if (idx >= 0) characters[idx] = char
-      else characters.push(char)
-      fileStore.saveCharacter(char)
-      broadcastToAll('characters:updated', characters)
-      return char
-    } catch (e) {
-      return { error: String(e) }
-    }
-  })
+  ipcMain.handle('character:import-json', (_, payload: ImportJsonPayload) => importCharacterJsonDirect(payload))
 
   // ── Persona Presets ──────────────────────────────────────
   ipcMain.handle('presets:persona:list', () => fileStore.loadPersonaPresets())

@@ -47,6 +47,24 @@ export interface MobileBridge {
   deleteMessage: (id: string) => boolean
   editMessage: (id: string, content: string) => boolean
   resendMessage: (id: string) => Promise<{ ok: boolean } | { error: string }>
+  // ── 角色卡寫入（B3 階段 3）──
+  // 手機端要能建立與編輯角色，這些是唯一的入口。實作與桌面 IPC 共用
+  // 同一批 `*Direct`（`ipcHandlers.ts`），不另寫一份。
+  getCharacterCard: (id: string) => import('./types').Character | null
+  createCharacter: (name?: string) => import('./types').Character
+  saveCharacter: (char: import('./types').Character) => void
+  deleteCharacter: (id: string) => void
+  saveCharacterAvatar: (id: string, buffer: ArrayBuffer, ext: string) => { path: string } | { error: string }
+  importCharacterPng: (buffer: ArrayBuffer) => import('./types').Character | { error: string }
+  importCharacterJson: (json: string) => import('./types').Character | { error: string }
+  exportCharacterPng: (char: import('./types').Character) => { buffer: ArrayBuffer } | { error: string }
+  exportCharacterJson: (char: import('./types').Character) => { json: string } | { error: string }
+  buildDstPack: (payload: { characterIds: string[]; includeGlobalSettings: boolean; includeLorebooks?: boolean }) => Promise<{ buffer: ArrayBuffer } | { error: string }>
+  importDstPack: (
+    buffer: ArrayBuffer,
+    opts: { onConflict: 'skip' | 'overwrite' | 'new'; applyGlobalSettings: boolean }
+  ) => Promise<{ ok: true; imported: number; skipped: number } | { error: string }>
+  listLorebooks: () => { id: string; name: string }[]
   getRemoteControlSettings: () => import('./types').RemoteControlSettings | undefined
   setRemoteControlEnabled: (enabled: boolean) => { ok: true } | { error: string }
   touchAllowedRemoteDevice?: (device: { id: string; nickname: string; label?: string }) => void
@@ -200,6 +218,58 @@ function sanitizeIncomingImages(raw: unknown, maxImages: number): string[] {
     if (out.length >= Math.max(1, maxImages)) break
   }
   return out
+}
+
+// ── 角色卡的信任邊界處理（B3 階段 3）──────────────────────
+
+/**
+ * 把手機送來的角色卡併回本機那張。
+ *
+ * **只接受文字欄位。** `avatar` / `emotions` / `spriteIds` 一律沿用本機既有值 ——
+ * 那些是電腦上的**檔案路徑**，而 `GET /api/avatar/:id` 會照著它讀檔並回傳內容。
+ * 讓遠端指定路徑等於開一個「讀取電腦上任意檔案」的洞。
+ * 手機換主圖只能走 `/api/characters/avatar`（圖檔由電腦端自己落地、自己命名）。
+ *
+ * `id` / `createdAt` 同樣以本機為準：改 id 等於偷偷換掉另一張卡。
+ */
+function mergeCharacterFromRemote(
+  existing: import('./types').Character,
+  incoming: Partial<import('./types').Character>
+): import('./types').Character {
+  const str = (v: unknown, max: number, fallback = ''): string =>
+    typeof v === 'string' ? v.slice(0, max) : fallback
+  const strList = (v: unknown, max: number): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, 50).map(s => s.slice(0, max)) : []
+
+  return {
+    ...existing,
+    name: str(incoming.name, 100, existing.name),
+    nicknames: strList(incoming.nicknames, 40),
+    description: str(incoming.description, 20000),
+    personality: str(incoming.personality, 20000),
+    firstMessage: str(incoming.firstMessage, 20000),
+    exampleDialogue: str(incoming.exampleDialogue, 20000),
+    scenario: str(incoming.scenario, 20000),
+    creatorNotes: str(incoming.creatorNotes, 20000),
+    systemPromptOverride: str(incoming.systemPromptOverride, 20000),
+    newsKeywords: strList(incoming.newsKeywords, 40),
+    lorebookIds: strList(incoming.lorebookIds, 100)
+  }
+}
+
+/** 匯出檔名：去掉路徑分隔與控制字元，避免使用者的角色名變成一段路徑。 */
+function safeFileBase(name: string): string {
+  const cleaned = name.replace(/[\\/:*?"<>| -]/g, '_').trim()
+  return cleaned.slice(0, 60) || 'character'
+}
+
+/** 收 base64（可含 `data:` 前綴）→ ArrayBuffer；空的或不是字串回 null。 */
+function decodeBase64Payload(data: unknown): ArrayBuffer | null {
+  if (typeof data !== 'string' || !data) return null
+  const b64 = data.includes(',') ? data.slice(data.indexOf(',') + 1) : data
+  const buf = Buffer.from(b64, 'base64')
+  if (buf.length === 0) return null
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)
 }
 
 /** 允許的主題值。信任邊界上要夾，不能讓任意字串寫進設定。 */
@@ -739,6 +809,140 @@ async function handleRequest(
     return
   }
 
+  // ── 角色卡讀寫（B3 階段 3）────────────────────────────────
+  //
+  // ⚠️ **這裡是信任邊界。** 手機送來的角色卡不可以整包直接存：
+  // `avatar` / `emotions` / `spriteIds` 是**本機檔案路徑**，
+  // 讓外部指定等於「叫 GET /api/avatar/:id 去讀電腦上任何一個檔案」。
+  // 圖片一律只能經 `/api/characters/avatar` 落地，見 `mergeCharacterFromRemote`。
+
+  const cardMatch = url.match(/^\/api\/characters\/card\/(.+)$/)
+  if (method === 'GET' && cardMatch) {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const card = bridge.getCharacterCard(decodeURIComponent(cardMatch[1]))
+    if (!card) { jsonError(res, 404, 'Character not found'); return }
+    jsonOk(res, { character: card })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/characters/create') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ name?: string }>(req, res)
+    if (!payload) return
+    jsonOk(res, { character: bridge.createCharacter(String(payload.name ?? '').slice(0, 100)) })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/characters/save') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ character?: unknown }>(req, res)
+    if (!payload) return
+    const incoming = payload.character as Partial<import('./types').Character> | undefined
+    const id = typeof incoming?.id === 'string' ? incoming.id : ''
+    const existing = id ? bridge.getCharacterCard(id) : null
+    if (!existing) { jsonError(res, 404, 'Character not found'); return }
+    if (!String(incoming?.name ?? '').trim()) { jsonError(res, 400, '角色名稱不可空白'); return }
+    bridge.saveCharacter(mergeCharacterFromRemote(existing, incoming ?? {}))
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/characters/delete') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ id?: string }>(req, res)
+    if (!payload) return
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    if (!bridge.getCharacterCard(payload.id)) { jsonError(res, 404, 'Character not found'); return }
+    bridge.deleteCharacter(payload.id)
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/characters/avatar') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ id?: string; data?: string; ext?: string }>(req, res, MEDIA_MAX_BODY)
+    if (!payload) return
+    const bytes = decodeBase64Payload(payload.data)
+    if (!payload.id || !bytes) { jsonError(res, 400, 'id and data required'); return }
+    const r = bridge.saveCharacterAvatar(payload.id, bytes, String(payload.ext ?? '.png'))
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { avatar: r.path })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/characters/import-card') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ kind?: string; data?: string }>(req, res, MEDIA_MAX_BODY)
+    if (!payload) return
+    const bytes = decodeBase64Payload(payload.data)
+    if (!bytes) { jsonError(res, 400, 'data required'); return }
+    const r = payload.kind === 'json'
+      ? bridge.importCharacterJson(Buffer.from(bytes).toString('utf-8'))
+      : bridge.importCharacterPng(bytes)
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, { character: r })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/characters/export-card') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ id?: string; kind?: string }>(req, res)
+    if (!payload) return
+    const card = payload.id ? bridge.getCharacterCard(payload.id) : null
+    if (!card) { jsonError(res, 404, 'Character not found'); return }
+    if (payload.kind === 'json') {
+      const r = bridge.exportCharacterJson(card)
+      if ('error' in r) { jsonError(res, 400, r.error); return }
+      jsonOk(res, { data: Buffer.from(r.json, 'utf-8').toString('base64'), filename: `${safeFileBase(card.name)}.json` })
+      return
+    }
+    const r = bridge.exportCharacterPng(card)
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { data: Buffer.from(r.buffer).toString('base64'), filename: `${safeFileBase(card.name)}.png` })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/characters/export-pack') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ ids?: unknown; includeGlobalSettings?: boolean; includeLorebooks?: boolean }>(req, res)
+    if (!payload) return
+    const ids = Array.isArray(payload.ids) ? payload.ids.filter((x): x is string => typeof x === 'string') : []
+    const r = await bridge.buildDstPack({
+      characterIds: ids,
+      includeGlobalSettings: !!payload.includeGlobalSettings,
+      includeLorebooks: !!payload.includeLorebooks
+    })
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { data: Buffer.from(r.buffer).toString('base64'), filename: `DeST-${new Date().toISOString().slice(0, 10)}.dstpack` })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/characters/import-pack') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ data?: string; onConflict?: string; applyGlobalSettings?: boolean }>(req, res, MEDIA_MAX_BODY)
+    if (!payload) return
+    const bytes = decodeBase64Payload(payload.data)
+    if (!bytes) { jsonError(res, 400, 'data required'); return }
+    // 桌面版靠對話框逐一問；手機端**在送出前就選好策略**（電腦前面沒有人，
+    // 彈一個對話框等於讓手機那頭卡住直到有人回家）。不認得的值一律當最保守的 skip。
+    const onConflict = payload.onConflict === 'overwrite' || payload.onConflict === 'new' ? payload.onConflict : 'skip'
+    const r = await bridge.importDstPack(bytes, { onConflict, applyGlobalSettings: !!payload.applyGlobalSettings })
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, { imported: r.imported, skipped: r.skipped })
+    return
+  }
+
+  // ── GET /api/lorebooks ──
+  // 角色卡編輯器要讓使用者勾「這個角色帶哪幾本」，只需要 id 與名字。
+  if (method === 'GET' && url === '/api/lorebooks') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, { lorebooks: bridge.listLorebooks() })
+    return
+  }
+
   // -- Module route registry ---------------------------------------------
   const moduleRoute = findRegisteredRoute(method, url)
   if (moduleRoute) {
@@ -847,6 +1051,29 @@ const BODY_TOO_LARGE = '\u0000__BODY_TOO_LARGE__'
 
 const DEFAULT_MAX_BODY = 1024 * 1024          // 一般路由：1 MB 綽綽有餘
 const SEND_MAX_BODY = 24 * 1024 * 1024        // /api/send 帶壓縮後圖片，放寬到 24 MB
+const MEDIA_MAX_BODY = 24 * 1024 * 1024       // 主圖／角色卡／DST Pack 匯入（base64 比原檔大 1/3）
+
+/**
+ * 讀 body 並解析成 JSON；失敗時自己回錯誤並回傳 `null`（呼叫端直接 `return`）。
+ *
+ * 純粹是為了讓上面那批新端點不必每支都重寫五行同樣的 try/catch —— 既有端點
+ * 蓄意不動，改它們只會製造與行為無關的 diff。
+ */
+async function readJson<T>(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  maxBytes: number = DEFAULT_MAX_BODY
+): Promise<T | null> {
+  const body = await readBody(req, maxBytes)
+  if (body === BODY_TOO_LARGE) { jsonError(res, 413, '檔案太大'); return null }
+  if (!body.trim()) return {} as T
+  try {
+    return JSON.parse(body) as T
+  } catch {
+    jsonError(res, 400, 'Invalid JSON')
+    return null
+  }
+}
 
 function readBody(req: http.IncomingMessage, maxBytes: number = DEFAULT_MAX_BODY): Promise<string> {
   return new Promise((resolve) => {

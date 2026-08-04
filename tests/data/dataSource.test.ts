@@ -248,7 +248,8 @@ describe('兩個實作對 UI 是同一個形狀', () => {
     conversations: Object.keys(ds.conversations).sort(),
     messages: Object.keys(ds.messages).sort(),
     characters: Object.keys(ds.characters).sort(),
-    presets: Object.keys(ds.presets).sort()
+    presets: Object.keys(ds.presets).sort(),
+    lorebooks: Object.keys(ds.lorebooks).sort()
   })
 
   it('方法集合完全相同', () => {
@@ -261,12 +262,55 @@ describe('兩個實作對 UI 是同一個形狀', () => {
     const { ds: remote } = makeRemote()
     // 「假裝成功」會讓使用者以為存檔了 —— 這是刻意要避免的行為。
     await expect(local.conversations.list()).rejects.toMatchObject({ code: 'not-supported' })
-    await expect(remote.characters.save({} as never)).rejects.toMatchObject({ code: 'not-supported' })
+    await expect(local.characters.save({} as never)).rejects.toMatchObject({ code: 'not-supported' })
     await expect(remote.presets.saveScene({} as never)).rejects.toMatchObject({ code: 'not-supported' })
   })
 
   it('遙控已有端點的方法不該被誤標成未實作', async () => {
     const { ds } = makeRemote({ '/api/conversations': { conversations: [] } })
     await expect(ds.conversations.list()).resolves.toEqual([])
+  })
+
+  /**
+   * 階段 3 的角色卡寫入。這裡驗的是**打對端點與欄位名**——
+   * 端點少一個字或欄位名不合，UI 只會看到一句「操作失敗」，
+   * 從畫面完全推不回原因（階段 2d 的 `messageId` vs `id` 就是這樣晚被發現的）。
+   */
+  it('角色卡寫入打對端點', async () => {
+    const { ds, calls } = makeRemote({
+      '/api/characters/card/c1': { character: { id: 'c1', name: '小綠' } },
+      '/api/characters/create': { character: { id: 'c9', name: '新角色' } },
+      '/api/characters/save': { ok: true },
+      '/api/characters/avatar': { avatar: 'D:/x/avatar-1.png' },
+      '/api/lorebooks': { lorebooks: [{ id: 'b1', name: '用語' }] }
+    })
+
+    await expect(ds.characters.get('c1')).resolves.toMatchObject({ id: 'c1' })
+    await expect(ds.characters.create('新角色')).resolves.toMatchObject({ id: 'c9' })
+    await ds.characters.save({ id: 'c1', name: '小綠' } as never)
+    await expect(
+      ds.characters.saveAvatar('c1', { bytes: new Uint8Array([1, 2, 3]), ext: '.png' })
+    ).resolves.toBe('D:/x/avatar-1.png')
+    await expect(ds.lorebooks.list()).resolves.toEqual([{ id: 'b1', name: '用語' }])
+
+    expect(calls.map((c) => c.url.split('?')[0])).toEqual([
+      'http://pc:1234/api/characters/card/c1',
+      'http://pc:1234/api/characters/create',
+      'http://pc:1234/api/characters/save',
+      'http://pc:1234/api/characters/avatar',
+      'http://pc:1234/api/lorebooks'
+    ])
+    // 存檔送的是 `character`，主圖送的是 base64 字串（不是 Uint8Array —— JSON 沒有那個型別）
+    expect(calls[2].body).toEqual({ character: { id: 'c1', name: '小綠' } })
+    expect((calls[3].body as { data: string }).data).toBe('AQID')
+  })
+
+  it('匯出角色卡把 base64 解回位元組', async () => {
+    const { ds } = makeRemote({
+      '/api/characters/export-card': { data: 'AQID', filename: '小綠.png' }
+    })
+    const file = await ds.characters.exportCard('c1', 'png')
+    expect(Array.from(file.bytes)).toEqual([1, 2, 3])
+    expect(file.filename).toBe('小綠.png')
   })
 })
