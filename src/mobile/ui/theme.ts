@@ -56,6 +56,10 @@ export const THEMES: Record<ColorTheme, ThemeVars> = {
    * 現在拉開到 `#121212` / `#242424`（18 階），header 再高一階做出三層。
    *
    * 危險色改暗紅：淺色那組粉紅 `#FFBBBB` 在深色底上會過亮而刺眼。
+   *
+   * 📌 這一行已同步到 `assets/mobile.html`（危險色沒有同步，因為那邊用的是
+   * 瀏覽器內建 `confirm`，沒有自家的危險色 UI）。**改這行要記得改那邊**，
+   * 理由同隨機工具機率表：那份是純 vanilla、無建置步驟，無法 import TS。
    */
   dark:     { mint: '#2E2E2E', mint2: '#3A3A3A', bg: '#121212', surface: '#242424', userBubble: '#24443F', text: '#EEEEEE', sub: '#9A9A9A', border: 'rgba(255,255,255,0.14)', danger: '#8A3A3A', dangerText: '#FFDCDC' }
 }

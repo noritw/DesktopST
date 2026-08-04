@@ -823,7 +823,11 @@
     blush:    { mint:'#FFBBBB', mint2:'#F0A0B0', bg:'#FFF5F5', surface:'#ffffff', userBubble:'#FFD8E0', text:'#5A2A3A', sub:'#9A7A88', border:'rgba(0,0,0,0.08)' },
     lavender: { mint:'#F0BBFF', mint2:'#DDA0EE', bg:'#FDF5FF', surface:'#ffffff', userBubble:'#E8D0FF', text:'#4A2A5A', sub:'#8A6A9A', border:'rgba(0,0,0,0.08)' },
     white:    { mint:'#E8E8E8', mint2:'#CCCCCC', bg:'#FFFFFF', surface:'#F8F8F8', userBubble:'#DDDDDD', text:'#3D5A52', sub:'#7BA898', border:'rgba(0,0,0,0.12)' },
-    dark:     { mint:'#252525', mint2:'#333333', bg:'#111111', surface:'#1A1A1A', userBubble:'#1E3838', text:'#EEEEEE', sub:'#888888', border:'rgba(255,255,255,0.1)' },
+    // ⚠️ 深色主題的值 2026-08-04 調亮過（owner 實機回報「整個黑掉」）。
+    // 這份是與 src/mobile/ui/theme.ts 同步的副本——**改一邊要記得改另一邊**，
+    // 理由同本檔的隨機工具機率表：本檔是純 vanilla、無建置步驟，無法 import TS。
+    // B3 階段 7 由手機 UI 的 web build 整份取代後，這個同步負擔就消失。
+    dark:     { mint:'#2E2E2E', mint2:'#3A3A3A', bg:'#121212', surface:'#242424', userBubble:'#24443F', text:'#EEEEEE', sub:'#9A9A9A', border:'rgba(255,255,255,0.14)' },
   };
   function applyTheme(name) {
     const t = THEMES[name] || THEMES.mint;
