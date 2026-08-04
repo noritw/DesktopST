@@ -54,6 +54,11 @@ owner 實測回報「按了只有刪掉後面」，追下去才發現。
 同一類的還有 `/api/characters/desktop/remove`：
 它用 **HTTP 200 ＋ `ok: false`** 表示「至少要留一個角色」，不是錯誤狀態碼。
 
+2026-08-05 又踩了第三次，這次是**空值**不是拒絕：`/api/avatar/:id` 原本
+對「沒設主圖」的角色照樣回一張色塊圖，真伺服器是回 404（`if (!char?.avatar)`）。
+於是 🐾 fallback（清單 D6）那條路徑在 stub 上永遠驗不到，
+角色卡編輯器的破圖 bug 因此多活了一輪。**空值與錯誤路徑一樣要照抄。**
+
 **新增端點時，先讀 `src/main/mobileServer.ts` 對應那段的失敗分支，一併照抄。**
 
 ## 已模擬的端點
@@ -68,7 +73,13 @@ owner 實測回報「按了只有刪掉後面」，追下去才發現。
 | `POST /api/characters/desktop/{add,remove}` | remove 在只剩一位時回 `ok: false` |
 | `POST /api/characters/toggle-mute` | 回 `{ muted }` ＋ 推 `desktop-updated` |
 | `POST /api/characters/speak` | 思考 → 主動發話 |
-| `POST /api/messages/{delete,edit,resend}` | resend 只接受使用者訊息 |
+| `POST /api/messages/{delete,edit,resend}` | resend 只接受使用者訊息（拒絕時回 **400**） |
+| `GET /api/characters/card/:id` | 完整角色卡；**未知 id 回 404** |
+| `POST /api/characters/{create,save,delete}` | save 對未知 id 回 404、名稱空白回 400 |
+| `POST /api/characters/avatar` | 記下上傳的圖，之後 `/api/avatar/:id` 回它 |
+| `POST /api/characters/{import,export}-card` | 太小的檔案當成「不是角色卡」回 400 |
+| `POST /api/characters/{import,export}-pack` | 沒選角色／檔案損毀皆回 400 |
+| `GET /api/lorebooks` | 兩本假的用語解說（驗角色卡的綁定勾選） |
 
 沒實作的端點一律回 404 並印在終端，「這支還沒模擬」一眼看得出來。
 

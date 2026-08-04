@@ -733,9 +733,34 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
   （手機按了什麼、送出什麼、圖片壓縮後多大），這是接真 `mobileServer` 反而看不到的。
   ⚠️ **要連拒絕條件一起模擬，不能只回成功** —— 只模擬成功路徑的 stub 會安靜掩蓋
   真實限制，比沒有 stub 更糟（「重新發送」那個 bug 就是這樣晚被發現的）
-- [ ] **B3 剩餘**：3 角色卡編輯（下一步，B3 最大單項）→ 4 設定 → 5 預設組
-  → 6 新聞報 → 7 取代 `mobile.html` ＋ APK
-  → 4 設定 → 5 預設組 → 6 新聞報 → 7 取代 `mobile.html` ＋ APK。
+- [x] **B3 階段 3：角色庫 ＋ 角色卡編輯（2026-08-05）** —— 決議④ 的最大單項
+  - **端點是新的，邏輯一行都沒新寫**：`mobileServer` 補 10 支寫入端點
+    （card／create／save／delete／avatar／import-card／export-card／
+    import-pack／export-pack ＋ `/api/lorebooks`），實作全部指向
+    `ipcHandlers.ts` 那批 `*Direct`，**桌面 IPC handler 同時改成薄轉呼叫**。
+    共用一份的理由：「桌面存得起來、手機存出一張壞卡」這種 drift 沒有錯誤訊息
+  - DST Pack 匯入抽出 `DstPackImportResolvers`（桌面彈對話框逐一問；
+    手機**送出前就選好策略** —— 電腦前面沒有人，彈框等於讓手機那頭卡住）
+  - ⚠️ **信任邊界**：`mergeCharacterFromRemote()` 只收文字欄位。
+    `avatar`／`emotions`／`spriteIds` 是本機**檔案路徑**，而 `/api/avatar/:id`
+    會照著它讀檔回傳 —— 讓遠端指定等於開一個讀取任意檔案的洞。
+    換主圖只能走 `/api/characters/avatar`（檔名與位置由電腦端決定）；
+    `id`／`createdAt` 同樣以本機為準
+  - ⚠️ **主圖不走聊天附件那支壓縮**：`imageCompress` 鋪白底輸出 JPEG，
+    套上去角色會失去去背（站在桌布上，透明是必要條件不是畫質問題）。
+    另立 `avatarFile.ts`：能不動就不動、太大才縮且保留透明、GIF 一律原檔
+  - ⚠️ `invalidateAvatar()`：換圖後位址沒變（`/api/avatar/:id`），不清快取
+    畫面會留在舊圖 —— 使用者只會覺得沒存到，於是再存一次
+  - ⚠️ **🐾 fallback 的第二種失敗**：遙控的 `avatarUrl()` 永遠回得出網址，
+    沒設主圖時是那個網址回 404。只判斷 `null` 的話新角色看到破圖（實測撞到）
+  - **未儲存攔截**：`uiStore.requestPop()` ＋ `closeGuard`，
+    **返回手勢與 ✕ 走同一道關卡**（手機上多數人用前者，只擋 ✕ 等於沒擋）；
+    guard 刻意同步，改 async 會讓 history 深度與畫面堆疊錯位
+  - **不做**：情緒圖片分頁（roadmap §3.1 單張主圖的範圍決定）、
+    複製角色（桌面版也沒有，做了就不是「對齊現行功能」）
+  - 落地筆記 `docs/b3-mobile-ui-plan.md` §4.14；測試 298 → 300
+- [ ] **B3 剩餘**：4 設定（下一步）→ 5 預設組 → 6 新聞報
+  → 7 取代 `mobile.html` ＋ APK。
   進度表與開發時連真資料的方式見 `docs/b3-mobile-ui-plan.md` §4.9
 - [ ] **手機獨立版與平台擴充** → `docs/multi-device-platform-roadmap.md`
   - ⚠️ **下一步不是 B3。** 2026-08-03 盤點發現規劃缺一塊、且 B1／B2 尚未實機驗證
