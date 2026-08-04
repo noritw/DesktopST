@@ -3,6 +3,9 @@ import { useUiStore } from '../stores/uiStore'
 import type { ViewEntry, ViewKind } from '../stores/uiStore'
 import { ThemePicker } from './ThemePicker'
 import { RandomToolsSheet } from '../chat/RandomToolsSheet'
+import { MessageMenu } from '../chat/MessageMenu'
+import { CharacterMenu } from '../characters/CharacterMenu'
+import { PresenceSheet } from '../characters/PresenceSheet'
 
 /**
  * 畫面堆疊的渲染端（清單 G3）。
@@ -14,6 +17,8 @@ import { RandomToolsSheet } from '../chat/RandomToolsSheet'
 const TITLES: Record<ViewKind, string> = {
   conversations: '對話',
   presence: '這次對話有誰在場',
+  'character-menu': '角色',
+  'message-menu': '訊息',
   characters: '角色',
   'character-editor': '編輯角色',
   presets: '情境與設定組',
@@ -40,6 +45,11 @@ export function ViewStack(): JSX.Element | null {
 function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'theme-picker') return <ThemePicker />
   if (entry.kind === 'random-tools') return <RandomToolsSheet />
+  if (entry.kind === 'presence') return <PresenceSheet />
+  // param 是必要的：沒有它不知道在講哪個角色／哪則訊息。
+  // 缺了就當成程式錯誤讓它顯示「尚未實作」，不要靜靜地畫一個空選單。
+  if (entry.kind === 'character-menu' && entry.param) return <CharacterMenu characterId={entry.param} />
+  if (entry.kind === 'message-menu' && entry.param) return <MessageMenu messageId={entry.param} />
 
   // 階段 1 只做骨架；各畫面的內容在階段 2–6 逐一填入。
   // 這裡刻意寫得很明顯，避免看到空白畫面時誤以為是壞掉。

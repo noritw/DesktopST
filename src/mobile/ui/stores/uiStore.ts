@@ -20,6 +20,8 @@ import type { ColorTheme } from '@core/types'
 export type ViewKind =
   | 'conversations'
   | 'presence'
+  | 'character-menu'
+  | 'message-menu'
   | 'characters'
   | 'character-editor'
   | 'presets'
@@ -53,6 +55,11 @@ export interface DialogRequest {
   /** prompt 專用 */
   defaultValue?: string
   placeholder?: string
+  /**
+   * 多行輸入（編輯訊息用，清單 A6）。
+   * 單行 `<input>` 編一段角色台詞等於逼使用者在一條縫裡改文章。
+   */
+  multiline?: boolean
   confirmLabel?: string
   destructive?: boolean
   /** 回傳：confirm 給 boolean，prompt 給字串或 null（取消）。 */

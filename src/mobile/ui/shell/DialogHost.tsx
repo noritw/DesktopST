@@ -16,6 +16,7 @@ export function DialogHost(): JSX.Element | null {
   const close = useUiStore((s) => s.closeDialog)
   const [value, setValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const areaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (!dialog) return
@@ -23,6 +24,14 @@ export function DialogHost(): JSX.Element | null {
     if (dialog.kind === 'prompt') {
       // 稍等一拍再 focus：sheet 動畫進行中就 focus 會讓鍵盤把畫面推歪。
       const t = setTimeout(() => {
+        if (dialog.multiline) {
+          const el = areaRef.current
+          el?.focus()
+          // 多行不全選：那是要「改一段既有的話」，全選一打字就整段沒了。
+          // 游標擺在最後，最常見的動作（接著往下寫）不必先點一下。
+          el?.setSelectionRange(el.value.length, el.value.length)
+          return
+        }
         inputRef.current?.focus()
         inputRef.current?.select()
       }, 120)
@@ -47,18 +56,29 @@ export function DialogHost(): JSX.Element | null {
           <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-sub)]">{dialog.message}</p>
         )}
 
-        {dialog.kind === 'prompt' && (
-          <input
-            ref={inputRef}
-            value={value}
-            placeholder={dialog.placeholder}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') submit()
-            }}
-            className="mt-3 w-full rounded-[12px] border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-[15px] text-[var(--text)] outline-none focus:border-[var(--mint2)]"
-          />
-        )}
+        {dialog.kind === 'prompt' &&
+          (dialog.multiline ? (
+            <textarea
+              ref={areaRef}
+              rows={6}
+              value={value}
+              placeholder={dialog.placeholder}
+              onChange={(e) => setValue(e.target.value)}
+              // 多行模式**不接 Enter 送出** —— 在編輯一段話的地方，Enter 是換行。
+              className="scroll-y mt-3 max-h-[40dvh] w-full resize-none rounded-[12px] border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-[15px] leading-relaxed text-[var(--text)] outline-none focus:border-[var(--mint2)]"
+            />
+          ) : (
+            <input
+              ref={inputRef}
+              value={value}
+              placeholder={dialog.placeholder}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submit()
+              }}
+              className="mt-3 w-full rounded-[12px] border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-[15px] text-[var(--text)] outline-none focus:border-[var(--mint2)]"
+            />
+          ))}
 
         <div className="mt-4 flex gap-2">
           <button

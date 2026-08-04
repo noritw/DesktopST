@@ -97,9 +97,12 @@ export class RemoteDataSource implements DataSource {
   }
 
   readonly messages: MessagesApi = {
-    remove: async (messageId) => { await this.http.post('/api/messages/delete', { messageId }) },
-    edit: async (messageId, content) => { await this.http.post('/api/messages/edit', { messageId, content }) },
-    resend: async (messageId) => { await this.http.post('/api/messages/resend', { messageId }) }
+    // ⚠️ 欄位名是 `id` 不是 `messageId` —— 三支端點讀的都是 `payload.id`
+    // （`mobileServer.ts` 688–730）。階段 0-③ 寫成 `messageId`，
+    // 會被端點當成缺參數擋下並回 400，而 UI 只會看到「操作失敗」。
+    remove: async (id) => { await this.http.post('/api/messages/delete', { id }) },
+    edit: async (id, content) => { await this.http.post('/api/messages/edit', { id, content }) },
+    resend: async (id) => { await this.http.post('/api/messages/resend', { id }) }
   }
 
   readonly characters: CharactersApi = {
@@ -112,7 +115,14 @@ export class RemoteDataSource implements DataSource {
     remove: async (): Promise<void> => { throw notYet('characters.remove', 3) },
 
     setPresent: async (id, present) => {
-      await this.http.post(present ? '/api/characters/desktop/add' : '/api/characters/desktop/remove', { characterId: id })
+      const r = await this.http.post<{ ok: boolean }>(
+        present ? '/api/characters/desktop/add' : '/api/characters/desktop/remove',
+        { characterId: id }
+      )
+      // ⚠️ **端點用 HTTP 200 + `ok: false` 表示拒絕**，不是錯誤狀態碼。
+      // 最常見的原因是「至少要留一個角色」（清單 D5）。
+      // 不檢查的話 UI 會顯示成功、清單卻沒變 —— 使用者只會覺得按鈕壞了。
+      if (!r.ok) throw new DataError('conflict', 'setPresent rejected')
     },
     toggleMute: async (id) => (await this.http.post<{ muted: boolean }>('/api/characters/toggle-mute', { characterId: id })).muted,
     speak: async (id) => { await this.http.post('/api/characters/speak', { characterId: id }) },

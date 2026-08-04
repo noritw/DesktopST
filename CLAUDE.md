@@ -704,7 +704,26 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
     兩份都是 UI 文案（§3.3 不得進 core），而目前沒有「兩個 UI 共用」的層。
     **重複的只有措辭（`骰：`／`取：`與四顆 emoji），算式全部來自 core**
   - 測試 289 項（新增 8 項 `composerStore`）
-- [ ] **B3 剩餘**：2d 角色列（D1–D6 ＋ A6 訊息編修）→ 3 角色卡編輯
+- [x] **B3 階段 2d：角色列與訊息編修（2026-08-05）** —— D1–D6 ＋ A6
+  - `ui/characters/`：`Avatar`（🐾 fallback）／`AvatarBar`（頂列）／
+    `CharacterMenu`（說點什麼、禁言）／`PresenceSheet`（誰在場）＋ `ui/chat/MessageMenu`
+  - ⚠️ **頭像不可讀 `character.avatar`**，一律經 `CharactersApi.avatarUrl()`
+    （遙控是電腦本機路徑、獨立是沙箱位址，兩邊 WebView 都載不動）。
+    `useAvatarUrl` 的快取放模組層 —— 頭像列與在場清單會同時問同一批角色
+  - ⚠️ **🐾 fallback 要涵蓋兩種失敗**：`avatarUrl()` 回 `null`（沒設頭像）
+    與圖片載入失敗（`onError`，檔案被刪／位址失效）。只做前者會看到破圖
+  - D5「至少保留一個」**兩邊都擋**：UI 只剩一位時不給移出按鈕，電腦端仍會拒絕。
+    ⚠️ 端點用 **HTTP 200 ＋ `ok: false`** 表示拒絕，不是錯誤狀態碼 ——
+    `remoteDataSource` 要翻成 `conflict`，否則 UI 顯示成功但清單沒變
+  - ⚠️ **修掉階段 0-③ 的既有 bug**：`/api/messages/*` 三支端點讀的是 `payload.id`，
+    而 `remoteDataSource` 送的是 `messageId` → 一定回 400。已加測試釘住
+  - ⚠️ `/api/messages/*` **不推 WebSocket 事件**（`/api/characters/*` 有 `pushDesktopUpdate`），
+    所以編輯／刪除／重送完都要自己 `refresh()`，否則畫面停在舊內容
+  - 訊息選單入口是**常駐的 ⋯ 而非長按**：長按在 WebView 會跟系統選字選單打架，
+    而且沒有任何提示告訴使用者可以長按。樂觀渲染那則不給（伺服器還不認得那個 id）
+  - 對話框新增 `multiline`（編輯訊息用）：多行不接 Enter 送出、不全選內容
+  - 測試 298 項
+- [ ] **B3 剩餘**：3 角色卡編輯
   → 4 設定 → 5 預設組 → 6 新聞報 → 7 取代 `mobile.html` ＋ APK。
   進度表與開發時連真資料的方式見 `docs/b3-mobile-ui-plan.md` §4.9
 - [ ] **手機獨立版與平台擴充** → `docs/multi-device-platform-roadmap.md`

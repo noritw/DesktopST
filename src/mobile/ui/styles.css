@@ -107,3 +107,16 @@ body {
     animation: none;
   }
 }
+
+/* 思考中的角色頭像會輕輕呼吸（清單 D1／A3）。
+   比在頭像上疊一個 spinner 安靜，也不會蓋住臉。 */
+@keyframes breathe {
+  0%, 100% { transform: scale(1);    opacity: 1;    }
+  50%      { transform: scale(1.06); opacity: 0.75; }
+}
+
+.anim-breathe { animation: breathe 1.6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-breathe { animation: none; }
+}

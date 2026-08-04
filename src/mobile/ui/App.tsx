@@ -9,6 +9,7 @@ import { DialogHost } from './shell/DialogHost'
 import { Lightbox } from './shell/Lightbox'
 import { MessageList } from './chat/MessageList'
 import { Composer } from './chat/Composer'
+import { AvatarBar } from './characters/AvatarBar'
 import { resolveConnection, wsUrlFor } from './connection'
 import { RemoteDataSource } from '../data/remoteDataSource'
 import { getDeviceIdentity } from '../data/deviceIdentity'
@@ -116,7 +117,10 @@ export function App(): JSX.Element {
       ) : !ready ? (
         <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-sub)]">載入中⋯⋯</div>
       ) : (
-        <MessageList />
+        <>
+          <AvatarBar />
+          <MessageList />
+        </>
       )}
 
       <Composer />

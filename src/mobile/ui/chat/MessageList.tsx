@@ -3,6 +3,8 @@ import type { MessageSnapshot } from '@core/data'
 import { isOptimistic, useAppStore } from '../stores/appStore'
 import { MessageImages } from './MessageImages'
 import { formatRandomBadge } from './randomLabels'
+import { Avatar } from '../characters/Avatar'
+import { useUiStore } from '../stores/uiStore'
 
 /**
  * 訊息串（清單 A1、A9）。
@@ -67,8 +69,13 @@ function MessageRow({ message, characterName }: { message: MessageSnapshot; char
 
   const isUser = message.role === 'user'
   return (
-    <div className={`mb-2.5 flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[82%] ${isUser ? '' : 'w-full'}`}>
+    <div className={`mb-2.5 flex items-start gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
+      {!isUser && message.characterId && (
+        <div className="mt-4 shrink-0">
+          <Avatar characterId={message.characterId} size={30} />
+        </div>
+      )}
+      <div className={`min-w-0 max-w-[78%] ${isUser ? '' : 'flex-1'}`}>
         {!isUser && characterName && (
           <div className="mb-0.5 ml-1 text-xs text-[var(--text-sub)]">{characterName}</div>
         )}
@@ -95,6 +102,21 @@ function MessageRow({ message, characterName }: { message: MessageSnapshot; char
           ) : null}
         </div>
       </div>
+
+      {/* 訊息選單入口（清單 A6）。
+          **樂觀渲染那則不給** —— 伺服器還不認得那個 id，按下去一定失敗。
+          常駐而不是長按叫出：長按在 WebView 裡會跟系統的選字選單打架，
+          而且沒有任何提示告訴使用者「這裡可以長按」。 */}
+      {!isOptimistic(message) && (
+        <button
+          type="button"
+          aria-label="訊息選單"
+          onClick={() => useUiStore.getState().push('message-menu', message.id)}
+          className="mt-3 shrink-0 px-1 text-sm leading-none text-[var(--text-sub)] opacity-45 active:opacity-100"
+        >
+          ⋯
+        </button>
+      )}
     </div>
   )
 }

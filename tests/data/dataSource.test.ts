@@ -86,7 +86,10 @@ describe('RemoteDataSource：狀態與名稱轉換', () => {
 
 describe('RemoteDataSource：指令對映', () => {
   it('setPresent 依 true/false 打到不同端點', async () => {
-    const { ds, calls } = makeRemote()
+    const { ds, calls } = makeRemote({
+      '/api/characters/desktop/add': { ok: true },
+      '/api/characters/desktop/remove': { ok: true }
+    })
     await ds.characters.setPresent('c1', true)
     await ds.characters.setPresent('c1', false)
     expect(calls.map((c) => c.url.replace('http://pc:1234', ''))).toEqual([
@@ -94,6 +97,33 @@ describe('RemoteDataSource：指令對映', () => {
       '/api/characters/desktop/remove'
     ])
     expect(calls[0].body).toEqual({ characterId: 'c1' })
+  })
+
+  /**
+   * 這兩支端點用 **HTTP 200 + `ok: false`** 表示拒絕，不是錯誤狀態碼
+   * （最常見的原因是「至少要留一個角色」，清單 D5）。
+   * 不翻成錯誤的話 UI 會顯示成功、清單卻沒變 —— 看起來就是按鈕壞了。
+   */
+  it('setPresent 被拒絕（ok:false）要變成 conflict，不能當成功', async () => {
+    const { ds } = makeRemote({ '/api/characters/desktop/remove': { ok: false } })
+    await expect(ds.characters.setPresent('c1', false)).rejects.toMatchObject({ code: 'conflict' })
+  })
+
+  /**
+   * 三支訊息端點讀的都是 `payload.id`（`mobileServer.ts` 688–730）。
+   * 階段 0-③ 送成 `messageId`，會被當成缺參數擋下回 400 ——
+   * 而 UI 只會看到「操作失敗」，完全看不出是欄位名錯了。
+   */
+  it('訊息操作送的欄位名是 id，不是 messageId', async () => {
+    const { ds, calls } = makeRemote()
+    await ds.messages.remove('m1')
+    await ds.messages.edit('m2', '改過的內容')
+    await ds.messages.resend('m3')
+    expect(calls.map((c) => c.body)).toEqual([
+      { id: 'm1' },
+      { id: 'm2', content: '改過的內容' },
+      { id: 'm3' }
+    ])
   })
 
   it('sendMessage 只送伺服器認得的欄位', async () => {
