@@ -31,11 +31,12 @@ export interface ScanTextParts {
  * 依 `scan_depth` 取近期訊息的後 N 則，接上摘要與當前輸入，組成掃描文字。
  *
  * `scanDepth` 是在 `keepRecentN` **之內**再取後 N 則，不會超出上下文範圍。
+ * **`0`／負數／NaN ＝ 跟隨上下文**，`recentContents` 全取（見 `DEFAULT_SCAN_DEPTH`）。
  */
 export function buildScanText(parts: ScanTextParts, scanDepth: number = DEFAULT_SCAN_DEPTH): string {
-  const depth = Number.isFinite(scanDepth) && scanDepth > 0 ? Math.floor(scanDepth) : DEFAULT_SCAN_DEPTH
+  const depth = Number.isFinite(scanDepth) && scanDepth > 0 ? Math.floor(scanDepth) : 0
   const recent = (parts.recentContents ?? []).filter(s => typeof s === 'string' && s.length > 0)
-  const tail = depth >= recent.length ? recent : recent.slice(recent.length - depth)
+  const tail = depth === 0 || depth >= recent.length ? recent : recent.slice(recent.length - depth)
   return [parts.summary ?? '', ...tail, parts.currentInput ?? '']
     .map(s => (s ?? '').trim())
     .filter(Boolean)
@@ -162,12 +163,18 @@ function resolveBudget(books: Lorebook[], override?: number): number {
   return max >= 0 ? max : DEFAULT_TOKEN_BUDGET
 }
 
-/** 參與掃描的 lorebook 中最大的 `scan_depth`（決定要取幾則訊息）。 */
+/**
+ * 參與掃描的 lorebook 共同的掃描深度（決定要取幾則訊息）。
+ *
+ * 取各本中**要求最多**的那個：只要有一本是「跟隨上下文」（`0`／未設），結果就是 `0`
+ * ——一本書的小視窗不該把另一本書的觸發範圍連坐縮掉，比照 `token_budget` 取最大的邏輯。
+ */
 export function resolveScanDepth(books: Lorebook[]): number {
   let max = 0
   for (const book of books) {
     const d = book?.scan_depth
-    if (typeof d === 'number' && Number.isFinite(d) && d > max) max = Math.floor(d)
+    if (typeof d !== 'number' || !Number.isFinite(d) || d <= 0) return 0
+    if (d > max) max = Math.floor(d)
   }
   return max > 0 ? max : DEFAULT_SCAN_DEPTH
 }

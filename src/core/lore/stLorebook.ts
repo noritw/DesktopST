@@ -87,6 +87,7 @@ export function importStLorebook(raw: unknown, opts: ImportLorebookOptions): Lor
     id: opts.id,
     name: trimStr(book.name) || trimStr(opts.fallbackName),
     entries,
+    // 原檔有寫就照它的值（ST 相容）；沒寫＝跟隨上下文
     scan_depth: toFiniteNumber(book.scan_depth) ?? DEFAULT_SCAN_DEPTH,
     token_budget: toFiniteNumber(book.token_budget) ?? DEFAULT_TOKEN_BUDGET,
     createdAt: now,
@@ -137,13 +138,16 @@ export function extractCharacterBook(rawCard: unknown): unknown | null {
  * `_passthrough` 先鋪底再由已知欄位覆蓋 —— 已知欄位以 DeST 這邊的值為準。
  */
 export function exportStLorebook(book: Lorebook): Record<string, unknown> {
-  return {
+  const out: Record<string, unknown> = {
     ...(book._passthrough ?? {}),
     name: book.name,
-    scan_depth: book.scan_depth,
     token_budget: book.token_budget,
     entries: (book.entries ?? []).map(exportStEntry)
   }
+  // 「跟隨上下文」是 DeST 專屬語意，ST 沒有對應值（那邊 0 會被讀成「不掃描」）→ 整個欄位不輸出，
+  // 讓 ST 套用它自己的預設。原檔若帶過 scan_depth，_passthrough 不含此欄故不會被還原。
+  if (book.scan_depth > 0) out.scan_depth = book.scan_depth
+  return out
 }
 
 function exportStEntry(entry: LoreEntry): Record<string, unknown> {

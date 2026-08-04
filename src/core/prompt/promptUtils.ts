@@ -120,6 +120,11 @@ export type ChatLLMParams = {
   extraSystemContext?: string
   /** 記憶摘要（conv.summary）；chatWithLLM 單一入口注入為 [Memory Summary] 區塊 */
   memorySummary?: string
+  /**
+   * 用語解說注入區塊（`formatLoreBlock()` 的結果，已含 `[Glossary]` 標籤）。
+   * 由平台層掃描後傳入；空字串／未給＝完全不注入（docs/future-lorebook.md §6.1）。
+   */
+  loreBlock?: string
   /** 是否為提醒模式（不注入 trigger message） */
   isReminder?: boolean
   /** 附加在 trigger message 之後的指令（最末、緊鄰生成處；用於「主動聊新聞」這類需要高 recency 的指示） */
@@ -426,7 +431,7 @@ export function buildSystemPrompt(
   world?: WorldPreset | null,
   desktopCharacterNames?: string[],
   extraSystemContext?: string,
-  opts?: { splitEmotion?: boolean; minimal?: boolean; omitSystemTime?: boolean }
+  opts?: { splitEmotion?: boolean; minimal?: boolean; omitSystemTime?: boolean; loreBlock?: string }
 ): string {
 
   const displayName = sanitizePromptText(persona?.displayName) || '使用者'
@@ -474,6 +479,9 @@ export function buildSystemPrompt(
   {
     const ctx: string[] = []
     if (worldSetting) ctx.push(`[World]\n${worldSetting}`)
+    // 用語解說：[World] 之後、[Scene] 之前（docs/future-lorebook.md §5.3）。
+    // 沒有任何條目時 loreBlock 是空字串 → 連空標籤都不出現（§6.1）
+    if (opts?.loreBlock?.trim()) ctx.push(opts.loreBlock.trim())
     if (scenario) ctx.push(`[Scene]\n${scenario}`)
     if (persona?.displayName?.trim() || persona?.nickname?.trim() || persona?.description?.trim()) {
       const description = sanitizePromptText(persona?.description)

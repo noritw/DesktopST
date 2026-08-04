@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Character } from '../../types'
 
 interface Props {
@@ -9,6 +9,44 @@ interface Props {
 export default function AdvancedTab({ draft, setDraft }: Props) {
   const [showExtra, setShowExtra] = useState(!!(draft.systemPromptOverride?.trim()))
   const [newsKwInput, setNewsKwInput] = useState('')
+  const [lorebooks, setLorebooks] = useState<{ id: string; name: string }[]>([])
+  const [loreMsg, setLoreMsg] = useState<string | null>(null)
+  const [generating, setGenerating] = useState(false)
+
+  useEffect(() => {
+    const load = async () => {
+      const list = await window.api.invoke('lorebook:list') as Array<{ id: string; name: string }>
+      setLorebooks((list ?? []).map(b => ({ id: b.id, name: b.name })))
+    }
+    void load()
+    return window.api.on('lorebooks:updated', () => { void load() })
+  }, [])
+
+  const boundLoreIds = draft.lorebookIds ?? []
+
+  function toggleLorebook(id: string, next: boolean) {
+    setDraft(prev => ({
+      ...prev,
+      lorebookIds: next
+        ? [...(prev.lorebookIds ?? []), id]
+        : (prev.lorebookIds ?? []).filter(x => x !== id)
+    }))
+  }
+
+  /** 從這張角色卡生成一條「這個角色是誰」的用語條目（docs/future-lorebook.md §8）。 */
+  async function generateLoreEntry(lorebookId: string) {
+    setLoreMsg(null)
+    setGenerating(true)
+    try {
+      const r = await window.api.invoke('lorebook:generate-entry', {
+        characterId: draft.id,
+        lorebookId
+      }) as { ok?: true; entry?: { content: string }; error?: string }
+      setLoreMsg(r?.error ?? `已加入：${r?.entry?.content ?? ''}`)
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   const newsKeywords = draft.newsKeywords ?? []
 
@@ -81,6 +119,42 @@ export default function AdvancedTab({ draft, setDraft }: Props) {
           />
         </div>
       </label>
+
+      <div className="block">
+        <span className="text-xs font-semibold text-primary">用語解說</span>
+        <p className="text-[11px] text-secondary mt-0.5">
+          這個角色要額外帶上哪幾本用語解說（會疊加在世界觀那份之前）。內容在「設定 → 世界觀 → 用語解說」編輯。
+        </p>
+        {lorebooks.length === 0 ? (
+          <p className="text-[11px] text-secondary mt-1">還沒有任何用語解說。</p>
+        ) : (
+          <div className="space-y-1 mt-1">
+            {lorebooks.map(b => (
+              <div key={b.id} className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 cursor-pointer flex-1 min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={boundLoreIds.includes(b.id)}
+                    onChange={e => toggleLorebook(b.id, e.target.checked)}
+                    className="accent-teal w-4 h-4"
+                  />
+                  <span className="text-xs text-primary truncate">{b.name}</span>
+                </label>
+                <button
+                  type="button"
+                  disabled={generating}
+                  title="用輔助模型從這張角色卡生成一條「這個角色是誰」的用語，加進這本"
+                  className="text-[11px] px-2 py-1 rounded-full border border-border text-primary hover:bg-mint-40 transition-all disabled:opacity-50"
+                  onClick={() => void generateLoreEntry(b.id)}
+                >
+                  {generating ? '生成中…' : '生成用語條目'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {loreMsg && <p className="text-[11px] text-secondary mt-1 leading-snug">{loreMsg}</p>}
+      </div>
 
       <div className="pt-1 border-t border-border">
         <button

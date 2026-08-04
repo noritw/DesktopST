@@ -57,11 +57,19 @@ describe('buildScanText', () => {
     expect(buildScanText({ summary: '   ', recentContents: ['', ' x '], currentInput: '' }, 5)).toBe('x')
   })
 
-  it('scanDepth 非法（0／負數／NaN）→ 退回預設值', () => {
+  // 0／負數／NaN ＝ 跟隨上下文：掃描範圍與模型看得到的訊息一致。
+  // 掃得比 prompt 少會讓角色對同一個詞忽懂忽不懂（DEFAULT_SCAN_DEPTH 的說明）。
+  it('scanDepth 0／負數／NaN → 跟隨上下文，recentContents 全取', () => {
     const parts = { recentContents: ['1', '2', '3', '4', '5', '6', '7'] }
-    expect(buildScanText(parts, 0)).toBe('3\n4\n5\n6\n7')
-    expect(buildScanText(parts, -1)).toBe('3\n4\n5\n6\n7')
-    expect(buildScanText(parts, Number.NaN)).toBe('3\n4\n5\n6\n7')
+    expect(buildScanText(parts, 0)).toBe('1\n2\n3\n4\n5\n6\n7')
+    expect(buildScanText(parts, -1)).toBe('1\n2\n3\n4\n5\n6\n7')
+    expect(buildScanText(parts, Number.NaN)).toBe('1\n2\n3\n4\n5\n6\n7')
+    expect(buildScanText(parts)).toBe('1\n2\n3\n4\n5\n6\n7')
+  })
+
+  it('scanDepth 有正值時仍只取後 N 則（ST 匯入的書照原檔設定）', () => {
+    const parts = { recentContents: ['1', '2', '3', '4', '5'] }
+    expect(buildScanText(parts, 2)).toBe('4\n5')
   })
 })
 
@@ -202,5 +210,24 @@ describe('resolveScanDepth', () => {
 
   it('沒有有效值 → 預設', () => {
     expect(resolveScanDepth([])).toBe(DEFAULT_SCAN_DEPTH)
+  })
+})
+
+/**
+ * 一本書的小視窗不該把另一本書的觸發範圍連坐縮掉（比照 token_budget 取最大）。
+ */
+describe('resolveScanDepth —— 跟隨上下文優先', () => {
+  const bk = (scan_depth: number): Lorebook => ({
+    id: String(scan_depth), name: 'b', entries: [], scan_depth,
+    token_budget: DEFAULT_TOKEN_BUDGET, createdAt: 0, updatedAt: 0
+  })
+
+  it('任一本是「跟隨上下文」(0) → 結果就是 0，不被有限值蓋掉', () => {
+    expect(resolveScanDepth([bk(3), bk(0)])).toBe(0)
+    expect(resolveScanDepth([bk(0), bk(99)])).toBe(0)
+  })
+
+  it('全部都是有限值 → 取最大', () => {
+    expect(resolveScanDepth([bk(3), bk(8), bk(5)])).toBe(8)
   })
 })

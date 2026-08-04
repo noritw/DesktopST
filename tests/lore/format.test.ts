@@ -29,3 +29,38 @@ describe('formatLoreBlock', () => {
     expect(formatLoreBlock([e(''), e(' 有內容 ')])).toBe('[Glossary]\n有內容')
   })
 })
+
+/**
+ * 詞頭。UI 把「關鍵字」與「內容」分兩欄，使用者的內容常是不含主詞的補語，
+ * 只丟 content 進 prompt 模型無從得知這句在解釋哪個詞。
+ */
+describe('formatLoreBlock —— 詞頭', () => {
+  const withKeys = (keys: string[], content: string): LoreEntry => ({
+    id: content, keys, content, enabled: true, constant: true, insertion_order: 0
+  })
+
+  it('單一關鍵字 → 「詞：解說」', () => {
+    expect(formatLoreBlock([withKeys(['DeST'], '就是你們身處的那個程式。')]))
+      .toBe('[Glossary]\nDeST：就是你們身處的那個程式。')
+  })
+
+  it('多個關鍵字 → 第一個當詞頭，其餘列為別名', () => {
+    expect(formatLoreBlock([withKeys(['DeST', 'DesktopST', '桌友'], '一個桌面程式。')]))
+      .toBe('[Glossary]\nDeST（DesktopST、桌友）：一個桌面程式。')
+  })
+
+  it('內容已以該詞開頭時不重複加詞頭（ST 匯入的條目多屬此類）', () => {
+    expect(formatLoreBlock([withKeys(['DeST', '桌友'], 'DeST 是一個桌面程式。')]))
+      .toBe('[Glossary]\nDeST 是一個桌面程式。')
+  })
+
+  it('沒有關鍵字（純常駐條目）→ 原樣輸出，不硬加詞頭', () => {
+    expect(formatLoreBlock([withKeys([], '這個世界沒有魔法。')]))
+      .toBe('[Glossary]\n這個世界沒有魔法。')
+  })
+
+  it('關鍵字全是空白 → 視同沒有關鍵字', () => {
+    expect(formatLoreBlock([withKeys(['  ', ''], '內容。')]))
+      .toBe('[Glossary]\n內容。')
+  })
+})

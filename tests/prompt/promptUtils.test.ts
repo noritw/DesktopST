@@ -84,6 +84,31 @@ describe('buildSystemPrompt', () => {
     )
     expect(out).toContain('[Weather] 台北 28°C 晴')
   })
+
+  // ── 用語解說注入（docs/future-lorebook.md §5.3／§6.1）──
+  it('loreBlock 插在 [World] 之後、[Scene] 之前', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(T0)
+    const charWithScene = { ...CHAR, scenario: '在客廳' }
+    const out = buildSystemPrompt(
+      makeSettings(), charWithScene, PERSONA, WORLD, ['小綠'], undefined,
+      { loreBlock: '[Glossary]\nDeST 是使用者開發的桌面程式。' }
+    )
+    expect(out).toContain('[Glossary]')
+    expect(out.indexOf('[World]')).toBeLessThan(out.indexOf('[Glossary]'))
+    expect(out.indexOf('[Glossary]')).toBeLessThan(out.indexOf('[Scene]'))
+  })
+
+  it('沒有 loreBlock 時 prompt 完全不受影響（連空標籤都不出現）', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(T0)
+    const base = buildSystemPrompt(makeSettings(), CHAR, PERSONA, WORLD, ['小綠'])
+    const empty = buildSystemPrompt(
+      makeSettings(), CHAR, PERSONA, WORLD, ['小綠'], undefined, { loreBlock: '' }
+    )
+    expect(empty).toBe(base)
+    expect(empty).not.toContain('Glossary')
+  })
 })
 
 describe('buildTriggerMessage', () => {

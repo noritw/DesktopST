@@ -3,6 +3,7 @@ import * as path from 'path'
 import { app } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
 import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder } from './types'
+import { type Lorebook, normalizeLorebook } from '../core/lore'
 import { DEFAULT_SETTINGS } from './types'
 import { isPinnedNote } from '../core/store/normalize'
 import { pruneConversationDebugPrompts } from '../core/store/prune'
@@ -45,6 +46,7 @@ let CONVS_DIR = resolveKey(keys.CONVERSATIONS_DIR)
 let PERSONAS_DIR = resolveKey(keys.PERSONAS_DIR)
 let WORLDS_DIR = resolveKey(keys.WORLDS_DIR)
 let SCENES_DIR = resolveKey(keys.SCENES_DIR)
+let LOREBOOKS_DIR = resolveKey(keys.LOREBOOKS_DIR)
 
 type DataDirMeta = { dataDir?: string }
 
@@ -59,6 +61,7 @@ function refreshPaths(nextDir: string): void {
   PERSONAS_DIR = resolveKey(keys.PERSONAS_DIR)
   WORLDS_DIR = resolveKey(keys.WORLDS_DIR)
   SCENES_DIR = resolveKey(keys.SCENES_DIR)
+  LOREBOOKS_DIR = resolveKey(keys.LOREBOOKS_DIR)
   _dirsEnsured = false
   _scenesCache = null
 }
@@ -336,6 +339,40 @@ export function loadWorldPreset(id: string): WorldPreset | null {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf-8')) as WorldPreset
   } catch { return null }
+}
+
+// ── Lorebooks（用語解說）────────────────────────────────
+// 讀取失敗一律靜默略過該本，聊天流程不中斷（docs/future-lorebook.md §6.6）
+
+export function loadLorebooks(): Lorebook[] {
+  ensureDirs()
+  if (!fs.existsSync(LOREBOOKS_DIR)) return []
+  return fs.readdirSync(LOREBOOKS_DIR)
+    .filter(f => f.endsWith('.json'))
+    .map(f => {
+      try {
+        return normalizeLorebook(JSON.parse(fs.readFileSync(path.join(LOREBOOKS_DIR, f), 'utf-8')) as Lorebook)
+      } catch { return null }
+    })
+    .filter(Boolean) as Lorebook[]
+}
+
+export function loadLorebook(id: string): Lorebook | null {
+  const file = resolveKey(keys.lorebookKey(id))
+  if (!fs.existsSync(file)) return null
+  try {
+    return normalizeLorebook(JSON.parse(fs.readFileSync(file, 'utf-8')) as Lorebook)
+  } catch { return null }
+}
+
+export function saveLorebook(book: Lorebook): void {
+  ensureDirs()
+  fs.writeFileSync(resolveKey(keys.lorebookKey(book.id)), JSON.stringify(book, null, 2), 'utf-8')
+}
+
+export function deleteLorebook(id: string): void {
+  const file = resolveKey(keys.lorebookKey(id))
+  if (fs.existsSync(file)) fs.unlinkSync(file)
 }
 
 // ── Scene Presets ────────────────────────────────────────

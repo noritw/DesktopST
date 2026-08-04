@@ -2,6 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import JSZip from 'jszip'
 import type { AppSettings, Character, PersonaPreset, WorldPreset } from './types'
+import type { Lorebook } from '../core/lore'
 
 export const DST_PACK_FORMAT = 'desktopst-pack' as const
 export const DST_PACK_VERSION = 1
@@ -12,6 +13,8 @@ export interface DstPackManifest {
   exportedAt: number
   includeGlobalSettings: boolean
   characterIds: string[]
+  /** 是否含用語解說（docs/future-lorebook.md §7.3，匯出預設不勾）。舊包沒有這個欄位。 */
+  includeLorebooks?: boolean
 }
 
 export interface DstPackGlobalPartial {
@@ -48,15 +51,19 @@ export async function buildDstPackBuffer(opts: {
   settings: AppSettings
   persona?: PersonaPreset | null
   world?: WorldPreset | null
+  /** 要一起打包的用語解說；未給或空陣列＝不含（§7.3 預設不勾） */
+  lorebooks?: Lorebook[]
 }): Promise<Buffer> {
   const { charsRoot, characterIds, includeGlobalSettings, settings, persona, world } = opts
+  const lorebooks = opts.lorebooks ?? []
   const zip = new JSZip()
   const manifest: DstPackManifest = {
     format: DST_PACK_FORMAT,
     version: DST_PACK_VERSION,
     exportedAt: Date.now(),
     includeGlobalSettings,
-    characterIds: [...characterIds]
+    characterIds: [...characterIds],
+    includeLorebooks: lorebooks.length > 0
   }
   zip.file('manifest.json', JSON.stringify(manifest, null, 2))
 
@@ -74,6 +81,11 @@ export async function buildDstPackBuffer(opts: {
       worldName: world?.name
     }
     zip.file('global/settings.partial.json', JSON.stringify(partial, null, 2))
+  }
+
+  // 用語解說：內容多為個人專案名稱、真實人名，屬私人資料 → 只有使用者勾選時才進包（§7.3）
+  for (const book of lorebooks) {
+    zip.file(`lorebooks/${book.id}.json`, JSON.stringify(book, null, 2))
   }
 
   for (const id of characterIds) {
@@ -142,6 +154,8 @@ export interface ParsedDstPack {
   globalPartial: DstPackGlobalPartial | null
   /** character id -> relative path prefix inside zip (characters/<id>) */
   characterZipPrefixes: string[]
+  /** 包內的用語解說；沒有時為空陣列（舊包一律空） */
+  lorebooks: Lorebook[]
 }
 
 export async function loadDstPackZip(buffer: Buffer): Promise<{ parsed: ParsedDstPack; zip: JSZip }> {
@@ -184,7 +198,17 @@ export async function parseDstPackZip(zip: JSZip): Promise<ParsedDstPack> {
   const characterZipPrefixes = [...prefixes].sort()
   if (characterZipPrefixes.length === 0) throw new Error('封裝內沒有任何角色資料')
 
-  return { manifest, globalPartial, characterZipPrefixes }
+  // 壞掉的那本靜默略過，不擋整包匯入（規格 §6.6）
+  const lorebooks: Lorebook[] = []
+  for (const p of Object.keys(zip.files)) {
+    const norm = p.replace(/\\/g, '/')
+    if (!/^lorebooks\/[^/]+\.json$/.test(norm)) continue
+    try {
+      lorebooks.push(JSON.parse(await zip.files[p].async('string')) as Lorebook)
+    } catch { /* 略過 */ }
+  }
+
+  return { manifest, globalPartial, characterZipPrefixes, lorebooks }
 }
 
 /** @deprecated 單次解析用；匯入流程請用 loadDstPackZip 以避免重複解壓 */

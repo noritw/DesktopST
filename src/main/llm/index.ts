@@ -1,4 +1,5 @@
 import * as core from '../../core/llm'
+import * as coreLore from '../../core/lore/generate'
 import { electronHttp } from '../adapters/httpAdapter'
 import { resolveLocalImages } from './imageResolver'
 import type { AppSettings } from '../types'
@@ -44,6 +45,13 @@ export async function classifyNewsSubjectivityWithLLM(params: {
   summary?: string
 }): ReturnType<typeof core.classifyNewsSubjectivityWithLLM> {
   return core.classifyNewsSubjectivityWithLLM(params, deps)
+}
+
+/** 從角色卡自動生成一條用語解說（docs/future-lorebook.md §8）。 */
+export async function generateLoreEntryForCharacter(
+  params: Parameters<typeof coreLore.generateLoreEntryForCharacter>[0]
+): ReturnType<typeof coreLore.generateLoreEntryForCharacter> {
+  return coreLore.generateLoreEntryForCharacter(params, deps)
 }
 
 export async function testLLMConnection(params: {

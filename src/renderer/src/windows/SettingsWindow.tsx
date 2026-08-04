@@ -8,6 +8,7 @@ import {
 import { useAppStore } from '../stores/useAppStore'
 import type { AppSettings, PersonaPreset, RemoteCapability, ScenePreset, WorldPreset } from '../types'
 import MonoIcon from '../components/MonoIcon'
+import { LorebookSection } from '../components/LorebookSection'
 import { RemoteControlSettingsPanel } from '../modules/remote-control'
 import { NewsSettingsPanel } from '../modules/news'
 import type { NewsModuleSettings, NewsKeywordGroup } from '../modules/news'
@@ -216,7 +217,8 @@ const SCENE_MODULE_ROWS_BASE: Array<{ id: string; label: string }> = [
   { id: 'desktopst.weather', label: '天氣' },
   { id: 'desktopst.spotify', label: 'Spotify 音樂' },
   { id: 'desktopst.calendar', label: 'Google 日曆' },
-  { id: 'desktopst.systemTime', label: '系統時間' }
+  { id: 'desktopst.systemTime', label: '系統時間' },
+  { id: 'desktopst.lorebook', label: '用語解說' }
 ]
 
 const CORE_TABS = ['LLM 設定', '記憶'] as const
@@ -328,6 +330,8 @@ export default function SettingsWindow() {
   const [openaiModelListMode, setOpenaiModelListMode] = useState<OpenaiModelListMode>('catalog')
   const [utilityOpenaiModelListMode, setUtilityOpenaiModelListMode] = useState<OpenaiModelListMode>('catalog')
   const [worldDraft, setWorldDraft] = useState<WorldPreset | null>(null)
+  /** 情境分頁的「使用哪幾本用語解說」用；只需要 id 與名稱 */
+  const [lorebooks, setLorebooks] = useState<{ id: string; name: string }[]>([])
   const [personaDraft, setPersonaDraft] = useState<PersonaPreset | null>(null)
   const [personaNickDraft, setPersonaNickDraft] = useState('')
   const [renaming, setRenaming] = useState<'world' | 'persona' | null>(null)
@@ -444,6 +448,16 @@ export default function SettingsWindow() {
       const mods = await window.api.invoke('modules:list') as Array<{ id: string; name: string; kind: string }>
       setExternalModules(mods.filter(m => m.kind === 'external').map(m => ({ id: m.id, name: m.name })))
     })()
+  }, [])
+
+  // 用語解說清單（情境綁定用）；編輯器改動後會廣播 lorebooks:updated
+  useEffect(() => {
+    const load = async () => {
+      const list = await window.api.invoke('lorebook:list') as Array<{ id: string; name: string }>
+      setLorebooks((list ?? []).map(b => ({ id: b.id, name: b.name })))
+    }
+    void load()
+    return window.api.on('lorebooks:updated', () => { void load() })
   }, [])
 
   useEffect(() => {
@@ -1611,6 +1625,48 @@ export default function SettingsWindow() {
                             </label>
                           )}
 
+                          {/* 用語解說綁定（取代式）：未綁＝用角色卡＋世界觀的疊加結果 */}
+                          {lorebooks.length > 0 && (
+                            <details className="text-[11px] text-secondary">
+                              <summary className="cursor-pointer select-none text-primary/60 hover:text-primary transition-colors">
+                                用語解說{scene.lorebookIds
+                                  ? `（指定 ${scene.lorebookIds.length} 本）`
+                                  : '（跟隨世界觀）'}
+                              </summary>
+                              <div className="mt-1.5 space-y-1">
+                                <label className="flex items-center gap-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={scene.lorebookIds !== undefined}
+                                    onChange={e => void updateScene(scene.id, {
+                                      lorebookIds: e.target.checked ? [] : undefined
+                                    })}
+                                    className="accent-teal w-3.5 h-3.5"
+                                  />
+                                  <span>這個情境自己指定（不用世界觀那份）</span>
+                                </label>
+                                {scene.lorebookIds !== undefined && lorebooks.map(b => (
+                                  <label key={b.id} className="flex items-center gap-1.5 cursor-pointer ml-5">
+                                    <input
+                                      type="checkbox"
+                                      checked={scene.lorebookIds!.includes(b.id)}
+                                      onChange={e => void updateScene(scene.id, {
+                                        lorebookIds: e.target.checked
+                                          ? [...scene.lorebookIds!, b.id]
+                                          : scene.lorebookIds!.filter(x => x !== b.id)
+                                      })}
+                                      className="accent-teal w-3.5 h-3.5"
+                                    />
+                                    <span className="truncate">{b.name}</span>
+                                  </label>
+                                ))}
+                                <p className="text-[10px] text-secondary/80 leading-snug pt-0.5">
+                                  勾了自己指定但一本都不選＝這個情境完全不注入用語解說。
+                                </p>
+                              </div>
+                            </details>
+                          )}
+
                           {/* 模組開關覆蓋：此情境啟用時強制開／關指定模組，未設定＝跟隨全域 */}
                           {(() => {
                             const moduleRows = [...SCENE_MODULE_ROWS_BASE, ...externalModules.map(m => ({ id: m.id, label: m.name }))]
@@ -1763,6 +1819,21 @@ export default function SettingsWindow() {
               <span className="text-sm text-primary">對話中自動帶入當下系統時間</span>
             </label>
             <SceneOverrideHint moduleId="desktopst.systemTime" />
+
+            {worldDraft && (
+              <>
+                <LorebookSection
+                  boundIds={worldDraft.lorebookIds ?? []}
+                  onToggleBound={(id, next) => editWorldDraft(prev => ({
+                    ...prev,
+                    lorebookIds: next
+                      ? [...(prev.lorebookIds ?? []), id]
+                      : (prev.lorebookIds ?? []).filter(x => x !== id)
+                  }))}
+                />
+                <SceneOverrideHint moduleId="desktopst.lorebook" />
+              </>
+            )}
 
             {draft && false && (
             <>

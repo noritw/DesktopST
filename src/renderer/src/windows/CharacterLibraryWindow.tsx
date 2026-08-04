@@ -40,6 +40,8 @@ export default function CharacterLibraryWindow() {
   const [exportModalOpen, setExportModalOpen] = useState(false)
   const [exportSelected, setExportSelected] = useState<Record<string, boolean>>({})
   const [includeGlobalInPack, setIncludeGlobalInPack] = useState(true)
+  // 用語解說多為個人專案名稱與真實人名，屬私人資料 → 預設不勾（docs/future-lorebook.md §7.3）
+  const [includeLorebooksInPack, setIncludeLorebooksInPack] = useState(false)
 
   const navigate = useCallback((payload?: CharacterLibraryNavigatePayload) => {
     if (payload?.mode === 'edit' && payload.characterId) {
@@ -166,8 +168,13 @@ export default function CharacterLibraryWindow() {
     openContextMenu(characterId, e.clientX, e.clientY)
   }
 
-  const exportDstPackOne = async (characterIds: string[], includeGlobalSettings: boolean, defaultStem: string) => {
-    const res = (await window.api.invoke('character:build-dstpack', { characterIds, includeGlobalSettings })) as {
+  const exportDstPackOne = async (
+    characterIds: string[],
+    includeGlobalSettings: boolean,
+    defaultStem: string,
+    includeLorebooks = false
+  ) => {
+    const res = (await window.api.invoke('character:build-dstpack', { characterIds, includeGlobalSettings, includeLorebooks })) as {
       buffer?: ArrayBuffer
       error?: string
     }
@@ -205,7 +212,7 @@ export default function CharacterLibraryWindow() {
       setToast('請至少勾選一個角色')
       return
     }
-    await exportDstPackOne(ids, includeGlobalInPack, 'DesktopST_characters')
+    await exportDstPackOne(ids, includeGlobalInPack, 'DesktopST_characters', includeLorebooksInPack)
     setExportModalOpen(false)
   }
 
@@ -368,6 +375,17 @@ export default function CharacterLibraryWindow() {
               />
               包含世界觀與使用者資訊（不含 API Key）
             </label>
+            <label className="flex items-center gap-2 text-sm mb-3 shrink-0 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeLorebooksInPack}
+                onChange={e => setIncludeLorebooksInPack(e.target.checked)}
+              />
+              包含用語解說
+            </label>
+            <p className="text-[11px] text-secondary -mt-2 mb-3 shrink-0 leading-snug">
+              用語解說常含個人專案名稱、進行中的工作與真實人名，預設不外流。
+            </p>
             <div className="flex items-center justify-between gap-2 mb-2 shrink-0">
               <p className="text-xs text-secondary">勾選要一併打包的角色：</p>
               <button

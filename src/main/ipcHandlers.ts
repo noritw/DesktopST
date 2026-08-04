@@ -6,7 +6,7 @@ import * as path from 'path'
 import type { AppSettings, Character, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo } from './types'
 import { MESSAGE_REACTION_EMOJIS } from './types'
 import * as fileStore from './fileStore'
-import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM } from './llm/index'
+import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM, generateLoreEntryForCharacter } from './llm/index'
 import { summarizeConversation, countUncoveredMessages, listSummarizableMessages } from './llm/summarizer'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
 import { formatSystemTimeStamp } from '../core/prompt/systemTime'
@@ -17,6 +17,22 @@ import { formatRandomResultForPrompt } from '../core/prompt/randomResult'
 import { normalizeCharacterDialogue } from '../core/prompt/dialogue'
 import { isAddressed, shuffleIds, pickPrimaryResponderId, sortRespondersByKeywordMatch } from '../core/group/responders'
 import { stripOtherCharacterSpeakerLines } from '../core/group/dialogueCleanup'
+import {
+  LORE_MODULE_ID,
+  type Lorebook,
+  buildScanText,
+  resolveScanDepth,
+  resolveLorebookIds,
+  orderLorebooks,
+  selectLoreEntries,
+  formatLoreBlock,
+  importStLorebook,
+  exportStLorebook,
+  extractCharacterBook,
+  LoreError,
+  DEFAULT_SCAN_DEPTH,
+  DEFAULT_TOKEN_BUDGET
+} from '../core/lore'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
 import { importStJson, exportToStJson } from './stCardMapper'
 import {
@@ -1275,6 +1291,10 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
         desktopCharacterNames: [],
         extraSystemContext,
         memorySummary: reminder.injectConversationContext ? conv.summary : undefined,
+        loreBlock: buildLoreBlockFor(char, activeWorld, {
+          summary: reminder.injectConversationContext ? conv.summary : undefined,
+          recentMessages: reminderMessages
+        }),
         isReminder: true,
         splitEmotion: doSplitEmotionReminder
       })
@@ -1498,6 +1518,10 @@ export function isModuleEffectivelyEnabled(moduleId: string, globalEnabled: bool
  * 依目前情境覆蓋回傳天氣 / Spotify / 系統時間 / 日曆開關已調整的 settings 副本（無覆蓋時原樣回傳）。
  * getWeatherContextString / getSpotifyContextString / getCalendarContextString / chatWithLLM（injectSystemTime）
  * 內部會檢查各自的 enabled 旗標，所以「強制開／強制關」要在傳入前改寫。
+ *
+ * ⚠️ 用語解說（`desktopst.lorebook`）**不在這裡**：它在 settings 裡沒有對應的 enabled 旗標
+ * （資料為空時本來就不影響 prompt），所以直接在 `buildLoreBlockFor()` 裡問
+ * `isModuleEffectivelyEnabled()` 即可，不需要改寫 settings 副本。
  */
 function applySceneModuleOverrides(s: AppSettings): AppSettings {
   const wOv = getActiveSceneModuleOverride(WEATHER_MODULE_ID)
@@ -1511,6 +1535,106 @@ function applySceneModuleOverrides(s: AppSettings): AppSettings {
   if (tOv) out.injectSystemTime = tOv === 'on'
   if (cOv && out.calendar) out.calendar = { ...out.calendar, enabled: cOv === 'on' }
   return out
+}
+
+// ── 用語解說（Lorebook）注入 ────────────────────────────
+// 規格 docs/future-lorebook.md。零設定時完全不影響 prompt（§6.1）。
+
+/**
+ * 組出這一輪的 `[Glossary]` 注入區塊；沒有命中任何條目時回傳 undefined（連空標籤都不出現）。
+ *
+ * ⚠️ `recentContents` 必須是 `contextMessages()` 的結果（規格 §6.2），
+ * 否則已被摘要吃掉的舊訊息還會觸發 lore ——
+ * 角色手上沒有那段對話，卻收到對應的術語解說。
+ */
+function buildLoreBlockFor(
+  char: Character | null | undefined,
+  world: WorldPreset | null | undefined,
+  scan: { summary?: string; recentMessages?: Message[]; currentInput?: string }
+): string | undefined {
+  // 情境總開關（無全域開關；資料為空時本來就不影響 prompt，故全域預設視為開啟）
+  if (!isModuleEffectivelyEnabled(LORE_MODULE_ID, true)) return undefined
+
+  const activeScene = settings.activeSceneId ? fileStore.loadScenePreset(settings.activeSceneId) : null
+  const ids = resolveLorebookIds({
+    characterIds: char?.lorebookIds,
+    worldIds: world?.lorebookIds,
+    sceneIds: activeScene?.lorebookIds
+  })
+  if (ids.length === 0) return undefined
+
+  // 載入失敗的那本直接不放進 map → orderLorebooks 會跳過（§6.6 靜默略過）
+  const loaded = new Map<string, Lorebook>()
+  for (const id of ids) {
+    const book = fileStore.loadLorebook(id)
+    if (book) loaded.set(id, book)
+  }
+  const books = orderLorebooks(ids, loaded)
+  if (books.length === 0) return undefined
+
+  const scanText = buildScanText({
+    summary: scan.summary,
+    recentContents: (scan.recentMessages ?? []).map(m => m.content ?? ''),
+    currentInput: scan.currentInput
+  }, resolveScanDepth(books))
+
+  const block = formatLoreBlock(selectLoreEntries(books, scanText))
+  return block || undefined
+}
+
+/** core 的 LoreError 代碼 → 中文文案（UI 文案不得進 core）。 */
+function loreErrorMessage(e: unknown): string {
+  if (e instanceof LoreError) {
+    return e.code === 'not-a-lorebook'
+      ? '這個檔案不是用語解說（找不到 entries 清單）'
+      : e.message
+  }
+  return e instanceof Error ? e.message : String(e)
+}
+
+/**
+ * ST 角色卡匯入時把 `character_book` 撈出來另存一本，並掛到該角色（規格 §4.2）。
+ *
+ * 卡片沒帶 `character_book` 或內容壞掉時原樣回傳角色，**不擋匯入流程**。
+ */
+function attachCharacterBookOnImport(rawCard: unknown, char: Character): Character {
+  try {
+    const source = extractCharacterBook(rawCard)
+    if (!source) return char
+    const book = importStLorebook(source, {
+      id: uuidv4(),
+      fallbackName: char.name,
+      makeEntryId: () => uuidv4()
+    })
+    if (book.entries.length === 0) return char
+    fileStore.saveLorebook(book)
+    broadcastToAll('lorebooks:updated', null)
+    return { ...char, lorebookIds: [...(char.lorebookIds ?? []), book.id] }
+  } catch (e) {
+    console.warn('[lore] character_book import failed:', (e as Error).message)
+    return char
+  }
+}
+
+/**
+ * 從角色卡生成一條用語解說；失敗一律回 null（不擋匯入流程，規格 §8.2）。
+ */
+async function generateLoreEntryForCharacterSafe(char: Character) {
+  try {
+    return await generateLoreEntryForCharacter({
+      settings,
+      character: {
+        name: char.name,
+        nicknames: char.nicknames,
+        description: char.description,
+        personality: char.personality,
+        scenario: char.scenario
+      }
+    })
+  } catch (e) {
+    console.warn('[lore] generate entry failed:', (e as Error).message)
+    return null
+  }
 }
 
 /** 解析當前發話角色的新聞抽選脈絡：情境組（取代式）＋角色卡關鍵字（疊加）。 */
@@ -1740,6 +1864,10 @@ export async function forceSpeakDirect(
         desktopCharacterNames: desktopCharNamesForce,
         extraSystemContext,
         memorySummary: conv.summary,
+        loreBlock: buildLoreBlockFor(char, activeWorld, {
+          summary: conv.summary,
+          recentMessages
+        }),
         triggerDirective: newsDirective,
         splitEmotion: doSplitEmotionForce
       })
@@ -2220,6 +2348,7 @@ export function registerIpcHandlers() {
       }
       const id = uuidv4()
       let char = importStJson(parsed, id)
+      char = attachCharacterBookOnImport(parsed, char)
       const dir = path.join(fileStore.getDataDir(), 'characters', id)
       fs.mkdirSync(dir, { recursive: true })
       const avatarPath = path.join(dir, 'avatar.png')
@@ -2263,11 +2392,23 @@ export function registerIpcHandlers() {
     }
   })
 
-  ipcMain.handle('character:build-dstpack', async (_, payload: { characterIds: string[]; includeGlobalSettings: boolean }) => {
+  ipcMain.handle('character:build-dstpack', async (_, payload: { characterIds: string[]; includeGlobalSettings: boolean; includeLorebooks?: boolean }) => {
     try {
       const ids = Array.isArray(payload?.characterIds) ? payload.characterIds.filter((x): x is string => typeof x === 'string' && x.trim() !== '') : []
       if (ids.length === 0) return { error: '尚未選擇任何角色' }
+      // 用語解說預設不外流（§7.3）；勾選時只帶這些角色與當前世界觀實際掛的那幾本
+      const lorebooks: Lorebook[] = []
+      if (payload?.includeLorebooks) {
+        const wanted = new Set<string>()
+        for (const id of ids) for (const bid of getCharacter(id)?.lorebookIds ?? []) wanted.add(bid)
+        for (const bid of getActiveWorld()?.lorebookIds ?? []) wanted.add(bid)
+        for (const bid of wanted) {
+          const book = fileStore.loadLorebook(bid)
+          if (book) lorebooks.push(book)
+        }
+      }
       const buf = await buildDstPackBuffer({
+        lorebooks,
         charsRoot: path.join(fileStore.getDataDir(), 'characters'),
         characterIds: ids,
         includeGlobalSettings: !!payload?.includeGlobalSettings,
@@ -2288,6 +2429,11 @@ export function registerIpcHandlers() {
       const buffer = Buffer.from(payload?.buffer ?? new ArrayBuffer(0))
       if (buffer.length < 32) return { error: '檔案過小或已損毀' }
       const { parsed, zip } = await loadDstPackZip(buffer)
+      // 用語解說：本機已有同 id 就視為同一本、不覆蓋使用者手邊的版本
+      for (const book of parsed.lorebooks) {
+        if (book?.id && !fileStore.loadLorebook(book.id)) fileStore.saveLorebook(book)
+      }
+      if (parsed.lorebooks.length > 0) broadcastToAll('lorebooks:updated', null)
       const charsRoot = path.join(fileStore.getDataDir(), 'characters')
       let imported = 0
       let skipped = 0
@@ -3285,6 +3431,10 @@ export function registerIpcHandlers() {
         desktopCharacterNames,
         extraSystemContext: combinedExtraContext ?? undefined,
         memorySummary: conv.summary,
+        loreBlock: buildLoreBlockFor(primaryChar, activeWorld, {
+          summary: conv.summary,
+          recentMessages: recentMessagesBase
+        }),
         splitEmotion: doSplitEmotion,
         signal: abortController.signal
       })
@@ -3429,6 +3579,10 @@ export function registerIpcHandlers() {
           desktopCharacterNames,
           extraSystemContext: combinedExtraContext ?? undefined,
           memorySummary: conv.summary,
+          loreBlock: buildLoreBlockFor(char, activeWorld, {
+            summary: conv.summary,
+            recentMessages
+          }),
           splitEmotion: doSplitEmotionSec,
           signal: abortController.signal
         })
@@ -3587,6 +3741,10 @@ export function registerIpcHandlers() {
           world: activeWorld,
           desktopCharacterNames,
           memorySummary: conv.summary,
+          loreBlock: buildLoreBlockFor(char, activeWorld, {
+            summary: conv.summary,
+            recentMessages
+          }),
           splitEmotion: doSplitEmotion
         })
         const cleanReply = stripOtherCharacterSpeakerLines(
@@ -3827,6 +3985,7 @@ export function registerIpcHandlers() {
         : undefined
       const id = existing?.id ?? uuidv4()
       let char = importStJson(raw, id)
+      char = attachCharacterBookOnImport(raw, char)
       char = resolveAssetsFromSourcePath(char, sourcePath)
       if (existing) {
         char = mergeImportedCharacterForOverwrite(existing, char)
@@ -3933,8 +4092,9 @@ export function registerIpcHandlers() {
       colorTheme: settings.ui.colorTheme,
       inputWindowBounds: settings.ui.inputWindowBounds,
       logWindowBounds: settings.ui.logWindowBounds,
-      // 覆寫狀態時保留既有的新聞關鍵字組綁定與模組開關覆蓋（它們不是桌面快照的一部分）
+      // 覆寫狀態時保留既有的新聞關鍵字組綁定、用語解說綁定與模組開關覆蓋（它們不是桌面快照的一部分）
       newsKeywordGroupId: existing?.newsKeywordGroupId,
+      lorebookIds: existing?.lorebookIds,
       moduleOverrides: existing?.moduleOverrides,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
@@ -3945,6 +4105,135 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('scene:load', (_, id: string) => applySceneById(id))
+
+  // ── 用語解說（Lorebook）CRUD ＋ ST 匯入匯出 ──────────────
+  ipcMain.handle('lorebook:list', () => fileStore.loadLorebooks())
+  ipcMain.handle('lorebook:get', (_, id: string) => fileStore.loadLorebook(id))
+
+  ipcMain.handle('lorebook:create', (_, name: string) => {
+    const now = Date.now()
+    const book: Lorebook = {
+      id: uuidv4(),
+      name: (name ?? '').trim() || '用語解說',
+      entries: [],
+      // 0 ＝ 跟隨上下文：掃描範圍與模型看得到的訊息一致
+      scan_depth: DEFAULT_SCAN_DEPTH,
+      token_budget: DEFAULT_TOKEN_BUDGET,
+      createdAt: now,
+      updatedAt: now
+    }
+    fileStore.saveLorebook(book)
+    broadcastToAll('lorebooks:updated', null)
+    return book
+  })
+
+  ipcMain.handle('lorebook:save', (_, book: Lorebook) => {
+    if (!book?.id) return false
+    fileStore.saveLorebook({ ...book, updatedAt: Date.now() })
+    broadcastToAll('lorebooks:updated', null)
+    return true
+  })
+
+  ipcMain.handle('lorebook:delete', (_, id: string) => {
+    fileStore.deleteLorebook(id)
+    // 掛在角色卡／世界觀／情境上的參照一併清掉，避免留下指向不存在的 id
+    for (const c of characters) {
+      if (c.lorebookIds?.includes(id)) {
+        c.lorebookIds = c.lorebookIds.filter(x => x !== id)
+        fileStore.saveCharacter(c)
+      }
+    }
+    for (const w of fileStore.loadWorldPresets()) {
+      if (w.lorebookIds?.includes(id)) {
+        fileStore.saveWorldPreset({ ...w, lorebookIds: w.lorebookIds.filter(x => x !== id), updatedAt: Date.now() })
+      }
+    }
+    for (const s of fileStore.loadScenePresets()) {
+      if (s.lorebookIds?.includes(id)) {
+        fileStore.saveScenePreset({ ...s, lorebookIds: s.lorebookIds.filter(x => x !== id), updatedAt: Date.now() })
+      }
+    }
+    broadcastToAll('lorebooks:updated', null)
+    broadcastToAll('characters:updated', characters)
+    broadcastToAll('scenes:updated', null)
+    return true
+  })
+
+  /** 匯入 ST lorebook `.json`（或帶 `character_book` 的角色卡 JSON）。 */
+  ipcMain.handle('lorebook:import-st', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const opts = {
+      title: '選擇 SillyTavern 用語解說 JSON',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile' as const]
+    }
+    const result = win && !win.isDestroyed()
+      ? await dialog.showOpenDialog(win, opts)
+      : await dialog.showOpenDialog(opts)
+    if (result.canceled || result.filePaths.length === 0) return { canceled: true as const }
+
+    const file = result.filePaths[0]
+    try {
+      const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown
+      // 檔案本身可能是一本 lorebook，也可能是包著 character_book 的角色卡
+      const source = extractCharacterBook(raw) ?? raw
+      const book = importStLorebook(source, {
+        id: uuidv4(),
+        fallbackName: path.basename(file, '.json'),
+        makeEntryId: () => uuidv4()
+      })
+      fileStore.saveLorebook(book)
+      broadcastToAll('lorebooks:updated', null)
+      return { ok: true as const, book }
+    } catch (e) {
+      return { error: loreErrorMessage(e) }
+    }
+  })
+
+  /** 匯出成 ST 相容 `.json`。 */
+  ipcMain.handle('lorebook:export-st', async (event, id: string) => {
+    const book = fileStore.loadLorebook(id)
+    if (!book) return { error: '找不到這本用語解說' }
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const opts = {
+      title: '匯出用語解說',
+      defaultPath: `${book.name || 'lorebook'}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }]
+    }
+    const { canceled, filePath } = win && !win.isDestroyed()
+      ? await dialog.showSaveDialog(win, opts)
+      : await dialog.showSaveDialog(opts)
+    if (canceled || !filePath) return { canceled: true as const }
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(exportStLorebook(book), null, 2), 'utf-8')
+      return { ok: true as const, path: filePath }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  /**
+   * 從角色卡生成一條用語解說並加進指定的書（規格 §8）。
+   * 失敗一律回錯誤字串讓 UI 顯示；匯入流程另有靜默略過的呼叫點。
+   */
+  ipcMain.handle('lorebook:generate-entry', async (_, payload: { characterId: string; lorebookId: string }) => {
+    const char = getCharacter(payload?.characterId)
+    if (!char) return { error: '找不到角色' }
+    const book = fileStore.loadLorebook(payload?.lorebookId)
+    if (!book) return { error: '找不到這本用語解說' }
+    const generated = await generateLoreEntryForCharacterSafe(char)
+    if (!generated) return { error: '生成失敗，請確認 API Key 與模型設定' }
+    const entry = {
+      id: uuidv4(),
+      insertion_order: book.entries.length,
+      ...generated
+    }
+    book.entries.push(entry)
+    book.updatedAt = Date.now()
+    fileStore.saveLorebook(book)
+    broadcastToAll('lorebooks:updated', null)
+    return { ok: true as const, entry }
+  })
 
   // 已註冊模組清單（情境模組開關 UI 用；排除遠端遙控等基礎設施由 renderer 決定）
   ipcMain.handle('modules:list', () => listRegisteredModules())

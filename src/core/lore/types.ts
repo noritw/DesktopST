@@ -37,7 +37,7 @@ export interface Lorebook {
   id: string
   name: string
   entries: LoreEntry[]
-  /** 掃描最近幾則訊息；預設 `DEFAULT_SCAN_DEPTH` */
+  /** 掃描最近幾則訊息；`0` ＝ 跟隨上下文（見 `DEFAULT_SCAN_DEPTH`） */
   scan_depth: number
   /** 注入上限，以**字元數**近似，非真 token；預設 `DEFAULT_TOKEN_BUDGET` */
   token_budget: number
@@ -47,8 +47,22 @@ export interface Lorebook {
   _passthrough?: Record<string, unknown>
 }
 
-/** 掃描最近幾則訊息（在 `keepRecentN` 之內再取後 N 則）。 */
-export const DEFAULT_SCAN_DEPTH = 5
+/**
+ * 掃描深度預設值：**`0` ＝ 跟隨上下文**，掃完整個 `contextMessages()` 結果。
+ *
+ * 上限本來就是「模型看得到的那批」（規格 §6.2），這裡把下限也對齊 ——
+ * 否則會出現鏡像版的錯：訊息明明在 prompt 裡、模型讀得到，卻因為超出掃描深度而不觸發解說，
+ * 角色對同一個詞的反應會忽有忽無（owner 2026-08-04 指出）。
+ *
+ * ST 匯入的書若原檔有寫 `scan_depth` 就照它的值，維持相容。
+ */
+export const DEFAULT_SCAN_DEPTH = 0
+
+/**
+ * ST 的傳統預設值。B2.6 開發期間 DeST 自建的書曾寫入這個值，
+ * 載入時會被 `normalizeLorebook()` 正規化回「跟隨上下文」。
+ */
+export const LEGACY_ST_SCAN_DEPTH = 5
 
 /** 注入上限（字元數近似，非真 token）。 */
 export const DEFAULT_TOKEN_BUDGET = 2000

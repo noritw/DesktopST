@@ -526,12 +526,63 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
     `character_book` 匯入匯出接線、角色卡自動生成條目（規格 §8）、
     `applySceneModuleOverrides()` 加 `desktopst.lorebook`（`LORE_MODULE_ID` 常數已備好）、
     DST Pack 匯出勾選框（規格 §7.3，預設不勾）
+- [x] **B2.6 Lorebook 桌面 UI（2026-08-04）** —— B2.5 的 core 正式接上呼叫端
+  - **注入**：`ChatLLMParams.loreBlock` → `buildSystemPrompt()` 的 CONTEXT 區塊，
+    `[World]` 之後、`[Scene]` 之前（規格 §5.3，走 CONTEXT 不走 `extraSystemContext`）。
+    生效於**一般聊天（主要＋接話角色）、說點什麼、群組接龍、提醒**；新聞發話與摘要不注入（§6.5）
+  - ⚠️ 掃描文字一律由 `buildLoreBlockFor()`（`ipcHandlers.ts`）用**該路徑的
+    `contextMessages()` 結果**組出來（§6.2），不是完整 `messages`；`conv.summary` 也納入掃描
+  - ⚠️ **`DEFAULT_SCAN_DEPTH` 改為 `0` ＝ 跟隨上下文**（owner 2026-08-04 拍板）。
+    原本照抄 ST 的 5，但 `keepRecentN` 是 20 → 第 6～20 則**明明在 prompt 裡、模型讀得到，
+    卻不觸發解說**，角色對同一個詞會忽懂忽不懂。這是 §6.2 那個 bug 的鏡像版：
+    §6.2 管上限（別掃模型看不到的），這條管下限（模型看得到的都要掃）。
+    `resolveScanDepth` 因此改成**「跟隨上下文」優先**——任一本是 0 就整體是 0，
+    不讓一本書的小視窗連坐縮掉別本（比照 `token_budget` 取最大的邏輯）
+  - ST 匯入的書若原檔有寫 `scan_depth` 就照它的值（相容）；匯出時 `scan_depth <= 0`
+    **整個欄位不輸出**——ST 那邊 `0` 會被讀成「不掃描」，語意剛好相反
+  - `core/lore/normalize.ts`：B2.6 開發期間自建的書寫死了 `scan_depth: 5`，
+    載入時正規化回 `0`。只動 `_passthrough` 為空的書（ST 匯入的幾乎都會帶未知欄位），
+    判斷不到 100% 精準但誤判方向是放寬，與新預設一致
+  - **零設定零影響**：沒建立任何一本時 `loreBlock` 是 undefined，prompt 逐字不變 ——
+    已加迴歸測試（`tests/prompt/promptUtils.test.ts`，與無參數版本全等比對）
+  - **儲存**：`fileStore.loadLorebooks/loadLorebook/saveLorebook/deleteLorebook`
+    （`lorebooks/<id>.json`，讀取失敗靜默略過該本）。刪除一本時會一併清掉
+    角色卡／世界觀／情境上的參照，不留下指向不存在的 id
+  - ⚠️ **注入行帶詞頭**：`詞（別名、別名）：解說`（`formatLoreLine`）。UI 把「關鍵字」與
+    「內容」分兩欄，使用者很自然會把內容寫成不含主詞的補語（「就是你們身處的那個程式」），
+    只丟 `content` 進 prompt 模型無從得知這句在解釋哪個詞 —— owner 2026-08-04 實測發現。
+    ST 靠使用者自己把詞名寫進 content 才不需要這層，故**內容已以該詞開頭時不重複加詞頭**
+  - **UI**：設定 → 世界觀分頁底下「用語解說」摺疊區（`components/LorebookSection.tsx`）。
+    條目**只暴露四個欄位**：關鍵字 chip／內容／常駐／啟用（§7.1）；
+    關鍵字與常駐兩處的說明文字照規格 §7.2 寫死，常駐那段把 §6.2 的掃描深度限制講明
+  - ⚠️ **「使用哪幾本」與「編輯哪一本」是兩個分開的區塊**，不可合併：初版把綁定做成
+    「編輯中那本」旁邊的一個 checkbox，owner 2026-08-04 立刻誤以為只能綁一本 ——
+    與 `docs/news-future-keyword-groups.md` §8 那個 chip 被誤讀成「使用中的組」是同一種坑。
+    綁定一律是**全部書的複選清單**（世界觀、角色卡、情境三處皆然）
+  - **情境**：`ScenePreset.lorebookIds`（取代式，情境卡片摺疊區多選）＋
+    模組開關列 `desktopst.lorebook`；`scene:capture` 覆寫時保留這兩個欄位
+  - ⚠️ **`desktopst.lorebook` 蓄意不進 `applySceneModuleOverrides()`**：
+    settings 裡沒有對應的 enabled 旗標可改寫，直接在 `buildLoreBlockFor()` 問
+    `isModuleEffectivelyEnabled()` 即可（該函式的註解已寫明理由）
+  - **ST 匯入匯出**：`lorebook:import-st` / `lorebook:export-st`（獨立 `.json`，
+    也吃包著 `character_book` 的角色卡）；角色卡匯入（PNG ／ JSON 兩條路徑）時
+    `attachCharacterBookOnImport()` 自動撈 `character_book` 另存一本並掛到該角色，失敗不擋匯入
+  - **DST Pack**：匯出對話框多一個「包含用語解說」勾選框，**預設不勾**（§7.3，私人資料）；
+    勾選時只帶這些角色與當前世界觀實際掛到的那幾本。匯入時**同 id 不覆蓋**本機既有版本
+  - **角色卡自動生成條目（§8）**：`core/lore/generate.ts`（輔助模型、指令英文輸出繁中、
+    LLM 只產 `content`、`keys` 由程式填角色 name ＋ nicknames、預設 `constant:false`）。
+    入口是角色編輯器 → 進階分頁每本書旁的「生成用語條目」按鈕。
+    ⚠️ **匯入角色卡時詢問生成那條沒做**（§8.2 的觸發時機 1）—— 現行匯入流程沒有對話框，
+    加一個會動到匯入 UX；事後手動按鈕已涵蓋同樣的功能
+  - ⚠️ `core/lore/generate.ts` **蓄意不掛進 `core/lore/index.ts`** 的 `export *`：
+    它 import `core/llm`，掛上去會讓 renderer 只為了型別就把整個 LLM 層拉進 bundle
+  - 測試 213 項（新增 5 項生成器純函式 ＋ 2 項注入位置與零影響）
 - [ ] **手機獨立版與平台擴充** → `docs/multi-device-platform-roadmap.md`
   - ⚠️ **下一步不是 B3。** 2026-08-03 盤點發現規劃缺一塊、且 B1／B2 尚未實機驗證
     → **先讀 `docs/pre-b3-work-assessment.md`**（含測試策略：哪些能自動測、
     哪些只能 owner 手動測）。順序：~~驗證合併~~ ✅ → ~~APK 試打~~ ✅ →
     ~~B2.7 `fileStore` 抽 core~~ ✅ → ~~`mobile.html` 對照清單~~ ✅（2026-08-03）→
-    ~~B2.5 Lorebook core~~ ✅（2026-08-04）→ **B2.6 Lorebook 桌面 UI（下一步，不擋 B3）** → B3
+    ~~B2.5 Lorebook core~~ ✅（2026-08-04）→ ~~B2.6 Lorebook 桌面 UI~~ ✅（2026-08-04）→ **B3（下一步）**
   - **B2.7 是新增項目**：`fileStore` 989 行、128 處 `fs`，內含設定遷移等真邏輯；
     五個 adapter 目前只有 HTTP 有呼叫端，**儲存／金鑰／排程／通知零呼叫端**。
     不抽的話 B3 會在手機端重寫一份 → 最核心資料的 drift
@@ -587,7 +638,7 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
 
 **已排程、尚未實作：**
 - **Lorebook（用語解說）** → `docs/future-lorebook.md`（規格已定案，無待決事項）。
-  **B2.5 core 已於 2026-08-04 完成**（見上），剩 **B2.6 桌面 UI**（不擋 B3）。
+  **B2.5 core ＋ B2.6 桌面 UI 已於 2026-08-04 完成**（見上）。
   **2026-08-03 owner 決議要做**，不再屬於「第一版排除」
 - **角色對使用者／角色對角色的印象** → `docs/future-character-impression.md`。
   排程 **B8（B3 之後）**，owner 2026-08-03 決議完全延後、連型別都不先定
