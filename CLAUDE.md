@@ -419,8 +419,7 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
   - **蓄意不搬（桌面平台行為，非業務邏輯）**：`relocateDataDir`、`getPathSizeBytes`、
     `getDataDirSummary`、`initDefaultCharacters`／`initDefaultPresets`（吃 `appRoot` 與
     dstpack 解壓）、全部 debounce 計時器、`_scenesCache`
-  - **仍未解**：`StorageAdapter` 的呼叫端依然是 0。要接上得先反轉
-    `storageAdapter → fileStore` 的依賴方向，那超出 B2.7 範圍 → 留給 B3
+  - ~~**仍未解**：`StorageAdapter` 的呼叫端依然是 0~~ → ✅ **已解**，見下方 B3 階段 0 第一項
   - 驗證：新增**設定載入全等比對**（`scripts/settings-hydration-harness.ts`，
     用法見 `scripts/README-settings-hydration.md`）。18 個人造樣本，
     **golden 產自重構前的 `7f5ef7b`**，重構後逐字比對零差異；
@@ -450,8 +449,8 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
     ③獨立／遙控走**同一個「事件來源」介面**，UI 不知道差別；
     ④**編輯功能全部進 B3** —— 情境／Persona／World 預設組 ＋ **角色庫與角色卡編輯**
   - ⚠️ **B3 階段 0（不含任何 UI）必做三件事**，晚做的成本是「拆掉重寫」而非「慢一點」：
-    事件來源抽象、`StorageAdapter` 呼叫端接上（要先反轉 `storageAdapter → fileStore` 依賴方向）、
-    隨機工具搬 core
+    事件來源抽象（**待辦**）、~~`StorageAdapter` 呼叫端接上~~ ✅（2026-08-04）、
+    ~~隨機工具搬 core~~ ✅
   - ⚠️ **既有 drift 實例**：新聞分欄寫了兩份（`mobile.html` 的 `nrGroupByKeyword`
     vs 桌面 `groupNewsItems`），隨手機 UI 改 React 自然解掉。
     隨機工具那份 ✅ 已解，見下條
@@ -577,6 +576,28 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
   - ⚠️ `core/lore/generate.ts` **蓄意不掛進 `core/lore/index.ts`** 的 `export *`：
     它 import `core/llm`，掛上去會讓 renderer 只為了型別就把整個 LLM 層拉進 bundle
   - 測試 213 項（新增 5 項生成器純函式 ＋ 2 項注入位置與零影響）
+- [x] **B3 階段 0-①：`StorageAdapter` 接上呼叫端（2026-08-04）**
+  - **依賴方向已反轉。** 資料根目錄的真相從 `fileStore` 搬到新的 `src/main/dataDir.ts`
+    （`getDataDir` / `getDefaultDataDir` / `setDataDir` / `saveDataDirMeta`），
+    方向變成 `fileStore ─→ adapters/storageAdapter ─→ dataDir`。
+    `fileStore` 因此改回正常 `import { … } from './adapters'`，
+    B2.7 那個「直接指到實作檔以避開循環」的繞路註解已移除。
+    `fileStore` 仍轉出 `getDataDir` / `getDefaultDataDir`，**呼叫端一行未改**
+  - `fileStore` 的**同步讀寫全部改走 `electronStorage`**：設定、便利貼、提醒、
+    Persona／World／Scene／Lorebook、角色卡、對話（讀取與刪除）。
+    對外 144 處呼叫零改動，桌面維持同步（`SyncStorageAdapter`），core/store/ 仍完全不碰 I/O
+  - `SyncStorageAdapter` 補三支：`listSync` / `removeSync` / **`readTextSync`**。
+    ⚠️ **`readTextSync` 不是多餘的**：`readJsonSync` 把「檔案壞掉」與「內容就是 null」
+    都收斂成 `null`，但設定載入必須分辨 —— 壞掉要走 catch 保住磁碟上的舊檔，
+    收斂掉會變成把損毀的 settings.json 當空設定回寫。harness 樣本 17（損毀 JSON）守著這條
+  - ⚠️ **debounce 寫檔蓄意留在 `fs`**（settings／pinned notes／conversation）：
+    它們手上是「呼叫當下就序列化好的字串」，這是刻意的（之後對話物件再被改動也不影響
+    已排程的那次寫入）。改走 adapter 會把序列化時機延到 timer 觸發時，語意會變。
+    `ensureDirs` 同樣留下 —— 目錄不是 `StorageAdapter` 的概念（手機沙箱寫入時自動建立）
+  - 驗證：typecheck ＋ 221 項測試 ＋ `electron-vite build` 全過；
+    **設定載入全等比對 18/18 零差異**。反向驗證做過（在 `readTextSync` 裡動手腳改字串 →
+    精準抓到 4 個含該欄位的樣本，其餘不誤報）
+  - **下一步是階段 0-②「事件來源抽象」**，這次刻意沒做
 - [ ] **手機獨立版與平台擴充** → `docs/multi-device-platform-roadmap.md`
   - ⚠️ **下一步不是 B3。** 2026-08-03 盤點發現規劃缺一塊、且 B1／B2 尚未實機驗證
     → **先讀 `docs/pre-b3-work-assessment.md`**（含測試策略：哪些能自動測、

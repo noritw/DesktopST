@@ -57,7 +57,7 @@ Lorebook 建議現在做，角色印象建議排在 B3 之後。
 
 ```
 src/main/fileStore.ts          989 行，128 處直接呼叫 fs / path
-StorageAdapter 的呼叫端        0 個
+StorageAdapter 的呼叫端        0 個   ← ✅ 已於 2026-08-04（B3 階段 0-①）接上
 SecretAdapter 的呼叫端         0 個
 SchedulerAdapter 的呼叫端      0 個
 NotifierAdapter 的呼叫端       0 個

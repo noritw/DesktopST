@@ -40,4 +40,18 @@ export interface SyncStorageAdapter {
   readJsonSync<T>(key: string): T | null
   writeJsonSync(key: string, value: unknown): void
   existsSync(key: string): boolean
+
+  /**
+   * 讀原始文字，不存在回 `null`。
+   *
+   * `readJsonSync` 把「檔案壞掉」與「內容就是 null」都收斂成 `null`，
+   * 但設定載入必須分辨這兩者（壞掉要保住磁碟上的舊檔、不能當空設定回寫），
+   * 所以留一支讓呼叫端自己 `JSON.parse` 並決定失敗怎麼處理。
+   */
+  readTextSync(key: string): string | null
+
+  /** 同 `list`；`fileStore` 的 `loadPersonaPresets` 這類「列目錄再逐檔讀」需要它。 */
+  listSync(prefix: string): string[]
+  /** 同 `remove`；刪一個 key 或整個前綴（角色是一整個資料夾）。 */
+  removeSync(key: string): void
 }

@@ -1,6 +1,5 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { app } from 'electron'
 import { v4 as uuidv4 } from 'uuid'
 import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder } from './types'
 import { type Lorebook, normalizeLorebook } from '../core/lore'
@@ -9,8 +8,8 @@ import { isPinnedNote } from '../core/store/normalize'
 import { pruneConversationDebugPrompts } from '../core/store/prune'
 import { hydrateSettings, toPersistedSettings } from '../core/store/settings'
 import * as keys from '../core/store/keys'
-// 直接指到實作檔而非 adapters/index：index 會拉進 storageAdapter，那支 import 本檔 → 循環。
-import { electronSecrets } from './adapters/secretAdapter'
+import { electronSecrets, electronStorage } from './adapters'
+import { getDataDir, getDefaultDataDir, setDataDir, saveDataDirMeta } from './dataDir'
 import { loadDstPackZip, readCharacterFromZip, extractCharacterDirFromZip } from './dstPack'
 import {
   hasRemoteControlModuleSettings,
@@ -20,11 +19,6 @@ import {
 } from './modules/remote-control'
 import { configureModuleSettingsRoot } from './modules/moduleSettings'
 
-const DEFAULT_DATA_DIR = path.join(app.getPath('userData'), 'DesktopST')
-const STORAGE_META_FILE = path.join(app.getPath('userData'), 'DesktopST-storage.json')
-
-let DATA_DIR = DEFAULT_DATA_DIR
-
 /**
  * API Key 解密失敗時的暫存：key = provider name（openai/claude/…），value = 'enc:v1:...'
  * 防止 renderer 送回空字串時把加密值覆寫掉。
@@ -32,86 +26,53 @@ let DATA_DIR = DEFAULT_DATA_DIR
 export const encryptedApiKeyFallbacks = new Map<string, string>()
 /**
  * 把 core 的平台無關 key（`'personas/abc.json'`）解析成本機絕對路徑。
- * 檔案佈局的定義在 `core/store/keys.ts`，桌面與手機共用同一份（B2.7）。
+ *
+ * 一般的讀寫一律走 `electronStorage`（它內部做同一件事），
+ * 這支只留給**需要真實路徑**的少數地方：debounce 寫檔、dstpack 解壓的目的地。
  */
 function resolveKey(key: string): string {
-  return path.join(DATA_DIR, ...key.split('/'))
+  return path.join(getDataDir(), ...key.split('/'))
+}
+
+/** 從儲存 key（`'personas/abc.json'`）取出最後一段檔名。 */
+function baseName(key: string): string {
+  return key.split('/').pop() ?? ''
 }
 
 let SETTINGS_FILE = resolveKey(keys.SETTINGS_KEY)
 let PINNED_NOTES_FILE = resolveKey(keys.PINNED_NOTES_KEY)
-let REMINDERS_FILE = resolveKey(keys.REMINDERS_KEY)
-let CHARS_DIR = resolveKey(keys.CHARACTERS_DIR)
-let CONVS_DIR = resolveKey(keys.CONVERSATIONS_DIR)
-let PERSONAS_DIR = resolveKey(keys.PERSONAS_DIR)
-let WORLDS_DIR = resolveKey(keys.WORLDS_DIR)
-let SCENES_DIR = resolveKey(keys.SCENES_DIR)
-let LOREBOOKS_DIR = resolveKey(keys.LOREBOOKS_DIR)
-
-type DataDirMeta = { dataDir?: string }
 
 function refreshPaths(nextDir: string): void {
-  DATA_DIR = path.resolve(nextDir)
-  configureModuleSettingsRoot(DATA_DIR)
+  const dir = setDataDir(nextDir)
+  configureModuleSettingsRoot(dir)
   SETTINGS_FILE = resolveKey(keys.SETTINGS_KEY)
   PINNED_NOTES_FILE = resolveKey(keys.PINNED_NOTES_KEY)
-  REMINDERS_FILE = resolveKey(keys.REMINDERS_KEY)
-  CHARS_DIR = resolveKey(keys.CHARACTERS_DIR)
-  CONVS_DIR = resolveKey(keys.CONVERSATIONS_DIR)
-  PERSONAS_DIR = resolveKey(keys.PERSONAS_DIR)
-  WORLDS_DIR = resolveKey(keys.WORLDS_DIR)
-  SCENES_DIR = resolveKey(keys.SCENES_DIR)
-  LOREBOOKS_DIR = resolveKey(keys.LOREBOOKS_DIR)
   _dirsEnsured = false
   _scenesCache = null
-}
-
-function loadDataDirFromMeta(): string {
-  if (!fs.existsSync(STORAGE_META_FILE)) return DEFAULT_DATA_DIR
-  try {
-    const raw = JSON.parse(fs.readFileSync(STORAGE_META_FILE, 'utf-8')) as DataDirMeta
-    const configured = typeof raw?.dataDir === 'string' ? raw.dataDir.trim() : ''
-    return configured ? path.resolve(configured) : DEFAULT_DATA_DIR
-  } catch {
-    return DEFAULT_DATA_DIR
-  }
-}
-
-function saveDataDirMeta(targetDir: string): void {
-  try {
-    fs.writeFileSync(
-      STORAGE_META_FILE,
-      JSON.stringify({ dataDir: path.resolve(targetDir) } satisfies DataDirMeta, null, 2),
-      'utf-8'
-    )
-  } catch (e) {
-    console.error('[fileStore] saveDataDirMeta failed:', e)
-  }
 }
 
 let _dirsEnsured = false
 let _scenesCache: ScenePreset[] | null = null
 
-refreshPaths(loadDataDirFromMeta())
+refreshPaths(getDataDir())
 
+/**
+ * 目錄預建。**蓄意留在平台層**：目錄不是 `StorageAdapter` 的概念
+ * （手機沙箱不需要預建，寫入時自動建立），桌面則要讓使用者開得了資料夾。
+ */
 function ensureDirs() {
   if (_dirsEnsured) return
   _dirsEnsured = true
-  for (const dir of [DATA_DIR, ...keys.DATA_SUBDIRS.map(resolveKey)]) {
+  for (const dir of [getDataDir(), ...keys.DATA_SUBDIRS.map(resolveKey)]) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
   }
 }
 
 export function loadPinnedNotes(): PinnedNote[] {
   ensureDirs()
-  if (!fs.existsSync(PINNED_NOTES_FILE)) return []
-  try {
-    const raw = JSON.parse(fs.readFileSync(PINNED_NOTES_FILE, 'utf-8'))
-    if (!Array.isArray(raw)) return []
-    return raw.filter(isPinnedNote)
-  } catch {
-    return []
-  }
+  const raw = electronStorage.readJsonSync<unknown>(keys.PINNED_NOTES_KEY)
+  if (!Array.isArray(raw)) return []
+  return raw.filter(isPinnedNote)
 }
 
 // ── Settings ──────────────────────────────────────────────
@@ -126,7 +87,7 @@ const MIGRATE_LABELS = {
 
 export function loadSettings(): AppSettings {
   ensureDirs()
-  if (!fs.existsSync(SETTINGS_FILE)) {
+  if (!electronStorage.existsSync(keys.SETTINGS_KEY)) {
     const remoteControl = saveRemoteControlModuleSettings(DEFAULT_SETTINGS.remoteControl!)
     return {
       ...DEFAULT_SETTINGS,
@@ -138,7 +99,11 @@ export function loadSettings(): AppSettings {
     }
   }
   try {
-    const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8')) as Record<string, unknown> | null
+    // 刻意不用 readJsonSync：JSON 壞掉要走下面的 catch（保住磁碟上的舊檔），
+    // 而「內容就是 null」要正常往下走 hydrateSettings。兩者不可收斂成同一個 null。
+    const text = electronStorage.readTextSync(keys.SETTINGS_KEY)
+    if (text === null) throw new Error('settings.json unreadable')
+    const raw = JSON.parse(text) as Record<string, unknown> | null
 
     const result = hydrateSettings(raw, loadPinnedNotes(), {
       secrets: electronSecrets,
@@ -184,6 +149,13 @@ export function loadSettings(): AppSettings {
   }
 }
 
+/**
+ * ⚠️ 底下這幾支 debounce 寫檔**蓄意留在 fs**（B2.7 已定調 debounce 屬平台層）：
+ * 它們手上是「呼叫當下就序列化好的字串」——這是刻意的，之後對話物件再怎麼被改動
+ * 都不會影響已排程的那次寫入。`StorageAdapter` 收的是物件、由它自己序列化，
+ * 改走 adapter 等於把序列化時機延到 timer 觸發時，語意會變。
+ * 手機端的節流要另外寫一份，這不是可共用的邏輯。
+ */
 let _pendingSettingsJson: string | null = null
 let _saveSettingsTimer: ReturnType<typeof setTimeout> | null = null
 let _pendingPinnedNotesJson: string | null = null
@@ -206,30 +178,25 @@ export function savePinnedNotes(notes: PinnedNote[]): void {
 // ── Reminders ─────────────────────────────────────────────
 
 export function loadReminders(): Reminder[] {
-  if (!fs.existsSync(REMINDERS_FILE)) return []
-  try {
-    const raw = JSON.parse(fs.readFileSync(REMINDERS_FILE, 'utf-8'))
-    if (!Array.isArray(raw)) return []
-    return raw
-      .filter((r): r is Reminder =>
-        !!r && typeof r.id === 'string' && typeof r.label === 'string' && !!r.schedule
-      )
-      .map(r => {
-        const s = r.schedule
-        if (s.type === 'weekly' && (!Array.isArray(s.days) || s.days.length === 0)) {
-          return { ...r, schedule: { ...s, days: [new Date().getDay()] } }
-        }
-        return r
-      })
-  } catch {
-    return []
-  }
+  const raw = electronStorage.readJsonSync<unknown>(keys.REMINDERS_KEY)
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((r): r is Reminder =>
+      !!r && typeof r.id === 'string' && typeof r.label === 'string' && !!r.schedule
+    )
+    .map(r => {
+      const s = r.schedule
+      if (s.type === 'weekly' && (!Array.isArray(s.days) || s.days.length === 0)) {
+        return { ...r, schedule: { ...s, days: [new Date().getDay()] } }
+      }
+      return r
+    })
 }
 
 export function saveReminders(reminders: Reminder[]): void {
   ensureDirs()
   try {
-    fs.writeFileSync(REMINDERS_FILE, JSON.stringify(reminders, null, 2), 'utf-8')
+    electronStorage.writeJsonSync(keys.REMINDERS_KEY, reminders)
   } catch (e) {
     console.error('[fileStore] saveReminders failed:', e)
   }
@@ -279,66 +246,46 @@ export function flushSaveSettings(): void {
 
 export function loadPersonaPresets(): PersonaPreset[] {
   ensureDirs()
-  if (!fs.existsSync(PERSONAS_DIR)) return []
-  return fs.readdirSync(PERSONAS_DIR)
-    .filter(f => f.endsWith('.json'))
-    .map(f => {
-      try {
-        return JSON.parse(fs.readFileSync(path.join(PERSONAS_DIR, f), 'utf-8')) as PersonaPreset
-      } catch { return null }
-    })
+  return electronStorage.listSync(keys.PERSONAS_DIR)
+    .filter(k => k.endsWith('.json'))
+    .map(k => electronStorage.readJsonSync<PersonaPreset>(k))
     .filter(Boolean) as PersonaPreset[]
 }
 
 export function savePersonaPreset(preset: PersonaPreset): void {
   ensureDirs()
-  fs.writeFileSync(resolveKey(keys.personaKey(preset.id)), JSON.stringify(preset, null, 2), 'utf-8')
+  electronStorage.writeJsonSync(keys.personaKey(preset.id), preset)
 }
 
 export function deletePersonaPreset(id: string): void {
-  const file = resolveKey(keys.personaKey(id))
-  if (fs.existsSync(file)) fs.unlinkSync(file)
+  electronStorage.removeSync(keys.personaKey(id))
 }
 
 export function loadPersonaPreset(id: string): PersonaPreset | null {
-  const file = resolveKey(keys.personaKey(id))
-  if (!fs.existsSync(file)) return null
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf-8')) as PersonaPreset
-  } catch { return null }
+  return electronStorage.readJsonSync<PersonaPreset>(keys.personaKey(id))
 }
 
 // ── World Presets ────────────────────────────────────────
 
 export function loadWorldPresets(): WorldPreset[] {
   ensureDirs()
-  if (!fs.existsSync(WORLDS_DIR)) return []
-  return fs.readdirSync(WORLDS_DIR)
-    .filter(f => f.endsWith('.json'))
-    .map(f => {
-      try {
-        return JSON.parse(fs.readFileSync(path.join(WORLDS_DIR, f), 'utf-8')) as WorldPreset
-      } catch { return null }
-    })
+  return electronStorage.listSync(keys.WORLDS_DIR)
+    .filter(k => k.endsWith('.json'))
+    .map(k => electronStorage.readJsonSync<WorldPreset>(k))
     .filter(Boolean) as WorldPreset[]
 }
 
 export function saveWorldPreset(preset: WorldPreset): void {
   ensureDirs()
-  fs.writeFileSync(resolveKey(keys.worldKey(preset.id)), JSON.stringify(preset, null, 2), 'utf-8')
+  electronStorage.writeJsonSync(keys.worldKey(preset.id), preset)
 }
 
 export function deleteWorldPreset(id: string): void {
-  const file = resolveKey(keys.worldKey(id))
-  if (fs.existsSync(file)) fs.unlinkSync(file)
+  electronStorage.removeSync(keys.worldKey(id))
 }
 
 export function loadWorldPreset(id: string): WorldPreset | null {
-  const file = resolveKey(keys.worldKey(id))
-  if (!fs.existsSync(file)) return null
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf-8')) as WorldPreset
-  } catch { return null }
+  return electronStorage.readJsonSync<WorldPreset>(keys.worldKey(id))
 }
 
 // ── Lorebooks（用語解說）────────────────────────────────
@@ -346,33 +293,31 @@ export function loadWorldPreset(id: string): WorldPreset | null {
 
 export function loadLorebooks(): Lorebook[] {
   ensureDirs()
-  if (!fs.existsSync(LOREBOOKS_DIR)) return []
-  return fs.readdirSync(LOREBOOKS_DIR)
-    .filter(f => f.endsWith('.json'))
-    .map(f => {
-      try {
-        return normalizeLorebook(JSON.parse(fs.readFileSync(path.join(LOREBOOKS_DIR, f), 'utf-8')) as Lorebook)
-      } catch { return null }
-    })
+  return electronStorage.listSync(keys.LOREBOOKS_DIR)
+    .filter(k => k.endsWith('.json'))
+    .map(k => readLorebookAt(k))
     .filter(Boolean) as Lorebook[]
 }
 
-export function loadLorebook(id: string): Lorebook | null {
-  const file = resolveKey(keys.lorebookKey(id))
-  if (!fs.existsSync(file)) return null
+function readLorebookAt(key: string): Lorebook | null {
+  const raw = electronStorage.readJsonSync<Lorebook>(key)
+  if (!raw) return null
   try {
-    return normalizeLorebook(JSON.parse(fs.readFileSync(file, 'utf-8')) as Lorebook)
+    return normalizeLorebook(raw)
   } catch { return null }
+}
+
+export function loadLorebook(id: string): Lorebook | null {
+  return readLorebookAt(keys.lorebookKey(id))
 }
 
 export function saveLorebook(book: Lorebook): void {
   ensureDirs()
-  fs.writeFileSync(resolveKey(keys.lorebookKey(book.id)), JSON.stringify(book, null, 2), 'utf-8')
+  electronStorage.writeJsonSync(keys.lorebookKey(book.id), book)
 }
 
 export function deleteLorebook(id: string): void {
-  const file = resolveKey(keys.lorebookKey(id))
-  if (fs.existsSync(file)) fs.unlinkSync(file)
+  electronStorage.removeSync(keys.lorebookKey(id))
 }
 
 // ── Scene Presets ────────────────────────────────────────
@@ -380,36 +325,26 @@ export function deleteLorebook(id: string): void {
 export function loadScenePresets(): ScenePreset[] {
   if (_scenesCache) return _scenesCache
   ensureDirs()
-  if (!fs.existsSync(SCENES_DIR)) return []
-  _scenesCache = fs.readdirSync(SCENES_DIR)
-    .filter(f => f.endsWith('.json'))
-    .map(f => {
-      try {
-        return JSON.parse(fs.readFileSync(path.join(SCENES_DIR, f), 'utf-8')) as ScenePreset
-      } catch { return null }
-    })
+  _scenesCache = electronStorage.listSync(keys.SCENES_DIR)
+    .filter(k => k.endsWith('.json'))
+    .map(k => electronStorage.readJsonSync<ScenePreset>(k))
     .filter(Boolean) as ScenePreset[]
   return _scenesCache
 }
 
 export function saveScenePreset(preset: ScenePreset): void {
   ensureDirs()
-  fs.writeFileSync(resolveKey(keys.sceneKey(preset.id)), JSON.stringify(preset, null, 2), 'utf-8')
+  electronStorage.writeJsonSync(keys.sceneKey(preset.id), preset)
   _scenesCache = null
 }
 
 export function deleteScenePreset(id: string): void {
-  const file = resolveKey(keys.sceneKey(id))
-  if (fs.existsSync(file)) fs.unlinkSync(file)
+  electronStorage.removeSync(keys.sceneKey(id))
   _scenesCache = null
 }
 
 export function loadScenePreset(id: string): ScenePreset | null {
-  const file = resolveKey(keys.sceneKey(id))
-  if (!fs.existsSync(file)) return null
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf-8')) as ScenePreset
-  } catch { return null }
+  return electronStorage.readJsonSync<ScenePreset>(keys.sceneKey(id))
 }
 
 // ── Init default presets ─────────────────────────────────
@@ -479,49 +414,32 @@ export function initDefaultPresets(appRoot: string): { personas: PersonaPreset[]
 
 export function loadCharacters(): Character[] {
   ensureDirs()
-  if (!fs.existsSync(CHARS_DIR)) return []
-  return fs.readdirSync(CHARS_DIR)
-    .map(id => {
-      const cardPath = resolveKey(keys.characterCardKey(id))
-      if (!fs.existsSync(cardPath)) return null
-      try {
-        return JSON.parse(fs.readFileSync(cardPath, 'utf-8')) as Character
-      } catch {
-        return null
-      }
-    })
+  return electronStorage.listSync(keys.CHARACTERS_DIR)
+    .map(k => electronStorage.readJsonSync<Character>(keys.characterCardKey(baseName(k))))
     .filter(Boolean) as Character[]
 }
 
 export function saveCharacter(char: Character): void {
   ensureDirs()
-  const dir = resolveKey(keys.characterDirKey(char.id))
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-  fs.writeFileSync(path.join(dir, 'card.json'), JSON.stringify(char, null, 2), 'utf-8')
+  // writeJsonSync 會自動補上角色資料夾。
+  electronStorage.writeJsonSync(keys.characterCardKey(char.id), char)
 }
 
 export function deleteCharacter(id: string): void {
-  const dir = resolveKey(keys.characterDirKey(id))
-  if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true })
+  electronStorage.removeSync(keys.characterDirKey(id))
 }
 
 // ── Conversations ─────────────────────────────────────────
 
 export function loadConversation(id: string): Conversation | null {
-  const file = resolveKey(keys.conversationKey(id))
-  if (!fs.existsSync(file)) return null
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf-8')) as Conversation
-  } catch {
-    return null
-  }
+  return electronStorage.readJsonSync<Conversation>(keys.conversationKey(id))
 }
 
 export function listConversationIds(): string[] {
   ensureDirs()
-  return fs.readdirSync(CONVS_DIR)
-    .filter(f => f.endsWith('.json'))
-    .map(f => f.replace('.json', ''))
+  return electronStorage.listSync(keys.CONVERSATIONS_DIR)
+    .map(k => keys.idFromJsonName(baseName(k)))
+    .filter(Boolean) as string[]
 }
 
 const _pendingConvJson = new Map<string, string>()
@@ -550,8 +468,7 @@ export function saveConversation(conv: Conversation): void {
 export { pruneConversationDebugPrompts }
 
 export function deleteConversation(id: string): void {
-  const file = resolveKey(keys.conversationKey(id))
-  if (fs.existsSync(file)) fs.unlinkSync(file)
+  electronStorage.removeSync(keys.conversationKey(id))
 }
 
 // ── Init default characters ───────────────────────────────
@@ -693,13 +610,8 @@ export async function initDefaultCharacters(appRoot: string): Promise<{ chars: C
 
 // ── File serving path ─────────────────────────────────────
 
-export function getDataDir(): string {
-  return DATA_DIR
-}
-
-export function getDefaultDataDir(): string {
-  return DEFAULT_DATA_DIR
-}
+/** @see dataDir —— 實體已移出本檔（storageAdapter 也要用），此處轉出以維持既有 import 路徑。 */
+export { getDataDir, getDefaultDataDir }
 
 function isSamePath(a: string, b: string): boolean {
   return path.resolve(a) === path.resolve(b)
@@ -743,33 +655,34 @@ function rewriteCharacterPathsForRelocatedDir(oldDir: string, newDir: string): v
 export function relocateDataDir(targetDir: string): { ok: true; dataDir: string } | { ok: false; error: string } {
   const next = path.resolve(String(targetDir ?? '').trim())
   if (!next) return { ok: false, error: '目標資料夾無效。' }
-  if (isSamePath(next, DATA_DIR)) return { ok: true, dataDir: DATA_DIR }
-  if (isNestedPath(next, DATA_DIR)) {
+  const current = getDataDir()
+  if (isSamePath(next, current)) return { ok: true, dataDir: current }
+  if (isNestedPath(next, current)) {
     return { ok: false, error: '新路徑不可與舊資料夾互為包含關係。請改選其他資料夾。' }
   }
 
   flushSaveSettings()
   try {
     if (!fs.existsSync(next)) fs.mkdirSync(next, { recursive: true })
-    if (fs.existsSync(DATA_DIR)) {
-      const entries = fs.readdirSync(DATA_DIR)
+    if (fs.existsSync(current)) {
+      const entries = fs.readdirSync(current)
       for (const name of entries) {
-        const src = path.join(DATA_DIR, name)
+        const src = path.join(current, name)
         const dst = path.join(next, name)
         fs.cpSync(src, dst, { recursive: true, force: true })
       }
     }
-    const oldDir = DATA_DIR
+    const oldDir = current
     refreshPaths(next)
     ensureDirs()
-    rewriteCharacterPathsForRelocatedDir(oldDir, DATA_DIR)
+    rewriteCharacterPathsForRelocatedDir(oldDir, getDataDir())
     saveDataDirMeta(next)
     try {
       if (fs.existsSync(oldDir)) fs.rmSync(oldDir, { recursive: true, force: true })
     } catch {
       // 搬移成功但清除舊資料夾失敗不阻擋流程。
     }
-    return { ok: true, dataDir: DATA_DIR }
+    return { ok: true, dataDir: getDataDir() }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
