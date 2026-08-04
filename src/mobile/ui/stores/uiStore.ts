@@ -87,6 +87,22 @@ interface UiState {
   stack: ViewEntry[]
   push: (kind: ViewKind, param?: string) => void
   pop: () => void
+  /**
+   * 使用者要求關閉最上層畫面（✕、點遮罩、返回鍵三者共用）。
+   *
+   * 與 `pop()` 的差別是**會先問 `closeGuard`** —— 例如角色卡編輯器有未儲存的改動時
+   * 要先確認，不能讓一次返回手勢把打了半天的人格設定丟掉。
+   */
+  requestPop: () => void
+  /**
+   * 攔截關閉。回 `false` 表示「先別關」，由 guard 自己負責之後怎麼收尾
+   * （通常是開一個確認對話框，使用者按了「捨棄」再自行呼叫 `pop()`）。
+   *
+   * ⚠️ **刻意是同步的。** 返回鍵那條路徑（`handleBack`）必須同步回答
+   * 「我消化掉了嗎」，改成 async 會讓 history 的深度與畫面堆疊錯位。
+   */
+  closeGuard: (() => boolean) | null
+  setCloseGuard: (fn: (() => boolean) | null) => void
   /** 一路關到主畫面。切換對話之類「情境變了」的場合用。 */
   popAll: () => void
 
@@ -122,9 +138,18 @@ export const useUiStore = create<UiState>((set, get) => ({
     }),
 
   stack: [],
-  push: (kind, param) => set((s) => ({ stack: [...s.stack, { id: nextId(), kind, param }] })),
-  pop: () => set((s) => ({ stack: s.stack.slice(0, -1) })),
-  popAll: () => set({ stack: [] }),
+  // 疊新畫面時清掉 guard：它屬於底下那一層，留著會讓上層被誤攔。
+  push: (kind, param) => set((s) => ({ stack: [...s.stack, { id: nextId(), kind, param }], closeGuard: null })),
+  pop: () => set((s) => ({ stack: s.stack.slice(0, -1), closeGuard: null })),
+  popAll: () => set({ stack: [], closeGuard: null }),
+
+  closeGuard: null,
+  setCloseGuard: (fn) => set({ closeGuard: fn }),
+  requestPop: () => {
+    const guard = get().closeGuard
+    if (guard && !guard()) return
+    get().pop()
+  },
 
   toasts: [],
   toast: (text, tone = 'info') => {
@@ -171,7 +196,10 @@ export function handleBack(): boolean {
     return true
   }
   if (s.stack.length > 0) {
-    s.pop()
+    // 走 requestPop 而不是 pop：返回鍵與 ✕ 必須遇到同一道 `closeGuard`，
+    // 否則「用 ✕ 會問、用返回手勢直接丟掉」——而手機上多數人用的是後者。
+    // 被攔下時仍回 true（我們消化掉了這次返回），畫面留在原地由 guard 收尾。
+    s.requestPop()
     return true
   }
   return false

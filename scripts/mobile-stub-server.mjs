@@ -30,11 +30,40 @@ const PORT = Number(process.env.PORT || 5999)
 
 // ── 假資料 ──────────────────────────────────────────────────
 
+/**
+ * 角色庫。**存的是完整角色卡**（階段 3 的編輯器要讀 `/api/characters/card/:id`），
+ * 不是只有 id 與名字。
+ */
 const library = [
-  { id: 'c1', name: '小綠' },
-  { id: 'c2', name: '小藍' },
-  { id: 'c3', name: '小黃' }
+  {
+    id: 'c1', name: '小綠', nicknames: ['綠綠'], avatar: 'stub://c1',
+    description: '一隻薄荷色的桌面寵物。', personality: '好奇、話多',
+    firstMessage: '嗨！', exampleDialogue: '', emotions: {},
+    scenario: '', creatorNotes: '', systemPromptOverride: '',
+    newsKeywords: ['貓咪'], lorebookIds: ['b1'],
+    createdAt: Date.now(), updatedAt: Date.now()
+  },
+  {
+    id: 'c2', name: '小藍', nicknames: [], avatar: 'stub://c2',
+    description: '', personality: '冷靜', firstMessage: '', exampleDialogue: '',
+    emotions: {}, scenario: '', creatorNotes: '', systemPromptOverride: '',
+    newsKeywords: [], lorebookIds: [], createdAt: Date.now(), updatedAt: Date.now()
+  },
+  {
+    id: 'c3', name: '小黃', nicknames: [], avatar: '',
+    description: '', personality: '', firstMessage: '', exampleDialogue: '',
+    emotions: {}, scenario: '', creatorNotes: '', systemPromptOverride: '',
+    newsKeywords: [], lorebookIds: [], createdAt: Date.now(), updatedAt: Date.now()
+  }
 ]
+
+const lorebooks = [
+  { id: 'b1', name: '桌寵世界用語' },
+  { id: 'b2', name: 'TRPG 名詞' }
+]
+
+/** 角色 id → 手機上傳的主圖 data URI。`/api/avatar/:id` 優先回這個。 */
+const uploadedAvatars = new Map()
 let presentIds = ['c1', 'c2']
 const muted = new Set()
 
@@ -138,6 +167,17 @@ const server = http.createServer(async (req, res) => {
   // 未知 id 回 404 —— 那條路徑要驗的是 🐾 fallback（清單 D6）。
   if (url.startsWith('/api/avatar/')) {
     const id = decodeURIComponent(url.split('/').pop().split('?')[0])
+    const uploaded = uploadedAvatars.get(id)
+    if (uploaded) {
+      const buf = Buffer.from(uploaded.split(',')[1], 'base64')
+      res.writeHead(200, { ...cors, 'Content-Type': 'image/jpeg', 'Content-Length': buf.length })
+      return res.end(buf)
+    }
+    // ⚠️ 真伺服器在角色卡的 `avatar` 是空的時候回 **404**（`mobileServer.ts`：
+    // `if (!char?.avatar)`）。這裡照抄，否則「沒設主圖」的角色在 stub 上看起來
+    // 永遠有圖，🐾 fallback（清單 D6）與編輯器的破圖處理就驗不到。
+    const card = library.find((c) => c.id === id)
+    if (card && !card.avatar) return res.writeHead(404, cors).end()
     const color = { c1: '#CBFBC4', c2: '#AAEEFF', c3: '#FFE8AA' }[id]
     if (!color) return res.writeHead(404, cors).end()
     res.writeHead(200, { ...cors, 'Content-Type': 'image/svg+xml' })
@@ -152,7 +192,7 @@ const server = http.createServer(async (req, res) => {
 
   if (url.startsWith('/api/characters/library')) {
     return json(res, {
-      characters: library.map((c) => ({ ...c, onDesktop: presentIds.includes(c.id) }))
+      characters: library.map((c) => ({ id: c.id, name: c.name, onDesktop: presentIds.includes(c.id) }))
     })
   }
 
@@ -184,6 +224,130 @@ const server = http.createServer(async (req, res) => {
       fakeReply(presentIds[0] || 'c1', imgs.length ? `收到 ${imgs.length} 張圖囉！` : `你說：「${p.content}」`)
     }
     return
+  }
+
+  if (url.startsWith('/api/lorebooks')) return json(res, { lorebooks })
+
+  // ── 角色卡讀寫（階段 3）────────────────────────────────────
+  //
+  // ⚠️ 這一段必須放在下面那個 `/api/characters/` 萬用分支**之前**，
+  // 否則會被它整碗吃掉並一律回 `{ ok: true }` —— 又是一次「假裝成功」。
+
+  const cardMatch = url.match(/^\/api\/characters\/card\/([^?]+)/)
+  if (cardMatch) {
+    const id = decodeURIComponent(cardMatch[1])
+    const card = library.find((c) => c.id === id)
+    console.log(`[card] ${id} -> ${card ? 'ok' : '404'}`)
+    // 真伺服器對不存在的 id 回 404（→ DataError not-found）
+    if (!card) return json(res, { error: 'Character not found' }, 404)
+    return json(res, { character: card })
+  }
+
+  if (url.startsWith('/api/characters/create')) {
+    const p = await readBody(req)
+    const now = Date.now()
+    const char = {
+      id: 'c' + now, name: (p.name || '').trim() || '新角色', nicknames: [], avatar: '',
+      description: '', personality: '', firstMessage: '', exampleDialogue: '',
+      emotions: {}, scenario: '', creatorNotes: '', systemPromptOverride: '',
+      newsKeywords: [], lorebookIds: [], createdAt: now, updatedAt: now
+    }
+    library.push(char)
+    console.log(`[create] ${char.id} ${char.name}`)
+    return json(res, { character: char })
+  }
+
+  if (url.startsWith('/api/characters/save')) {
+    const p = await readBody(req)
+    const incoming = p.character || {}
+    const idx = library.findIndex((c) => c.id === incoming.id)
+    // 拒絕條件照抄 mobileServer：找不到角色 404、名稱空白 400
+    if (idx < 0) return json(res, { error: 'Character not found' }, 404)
+    if (!String(incoming.name || '').trim()) return json(res, { error: '角色名稱不可空白' }, 400)
+    // ⚠️ 信任邊界：真伺服器**不採用**手機送來的 avatar／emotions／spriteIds
+    //（那是本機檔案路徑）。這裡照樣忽略，免得 stub 上會動、真機上不會。
+    library[idx] = {
+      ...library[idx],
+      ...incoming,
+      avatar: library[idx].avatar,
+      emotions: library[idx].emotions,
+      spriteIds: library[idx].spriteIds,
+      updatedAt: Date.now()
+    }
+    console.log(`[save] ${incoming.id} ${incoming.name}`)
+    return json(res, { ok: true })
+  }
+
+  if (url.startsWith('/api/characters/delete')) {
+    const p = await readBody(req)
+    const idx = library.findIndex((c) => c.id === p.id)
+    if (idx < 0) return json(res, { error: 'Character not found' }, 404)
+    library.splice(idx, 1)
+    presentIds = presentIds.filter((i) => i !== p.id)
+    console.log(`[delete] ${p.id}`)
+    push({ type: 'desktop-updated' })
+    return json(res, { ok: true })
+  }
+
+  if (url.startsWith('/api/characters/avatar')) {
+    const p = await readBody(req)
+    const card = library.find((c) => c.id === p.id)
+    if (!card) return json(res, { error: 'Character not found' }, 404)
+    const kb = Math.round(((p.data || '').length * 3) / 4 / 1024)
+    console.log(`[avatar] ${p.id} ${p.ext} ${kb}KB`)
+    uploadedAvatars.set(p.id, `data:image/jpeg;base64,${p.data}`)
+    card.avatar = `stub://uploaded/${p.id}`
+    return json(res, { avatar: card.avatar })
+  }
+
+  if (url.startsWith('/api/characters/import-card')) {
+    const p = await readBody(req)
+    console.log(`[import-card] kind=${p.kind} ${Math.round(((p.data || '').length * 3) / 4 / 1024)}KB`)
+    // 真伺服器對「不是角色卡的 PNG」回 400（PNG 裡沒有 chara 區塊）。
+    // stub 沒辦法真的解析，改以「太小的檔案」當同一類失敗，讓錯誤路徑走得到。
+    if (!p.data || p.data.length < 64) return json(res, { error: '內容無法解析為有效角色卡資料' }, 400)
+    const now = Date.now()
+    const char = {
+      id: 'imp' + now, name: `匯入的角色 ${library.length + 1}`, nicknames: [], avatar: '',
+      description: '（來自匯入的假卡）', personality: '', firstMessage: '', exampleDialogue: '',
+      emotions: {}, scenario: '', creatorNotes: '', systemPromptOverride: '',
+      newsKeywords: [], lorebookIds: [], createdAt: now, updatedAt: now
+    }
+    library.push(char)
+    return json(res, { character: char })
+  }
+
+  if (url.startsWith('/api/characters/export-card')) {
+    const p = await readBody(req)
+    const card = library.find((c) => c.id === p.id)
+    if (!card) return json(res, { error: 'Character not found' }, 404)
+    const body = p.kind === 'json'
+      ? Buffer.from(JSON.stringify({ name: card.name }), 'utf-8')
+      : Buffer.from('stub-png-' + card.id, 'utf-8')
+    console.log(`[export-card] ${p.id} ${p.kind}`)
+    return json(res, {
+      data: body.toString('base64'),
+      filename: `${card.name}.${p.kind === 'json' ? 'json' : 'png'}`
+    })
+  }
+
+  if (url.startsWith('/api/characters/export-pack')) {
+    const p = await readBody(req)
+    // 真伺服器：一個角色都沒選 → 400「尚未選擇任何角色」
+    if (!Array.isArray(p.ids) || p.ids.length === 0) return json(res, { error: '尚未選擇任何角色' }, 400)
+    console.log(`[export-pack] ${p.ids.join(',')} global=${!!p.includeGlobalSettings} lore=${!!p.includeLorebooks}`)
+    return json(res, {
+      data: Buffer.from('stub-dstpack').toString('base64'),
+      filename: `DeST-${new Date().toISOString().slice(0, 10)}.dstpack`
+    })
+  }
+
+  if (url.startsWith('/api/characters/import-pack')) {
+    const p = await readBody(req)
+    console.log(`[import-pack] onConflict=${p.onConflict} global=${!!p.applyGlobalSettings}`)
+    // 真伺服器：檔案過小或已損毀 → 400
+    if (!p.data || p.data.length < 64) return json(res, { error: '檔案過小或已損毀' }, 400)
+    return json(res, { imported: 2, skipped: 1 })
   }
 
   if (url.startsWith('/api/characters/') || url.startsWith('/api/messages/')) {
@@ -224,6 +388,9 @@ const server = http.createServer(async (req, res) => {
     }
 
     console.log(`[${url}]`, JSON.stringify(p), '->', JSON.stringify(out))
+    // 真伺服器對「只能重新發送使用者訊息」回的是 400，不是 200 ＋ error。
+    // 這裡照抄狀態碼，否則 UI 會把它當成功。
+    if (out.error) return json(res, out, 400)
     // 角色類異動會讓電腦端推 desktop-updated → 手機重抓（state-invalidated）
     if (url.includes('/desktop/') || url.includes('toggle-mute')) push({ type: 'desktop-updated' })
     return json(res, out)

@@ -6,6 +6,8 @@ import { RandomToolsSheet } from '../chat/RandomToolsSheet'
 import { MessageMenu } from '../chat/MessageMenu'
 import { CharacterMenu } from '../characters/CharacterMenu'
 import { PresenceSheet } from '../characters/PresenceSheet'
+import { CharacterLibrary } from '../characters/CharacterLibrary'
+import { CharacterEditor } from '../characters/CharacterEditor'
 
 /**
  * 畫面堆疊的渲染端（清單 G3）。
@@ -19,7 +21,7 @@ const TITLES: Record<ViewKind, string> = {
   presence: '這次對話有誰在場',
   'character-menu': '角色',
   'message-menu': '訊息',
-  characters: '角色',
+  characters: '角色庫',
   'character-editor': '編輯角色',
   presets: '情境與設定組',
   settings: '設定',
@@ -30,13 +32,15 @@ const TITLES: Record<ViewKind, string> = {
 
 export function ViewStack(): JSX.Element | null {
   const stack = useUiStore((s) => s.stack)
-  const pop = useUiStore((s) => s.pop)
+  // ⚠️ 用 `requestPop` 不是 `pop`：有些畫面要先問過才准關（例如角色卡編輯器
+  // 有未儲存的改動）。直接 pop 會讓 ✕ 與返回手勢的行為不一致。
+  const requestPop = useUiStore((s) => s.requestPop)
 
   const top = stack[stack.length - 1]
   if (!top) return null
 
   return (
-    <Sheet key={top.id} title={TITLES[top.kind]} onClose={pop}>
+    <Sheet key={top.id} title={TITLES[top.kind]} onClose={requestPop}>
       <ViewBody entry={top} />
     </Sheet>
   )
@@ -46,6 +50,8 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'theme-picker') return <ThemePicker />
   if (entry.kind === 'random-tools') return <RandomToolsSheet />
   if (entry.kind === 'presence') return <PresenceSheet />
+  if (entry.kind === 'characters') return <CharacterLibrary />
+  if (entry.kind === 'character-editor' && entry.param) return <CharacterEditor characterId={entry.param} />
   // param 是必要的：沒有它不知道在講哪個角色／哪則訊息。
   // 缺了就當成程式錯誤讓它顯示「尚未實作」，不要靜靜地畫一個空選單。
   if (entry.kind === 'character-menu' && entry.param) return <CharacterMenu characterId={entry.param} />

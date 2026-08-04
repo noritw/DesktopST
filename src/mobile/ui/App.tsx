@@ -100,6 +100,7 @@ export function App(): JSX.Element {
         <div className="flex items-center gap-1">
           <HeaderButton onClick={() => push('conversations')}>💬</HeaderButton>
           <HeaderButton onClick={() => push('news')}>📰</HeaderButton>
+          <HeaderButton onClick={() => push('characters')}>👥</HeaderButton>
           <HeaderButton onClick={() => push('theme-picker')}>🎨</HeaderButton>
         </div>
       </header>

@@ -11,6 +11,7 @@ import { Avatar } from './Avatar'
 export function CharacterMenu({ characterId }: { characterId: string }): JSX.Element {
   const character = useAppStore((s) => s.snapshot?.presentCharacters.find((c) => c.id === characterId))
   const pop = useUiStore((s) => s.pop)
+  const push = useUiStore((s) => s.push)
   const toast = useUiStore((s) => s.toast)
 
   // 角色被移出（在別台裝置上）時選單會空掉。給一句話比留一片空白好。
@@ -55,6 +56,14 @@ export function CharacterMenu({ characterId }: { characterId: string }): JSX.Ele
         label={character.muted ? '解除禁言' : '禁言'}
         hint={character.muted ? '恢復後會照常參與對話' : '禁言後不會回話，但仍留在對話裡'}
         onClick={() => void toggleMute()}
+      />
+      {/* 從聊天畫面點頭像進來就能直接改人格，是手機上最短的那條路徑；
+          角色庫那個入口是給「還沒在對話裡的角色」用的。 */}
+      <MenuItem
+        icon="✏️"
+        label="編輯角色"
+        hint="名稱、人格、招呼語、主圖"
+        onClick={() => push('character-editor', characterId)}
       />
     </div>
   )

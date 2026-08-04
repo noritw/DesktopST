@@ -73,6 +73,46 @@ body {
   height: 0;
 }
 
+/* ── 表單（角色卡編輯器起）───────────────────────────── */
+
+/**
+ * 輸入欄位。
+ *
+ * ⚠️ **`font-size` 不得小於 16px。** iOS Safari 會對小於 16px 的輸入框
+ * 自動放大整個頁面（而且不會縮回去），使用者看到的是「點一下欄位畫面就歪掉」。
+ * 這是網頁版（掃 QR 用 iPhone 開）唯一會踩到、APK 上反而看不到的坑。
+ */
+.field {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+  font-family: inherit;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+}
+
+.field:focus {
+  border-color: var(--mint2);
+}
+
+.btn-ghost {
+  padding: 10px 0;
+  border-radius: 9999px;
+  border: 1px solid var(--border);
+  color: var(--text-sub);
+  font-size: 14px;
+}
+
+.btn-ghost:disabled {
+  opacity: 0.5;
+}
+
 /* ── 動畫 ─────────────────────────────────────────────── */
 
 @keyframes sheet-in {

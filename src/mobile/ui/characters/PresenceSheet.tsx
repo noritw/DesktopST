@@ -109,6 +109,14 @@ export function PresenceSheet(): JSX.Element {
           </div>
         )
       })}
+      <button
+        type="button"
+        onClick={() => useUiStore.getState().push('characters')}
+        className="mt-1 w-full rounded-full border border-[var(--border)] py-2.5 text-sm text-[var(--text-sub)]"
+      >
+        管理角色庫（新增／編輯／匯入）
+      </button>
+
       {onlyOneLeft && (
         <p className="mt-1 px-1 text-xs leading-relaxed text-[var(--text-sub)]">
           至少要留一個角色在對話裡，所以最後一位不能移出。
