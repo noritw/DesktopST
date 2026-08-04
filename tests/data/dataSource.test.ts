@@ -156,6 +156,22 @@ describe('裝置識別 header（清單 G8）', () => {
   })
 })
 
+describe('組標頭時的程式錯誤不可被誤標成連線問題', () => {
+  it('device() 拋錯時不會變成 unreachable', async () => {
+    // owner 2026-08-04 踩到：crypto.randomUUID() 在非安全內容（http + 區網 IP）
+    // 下拋錯，被包成 unreachable → UI 顯示「連不上電腦」，於是跑去查網路與防火牆。
+    // 網路完全正常。catch 的範圍必須剛好只包住 fetch。
+    const { impl } = makeFetch({ '/api/state': {} })
+    const ds = new RemoteDataSource({
+      baseUrl: () => 'http://pc:1234',
+      token: () => 'tok',
+      fetchImpl: impl,
+      device: () => { throw new TypeError('randomUUID is not a function') }
+    })
+    await expect(ds.getState()).rejects.toThrow(TypeError)
+  })
+})
+
 describe('RemoteDataSource：錯誤翻譯', () => {
   it('連不上電腦 → unreachable（不是 unknown）', async () => {
     const ds = new RemoteDataSource({

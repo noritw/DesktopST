@@ -50,19 +50,26 @@ export class HttpClient {
     const fetchImpl = this.opts.fetchImpl ?? globalThis.fetch
     const base = this.opts.baseUrl().replace(/\/$/, '')
 
+    // ⚠️ **標頭要在 try 外面組好。**
+    //
+    // 放進去的話，任何組標頭時的程式錯誤都會被下面那個 catch 收成
+    // `unreachable`，UI 就顯示「連不上電腦」—— 使用者跑去查網路與防火牆，
+    // 但網路根本沒問題。owner 2026-08-04 實際踩到：`crypto.randomUUID()`
+    // 在非安全內容下拋錯，症狀是「手機連不上、桌機正常」，查了半天才發現
+    // 與網路無關。**catch 的範圍要剛好只包住真正會有網路問題的那一行。**
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'X-DesktopST-Token': this.opts.token()
+    }
+    const device = this.opts.device?.()
+    if (device) {
+      headers['X-Device-Id'] = device.id
+      // 中文暱稱必須先編碼 —— header 只能是 ASCII，否則整個請求送不出去。
+      headers['X-Device-Nickname'] = encodeNicknameHeader(device.nickname)
+    }
+
     let res: Response
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        'X-DesktopST-Token': this.opts.token()
-      }
-      const device = this.opts.device?.()
-      if (device) {
-        headers['X-Device-Id'] = device.id
-        // 中文暱稱必須先編碼 —— header 只能是 ASCII，否則整個請求送不出去。
-        headers['X-Device-Nickname'] = encodeNicknameHeader(device.nickname)
-      }
-
       res = await fetchImpl(`${base}${path}`, {
         method,
         headers,

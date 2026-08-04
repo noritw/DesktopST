@@ -43,7 +43,7 @@ export function getDeviceIdentity(store: Storage = localStorage): DeviceIdentity
   }
 
   if (!id) {
-    id = crypto.randomUUID()
+    id = randomId()
     try {
       store.setItem(ID_KEY, id)
     } catch {
@@ -52,6 +52,29 @@ export function getDeviceIdentity(store: Storage = localStorage): DeviceIdentity
   }
 
   return { id, nickname: nickname.trim() || DEFAULT_NICKNAME }
+}
+
+/**
+ * 產生裝置 id。
+ *
+ * ⚠️ **不能用 `crypto.randomUUID()`** —— 它只存在於**安全內容**
+ * （https 或 localhost）。手機用區網 IP 開網頁（`http://192.168.x.x:5180`）
+ * 時不是安全內容，呼叫會直接拋 TypeError。
+ * owner 2026-08-04 實機踩到：桌機用 localhost 測一切正常，手機一連就
+ * 顯示「連不上電腦」—— 網路根本沒問題，是這一行爆掉。
+ *
+ * `crypto.getRandomValues` 沒有這個限制，是主要路徑；
+ * 再退一步的 `Math.random` 只為了極端環境，這個 id 不是憑證（認證走 token），
+ * 品質不足不構成安全問題。
+ */
+function randomId(): string {
+  const bytes = new Uint8Array(16)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
+  }
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 export function setDeviceNickname(nickname: string, store: Storage = localStorage): void {
