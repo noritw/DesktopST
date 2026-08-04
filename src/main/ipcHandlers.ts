@@ -68,6 +68,24 @@ import {
 import { getConversationSearchContext } from './modules/news/conversationSearch'
 import { collectModuleContext, listRegisteredModules } from './modules/moduleHost'
 import { pushRemoteControlState, pushThinking as mobilePushThinking, pushThinkingDone as mobilePushThinkingDone, isServerRunning as isMobileServerRunning } from './mobileServer'
+
+/**
+ * 桌面思考動畫 ＋ 手機推播，一次做完。
+ *
+ * ⚠️ **一律用這支，不要直接呼叫 `setCharacterThinking`。**
+ *
+ * 2026-08-04 之前只有提醒與「說點什麼」兩條路徑有推手機端的 thinking-done，
+ * 一般聊天（含群組接龍）從頭到尾只推了「開始思考」—— 手機的思考動畫因此
+ * 只能靠 `RemoteEventSource` 的 90 秒逾時保險收掉，角色早就講完了還在轉。
+ *
+ * 把兩件事綁進同一支函式，就不會再有「一邊改、另一邊忘了改」的情況。
+ */
+function setThinking(characterId: string, thinking: boolean): void {
+  setCharacterThinking(characterId, thinking)
+  if (!isMobileServerRunning()) return
+  if (thinking) mobilePushThinking(characterId)
+  else mobilePushThinkingDone(characterId)
+}
 import {
   createCharacterWindow, closeCharacterWindow, getCharacterWindow, destroyAllCharacterWindows,
   resizeCharacterWindow, getCharacterWindowSize, enterCharacterScaleMode, exitCharacterScaleMode, enterScaleModeWindow,
@@ -1260,8 +1278,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   // 檢查是否有 API Key
   const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
 
-  setCharacterThinking(charId, true)
-  if (isMobileServerRunning()) mobilePushThinking(charId)
+  setThinking(charId, true)
   deferRaiseCharacterAbovePinnedNotes(charId)
   try {
     let cleanReply = ''
@@ -1366,8 +1383,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   } catch (e) {
     console.error('[reminder] triggerReminderSpeak failed:', e)
   } finally {
-    setCharacterThinking(charId, false)
-    if (isMobileServerRunning()) mobilePushThinkingDone(charId)
+    setThinking(charId, false)
   }
 }
 
@@ -1718,9 +1734,8 @@ export async function forceSpeakDirect(
     const activeWorld = getActiveWorld()
 
     // 先亮思考氣泡再做網路抓取（天氣 / Spotify / 新聞），避免使用者看到約 1 秒的無回饋停頓。
-    setCharacterThinking(characterId, true)
+    setThinking(characterId, true)
     // 手機遠端按「說點什麼」時，回饋只能靠這個推播（桌面泡泡在手機上看不到）
-    if (isMobileServerRunning()) mobilePushThinking(characterId)
     deferRaiseCharacterAbovePinnedNotes(characterId)
 
     const ctxParts: string[] = []
@@ -1926,8 +1941,7 @@ export async function forceSpeakDirect(
     } catch (e: unknown) {
       return { error: e instanceof Error ? e.message : String(e) }
     } finally {
-      setCharacterThinking(characterId, false)
-      if (isMobileServerRunning()) mobilePushThinkingDone(characterId)
+      setThinking(characterId, false)
     }
 }
 
@@ -3380,8 +3394,7 @@ export function registerIpcHandlers() {
     const abortController = new AbortController()
     activeSendAbort = abortController
 
-    setCharacterThinking(primaryId, true)
-    if (isMobileServerRunning()) mobilePushThinking(primaryId)
+    setThinking(primaryId, true)
     deferRaiseCharacterAbovePinnedNotes(primaryId)
 
     const recentMessagesBase = contextMessages([...conv.messages.slice(0, -1), userMsgForPrompt], settings.memory.keepRecentN)
@@ -3484,7 +3497,7 @@ export function registerIpcHandlers() {
       }
       conv.messages.push(charMsg)
       conv.updatedAt = Date.now()
-      setCharacterThinking(primaryId, false)
+      setThinking(primaryId, false)
       scheduleConversationBroadcast(conv)
 
       // 播放訊息通知音
@@ -3501,7 +3514,7 @@ export function registerIpcHandlers() {
         sendCharacterContextUpdate(primaryId, { lastMessage: { id: charMsg.id, emotion: charMsg.emotion } })
       })
     } catch (e: unknown) {
-      setCharacterThinking(primaryId, false)
+      setThinking(primaryId, false)
       if (abortController.signal.aborted) {
         activeSendAbort = null
         // 使用者按下停止：移除尚未獲得回覆的訊息，關閉使用者泡泡，並把內容還給輸入框讓使用者修改重發
@@ -3551,7 +3564,7 @@ export function registerIpcHandlers() {
       if (!char) continue
 
       try {
-        setCharacterThinking(charId, true)
+        setThinking(charId, true)
         deferRaiseCharacterAbovePinnedNotes(charId)
         let recentMessages = contextMessages(conv.messages, settings.memory.keepRecentN).map(m =>
           // 若使用者訊息附有隨機工具結果，補回 prompt 用的注入內容（primary 已透過 userMsgForPrompt 注入，
@@ -3593,14 +3606,14 @@ export function registerIpcHandlers() {
         )
 
         if (!cleanReply) {
-          setCharacterThinking(charId, false)
+          setThinking(charId, false)
           continue
         }
         // Skip near-duplicates
         const replyNorm = normalizeForCompare(cleanReply)
         const lastNorm = normalizeForCompare(lastReplyText)
         if (replyNorm && lastNorm && (replyNorm === lastNorm || replyNorm.includes(lastNorm) || lastNorm.includes(replyNorm))) {
-          setCharacterThinking(charId, false)
+          setThinking(charId, false)
           continue
         }
 
@@ -3642,7 +3655,7 @@ export function registerIpcHandlers() {
         lastReplyText = cleanReply
         conv.messages.push(charMsg)
         conv.updatedAt = Date.now()
-        setCharacterThinking(charId, false)
+        setThinking(charId, false)
         scheduleConversationBroadcast(conv)
 
         // 播放訊息通知音
@@ -3660,7 +3673,7 @@ export function registerIpcHandlers() {
         })
       } catch (e: unknown) {
         // If a secondary decision fails, don't break the whole send flow.
-        setCharacterThinking(charId, false)
+        setThinking(charId, false)
         if (abortController.signal.aborted) break
       }
     }
@@ -3723,7 +3736,7 @@ export function registerIpcHandlers() {
     let lastReplyText = ''
     for (let i = 0; i < maxRounds; i++) {
       const char = nonMuted[i % nonMuted.length]
-      setCharacterThinking(char.id, true)
+      setThinking(char.id, true)
       deferRaiseCharacterAbovePinnedNotes(char.id)
       try {
         let recentMessages = contextMessages(conv.messages, settings.memory.keepRecentN)
@@ -3752,12 +3765,12 @@ export function registerIpcHandlers() {
           char.id,
           characters
         )
-        if (!cleanReply) { setCharacterThinking(char.id, false); continue }
+        if (!cleanReply) { setThinking(char.id, false); continue }
         if (nonMuted.length > 1) {
           const replyNorm = normalizeForCompare(cleanReply)
           const lastNorm = normalizeForCompare(lastReplyText)
           if (replyNorm && lastNorm && (replyNorm === lastNorm || replyNorm.includes(lastNorm) || lastNorm.includes(replyNorm))) {
-            setCharacterThinking(char.id, false); continue
+            setThinking(char.id, false); continue
           }
         }
         let emotion = rawEmotion
@@ -3792,7 +3805,7 @@ export function registerIpcHandlers() {
         }
         conv.messages.push(msg)
         conv.updatedAt = Date.now()
-        setCharacterThinking(char.id, false)
+        setThinking(char.id, false)
         scheduleConversationBroadcast(conv)
         if (settings.ui.messageNotificationSound?.enabled !== false) {
           const volume = settings.ui.messageNotificationSound?.volume ?? 0.7
@@ -3807,7 +3820,7 @@ export function registerIpcHandlers() {
           resolve()
         }))
       } catch (e: unknown) {
-        setCharacterThinking(char.id, false)
+        setThinking(char.id, false)
         const errText = e instanceof Error ? e.message : String(e)
         const errMsg: Message = {
           id: uuidv4(),

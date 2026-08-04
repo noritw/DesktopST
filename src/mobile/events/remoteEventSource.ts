@@ -59,8 +59,14 @@ export class RemoteEventSource implements EventSource {
   private retryCount = 0
   private failCount = 0
   private reconnectTimer: number | null = null
-  private thinkingTimer: number | null = null
-  private thinkingCharacterId = ''
+  /**
+   * 逾時保險：**每個角色各一個**。
+   *
+   * 群組接龍會有多位角色同時在思考（`ipcHandlers.setThinking`）。
+   * 早期只留一個計時器，第二位開始思考時會把第一位的保險清掉 ——
+   * 若第一位的 `thinking-done` 剛好沒送到，它的動畫就永遠轉下去。
+   */
+  private thinkingTimers = new Map<string, number>()
 
   private readonly setTimer: (fn: () => void, ms: number) => number
   private readonly clearTimer: (handle: number) => void
@@ -166,14 +172,18 @@ export class RemoteEventSource implements EventSource {
       case 'message':
         if (d.message) this.hub.emit({ kind: 'message', message: d.message as Message })
         return
-      case 'thinking':
-        this.armThinkingTimeout(String(d.characterId ?? ''))
-        this.hub.emit({ kind: 'thinking', characterId: String(d.characterId ?? '') })
+      case 'thinking': {
+        const id = String(d.characterId ?? '')
+        this.armThinkingTimeout(id)
+        this.hub.emit({ kind: 'thinking', characterId: id })
         return
-      case 'thinking-done':
-        this.clearThinkingTimer()
-        this.hub.emit({ kind: 'thinking-done', characterId: String(d.characterId ?? '') })
+      }
+      case 'thinking-done': {
+        const id = String(d.characterId ?? '')
+        this.clearThinkingTimer(id)
+        this.hub.emit({ kind: 'thinking-done', characterId: id })
         return
+      }
       case 'reminder':
         this.hub.emit({ kind: 'reminder', content: String(d.content ?? '') })
         return
@@ -193,19 +203,26 @@ export class RemoteEventSource implements EventSource {
    * 否則 UI 的思考動畫會永遠轉下去。順便對帳一次補回可能漏掉的回覆。
    */
   private armThinkingTimeout(characterId: string): void {
-    this.clearThinkingTimer()
-    this.thinkingCharacterId = characterId
-    this.thinkingTimer = this.setTimer(() => {
-      this.thinkingTimer = null
-      this.hub.emit({ kind: 'thinking-done', characterId: this.thinkingCharacterId })
+    this.clearThinkingTimer(characterId)
+    const handle = this.setTimer(() => {
+      this.thinkingTimers.delete(characterId)
+      this.hub.emit({ kind: 'thinking-done', characterId })
       this.hub.emit({ kind: 'state-invalidated', reason: 'reconnect' })
     }, this.thinkingTimeoutMs)
+    this.thinkingTimers.set(characterId, handle)
   }
 
-  private clearThinkingTimer(): void {
-    if (this.thinkingTimer !== null) {
-      this.clearTimer(this.thinkingTimer)
-      this.thinkingTimer = null
+  /** 不給 id ＝ 全部清掉（斷線與 stop 時用）。 */
+  private clearThinkingTimer(characterId?: string): void {
+    if (characterId === undefined) {
+      for (const handle of this.thinkingTimers.values()) this.clearTimer(handle)
+      this.thinkingTimers.clear()
+      return
+    }
+    const handle = this.thinkingTimers.get(characterId)
+    if (handle !== undefined) {
+      this.clearTimer(handle)
+      this.thinkingTimers.delete(characterId)
     }
   }
 

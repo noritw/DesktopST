@@ -177,6 +177,45 @@ describe('RemoteEventSource — 遙控獨有的行為', () => {
     }
   })
 
+  it('多位角色同時思考時，每個人各有自己的逾時保險', () => {
+    // 群組接龍會有多位角色同時在思考。早期只留一個計時器，
+    // 第二位開始思考會把第一位的保險清掉——第一位的 done 若沒送到就永遠轉下去。
+    vi.useFakeTimers()
+    try {
+      const { source, last, events } = makeRemote({ thinkingTimeoutMs: 1000 })
+      source.start()
+      last().fire('message', { data: JSON.stringify({ type: 'thinking', characterId: 'A' }) })
+      vi.advanceTimersByTime(400)
+      last().fire('message', { data: JSON.stringify({ type: 'thinking', characterId: 'B' }) })
+
+      // B 正常回覆，A 沒有
+      last().fire('message', { data: JSON.stringify({ type: 'thinking-done', characterId: 'B' }) })
+      vi.advanceTimersByTime(5000)
+
+      const done = events.filter(e => e.kind === 'thinking-done')
+      expect(done).toContainEqual({ kind: 'thinking-done', characterId: 'A' })
+      expect(done.filter(e => e.characterId === 'B')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('某位角色的 thinking-done 不會清掉其他角色的保險', () => {
+    vi.useFakeTimers()
+    try {
+      const { source, last, events } = makeRemote({ thinkingTimeoutMs: 1000 })
+      source.start()
+      last().fire('message', { data: JSON.stringify({ type: 'thinking', characterId: 'A' }) })
+      last().fire('message', { data: JSON.stringify({ type: 'thinking', characterId: 'B' }) })
+      last().fire('message', { data: JSON.stringify({ type: 'thinking-done', characterId: 'A' }) })
+      vi.advanceTimersByTime(2000)
+
+      expect(events.filter(e => e.kind === 'thinking-done' && e.characterId === 'B')).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('回前景：連線還在只對帳；連線斷了立刻重連、不等退避', () => {
     vi.useFakeTimers()
     try {
