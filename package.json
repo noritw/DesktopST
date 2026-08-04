@@ -8,6 +8,8 @@
     "dev": "electron-vite dev",
     "prebuild": "npm install --prefer-offline --no-audit --no-fund",
     "build": "electron-vite build && node -e \"require('fs').cpSync('src/renderer/public', 'out/renderer', {recursive: true})\" && electron-builder",
+    "dev:mobile": "vite --config vite.mobile.config.ts",
+    "build:mobile": "vite build --config vite.mobile.config.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest"

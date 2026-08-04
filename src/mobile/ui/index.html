@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <!--
+      viewport-fit=cover 是安全區域（G4）的前提：沒有它，env(safe-area-inset-*)
+      永遠回 0，瀏海與手勢橫條的處理全部失效。
+      maximum-scale=1 防止 iOS 在 focus 輸入框時自動放大整個畫面。
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+    />
+    <!-- 內容由 theme.ts 依主題更新；這裡給預設值避免第一幀閃色 -->
+    <meta name="theme-color" content="#CBFBC4" />
+    <title>DeST</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

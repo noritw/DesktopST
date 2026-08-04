@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * 手機 UI 的全域樣式。
+ *
+ * 主題色值由 `theme.ts` 在執行期寫進 `<html>` 的 inline style，
+ * 這裡只給預設值（避免第一幀閃白）與不隨主題變的東西。
+ */
+
+:root {
+  --mint: #CBFBC4;
+  --mint2: #AAEEDD;
+  --bg: #F7FFFC;
+  --surface: #ffffff;
+  --user-bubble: #AAEEFF;
+  --text: #3D5A52;
+  --text-sub: #7AA898;
+  --border: rgba(0, 0, 0, 0.08);
+
+  /* 安全區域（清單 G4）。瀏海、底部橫條、橫向的圓角。
+     不支援 env() 的環境會落回 0px，不會壞。 */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Noto Sans TC', 'Microsoft JhengHei', sans-serif;
+  /* 手機上整頁不該橫向捲動。內容太寬時由該區塊自己 overflow-x:auto。 */
+  overflow-x: hidden;
+  /* 下拉重新整理與橡皮筋效果會讓 app 感覺像網頁，關掉。 */
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 捲動容器一律用這個，統一慣性捲動與捲軸外觀 */
+.scroll-y {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.scroll-y::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* ── 動畫 ─────────────────────────────────────────────── */
+
+@keyframes sheet-in {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.anim-sheet-in { animation: sheet-in 0.24s cubic-bezier(0.32, 0.72, 0, 1); }
+.anim-fade-in  { animation: fade-in 0.18s ease-out; }
+.anim-pop-in   { animation: pop-in 0.18s ease-out; }
+
+/* 使用者要求減少動態時一律關掉——這是無障礙的基本要求，不是加分項。 */
+@media (prefers-reduced-motion: reduce) {
+  .anim-sheet-in,
+  .anim-fade-in,
+  .anim-pop-in {
+    animation: none;
+  }
+}
