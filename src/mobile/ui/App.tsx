@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { applyTheme } from './theme'
 import { useUiStore } from './stores/uiStore'
 import { useBackButton } from './shell/useBackButton'
@@ -21,15 +21,36 @@ export function App(): JSX.Element {
   const confirm = useUiStore((s) => s.confirm)
   const prompt = useUiStore((s) => s.prompt)
 
+  const headerRef = useRef<HTMLElement>(null)
+
   useBackButton()
 
   useEffect(() => {
     applyTheme(theme, document.documentElement, document)
   }, [theme])
 
+  /**
+   * 把 header 的實際高度寫進 `--header-h`，給 toast 定位用（見 ToastHost）。
+   *
+   * **不能寫死**：高度會隨安全區域變動（有無瀏海、橫放、不同機型），
+   * 之後 header 還要放角色頭像列（清單 D1），高度會再變一次。
+   */
+  useEffect(() => {
+    const el = headerRef.current
+    if (!el) return
+    const sync = (): void => {
+      document.documentElement.style.setProperty('--header-h', `${el.offsetHeight}px`)
+    }
+    sync()
+    const ro = new ResizeObserver(sync)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   return (
     <div className="flex h-full flex-col bg-[var(--bg)]">
       <header
+        ref={headerRef}
         className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--mint)] px-4 pb-2"
         style={{ paddingTop: 'calc(var(--safe-top) + 8px)' }}
       >
