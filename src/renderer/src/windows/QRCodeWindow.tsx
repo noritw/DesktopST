@@ -111,7 +111,7 @@ export default function QRCodeWindow() {
         ) : (
           <div style={styles.qrPlaceholder}>
             <div style={styles.spinner}>⏳</div>
-            <div style={{ fontSize: 13, color: '#7AA898', marginTop: 8 }}>等待 Tunnel 就緒…</div>
+            <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 8 }}>等待 Tunnel 就緒…</div>
           </div>
         )}
 
@@ -164,7 +164,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: '100vh',
-    background: '#F7FFFC',
+    background: 'var(--color-bg)',
     padding: 16,
     ...drag,
   },
@@ -173,17 +173,17 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column',
     alignItems: 'center',
     gap: 12,
-    background: '#fff',
+    background: 'var(--color-surface)',
     borderRadius: 20,
     padding: '24px 20px',
-    boxShadow: '0 2px 16px rgba(0,0,0,0.08)',
+    boxShadow: 'var(--shadow-soft)',
     width: '100%',
     maxWidth: 280,
   },
   statusBadge: {
     fontSize: 13,
-    color: '#3D5A52',
-    background: '#CBFBC4',
+    color: 'var(--color-text-primary)',
+    background: 'var(--color-mint)',
     borderRadius: 20,
     padding: '4px 12px',
     textAlign: 'center',
@@ -192,21 +192,25 @@ const styles: Record<string, React.CSSProperties> = {
     width: 200,
     height: 200,
     borderRadius: 12,
-    border: '3px solid #CBFBC4',
+    border: '3px solid var(--color-mint)',
+    // ⚠️ 全檔唯一刻意寫死的顏色：QR code 需要淺底才掃得到。
+    // 換成 var(--color-surface) 之類的話，深色主題下會變成深底深碼，
+    // 畫面看起來還很正常、但相機掃不出來——不要「順手」改成變數。
+    background: '#FFFFFF',
   },
   qrPlaceholder: {
     width: 200,
     height: 200,
     borderRadius: 12,
-    border: '3px solid #CBFBC4',
+    border: '3px solid var(--color-mint)',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    background: '#F7FFFC',
+    background: 'var(--color-bg)',
   },
   urlBox: {
-    background: '#F7FFFC',
+    background: 'var(--color-bg)',
     borderRadius: 10,
     padding: '8px 12px',
     width: '100%',
@@ -214,15 +218,15 @@ const styles: Record<string, React.CSSProperties> = {
   },
   urlText: {
     fontSize: 12,
-    color: '#3D5A52',
+    color: 'var(--color-text-primary)',
     wordBreak: 'break-all',
   },
   copyBtn: {
     padding: '8px 24px',
     borderRadius: 20,
     border: 'none',
-    background: '#AAEEDD',
-    color: '#3D5A52',
+    background: 'var(--color-teal)',
+    color: 'var(--color-text-primary)',
     fontSize: 14,
     cursor: 'pointer',
     fontFamily: 'inherit',
@@ -233,18 +237,18 @@ const styles: Record<string, React.CSSProperties> = {
   title: {
     fontSize: 16,
     fontWeight: 600,
-    color: '#3D5A52',
+    color: 'var(--color-text-primary)',
     textAlign: 'center',
   },
   hint: {
     fontSize: 13,
-    color: '#7AA898',
+    color: 'var(--color-text-secondary)',
     textAlign: 'center',
   },
   warnBox: {
     fontSize: 12,
-    color: '#9B3535',
-    background: '#FFF0F0',
+    color: 'var(--color-danger)',
+    background: 'var(--color-danger-soft)',
     borderRadius: 10,
     padding: '8px 12px',
     lineHeight: 1.6,
@@ -257,21 +261,21 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '6px 16px',
     borderRadius: 20,
     border: 'none',
-    background: '#FFBBBB',
-    color: '#3D5A52',
+    background: 'var(--color-danger-border)',
+    color: 'var(--color-text-primary)',
     fontSize: 13,
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
   localHint: {
     fontSize: 12,
-    color: '#7AA898',
+    color: 'var(--color-text-secondary)',
     textAlign: 'center',
     lineHeight: 1.6,
   },
   spinner: {
     fontSize: 24,
-    color: '#7AA898',
+    color: 'var(--color-text-secondary)',
   },
   closeBtn: {
     position: 'fixed' as const,
@@ -281,8 +285,8 @@ const styles: Record<string, React.CSSProperties> = {
     height: 28,
     borderRadius: '50%',
     border: 'none',
-    background: 'rgba(0,0,0,0.08)',
-    color: '#3D5A52',
+    background: 'var(--color-border-60)',
+    color: 'var(--color-text-primary)',
     fontSize: 14,
     cursor: 'pointer',
     display: 'flex',
