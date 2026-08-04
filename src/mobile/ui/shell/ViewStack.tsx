@@ -2,6 +2,7 @@ import { Sheet } from './Sheet'
 import { useUiStore } from '../stores/uiStore'
 import type { ViewEntry, ViewKind } from '../stores/uiStore'
 import { ThemePicker } from './ThemePicker'
+import { RandomToolsSheet } from '../chat/RandomToolsSheet'
 
 /**
  * 畫面堆疊的渲染端（清單 G3）。
@@ -18,6 +19,7 @@ const TITLES: Record<ViewKind, string> = {
   presets: '情境與設定組',
   settings: '設定',
   news: '個人新聞報',
+  'random-tools': '隨機工具',
   'theme-picker': '色彩主題'
 }
 
@@ -37,6 +39,7 @@ export function ViewStack(): JSX.Element | null {
 
 function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'theme-picker') return <ThemePicker />
+  if (entry.kind === 'random-tools') return <RandomToolsSheet />
 
   // 階段 1 只做骨架；各畫面的內容在階段 2–6 逐一填入。
   // 這裡刻意寫得很明顯，避免看到空白畫面時誤以為是壞掉。

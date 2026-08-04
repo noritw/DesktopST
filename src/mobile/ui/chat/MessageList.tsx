@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { MessageSnapshot } from '@core/data'
 import { isOptimistic, useAppStore } from '../stores/appStore'
+import { MessageImages } from './MessageImages'
+import { formatRandomBadge } from './randomLabels'
 
 /**
  * 訊息串（清單 A1、A9）。
@@ -77,11 +79,19 @@ function MessageRow({ message, characterName }: { message: MessageSnapshot; char
               : 'border border-[var(--border)] bg-[var(--surface)] text-[var(--text)]'
           } ${isOptimistic(message) ? 'opacity-60' : ''}`}
         >
+          {/* 結果徽章（清單 C5）。放在內容之前，與桌面版及 mobile.html 一致 ——
+              「先看擲出什麼、再看說了什麼」才是這條訊息的閱讀順序。
+              `randomResult` 是舊欄位，只有舊對話還帶著它。 */}
+          {(message.randomResults ?? (message.randomResult ? [message.randomResult] : [])).map(
+            (r, i) => (
+              <div key={i} className="mb-1 text-[13px] text-[var(--text-sub)]">
+                {formatRandomBadge(r)}
+              </div>
+            )
+          )}
           {message.content}
-          {/* 圖片本身在 B 系列（階段 2b）接上；先讓張數看得見，
-              避免「送出去的圖不見了」的錯覺。 */}
           {message.imageCount ? (
-            <div className="mt-1 text-xs opacity-70">🖼 {message.imageCount} 張圖片</div>
+            <MessageImages messageId={message.id} count={message.imageCount} />
           ) : null}
         </div>
       </div>

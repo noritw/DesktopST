@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { DataError } from '../../src/core/data'
 import type { MessageSnapshot } from '../../src/core/data'
-import { mergeIncoming, describeError, isOptimistic } from '../../src/mobile/ui/stores/appStore'
+import {
+  mergeIncoming,
+  describeError,
+  isOptimistic,
+  findOptimisticMatch
+} from '../../src/mobile/ui/stores/appStore'
 
 /**
  * 訊息併入（清單 A4 樂觀渲染）。
@@ -64,6 +69,35 @@ describe('去重', () => {
   it('沒有相符的樂觀訊息時就直接附在最後', () => {
     const out = mergeIncoming([msg({ id: 'a' })], msg({ id: 'b', role: 'character' }))
     expect(out.map((m) => m.id)).toEqual(['a', 'b'])
+  })
+})
+
+/**
+ * 併訊息與搬 `localImages`（階段 2b）兩邊問的是同一個問題，所以共用這支。
+ * 它若與 `mergeIncoming` 的判斷分歧，症狀會是「圖片跑到別則訊息上」——
+ * 很難從畫面推回原因，所以在這裡釘住兩者一致。
+ */
+describe('findOptimisticMatch 與 mergeIncoming 的判斷一致', () => {
+  const cases: [string, MessageSnapshot[], MessageSnapshot][] = [
+    ['取代', [msg({ id: 'optimistic:1', content: '嗨' })], msg({ id: 'r', content: '嗨' })],
+    ['內容不同', [msg({ id: 'optimistic:1', content: '嗨' })], msg({ id: 'r', content: '哈' })],
+    ['角色訊息', [msg({ id: 'optimistic:1' })], msg({ id: 'r', role: 'character' })],
+    ['沒有樂觀訊息', [msg({ id: 'a' })], msg({ id: 'r' })]
+  ]
+
+  for (const [name, list, incoming] of cases) {
+    it(name, () => {
+      const matched = findOptimisticMatch(list, incoming)
+      const merged = mergeIncoming(list, incoming)
+      // 有配對＝總數不變（換掉一則）；沒配對＝多一則。
+      expect(merged).toHaveLength(matched ? list.length : list.length + 1)
+      if (matched) expect(merged.some((m) => m.id === matched)).toBe(false)
+    })
+  }
+
+  it('連送兩則相同內容時指向最舊的那則（與取代的目標同一則）', () => {
+    const list = [msg({ id: 'optimistic:1', content: '嗨' }), msg({ id: 'optimistic:2', content: '嗨' })]
+    expect(findOptimisticMatch(list, msg({ id: 'r', content: '嗨' }))).toBe('optimistic:1')
   })
 })
 

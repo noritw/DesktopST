@@ -25,6 +25,7 @@ export type ViewKind =
   | 'presets'
   | 'settings'
   | 'news'
+  | 'random-tools'
   | 'theme-picker'
 
 export interface ViewEntry {
@@ -62,6 +63,20 @@ interface UiState {
   theme: ColorTheme
   setTheme: (theme: ColorTheme) => void
 
+  /**
+   * 圖片燈箱（清單 B4）。放這裡而不是各自的元件裡，是因為它有兩個來源
+   * （附件縮圖列與訊息裡的圖），而且**要吃返回鍵** —— 兩者都需要一個共同的地方。
+   *
+   * ⚠️ **收的是「整組圖 ＋ 從第幾張開始」而不是單一張。**
+   * 一次傳好幾張時，看完一張要先關掉再點下一張很難用（owner 2026-08-05 回報），
+   * 所以燈箱本身要能左右換 —— 那就必須在打開的當下知道同組還有誰。
+   */
+  lightbox: { images: string[]; index: number } | null
+  openLightbox: (images: string[], index?: number) => void
+  closeLightbox: () => void
+  /** 上一張／下一張。到頭就停住，不繞回去（繞回去會分不清有沒有看完）。 */
+  stepLightbox: (delta: number) => void
+
   stack: ViewEntry[]
   push: (kind: ViewKind, param?: string) => void
   pop: () => void
@@ -84,6 +99,20 @@ const nextId = (): number => ++seq
 export const useUiStore = create<UiState>((set, get) => ({
   theme: 'mint',
   setTheme: (theme) => set({ theme }),
+
+  lightbox: null,
+  openLightbox: (images, index = 0) => {
+    if (images.length === 0) return
+    set({ lightbox: { images, index: Math.max(0, Math.min(index, images.length - 1)) } })
+  },
+  closeLightbox: () => set({ lightbox: null }),
+  stepLightbox: (delta) =>
+    set((s) => {
+      if (!s.lightbox) return {}
+      const next = s.lightbox.index + delta
+      if (next < 0 || next >= s.lightbox.images.length) return {}
+      return { lightbox: { ...s.lightbox, index: next } }
+    }),
 
   stack: [],
   push: (kind, param) => set((s) => ({ stack: [...s.stack, { id: nextId(), kind, param }] })),
@@ -121,10 +150,15 @@ export const useUiStore = create<UiState>((set, get) => ({
  * Android 實體返回鍵 ／ 瀏覽器上一頁的處理。
  *
  * 回傳 true 表示「我消化掉了」，呼叫端就不要讓系統退出 app。
- * 順序有意義：對話框 > 畫面堆疊 —— 對話框疊在最上面，先關它。
+ * 順序有意義：**由上而下關**，燈箱 > 對話框 > 畫面堆疊。
+ * 燈箱是全螢幕蓋在最上層的，先關掉它以外的任何東西都會讓畫面看起來沒反應。
  */
 export function handleBack(): boolean {
   const s = useUiStore.getState()
+  if (s.lightbox) {
+    s.closeLightbox()
+    return true
+  }
   if (s.dialog) {
     s.closeDialog(null)
     return true

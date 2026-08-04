@@ -6,6 +6,7 @@ import { useBackButton } from './shell/useBackButton'
 import { ViewStack } from './shell/ViewStack'
 import { ToastHost } from './shell/ToastHost'
 import { DialogHost } from './shell/DialogHost'
+import { Lightbox } from './shell/Lightbox'
 import { MessageList } from './chat/MessageList'
 import { Composer } from './chat/Composer'
 import { resolveConnection, wsUrlFor } from './connection'
@@ -122,6 +123,7 @@ export function App(): JSX.Element {
 
       <ViewStack />
       <DialogHost />
+      <Lightbox />
       <ToastHost />
     </div>
   )

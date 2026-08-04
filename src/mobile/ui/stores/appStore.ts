@@ -28,6 +28,19 @@ interface AppState {
   /** 送出中（樂觀渲染那則還沒被伺服器回音取代）。 */
   sending: boolean
 
+  /**
+   * 訊息 id → 手上已有的圖片 data URI（清單 B3／B4）。
+   *
+   * 為什麼需要這張表：`MessageSnapshot` 刻意不帶 `images`（base64 太肥不隨快照走），
+   * 圖片要另外向 `getMessageImageUrl()` 取。但**剛送出去的那則我們手上就有原圖** ——
+   * 不記著的話樂觀渲染的那則會是幾個空框，等伺服器回音才浮現，
+   * 看起來像「圖沒送出去」。
+   *
+   * 伺服器回音取代樂觀那則時，這裡的 key 會一起換過去（見 `handleEvent`），
+   * 免得同一張圖為了換個網址再下載一次。
+   */
+  localImages: Record<string, string[]>
+
   attach: (deps: { data: DataSource; events: EventSource }) => () => void
   refresh: () => Promise<void>
   send: (input: SendMessageInput) => Promise<void>
@@ -59,6 +72,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   messages: [],
   thinkingIds: [],
   sending: false,
+  localImages: {},
 
   attach: (d) => {
     deps = d
@@ -79,12 +93,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!deps) return
     try {
       const snapshot = await deps.data.getState()
-      set({
+      const messages = snapshot.conversation?.messages ?? []
+      set((s) => ({
         snapshot,
-        messages: snapshot.conversation?.messages ?? [],
+        messages,
+        // 重抓會整串換掉（含換對話），留著已經不存在的訊息那份原圖只是漏記憶體。
+        localImages: pruneLocalImages(s.localImages, messages),
         ready: true,
         loadError: null
-      })
+      }))
     } catch (e) {
       // 已經載入過就不要把畫面清掉 —— 斷線時保留使用者正在讀的內容，
       // 比換成一張錯誤畫面有用得多。
@@ -100,9 +117,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       role: 'user',
       content: input.content,
       timestamp: Date.now(),
-      imageCount: input.images?.length
+      imageCount: input.images?.length,
+      // 擲出的結果要立刻看得到（清單 C5）。等伺服器回音才顯示的話，
+      // 「按了送出但骰子沒有結果」的那一秒會讓人以為 token 沒被認出來。
+      randomResults: input.randomResults
     }
-    set((s) => ({ messages: [...s.messages, optimistic], sending: true }))
+    set((s) => ({
+      messages: [...s.messages, optimistic],
+      sending: true,
+      localImages: input.images?.length
+        ? { ...s.localImages, [optimistic.id]: input.images }
+        : s.localImages
+    }))
 
     try {
       await deps.data.sendMessage(input)
@@ -113,9 +139,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         sending: false,
         messages: s.messages.map((m) =>
           m.id === optimistic.id
-            ? { ...m, role: 'system' as const, content: describeError(e, 'send') }
+            ? {
+                ...m,
+                role: 'system' as const,
+                content: describeError(e, 'send'),
+                imageCount: undefined
+              }
             : m
-        )
+        ),
+        // 圖片由呼叫端放回附件列（清單 B5），這裡不再重複顯示在錯誤泡泡上。
+        localImages: pruneKey(s.localImages, optimistic.id)
       }))
       throw e
     }
@@ -154,9 +187,19 @@ type Setter = (partial: Partial<AppState> | ((s: AppState) => Partial<AppState>)
 
 function handleEvent(e: AppEvent, set: Setter, get: () => AppState): void {
   switch (e.kind) {
-    case 'message':
-      set((s) => ({ messages: mergeIncoming(s.messages, e.message as MessageSnapshot) }))
+    case 'message': {
+      const incoming = e.message as MessageSnapshot
+      set((s) => {
+        const replacedId = findOptimisticMatch(s.messages, incoming)
+        return {
+          messages: mergeIncoming(s.messages, incoming),
+          // 樂觀那則被取代時，把手上的原圖換掛到新 id 底下 ——
+          // 不搬的話畫面上的圖會消失一瞬再從伺服器抓一次同樣的東西。
+          localImages: replacedId ? renameKey(s.localImages, replacedId, incoming.id) : s.localImages
+        }
+      })
       return
+    }
 
     case 'thinking':
       set((s) => ({
@@ -192,15 +235,57 @@ function handleEvent(e: AppEvent, set: Setter, get: () => AppState): void {
 export function mergeIncoming(list: MessageSnapshot[], incoming: MessageSnapshot): MessageSnapshot[] {
   if (list.some((m) => m.id === incoming.id)) return list
 
-  if (incoming.role === 'user') {
-    const idx = list.findIndex(
-      (m) => isOptimistic(m) && m.role === 'user' && m.content === incoming.content
-    )
-    if (idx >= 0) {
-      const next = [...list]
-      next[idx] = incoming
-      return next
-    }
+  const replacedId = findOptimisticMatch(list, incoming)
+  if (replacedId) {
+    return list.map((m) => (m.id === replacedId ? incoming : m))
   }
   return [...list, incoming]
+}
+
+/**
+ * 這則回音是在取代哪一則樂觀訊息？沒有就回 `null`。
+ *
+ * 抽出來是因為併訊息與搬 `localImages` 兩邊都要問同一個問題，
+ * 各寫一份判斷等於埋一個「兩邊哪天不一致」的坑。
+ */
+export function findOptimisticMatch(
+  list: MessageSnapshot[],
+  incoming: MessageSnapshot
+): string | null {
+  if (incoming.role !== 'user') return null
+  const hit = list.find((m) => isOptimistic(m) && m.role === 'user' && m.content === incoming.content)
+  return hit?.id ?? null
+}
+
+function pruneKey(map: Record<string, string[]>, id: string): Record<string, string[]> {
+  if (!(id in map)) return map
+  const next = { ...map }
+  delete next[id]
+  return next
+}
+
+function renameKey(
+  map: Record<string, string[]>,
+  from: string,
+  to: string
+): Record<string, string[]> {
+  const value = map[from]
+  if (!value) return map
+  const next = { ...map }
+  delete next[from]
+  next[to] = value
+  return next
+}
+
+function pruneLocalImages(
+  map: Record<string, string[]>,
+  messages: MessageSnapshot[]
+): Record<string, string[]> {
+  const keys = Object.keys(map)
+  if (keys.length === 0) return map
+  const alive = new Set(messages.map((m) => m.id))
+  if (keys.every((k) => alive.has(k))) return map
+  const next: Record<string, string[]> = {}
+  for (const k of keys) if (alive.has(k)) next[k] = map[k]
+  return next
 }

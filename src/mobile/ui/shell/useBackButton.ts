@@ -18,7 +18,9 @@ import { handleBack, useUiStore } from '../stores/uiStore'
  * 屆時只改這支檔案，`handleBack()` 不用動。
  */
 export function useBackButton(): void {
-  const depth = useUiStore((s) => s.stack.length + (s.dialog ? 1 : 0))
+  // 深度要涵蓋**每一個吃返回鍵的東西**（見 `handleBack`）。
+  // 少算任何一項，返回一次就會連關兩層。
+  const depth = useUiStore((s) => s.stack.length + (s.dialog ? 1 : 0) + (s.lightbox ? 1 : 0))
 
   useEffect(() => {
     const onPop = (): void => {
