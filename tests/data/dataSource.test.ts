@@ -119,6 +119,43 @@ describe('RemoteDataSource：指令對映', () => {
   })
 })
 
+describe('裝置識別 header（清單 G8）', () => {
+  it('每個請求都帶 X-Device-Id 與 X-Device-Nickname', async () => {
+    // 少了這兩個，電腦端會退回預設值 'Desktop'，角色會以為使用者在電腦前打字
+    // （ipcHandlers 的 sourceDeviceName）。owner 2026-08-04 實機踩到。
+    const { impl, calls } = makeFetch({ '/api/conversations': { conversations: [] } })
+    const ds = new RemoteDataSource({
+      baseUrl: () => 'http://pc:1234',
+      token: () => 'tok',
+      fetchImpl: impl,
+      device: () => ({ id: 'dev-1', nickname: '手機' })
+    })
+    await ds.conversations.list()
+    expect(calls[0].headers['X-Device-Id']).toBe('dev-1')
+  })
+
+  it('中文暱稱要編碼 —— header 只能是 ASCII，直接塞會讓請求送不出去', async () => {
+    const { impl, calls } = makeFetch({ '/api/conversations': { conversations: [] } })
+    const ds = new RemoteDataSource({
+      baseUrl: () => 'http://pc:1234',
+      token: () => 'tok',
+      fetchImpl: impl,
+      device: () => ({ id: 'd', nickname: '手機' })
+    })
+    await ds.conversations.list()
+    const sent = calls[0].headers['X-Device-Nickname']
+    expect(sent).toBe(encodeURIComponent('手機'))
+    expect([...sent].every((c) => c.charCodeAt(0) < 128)).toBe(true)
+    expect(decodeURIComponent(sent)).toBe('手機')
+  })
+
+  it('沒給 device 時就不送這兩個 header（獨立模式沒有這個概念）', async () => {
+    const { ds, calls } = makeRemote({ '/api/conversations': { conversations: [] } })
+    await ds.conversations.list()
+    expect(calls[0].headers['X-Device-Id']).toBeUndefined()
+  })
+})
+
 describe('RemoteDataSource：錯誤翻譯', () => {
   it('連不上電腦 → unreachable（不是 unknown）', async () => {
     const ds = new RemoteDataSource({

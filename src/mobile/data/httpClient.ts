@@ -1,5 +1,7 @@
 import { DataError } from '@core/data'
 import type { DataErrorCode } from '@core/data'
+import { encodeNicknameHeader } from './deviceIdentity'
+import type { DeviceIdentity } from './deviceIdentity'
 
 /**
  * 遙控模式的 HTTP client。
@@ -19,6 +21,11 @@ export interface HttpClientOptions {
   token: () => string
   /** 測試用；預設走全域 fetch（APK 端由 CapacitorHttp 接管）。 */
   fetchImpl?: typeof globalThis.fetch
+  /**
+   * 裝置識別（清單 G8）。**不給的話電腦端會把訊息當成「Desktop」送來的**，
+   * 角色會以為你在電腦前面打字（見 `deviceIdentity.ts`）。
+   */
+  device?: () => DeviceIdentity
 }
 
 export class HttpClient {
@@ -45,12 +52,20 @@ export class HttpClient {
 
     let res: Response
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-DesktopST-Token': this.opts.token()
+      }
+      const device = this.opts.device?.()
+      if (device) {
+        headers['X-Device-Id'] = device.id
+        // 中文暱稱必須先編碼 —— header 只能是 ASCII，否則整個請求送不出去。
+        headers['X-Device-Nickname'] = encodeNicknameHeader(device.nickname)
+      }
+
       res = await fetchImpl(`${base}${path}`, {
         method,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-DesktopST-Token': this.opts.token()
-        },
+        headers,
         body: body === undefined ? undefined : JSON.stringify(body)
       })
     } catch (e) {

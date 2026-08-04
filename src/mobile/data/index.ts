@@ -3,6 +3,8 @@ export type { HttpClientOptions } from './httpClient'
 export { RemoteDataSource } from './remoteDataSource'
 export type { RemoteDataSourceOptions } from './remoteDataSource'
 export { LocalDataSource } from './localDataSource'
+export { getDeviceIdentity, setDeviceNickname } from './deviceIdentity'
+export type { DeviceIdentity } from './deviceIdentity'
 
 import type { DataSource } from '@core/data'
 import { LocalDataSource } from './localDataSource'

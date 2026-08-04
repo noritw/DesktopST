@@ -10,6 +10,7 @@ import { MessageList } from './chat/MessageList'
 import { Composer } from './chat/Composer'
 import { resolveConnection, wsUrlFor } from './connection'
 import { RemoteDataSource } from '../data/remoteDataSource'
+import { getDeviceIdentity } from '../data/deviceIdentity'
 import { RemoteEventSource } from '../events/remoteEventSource'
 
 /**
@@ -50,7 +51,12 @@ export function App(): JSX.Element {
   const conn = useMemo(() => resolveConnection(), [])
 
   useEffect(() => {
-    const data = new RemoteDataSource({ baseUrl: () => conn.baseUrl, token: () => conn.token })
+    const data = new RemoteDataSource({
+      baseUrl: () => conn.baseUrl,
+      token: () => conn.token,
+      // 少了這個，電腦端會把訊息當成「Desktop」送來的，角色會以為你在電腦前打字。
+      device: () => getDeviceIdentity()
+    })
     const events = new RemoteEventSource({
       wsUrl: () => wsUrlFor(conn),
       // relay 情境下連續失敗要回頁面重新取得 tunnel URL；開發時沒有這回事。
