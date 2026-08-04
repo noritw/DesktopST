@@ -1,26 +1,31 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { applyTheme } from './theme'
 import { useUiStore } from './stores/uiStore'
+import { useAppStore, describeError } from './stores/appStore'
 import { useBackButton } from './shell/useBackButton'
 import { ViewStack } from './shell/ViewStack'
 import { ToastHost } from './shell/ToastHost'
 import { DialogHost } from './shell/DialogHost'
-import type { ViewKind } from './stores/uiStore'
+import { MessageList } from './chat/MessageList'
+import { Composer } from './chat/Composer'
+import { resolveConnection, wsUrlFor } from './connection'
+import { RemoteDataSource } from '../data/remoteDataSource'
+import { RemoteEventSource } from '../events/remoteEventSource'
 
 /**
  * 手機 UI 的根元件。
  *
- * **階段 1 只有骨架**：主題、sheet 堆疊、toast、對話框、安全區域、返回鍵。
- * 主畫面（訊息串與輸入框）是階段 2 的事，現在放的是一塊可操作的驗收面板 ——
- * 骨架這種東西沒有畫面就無法驗，而自動測試碰不到它（`tests/README.md`）。
+ * 這裡是**唯一**知道「現在接的是哪種資料來源」的地方 ——
+ * 底下所有元件都只透過 `useAppStore` 拿資料（階段 0-③ 的整個重點）。
  */
 export function App(): JSX.Element {
   const theme = useUiStore((s) => s.theme)
   const push = useUiStore((s) => s.push)
-  const toast = useUiStore((s) => s.toast)
-  const confirm = useUiStore((s) => s.confirm)
-  const prompt = useUiStore((s) => s.prompt)
-
+  const attach = useAppStore((s) => s.attach)
+  const ready = useAppStore((s) => s.ready)
+  const status = useAppStore((s) => s.status)
+  const loadError = useAppStore((s) => s.loadError)
+  const refresh = useAppStore((s) => s.refresh)
   const headerRef = useRef<HTMLElement>(null)
 
   useBackButton()
@@ -29,12 +34,7 @@ export function App(): JSX.Element {
     applyTheme(theme, document.documentElement, document)
   }, [theme])
 
-  /**
-   * 把 header 的實際高度寫進 `--header-h`，給 toast 定位用（見 ToastHost）。
-   *
-   * **不能寫死**：高度會隨安全區域變動（有無瀏海、橫放、不同機型），
-   * 之後 header 還要放角色頭像列（清單 D1），高度會再變一次。
-   */
+  // header 高度給 toast 定位用（見 ToastHost）。不寫死：會隨安全區域與內容變動。
   useEffect(() => {
     const el = headerRef.current
     if (!el) return
@@ -47,6 +47,28 @@ export function App(): JSX.Element {
     return () => ro.disconnect()
   }, [])
 
+  const conn = useMemo(() => resolveConnection(), [])
+
+  useEffect(() => {
+    const data = new RemoteDataSource({ baseUrl: () => conn.baseUrl, token: () => conn.token })
+    const events = new RemoteEventSource({
+      wsUrl: () => wsUrlFor(conn),
+      // relay 情境下連續失敗要回頁面重新取得 tunnel URL；開發時沒有這回事。
+      onNeedsReload: conn.baseUrl === location.origin ? () => location.reload() : undefined
+    })
+    return attach({ data, events })
+  }, [conn, attach])
+
+  // 回前景時對帳（遙控模式才有作用，獨立模式是 no-op）。
+  // 由 UI 呼叫而非實作自己監聽 document —— core 不碰 DOM。
+  useEffect(() => {
+    const onVisible = (): void => {
+      if (document.visibilityState === 'visible') useAppStore.getState().refresh()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
+
   return (
     <div className="flex h-full flex-col bg-[var(--bg)]">
       <header
@@ -55,94 +77,30 @@ export function App(): JSX.Element {
         style={{ paddingTop: 'calc(var(--safe-top) + 8px)' }}
       >
         <span className="text-[17px] font-semibold text-[var(--text)]">DeST</span>
-        <button
-          type="button"
-          onClick={() => push('theme-picker')}
-          className="rounded-full bg-[var(--surface)]/70 px-3 py-1.5 text-sm text-[var(--text)]"
-        >
-          🎨 主題
-        </button>
+        <div className="flex items-center gap-1">
+          <HeaderButton onClick={() => push('conversations')}>💬</HeaderButton>
+          <HeaderButton onClick={() => push('news')}>📰</HeaderButton>
+          <HeaderButton onClick={() => push('theme-picker')}>🎨</HeaderButton>
+        </div>
       </header>
 
-      <main className="scroll-y flex-1 px-5 py-4">
-        <p className="text-sm leading-relaxed text-[var(--text-sub)]">
-          B3 階段 1：UI 骨架。下面每個按鈕對應清單上的一項，請逐一點過確認。
-        </p>
+      {/* 連線狀態列：獨立模式永遠是 online，所以這條自然不會出現，
+          不需要寫 `if (獨立模式)`（階段 0-② 的設計）。 */}
+      {status === 'offline' && (
+        <div className="bg-[var(--danger)] px-4 py-1.5 text-center text-xs text-[var(--danger-text)]">
+          連線中斷，正在重新連線⋯⋯
+        </div>
+      )}
 
-        <Section title="G3 畫面堆疊">
-          {(['conversations', 'presence', 'characters', 'presets', 'settings', 'news'] as ViewKind[]).map((k) => (
-            <Btn key={k} onClick={() => push(k)}>
-              開啟「{k}」
-            </Btn>
-          ))}
-          <Btn
-            onClick={() => {
-              push('conversations')
-              push('characters')
-            }}
-          >
-            一次疊兩層（測返回）
-          </Btn>
-        </Section>
+      {!ready && loadError ? (
+        <LoadFailed message={describeError(loadError, 'load')} onRetry={() => void refresh()} />
+      ) : !ready ? (
+        <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-sub)]">載入中⋯⋯</div>
+      ) : (
+        <MessageList />
+      )}
 
-        <Section title="G2 Toast">
-          <Btn onClick={() => toast('這是一般提示')}>一般</Btn>
-          <Btn onClick={() => toast('這是錯誤提示', 'error')}>錯誤</Btn>
-          <Btn
-            onClick={() => {
-              toast('第一則')
-              toast('第二則')
-              toast('第三則')
-            }}
-          >
-            連續三則
-          </Btn>
-        </Section>
-
-        <Section title="E2 對話框（不用瀏覽器內建）">
-          <Btn
-            onClick={async () => {
-              const ok = await confirm({ title: '刪除這則對話？', message: '刪除後無法復原。', confirmLabel: '刪除', destructive: true })
-              toast(ok ? '你按了刪除' : '你取消了')
-            }}
-          >
-            確認
-          </Btn>
-          <Btn
-            onClick={async () => {
-              const name = await prompt({ title: '重新命名', defaultValue: '週末的閒聊', placeholder: '輸入名稱' })
-              toast(name === null ? '你取消了' : `新名稱：${name}`)
-            }}
-          >
-            輸入
-          </Btn>
-        </Section>
-
-        <Section title="G4 安全區域／捲動">
-          <p className="text-xs text-[var(--text-sub)]">
-            這段文字下面刻意放很長的內容，用來確認：整頁不會橫向捲動、
-            底部不會被系統手勢橫條蓋住。
-          </p>
-          {/* 寬內容包在 scroll-x 裡自己橫向捲動；整頁仍不得橫向捲動 */}
-          <div className="scroll-x w-full rounded-[12px] border border-[var(--border)] p-2">
-            <pre className="text-xs text-[var(--text-sub)]">
-              {'橫向溢出測試 ── '.repeat(20)}
-            </pre>
-          </div>
-          {Array.from({ length: 12 }, (_, i) => (
-            <div key={i} className="rounded-[12px] border border-[var(--border)] px-3 py-2 text-sm">
-              捲動測試 {i + 1}
-            </div>
-          ))}
-        </Section>
-      </main>
-
-      <footer
-        className="border-t border-[var(--border)] bg-[var(--surface)] px-5 pt-3 text-center text-xs text-[var(--text-sub)]"
-        style={{ paddingBottom: 'calc(var(--safe-bottom) + 12px)' }}
-      >
-        這一列的下緣應該剛好在手勢橫條上方
-      </footer>
+      <Composer />
 
       <ViewStack />
       <DialogHost />
@@ -151,23 +109,30 @@ export function App(): JSX.Element {
   )
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
-  return (
-    <section className="mt-5">
-      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-sub)]">{title}</h2>
-      <div className="flex flex-col gap-2">{children}</div>
-    </section>
-  )
-}
-
-function Btn({ onClick, children }: { onClick: () => void; children: React.ReactNode }): JSX.Element {
+function HeaderButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }): JSX.Element {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="rounded-[14px] border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-left text-[15px] text-[var(--text)] active:bg-[var(--mint)]"
+      className="flex h-9 w-9 items-center justify-center rounded-full text-lg active:bg-[var(--surface)]/60"
     >
       {children}
     </button>
+  )
+}
+
+function LoadFailed({ message, onRetry }: { message: string; onRetry: () => void }): JSX.Element {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
+      <div className="text-3xl">🔌</div>
+      <p className="text-sm leading-relaxed text-[var(--text-sub)]">{message}</p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="rounded-full bg-[var(--mint)] px-5 py-2 text-sm text-[var(--text)]"
+      >
+        重試
+      </button>
+    </div>
   )
 }
