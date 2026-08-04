@@ -102,7 +102,8 @@ export function App(): JSX.Element {
             這段文字下面刻意放很長的內容，用來確認：整頁不會橫向捲動、
             底部不會被系統手勢橫條蓋住。
           </p>
-          <div className="scroll-y w-full">
+          {/* 寬內容包在 scroll-x 裡自己橫向捲動；整頁仍不得橫向捲動 */}
+          <div className="scroll-x w-full rounded-[12px] border border-[var(--border)] p-2">
             <pre className="text-xs text-[var(--text-sub)]">
               {'橫向溢出測試 ── '.repeat(20)}
             </pre>

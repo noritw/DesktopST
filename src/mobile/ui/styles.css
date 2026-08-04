@@ -45,13 +45,25 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* 捲動容器一律用這個，統一慣性捲動與捲軸外觀 */
+/* 捲動容器一律用這兩個，統一慣性捲動與捲軸外觀 */
 .scroll-y {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
 
-.scroll-y::-webkit-scrollbar {
+/**
+ * 寬內容（長網址、程式碼、寬表格）必須包在這裡面自己橫向捲動。
+ *
+ * `body` 是 `overflow-x: hidden`，所以少了這層**不會**變成整頁能左右滑，
+ * 而是**直接被裁掉、而且滑不動** —— 使用者看不到也拿不到被切掉的那半。
+ */
+.scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.scroll-y::-webkit-scrollbar,
+.scroll-x::-webkit-scrollbar {
   width: 0;
   height: 0;
 }
