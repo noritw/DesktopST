@@ -1,0 +1,82 @@
+# 假 mobileServer（開發手機 UI 用）
+
+> 加入日期：2026-08-05（B3 階段 2 期間）｜程式：`scripts/mobile-stub-server.mjs`
+
+## 這是做什麼的
+
+**讓手機 UI 在沒開 DeST 的情況下也有東西可以接。**
+
+`npm run dev:mobile` 起的是畫面，資料要有人給。正式的來源是電腦上的
+`mobileServer`（DeST 開著才有），但開發途中常常只是想確認一顆按鈕的位置、
+一段流程的順序 —— 為此開整個 DeST、還要有 API Key 才能看到角色回話，太慢。
+
+這支只提供**手機 UI 會用到的那幾支 `/api/*`**，用假資料回答，
+並把每一則請求印在終端 —— 手機上按了什麼、實際送出去什麼，一目了然。
+
+## 怎麼跑
+
+```bash
+node scripts/mobile-stub-server.mjs
+```
+
+另一個終端起手機 UI：
+
+```bash
+npm run dev:mobile
+```
+
+然後開（手機要跟電腦在同一個 Wi-Fi）：
+
+```
+http://<電腦區網IP>:5180/?server=http://<電腦區網IP>:5999&token=x
+```
+
+桌機瀏覽器用 `localhost` 也可以。`token` 隨便填，這支不驗。
+
+### 環境變數
+
+| 變數 | 預設 | 用途 |
+|---|---|---|
+| `PORT` | 5999 | 換埠 |
+| `MAXIMG` | 5 | 圖片張數上限，驗「超過上限時的提示」 |
+| `NR` | — | `NR=0` 關閉隨機工具，驗 C6 總開關關閉時 🎲 入口消失 |
+| `THEME` | mint | 換色彩主題 |
+
+## ⚠️ 一條規矩：要連「拒絕條件」一起模擬
+
+**只回成功的 stub 會安靜地掩蓋真實限制，比沒有 stub 更糟。**
+
+2026-08-05 實際踩到：`/api/messages/resend` 在真的 DeST 上**只接受使用者訊息**
+（`ipcHandlers.ts:639`），這支 stub 原本照單全收 ——
+於是手機 UI 對角色訊息也顯示了「重新發送」，而那顆按鈕在真機上必定失敗。
+owner 實測回報「按了只有刪掉後面」，追下去才發現。
+
+同一類的還有 `/api/characters/desktop/remove`：
+它用 **HTTP 200 ＋ `ok: false`** 表示「至少要留一個角色」，不是錯誤狀態碼。
+
+**新增端點時，先讀 `src/main/mobileServer.ts` 對應那段的失敗分支，一併照抄。**
+
+## 已模擬的端點
+
+| 端點 | 行為 |
+|---|---|
+| `GET /api/state` | 三隻假角色（兩隻在場）＋ 一則開場訊息 |
+| `GET /api/avatar/:id` | 純色方圖；**未知 id 回 404**（留給 🐾 fallback 驗證） |
+| `GET /api/message-image/:id/:i` | 回傳送出時存下的那張原圖 |
+| `GET /api/characters/library` | 角色庫 ＋ `onDesktop` |
+| `POST /api/send` | 記下訊息、推 WS、1.2 秒後假回覆（`skipLlm` 時不回） |
+| `POST /api/characters/desktop/{add,remove}` | remove 在只剩一位時回 `ok: false` |
+| `POST /api/characters/toggle-mute` | 回 `{ muted }` ＋ 推 `desktop-updated` |
+| `POST /api/characters/speak` | 思考 → 主動發話 |
+| `POST /api/messages/{delete,edit,resend}` | resend 只接受使用者訊息 |
+
+沒實作的端點一律回 404 並印在終端，「這支還沒模擬」一眼看得出來。
+
+## 這不是什麼
+
+- **不是測試**。真正的回歸測試在 `tests/`（只測 `src/core/`，見 `tests/README.md`）
+- **不會被打包**。`scripts/` 不在 electron-builder 與 vite 的輸出範圍裡
+- **不模擬 LLM**。角色的「回話」是罐頭字串，驗的是 UI 流程不是內容
+
+真的要驗角色口吻、prompt 組裝、圖片有沒有送到模型，就得開 DeST 走真的
+`mobileServer`（連線參數見 `docs/b3-mobile-ui-plan.md` §4.9）。

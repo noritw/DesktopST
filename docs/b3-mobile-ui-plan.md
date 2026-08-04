@@ -4,7 +4,9 @@
 > 範圍定義：`docs/mobile-html-feature-inventory.md`（49 項獨立版必做 ＋ §6.1 的 10 項設定 UI）
 > 設計約束：`docs/multi-device-platform-roadmap.md` §2（四大目標）、§3.3、§4.5、§4.7、§8
 >
-> **狀態：實作進行中。** 進度見 §4.9，實機踩到的坑見 §4.10。
+> **狀態：階段 0–2 完成（0-③／1／2a／2b／2c／2d），已 owner 實機驗證。下一步是階段 3。**
+> 進度見 §4.9，實機踩到的坑見 §4.10–§4.13（**寫任何手機 UI 前務必讀完**）。
+> 沒開 DeST 時的驗證方式見 §4.9 與 `scripts/README-mobile-stub.md`。
 
 ---
 
@@ -271,6 +273,24 @@ http://<電腦區網IP>:5180/?server=http://<電腦區網IP>:<mobileServer 埠>&
 
 ⚠️ **dev server 會無聲停掉**（工具重啟、機器休眠）。手機出現「載入失敗」時，
 先確認 5180 還在聽（`Get-NetTCPConnection -LocalPort 5180`）再查別的。
+
+### 沒開 DeST 時怎麼驗（多數情況用這個）
+
+```bash
+node scripts/mobile-stub-server.mjs
+```
+
+假 mobileServer，起在 5999，把 `?server=` 指過去即可。
+用法與已模擬的端點見 **`scripts/README-mobile-stub.md`**。
+
+它的價值不只是「不必開 DeST」——**每一則請求都印在終端**，
+手機上按了什麼、實際送出去什麼（含圖片壓縮後的大小）看得一清二楚，
+這是接真 `mobileServer` 時反而看不到的。
+
+⚠️ **stub 要連拒絕條件一起模擬，不能只回成功。**
+理由與實際踩到的案例見該 README 與下面的 §4.13。
+
+真的要驗角色口吻、prompt 組裝、圖片有沒有送進模型，還是得開 DeST。
 
 ---
 

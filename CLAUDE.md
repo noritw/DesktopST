@@ -728,7 +728,13 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
     等於又一顆必定失敗的按鈕（同 D5 那顆移出鈕）
   - 對話框新增 `multiline`（編輯訊息用）：多行不接 Enter 送出、不全選內容
   - 測試 298 項
-- [ ] **B3 剩餘**：3 角色卡編輯
+- [x] **B3 開發工具：假 mobileServer（2026-08-05）** —— `scripts/mobile-stub-server.mjs`
+  ＋ `scripts/README-mobile-stub.md`。沒開 DeST 也能驗手機 UI，且**每一則請求印在終端**
+  （手機按了什麼、送出什麼、圖片壓縮後多大），這是接真 `mobileServer` 反而看不到的。
+  ⚠️ **要連拒絕條件一起模擬，不能只回成功** —— 只模擬成功路徑的 stub 會安靜掩蓋
+  真實限制，比沒有 stub 更糟（「重新發送」那個 bug 就是這樣晚被發現的）
+- [ ] **B3 剩餘**：3 角色卡編輯（下一步，B3 最大單項）→ 4 設定 → 5 預設組
+  → 6 新聞報 → 7 取代 `mobile.html` ＋ APK
   → 4 設定 → 5 預設組 → 6 新聞報 → 7 取代 `mobile.html` ＋ APK。
   進度表與開發時連真資料的方式見 `docs/b3-mobile-ui-plan.md` §4.9
 - [ ] **手機獨立版與平台擴充** → `docs/multi-device-platform-roadmap.md`
