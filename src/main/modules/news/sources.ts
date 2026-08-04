@@ -1,8 +1,9 @@
-import { createHash } from 'crypto'
 import Parser from 'rss-parser'
 import type { NewsFeedJson, NewsItem, NewsModuleSettings, NewsSelectionContext, NewsSource } from './types'
 import { keywordSourceInGroup, keywordSourceInReaderGroups } from './settings'
 import { detectLang } from './filter'
+/** @see core/news/stableId —— 純 JS SHA-1，桌面與手機算出同一個 id。 */
+import { stableId } from '../../../core/news/stableId'
 
 const rssParser = new Parser({
   timeout: 8000,
@@ -36,12 +37,6 @@ export function buildKeywordRssUrl(keyword: string): string {
 /** Google Trends 台灣每日熱搜 RSS（破圈用，design §7） */
 export function buildTrendsRssUrl(): string {
   return 'https://trends.google.com/trending/rss?geo=TW'
-}
-
-/** 同一篇 URL / guid 永遠算出同一個 id（news-feed-spec §4 規則） */
-function stableId(prefix: string, key: string): string {
-  const hash = createHash('sha1').update(key).digest('hex').slice(0, 12)
-  return `${prefix}-${hash}`
 }
 
 function stripHtml(text: string | undefined): string {

@@ -32,12 +32,13 @@ npm run test:watch
 | 新聞六層篩選與加權抽選 | 要真 API Key 的實際發訊 |
 | 骰子、角色卡、base64、提醒時刻 | 「用起來順不順」 |
 
-**測試對象只有 `src/core/`** —— 那是 B1／B2／B2.7 抽出來的純函式層，
-不碰網路、檔案、視窗。`src/main/`（Electron）與 `src/renderer/`（React）不在範圍：
+**測試對象是 `src/core/`** —— B1／B2／B2.7 抽出來的純函式層，不碰網路、檔案、視窗。
+**例外：`src/mobile/events/`**（B3 階段 0-②）也測 —— 它的 WebSocket 與計時器都是
+建構子注入的，所以一樣可決定性。`src/main/`（Electron）與 `src/renderer/`（React）不在範圍：
 前者要真的 Electron 環境，後者要真的畫面，兩者都在
 `pre-b3-work-assessment.md` §6.4「只能靠人」那一側。
 
-## 目前涵蓋範圍（206 項）
+## 目前涵蓋範圍（244 項）
 
 | 檔案 | 測什麼 | 對應 §6.2 |
 |---|---|---|
@@ -52,6 +53,8 @@ npm run test:watch
 | `lore/format.test.ts` | `[Glossary]` 區塊組裝、無條目時完全不出現 | B2.5 |
 | `lore/resolve.test.ts` | 疊加（角色卡＋世界觀）vs 取代（情境）、載入失敗略過 | B2.5 |
 | `lore/stLorebook.test.ts` | ST `character_book` 往返、`_passthrough` 不掉欄位 | B2.5 |
+| `util/sha1.test.ts` | 純 JS SHA-1 與 Node `crypto` 逐字比對、新聞 `stableId` 不變號 | B3 階段 0 |
+| `events/eventSource.test.ts` | WS 訊息正規化、重連對帳、退避、思考逾時保險、獨立模式空殼 | B3 階段 0-② |
 
 **還沒補的**：`store/`（設定遷移、正規化）、`llm/summarizer` 的訊息挑選、
 `news/trigger` 的六個 builder 快照。這幾塊有各自的替代驗證
@@ -99,6 +102,8 @@ npx vitest run -u
 | `core/prompt/promptUtils.ts` trigger 訊息大小寫 | 精準抓到 3 項（`buildTriggerMessage` 那組）|
 | `core/lore/format.ts` 標籤 `[Glossary]` → `[Lore]` | 精準抓到 3 項（format 那支）|
 | `core/lore/scan.ts` 裁切改成「先砍高 priority」 | 精準抓到 2 項（預算裁切那組）|
+| `mobile/events/remoteEventSource.ts` 拿掉「首次連線不對帳」的判斷 | 精準抓到 3 項 |
+| `core/events/emitter.ts` 拿掉「狀態沒變不通知」 | 精準抓到 1 項 |
 
 兩次都**只有相關的測試變紅**，其餘照常通過。
 

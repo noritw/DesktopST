@@ -449,8 +449,8 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
     ③獨立／遙控走**同一個「事件來源」介面**，UI 不知道差別；
     ④**編輯功能全部進 B3** —— 情境／Persona／World 預設組 ＋ **角色庫與角色卡編輯**
   - ⚠️ **B3 階段 0（不含任何 UI）必做三件事**，晚做的成本是「拆掉重寫」而非「慢一點」：
-    事件來源抽象（**待辦**）、~~`StorageAdapter` 呼叫端接上~~ ✅（2026-08-04）、
-    ~~隨機工具搬 core~~ ✅
+    ~~事件來源抽象~~ ✅、~~`StorageAdapter` 呼叫端接上~~ ✅（皆 2026-08-04）、
+    ~~隨機工具搬 core~~ ✅ —— **階段 0 三件事全數完成，可以開分支寫手機 UI 了**
   - ⚠️ **既有 drift 實例**：新聞分欄寫了兩份（`mobile.html` 的 `nrGroupByKeyword`
     vs 桌面 `groupNewsItems`），隨手機 UI 改 React 自然解掉。
     隨機工具那份 ✅ 已解，見下條
@@ -597,7 +597,37 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
   - 驗證：typecheck ＋ 221 項測試 ＋ `electron-vite build` 全過；
     **設定載入全等比對 18/18 零差異**。反向驗證做過（在 `readTextSync` 裡動手腳改字串 →
     精準抓到 4 個含該欄位的樣本，其餘不誤報）
-  - **下一步是階段 0-②「事件來源抽象」**，這次刻意沒做
+- [x] **B3 階段 0-②：事件來源抽象（2026-08-04）**
+  - `src/core/events/`：`AppEvent`（五種）＋ `ConnectionStatus` ＋ `EventSource` 介面 ＋
+    `EventHub`（訂閱／派發骨架，兩種模式共用）。實作在 `src/mobile/events/`：
+    `remoteEventSource.ts`（包住現行 WebSocket）與 `localEventSource.ts`（**刻意的空殼**，
+    等 B3 有本機聊天流程才接得上）
+  - **五種事件是從現行 WS 實際推的六種正規化而來**（不是照決議③ 的草稿名字憑空定）：
+    `message` / `thinking` / `thinking-done` / `reminder` ＋
+    **`state-invalidated`**（`desktop-updated` 與 `remote-control-state` 在 `mobile.html`
+    都只是觸發 `fetchState()`，故收斂成一種、只帶原因）
+  - ⚠️ **決議③ 的草稿有 `onStateChange`，實際做成「發 `state-invalidated` 事件」** ——
+    因為這樣一來**重連對帳也只是同一種事件**（`reason: 'reconnect'`），
+    G6「鎖屏漏訊息」這個遙控獨有的問題完全關在遙控實作裡，UI 一行特例都不必寫。
+    `localEventSource.ts` 短到只有 30 行，就是這件事做對了的證據
+  - 遙控實作逐條沿用 `mobile.html` 1210–1268 行：指數退避（上限 8 秒）、連續失敗 4 次
+    回 relay 重載、重連對帳、回前景重抓、**思考逾時保險 90 秒**
+    （`thinking-done` 沒送到時自行補一則，否則 UI 動畫永遠轉下去）
+  - `notifyForeground()` **由 UI 呼叫、不由實作自己監聽 document**：core 不碰 DOM，
+    而且 APK 的前景事件來自 Capacitor 而非 `visibilitychange`
+  - 連線狀態獨立模式永遠是 `'online'` —— UI 讀同一個欄位，**不做 `if (獨立模式)`**
+  - `tsconfig.json` 的 `include` 加入 `src/mobile`（`exclude` 掉一次性的 `smoketest`）；
+    測試 16 項（`tests/events/`），反向驗證兩次皆精準抓到、不誤報
+  - **這次沒做任何 UI**（階段 0 的定義）
+- [x] **新聞 id 的 `crypto.createHash` 解掉（2026-08-04）**
+  - `core/util/sha1.ts`（純 TS SHA-1）＋ `core/news/stableId.ts`；`sources.ts` 改吃 core
+  - ⚠️ **蓄意不換成「更簡單的雜湊」**（`pre-b3-work-assessment.md` §8 原本建議換）：
+    這個 id 已經寫進使用者資料 —— `seenIds`（看過哪些）與新聞報的釘選／不看了都以它當鍵。
+    換演算法＝全部變號＝看過的新聞重新冒出來、釘選掉光，而且**靜默發生**。
+    維持與 SHA-1 逐位元組相同才是零成本的那條路
+  - 驗證比照 `base64`：與 Node `crypto` 對 200 組隨機字串 ＋ 補綴邊界（55/56/57/63/64/65）
+    ＋ CJK ／ emoji 逐字比對，全數相同（`tests/util/sha1.test.ts`，7 項）
+  - `sources.ts` 仍留在 `main/`（`rss-parser` 是 B4 的決定），只是 id 計算不再是 Node 專屬
 - [ ] **手機獨立版與平台擴充** → `docs/multi-device-platform-roadmap.md`
   - ⚠️ **下一步不是 B3。** 2026-08-03 盤點發現規劃缺一塊、且 B1／B2 尚未實機驗證
     → **先讀 `docs/pre-b3-work-assessment.md`**（含測試策略：哪些能自動測、

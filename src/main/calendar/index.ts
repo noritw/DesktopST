@@ -94,12 +94,15 @@ function formatEvent(ev: CalendarEvent, nowMs: number): string {
  * 標籤下方一定要有一句說明這是什麼。
  * 實測只給裸標籤 `[Calendar]` 時，角色容易把它當成無意義字串略過，
  * 被直接問「你讀得到日曆嗎」還會否認。
+ *
+ * 說明句本身是**給模型看的指令**，照專案慣例寫英文省 token（輸出仍是繁中）；
+ * 底下的行程內容是資料，維持中文。
  */
-const CALENDAR_HEADER = '[Calendar]\n這是使用者本人的行程與待辦，已確實取得，可以自然提起。'
+const CALENDAR_HEADER = "[Calendar]\nThe user's own schedule and to-dos, successfully retrieved. You may bring them up naturally."
 
 export function buildCalendarBlock(events: CalendarEvent[], nowMs: number, lookaheadHours: number): string {
   if (events.length === 0) {
-    return `${CALENDAR_HEADER}\n接下來 ${lookaheadHours} 小時內沒有安排。`
+    return `${CALENDAR_HEADER}\nNothing scheduled in the next ${lookaheadHours} hours.`
   }
   const lines = events.map(ev => formatEvent(ev, nowMs))
   return `${CALENDAR_HEADER}\n${lines.join('\n')}`
