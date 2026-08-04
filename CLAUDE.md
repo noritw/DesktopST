@@ -628,6 +628,40 @@ npm run test:watch # 測試 watch 模式（存檔自動重跑）
   - 驗證比照 `base64`：與 Node `crypto` 對 200 組隨機字串 ＋ 補綴邊界（55/56/57/63/64/65）
     ＋ CJK ／ emoji 逐字比對，全數相同（`tests/util/sha1.test.ts`，7 項）
   - `sources.ts` 仍留在 `main/`（`rss-parser` 是 B4 的決定），只是 id 計算不再是 Node 專屬
+- [x] **B3 階段 0-③：`DataSource` 抽象（2026-08-04）** —— 拉取方向的介面
+  - 階段 0-② 的 `EventSource` 管「事情發生了」（推播），這支管「我要讀資料／下指令」（拉取）。
+    兩者合起來就是手機 UI 的全部外界接觸面，元件因此不知道自己在獨立還是遙控模式
+  - `core/data/`（介面 ＋ `Capabilities` ＋ `DataError`）、`mobile/data/`
+    （`httpClient` ／ `remoteDataSource` ／ `localDataSource` ／ `deviceIdentity`）
+  - **三條硬規則**寫在 `core/data/types.ts` 檔頭：全部 async、不得有 UI 文案（回錯誤代碼）、
+    **編輯類兩種模式都要實作**（遙控下手機沒有自己那份資料，編輯是 RPC 改電腦上唯一一份，
+    不可能分歧；真正的同步是 roadmap §4.7 的 S1／S2）
+  - `Capabilities` 只有三個旗標，編輯不在其中。**唯一例外是 API Key**：
+    條件是「是否區網直連」而非模式（§4.7），且該判定**電腦端目前還沒做**，階段 4 才補
+  - ⚠️ `LocalDataSource` 是**刻意的空殼**（比照 `localEventSource`）：每個方法都要經過
+    Capacitor 版 `StorageAdapter`，那個還沒實作，先寫一份猜的等於階段 0 要避免的「拆掉重寫」
+- [x] **B3 階段 1：UI 骨架（2026-08-04）** —— G1–G4，已 owner 實機驗證
+  - `vite.mobile.config.ts` → `out/mobile`（capacitor 的 `webDir`，階段 7 也給 mobileServer 當網頁版）。
+    Tailwind／PostCSS 另立一份，避免與桌面互相把 class 掃進對方的 CSS
+  - ViewStack（overlay 堆疊）／Sheet／Toast／Dialog／9 種主題／安全區域／返回鍵
+  - ⚠️ **返回鍵拿 history 當堆疊的影子**，讓返回手勢、Android 實體鍵、自家 ✕ 走同一條路徑
+  - ⚠️ **對話框自己做**，不用瀏覽器 `prompt`／`confirm`（WebView 會跳出帶網址的系統彈窗且沒有返回鍵處理）
+- [x] **B3 階段 2a：聊天主線（2026-08-04）** —— A1–A5、A8、A9，已 owner 實機驗證
+  - `appStore` 是聊天元件**唯一**的資料入口，`DataSource` 與 `EventSource` 由外部注入；
+    ⚠️ **元件不得直接 import 任何實作**
+  - 樂觀渲染的取代靠 role ＋ 內容比對，**不靠 id 或時間戳**（暫時 id 伺服器不認得、兩邊時鐘不一致）
+  - 錯誤代碼→中文集中在 UI 層，分 send／load 兩種情境（同一個 `unreachable`，
+    剛打完字的人與畫面空白的人關心的事不同）
+  - 色彩主題**讀寫電腦端的 `settings.ui.colorTheme`**，不是手機本機偏好 ——
+    新增 `POST /api/settings/color-theme` ＋ `setColorThemeDirect()`
+  - **順帶修掉桌面既有 bug**：`ipcHandlers` 的一般聊天與群組接龍**從來沒推過 `thinking-done`**，
+    手機思考動畫只能靠 90 秒逾時收掉。修法是把桌面動畫與手機推播綁進同一支 `setThinking()`
+    （17 個呼叫點全改），讓「少一邊」不再可能；連帶讓接話角色也會推播思考狀態
+  - ⚠️ **五個實機踩到的坑記在 `docs/b3-mobile-ui-plan.md` §4.10**，共同性質是
+    「桌機正常、手機才壞」或「完全沒有錯誤訊息」。**寫手機 UI 前務必讀完**
+- [ ] **B3 剩餘**：2b 圖片 → 2c 隨機工具 → 2d 角色列（含 A6／A7）→ 3 角色卡編輯
+  → 4 設定 → 5 預設組 → 6 新聞報 → 7 取代 `mobile.html` ＋ APK。
+  進度表與開發時連真資料的方式見 `docs/b3-mobile-ui-plan.md` §4.9
 - [ ] **手機獨立版與平台擴充** → `docs/multi-device-platform-roadmap.md`
   - ⚠️ **下一步不是 B3。** 2026-08-03 盤點發現規劃缺一塊、且 B1／B2 尚未實機驗證
     → **先讀 `docs/pre-b3-work-assessment.md`**（含測試策略：哪些能自動測、

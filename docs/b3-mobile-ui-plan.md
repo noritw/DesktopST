@@ -4,7 +4,7 @@
 > 範圍定義：`docs/mobile-html-feature-inventory.md`（49 項獨立版必做 ＋ §6.1 的 10 項設定 UI）
 > 設計約束：`docs/multi-device-platform-roadmap.md` §2（四大目標）、§3.3、§4.5、§4.7、§8
 >
-> **本文件是計畫，尚未動任何程式碼。** owner 確認後才開工。
+> **狀態：實作進行中。** 進度見 §4.9，實機踩到的坑見 §4.10。
 
 ---
 
@@ -127,8 +127,11 @@ src/mobile/
     presets/      Scene / Persona / World 編輯器
     settings/     ApiKey / Model / Memory / Modules / Reminders / News
     news/         Reader（維持 mobile.html 檔頭那個「對外只 5 個函式」的邊界）
-  index.html, main.tsx
+    index.html, main.tsx   ← 在 ui/ 底下，vite 的 root 就指這裡
 ```
+
+> `adapters/`、`characters/`、`presets/`、`settings/`、`news/` **尚未建立**，
+> 到該階段再開。目前只有 `data/`、`events/`、`ui/{shell,chat,stores}`。
 
 **`src/mobile/ui/` 不得 import `src/main/`**，與 core 同級的紀律。
 UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
@@ -169,6 +172,16 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 - local 實作先做 read-only 那半（`getState` / `conversations` / `presets`），寫入側隨階段推進補
 - **驗收**：typecheck 過；`tests/data/` 用假 adapter 驗證兩個實作對同一組操作回傳同形資料
 - 硬性：階段 0-③ 完成前不寫任何聊天元件（同 inventory §5.4 對階段 0 的約束）
+
+> **實際落地與上面兩點的差異（2026-08-04）**：
+>
+> 1. **`LocalDataSource` 維持全空殼，沒有先做 read-only 那半。** 動手才發現它每個
+>    方法都要經過 Capacitor 版 `StorageAdapter`，而那個還沒實作。先寫一份猜的，
+>    接上時多半要重寫 —— 正是階段 0 要避免的事。比照 `localEventSource.ts` 的先例。
+> 2. **預設組改成 `list` / `get` 分開**：`/api/presets` 只回精簡欄位
+>    （`worldSetting` 被截成 100 字），宣稱回傳完整 `PersonaPreset[]` 等於型別說謊。
+> 3. **多了 `SettingsApi`**（階段 2a 期間補的，原本排在階段 4）：色彩主題必須能寫回
+>    電腦端，否則手機改了不會存。目前只有 `setColorTheme`，其餘設定仍在階段 4。
 
 ### 階段 1 ── UI 骨架（G1–G4）
 
