@@ -321,8 +321,24 @@ const server = http.createServer(async (req, res) => {
     const p = await readBody(req)
     const card = library.find((c) => c.id === p.id)
     if (!card) return json(res, { error: 'Character not found' }, 404)
+    // ⚠️ 這仍是假內容，不是真的 `exportToStJson()` 輸出。
+    // 真伺服器會做完整 SillyTavern 欄位對照（`spec` / `data.*` 巢狀結構、
+    // 暱稱塞進 alternate_greetings 之類的轉換），那段邏輯只存在於
+    // `src/main/stCardMapper.ts`，stub 沒有理由重寫一份。
+    // 這裡只是把手上有的欄位攤平塞進去，讓「下載下來的檔案看起來有內容」
+    // 這件事測得到 —— 驗證真正的欄位對照仍要接真的 DeST。
     const body = p.kind === 'json'
-      ? Buffer.from(JSON.stringify({ name: card.name }), 'utf-8')
+      ? Buffer.from(JSON.stringify({
+          name: card.name,
+          description: card.description,
+          personality: card.personality,
+          first_mes: card.firstMessage,
+          mes_example: card.exampleDialogue,
+          scenario: card.scenario,
+          creator_notes: card.creatorNotes,
+          system_prompt: card.systemPromptOverride,
+          _stub_note: '這是假伺服器產生的簡化內容，非真實 SillyTavern 格式輸出'
+        }, null, 2), 'utf-8')
       : Buffer.from('stub-png-' + card.id, 'utf-8')
     console.log(`[export-card] ${p.id} ${p.kind}`)
     return json(res, {
