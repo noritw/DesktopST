@@ -72,7 +72,7 @@ export function DialogHost(): JSX.Element | null {
             type="button"
             onClick={submit}
             className={`flex-1 rounded-full py-2.5 text-[15px] font-medium active:opacity-80 ${
-              dialog.destructive ? 'bg-[#FFBBBB] text-[#5A2A3A]' : 'bg-[var(--mint)] text-[var(--text)]'
+              dialog.destructive ? 'bg-[var(--danger)] text-[var(--danger-text)]' : 'bg-[var(--mint)] text-[var(--text)]'
             }`}
           >
             {dialog.confirmLabel ?? '確定'}

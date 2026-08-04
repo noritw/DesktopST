@@ -42,7 +42,7 @@ export function ToastHost(): JSX.Element {
           onClick={() => dismiss(t.id)}
           className={`anim-pop-in pointer-events-auto max-w-full rounded-full px-4 py-2 text-sm shadow-[0_3px_12px_rgba(0,0,0,0.18)] ${
             t.tone === 'error'
-              ? 'bg-[#FFBBBB] text-[#5A2A3A]'
+              ? 'bg-[var(--danger)] text-[var(--danger-text)]'
               : 'bg-[var(--mint)] text-[var(--text)]'
           }`}
         >

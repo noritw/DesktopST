@@ -18,6 +18,8 @@
   --text: #3D5A52;
   --text-sub: #7AA898;
   --border: rgba(0, 0, 0, 0.08);
+  --danger: #FFBBBB;
+  --danger-text: #5A2A3A;
 
   /* 安全區域（清單 G4）。瀏海、底部橫條、橫向的圓角。
      不支援 env() 的環境會落回 0px，不會壞。 */
