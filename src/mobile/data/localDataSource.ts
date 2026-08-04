@@ -1,0 +1,102 @@
+import { DataError } from '@core/data'
+import type {
+  AppStateSnapshot,
+  Capabilities,
+  CharactersApi,
+  ConversationsApi,
+  DataSource,
+  MessagesApi,
+  PresetsApi,
+  SendMessageInput
+} from '@core/data'
+
+/**
+ * 獨立模式的資料來源：直接呼叫 `core/` ＋ Capacitor adapter。
+ *
+ * ## 為什麼現在是空殼（**刻意的，比照 `localEventSource.ts`**）
+ *
+ * 這支的每個方法都要經過 `StorageAdapter` 讀寫手機沙箱，而 Capacitor 版的
+ * adapter 尚未實作（`src/mobile/README.md`：「實作到哪個裝哪個」，避免裝一堆
+ * 沒有呼叫端的相依）。先寫一份猜測的實作，等真的接上時多半要重寫 ——
+ * 那正是階段 0 要避免的「拆掉重寫」。
+ *
+ * **階段 0-③ 要的產出是介面與契約，不是可運作的獨立模式。**
+ * 內容在階段 2（聊天）、3（角色）、5（預設組）逐段填入；
+ * 填的時候是把 `not-supported` 換成呼叫 core，介面形狀不會變。
+ *
+ * ## 已經可以確定的兩件事（所以現在就寫下來）
+ *
+ * 1. `capabilities` 是定值：獨立模式恆有 API Key 存取（金鑰就在本機，沒有傳輸問題），
+ *    恆無遙控與截圖（決議②）。
+ * 2. 這裡**不會有**重連、對帳、逾時保險那類東西 —— 那些是遙控獨有的麻煩，
+ *    已經關在 `remoteEventSource` 裡。這支短，就是那件事做對了的證據。
+ */
+export class LocalDataSource implements DataSource {
+  readonly capabilities: Capabilities = {
+    apiKeyAccess: true,
+    remoteControl: false,
+    screenshot: false
+  }
+
+  getState(): Promise<AppStateSnapshot> {
+    return Promise.reject(pending('getState', 2))
+  }
+
+  sendMessage(_input: SendMessageInput): Promise<void> {
+    return Promise.reject(pending('sendMessage', 2))
+  }
+
+  getMessageImageUrl(_messageId: string, _index: number): Promise<string | null> {
+    return Promise.reject(pending('getMessageImageUrl', 2))
+  }
+
+  readonly conversations: ConversationsApi = {
+    list: () => Promise.reject(pending('conversations.list', 2)),
+    load: () => Promise.reject(pending('conversations.load', 2)),
+    create: () => Promise.reject(pending('conversations.create', 2)),
+    rename: () => Promise.reject(pending('conversations.rename', 2)),
+    remove: () => Promise.reject(pending('conversations.remove', 2))
+  }
+
+  readonly messages: MessagesApi = {
+    remove: () => Promise.reject(pending('messages.remove', 2)),
+    edit: () => Promise.reject(pending('messages.edit', 2)),
+    resend: () => Promise.reject(pending('messages.resend', 2))
+  }
+
+  readonly characters: CharactersApi = {
+    list: () => Promise.reject(pending('characters.list', 2)),
+    get: () => Promise.reject(pending('characters.get', 3)),
+    save: () => Promise.reject(pending('characters.save', 3)),
+    remove: () => Promise.reject(pending('characters.remove', 3)),
+    setPresent: () => Promise.reject(pending('characters.setPresent', 2)),
+    toggleMute: () => Promise.reject(pending('characters.toggleMute', 2)),
+    speak: () => Promise.reject(pending('characters.speak', 2)),
+    avatarUrl: () => Promise.reject(pending('characters.avatarUrl', 2))
+  }
+
+  readonly presets: PresetsApi = {
+    listPersonas: () => Promise.reject(pending('presets.listPersonas', 2)),
+    listWorlds: () => Promise.reject(pending('presets.listWorlds', 2)),
+    listScenes: () => Promise.reject(pending('presets.listScenes', 2)),
+    getPersona: () => Promise.reject(pending('presets.getPersona', 5)),
+    getWorld: () => Promise.reject(pending('presets.getWorld', 5)),
+    getScene: () => Promise.reject(pending('presets.getScene', 5)),
+    activePersonaId: () => Promise.reject(pending('presets.activePersonaId', 2)),
+    activeWorldId: () => Promise.reject(pending('presets.activeWorldId', 2)),
+    activatePersona: () => Promise.reject(pending('presets.activatePersona', 2)),
+    activateWorld: () => Promise.reject(pending('presets.activateWorld', 2)),
+    applyScene: () => Promise.reject(pending('presets.applyScene', 2)),
+    savePersona: () => Promise.reject(pending('presets.savePersona', 5)),
+    saveWorld: () => Promise.reject(pending('presets.saveWorld', 5)),
+    saveScene: () => Promise.reject(pending('presets.saveScene', 5)),
+    removePersona: () => Promise.reject(pending('presets.removePersona', 5)),
+    removeWorld: () => Promise.reject(pending('presets.removeWorld', 5)),
+    removeScene: () => Promise.reject(pending('presets.removeScene', 5))
+  }
+}
+
+/** 尚未實作。標明會在哪個階段填入，免得日後只看到一句 not-supported。 */
+function pending(method: string, stage: number): DataError {
+  return new DataError('not-supported', `${method}: 獨立模式尚未實作（B3 階段 ${stage}）`)
+}
