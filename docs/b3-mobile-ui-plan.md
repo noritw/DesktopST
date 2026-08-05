@@ -658,12 +658,39 @@ owner 從角色庫加了角色進來後找不到怎麼收回去——**點角色
 動作時最直覺的入口，那裡沒有等於這條路走不通。已在 `CharacterMenu` 補「🚪 移出對話」，
 D5「至少留一位」的判斷兩處一致（只剩一位時不顯示這一項）。
 
-### 驗證方式（這次做到端到端）
+### 還有第二個 bug：檔案存了，但角色卡沒指到它（Codex 發現）
+
+`accept` 修好、相簿能選圖之後仍然沒換成功。原因是**信任邊界把新路徑也一起擋掉了**：
+
+1. `/api/characters/avatar` 寫檔成功、回傳路徑 ✅
+2. 手機把路徑放進 draft，按儲存 → `/api/characters/save`
+3. `mergeCharacterFromRemote()` 從 `...existing` 開始、**只覆蓋文字欄位**——
+   `avatar` 不在清單裡（這是刻意的，遠端不可以指定本機檔案路徑），
+   於是手機送來的新路徑被丟掉，角色卡永遠指著舊圖 ❌
+
+修法（`saveCharacterAvatarDirect`）：既然 `/api/characters/avatar` 是唯一被信任的換圖入口，
+**就由它自己把角色卡改好、存檔、廣播 `characters:updated`**，不要指望之後那次 save 帶過去。
+`mergeCharacterFromRemote` 繼續擋掉遠端的 `avatar` 不變。模式與旁邊的
+`deleteCharacterDirect` 一致（改記憶體 → `fileStore` → 廣播）。
+
+⚠️ 附帶的行為改變：桌面版在編輯器裡換了圖又按取消，圖仍然會換掉。
+這是對的——換圖是獨立動作，不是草稿的一部分（它本來就已經把檔案寫進磁碟了）。
+
+### 驗證方式（以及**我漏掉的那一段**）
 
 `prepareAvatar` 五種輸入逐一驗過：4000×3000 大 JPEG ✅、無副檔名 ✅、去背 PNG 保留透明 ✅、
 解不開的 HEIC → `bad-format` ✅、純文字檔 → `bad-format` ✅。
 再對真的 `mobileServer` 打完整上傳鏈路（4000×3000 → 43 KB `.jpg` → HTTP 200 → 檔案落地）。
-**`accept` 本身仍只能由 owner 在真機上驗**——那是 Android 相簿 App 的行為，桌機重現不了。
+
+⚠️ **但那條「端到端」測試其實斷在終點前一步**：它驗到「檔案落地」就收工，
+沒有回頭檢查**角色卡的 `avatar` 欄位是不是真的變了**——而上面那個 bug 正好就藏在那裡。
+測試綠燈、功能照壞。
+**寫入類的驗證，終點是「資料的最終狀態」，不是「請求成功了」。**
+下次驗這類流程，最後一步一律去讀 `card.json`／`settings.json` 本人。
+
+⚠️ **`accept` 本身仍只能由 owner 在真機上驗**——那是 Android 相簿 App 的行為，桌機重現不了。
+另外 owner 回報**改完要重開 `npm run dev:mobile`**，光重新整理頁面不一定吃得到
+（Vite HMR 對這幾支模組沒有完整重新求值）。驗不出來時先重開 dev server 再說。
 
 ---
 

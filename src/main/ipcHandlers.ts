@@ -941,6 +941,12 @@ export function saveCharacterAvatarDirect(payload: { id: string; buffer: ArrayBu
     const dest = path.join(dir, `avatar-${Date.now()}${ext}`)
     fs.writeFileSync(dest, buf)
     cleanupOldAvatarFiles(dir, dest)
+    const idx = characters.findIndex(c => c.id === payload.id)
+    if (idx >= 0) {
+      characters[idx] = { ...characters[idx], avatar: dest, updatedAt: Date.now() }
+      fileStore.saveCharacter(characters[idx])
+      broadcastToAll('characters:updated', characters)
+    }
     return { path: dest }
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) }
