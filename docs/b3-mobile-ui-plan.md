@@ -234,18 +234,25 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 - `npx cap add android`（此時 `webDir` 才真的存在）→ 實機驗證
 - keystore **不做**（owner 未決定）
 
-### 階段 8 ── 對話清單與切換（E1–E2，2026-08-05 owner 加入排程）
+### 階段 8 ── 對話清單與切換（E1–E2）✅ **已完成，2026-08-05**
 
-- 現況：`ViewStack.tsx` 已有 `conversations` 這個 view kind（App.tsx 的 💬 圖示會 push 進去），
-  但 `ViewBody` 沒有對應的渲染分支，點了是空畫面；`DataSource` 也還沒有 `conversations.*` 的實作
-  （只有型別分組列在 §1.1 的表格裡，實際的 list／switch／create／rename／delete 都缺）。
-- 桌面切換對話時，手機端目前**完全不會同步**——`RemoteEventSource` 沒有監聽
-  `conversation:updated` 之外任何跟「換了另一個對話」有關的事件，訊息串會停在切換前那份。
-- 需要：`mobileServer` 補對話清單／切換／新增／改名／刪除端點（桌面 IPC 已有對應的
-  `*Direct` 函式可直接薄轉呼叫，比照階段 5 的 preset CRUD 模式，不要在手機端另寫邏輯）；
-  手機 UI 做清單畫面 ＋ 訊息串跟著切換即時刷新。
-- **驗收**：桌面切換對話後，手機不用重新整理就換成同一份訊息串；手機清單新增/改名/刪除
-  對話後，桌面端 log 視窗與桌寵泡泡跟著更新。
+- 原始現況（已解決）：`ConversationsApi`／`mobileServer` 的 `/api/conversations*` 端點其實
+  在階段 0-③ 就已經齊了（`RemoteDataSource.conversations` 全部方法都有實作），真正缺的
+  只有 (a) `ViewStack.tsx` 沒有 `conversations` 的渲染分支、(b) 桌面切換對話時完全不會
+  推播給手機，`setMobileConversationHook`（`src/main/index.ts`）發現 `conv.id !== mobileLastConvId`
+  時原本直接 `return`，靜靜吞掉「換對話」這件事。
+- 修法：`index.ts` 的 hook 在偵測到對話切換時改為呼叫 `pushDesktopUpdate(...)`，借用既有的
+  `desktop-updated` WS 推播觸發 `RemoteEventSource` 的 `state-invalidated`，手機端 `refresh()`
+  本來就會重抓 `/api/state`（含目前使用中的對話），不需要新的事件型別。
+- 新增 `src/mobile/ui/conversations/ConversationsView.tsx`：清單 + 切換（點列＝切換並關閉
+  sheet）+ 新增 + 改名（✏️）+ 刪除（🗑️，無「至少留一個」限制，照抄桌面端「刪光自動生一個
+  新對話」的行為，不像角色/預設組那樣會刪到壞掉）。
+- `scripts/mobile-stub-server.mjs` 補上對應四支端點；`messages` 變數改成指向「目前使用中
+  對話」的訊息陣列（`let` 而非 `const`），切換/新增/刪除對話時重新指派。
+- **驗收**：桌面切換對話後，手機不用重新整理就換成同一份訊息串（靠 `state-invalidated`
+  推播 + `refresh()`）；手機清單新增/改名/刪除對話後，桌面端 log 視窗與桌寵泡泡跟著更新
+  （沿用既有的 `broadcastConversationUpdate`）。**尚待 owner 真機驗證**，跟階段 5 一樣走
+  `MobileST-real-test.bat`，核對終點是桌面的對話清單/log 視窗，不是 HTTP 200。
 
 ### 階段 9 ── 用語解說（Lorebook）內容編輯（2026-08-05 owner 加入排程）
 
@@ -301,7 +308,7 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 | **4 設定**（API Key／供應商／模型／進階：endpoint／記憶／模組開關／提醒 CRUD） | ✅ 行為已驗（假伺服器 ＋ 瀏覽器），**待 owner 實機看畫面** | 落地筆記見 §4.15 |
 | **5 預設組編輯**（Scene／Persona／World 新增、編輯、刪除） | ✅ 程式與契約測試完成（假伺服器）；**待 owner 真機驗證** | 本次未提交變更 |
 | 6–7 | ⬜ | |
-| **8 對話清單與切換**（E1–E2） | ⬜ 已排入計畫，未開工 | 見 §4「階段 8」 |
+| **8 對話清單與切換**（E1–E2） | ✅ 程式與手動端點驗證完成（stub）；**待 owner 真機驗證** | 見 §4「階段 8」 |
 | **9 用語解說內容編輯** | ⬜ 已排入計畫，未開工 | 見 §4「階段 9」 |
 
 ### 開發時怎麼連上真資料

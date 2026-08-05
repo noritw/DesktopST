@@ -624,6 +624,12 @@ function initMobileServer(): void {
     if (conv.id !== mobileLastConvId) {
       mobileLastConvId = conv.id
       mobileLastConvMessageCount = msgs.length
+      // 手機端沒有專屬的「換對話」推播型別，借用既有的 desktop-updated 觸發
+      // RemoteEventSource 的 state-invalidated → 手機重抓 /api/state，
+      // getState 本來就會回目前使用中的對話。之前這裡直接 return，
+      // 手機完全不知道電腦換了對話，訊息串會停在切換前那份
+      // （owner 2026-08-05 實機回報「桌面切換對話沒有和手機同步」）。
+      pushDesktopUpdate(getSettings().ui.desktopCharacters.map(d => d.characterId))
       return
     }
     if (msgs.length > mobileLastConvMessageCount) {

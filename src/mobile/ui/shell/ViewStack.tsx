@@ -13,6 +13,7 @@ import { RemindersView } from '../settings/RemindersView'
 import { ReminderEditor } from '../settings/ReminderEditor'
 import { PresetsView } from '../presets/PresetsView'
 import { PresetEditor } from '../presets/PresetEditor'
+import { ConversationsView } from '../conversations/ConversationsView'
 
 /**
  * 畫面堆疊的渲染端（清單 G3）。
@@ -55,6 +56,7 @@ export function ViewStack(): JSX.Element | null {
 }
 
 function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
+  if (entry.kind === 'conversations') return <ConversationsView />
   if (entry.kind === 'theme-picker') return <ThemePicker />
   if (entry.kind === 'random-tools') return <RandomToolsSheet />
   if (entry.kind === 'presence') return <PresenceSheet />

@@ -97,6 +97,7 @@ owner 實測回報「按了只有刪掉後面」，追下去才發現。
 | `GET /api/settings/modules`、`POST .../toggle` | 天氣／Spotify／日曆／新聞四個開關；未知 id 回 400 |
 | `GET /api/reminders`、`POST .../{create,save,delete,toggle}` | `save` 缺 `reminder.id` 回 400（照抄 `mobileServer.ts`） |
 | `GET /api/presets`、`/api/scenes`、`GET/POST /api/presets/{persona,world,scene}/*` | 預設組完整讀寫；不存在回 404，Persona／World 最後一組刪除回 409 |
+| `GET /api/conversations`、`POST .../{load,new,rename,delete}` | 對話清單完整讀寫（B3 階段 8）；`messages` 一律指向使用中對話的訊息陣列，切換會連帶影響 `/api/state` 與後續送訊息；刪光最後一個會自動生一個新的空對話（照抄桌面端沒有「至少留一個」限制的行為） |
 
 沒實作的端點一律回 404 並印在終端，「這支還沒模擬」一眼看得出來。
 

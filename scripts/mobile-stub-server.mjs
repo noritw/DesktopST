@@ -67,7 +67,12 @@ const uploadedAvatars = new Map()
 let presentIds = ['c1', 'c2']
 const muted = new Set()
 
-const messages = [
+// ── 對話（B3 階段 8）───────────────────────────────────────────
+// `messages` 一律指向「目前使用中那個對話」的訊息陣列本身（同一個物件參照，
+// 不是複製），送出/刪除/編輯訊息時各處對 `messages` 的 push/splice 才會直接
+// 生效在正確的那個對話上。切換/新增/刪除對話時只重新指派這個變數，
+// 陣列內容不動——照抄真 `mobileServer.ts` 用同一份 `Conversation` 物件的邏輯。
+let messages = [
   {
     id: 'm1',
     role: 'character',
@@ -76,6 +81,9 @@ const messages = [
     timestamp: Date.now() - 60_000
   }
 ]
+let activeConversationId = 'conv1'
+const conversations = [{ id: 'conv1', title: '測試', messages, updatedAt: Date.now() }]
+
 /** messageId → data URI 陣列。`/api/message-image` 從這裡取。 */
 const images = new Map()
 
@@ -128,7 +136,7 @@ const state = () => ({
     name: library.find((c) => c.id === id).name,
     muted: muted.has(id)
   })),
-  conversation: { id: 'conv1', title: '測試', messages },
+  conversation: { id: activeConversationId, title: conversations.find((c) => c.id === activeConversationId)?.title ?? '對話', messages },
   colorTheme: process.env.THEME || 'mint',
   // NR=0 用來驗「隨機工具總開關關閉時 🎲 入口整個消失」（清單 C6）
   randomToolsEnabled: process.env.NR !== '0',
@@ -404,6 +412,63 @@ const server = http.createServer(async (req, res) => {
       else scenes = list
       console.log(`[presets] delete ${kind} ${p.id}`); return json(res, { ok: true })
     }
+  }
+
+  // ── 對話清單（B3 階段 8）───────────────────────────────────
+  if (url === '/api/conversations' && req.method === 'GET') {
+    return json(res, {
+      conversations: [...conversations]
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .map(({ id, title, updatedAt }) => ({ id, title, updatedAt, active: id === activeConversationId }))
+    })
+  }
+  if (url === '/api/conversations/load') {
+    const p = await readBody(req)
+    const conv = conversations.find((c) => c.id === p.id)
+    if (!conv) return json(res, { error: 'Conversation not found' }, 404)
+    activeConversationId = conv.id
+    messages = conv.messages
+    console.log(`[conversations] load ${conv.id}`)
+    push({ type: 'desktop-updated' }) // 模擬真伺服器換對話後推播，讓手機端知道要重抓 /api/state
+    return json(res, { ok: true })
+  }
+  if (url === '/api/conversations/new') {
+    const p = await readBody(req)
+    const title = String(p?.title || '').trim() || '新對話'
+    const conv = { id: 'conv-' + Date.now(), title, messages: [], updatedAt: Date.now() }
+    conversations.push(conv)
+    activeConversationId = conv.id
+    messages = conv.messages
+    console.log(`[conversations] new ${conv.id} "${title}"`)
+    return json(res, { conversation: { id: conv.id, title: conv.title, updatedAt: conv.updatedAt, active: true } })
+  }
+  if (url === '/api/conversations/rename') {
+    const p = await readBody(req)
+    const conv = conversations.find((c) => c.id === p.id)
+    if (!conv) return json(res, { error: 'Conversation not found' }, 404)
+    conv.title = String(p.title || '').trim() || '新對話'
+    conv.updatedAt = Date.now()
+    console.log(`[conversations] rename ${conv.id} -> "${conv.title}"`)
+    return json(res, { conversation: { id: conv.id, title: conv.title, updatedAt: conv.updatedAt, active: conv.id === activeConversationId } })
+  }
+  if (url === '/api/conversations/delete') {
+    const p = await readBody(req)
+    const idx = conversations.findIndex((c) => c.id === p.id)
+    if (idx < 0) return json(res, { error: 'Conversation not found' }, 404)
+    conversations.splice(idx, 1)
+    console.log(`[conversations] delete ${p.id}`)
+    if (activeConversationId !== p.id) {
+      return json(res, { activeConversationId })
+    }
+    // 刪的是目前使用中的：照真伺服器邏輯，換到別的對話，全刪光了就生一個新的空對話。
+    const next = conversations[0] ?? (() => {
+      const fresh = { id: 'conv-' + Date.now(), title: '新對話', messages: [], updatedAt: Date.now() }
+      conversations.push(fresh)
+      return fresh
+    })()
+    activeConversationId = next.id
+    messages = next.messages
+    return json(res, { activeConversationId: next.id })
   }
 
   if (url.startsWith('/api/reminders/create')) {
