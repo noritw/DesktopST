@@ -19,6 +19,7 @@ import type { ColorTheme } from '@core/types'
  */
 export type ViewKind =
   | 'conversations'
+  | 'conversation-editor'
   | 'presence'
   | 'character-menu'
   | 'message-menu'

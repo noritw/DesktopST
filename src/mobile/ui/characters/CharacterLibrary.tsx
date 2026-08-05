@@ -185,28 +185,36 @@ export function CharacterLibrary(): JSX.Element {
           const isPresent = presentIds.has(item.id)
           // 只剩一位在場時不給移出按鈕（D5：至少保留一個）。留著會是一顆必定失敗的按鈕。
           const canToggleOff = !(isPresent && presentIds.size <= 1)
+          // 左邊大按鈕＝「加入／移出對話」這組動作，右邊固定 ✏️ 進編輯——
+          // 跟 PresetsView（情境／世界觀／使用者設定）、ConversationsView 同一個位置慣例，
+          // 之前是反過來（點名字進編輯、加入鍵縮在旁邊），四處操作邏輯對不起來
+          // （owner 2026-08-05 回報）。刪除已經在編輯器裡，這裡不重複放。
           return (
-            <div key={item.id} className="mb-2 flex items-center gap-2 rounded-[14px] bg-[var(--bg)] px-3 py-2.5">
-              <button
-                type="button"
-                onClick={() => push('character-editor', item.id)}
-                className="flex min-w-0 flex-1 items-center gap-3 text-left active:opacity-70"
-              >
-                <Avatar characterId={item.id} size={38} />
-                <span className="min-w-0 flex-1 truncate text-[15px] text-[var(--text)]">{item.name}</span>
-                <span className="shrink-0 text-[var(--text-sub)]">›</span>
-              </button>
+            <div
+              key={item.id}
+              className={`mb-2 flex items-center gap-2 rounded-[14px] border px-3 py-2.5 ${
+                isPresent ? 'border-[var(--mint)] bg-[var(--mint)]/25' : 'border-[var(--border)] bg-[var(--bg)]'
+              }`}
+            >
               <button
                 type="button"
                 disabled={presenceBusyId === item.id || (isPresent && !canToggleOff)}
                 onClick={() => void togglePresence(item, isPresent)}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-[13px] transition-opacity disabled:opacity-40 ${
-                  isPresent
-                    ? 'bg-[var(--mint2)] text-[var(--text)]'
-                    : 'border border-[var(--border)] text-[var(--text-sub)]'
-                }`}
+                className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:opacity-50"
               >
-                {isPresent ? '在場 ✓' : '加入'}
+                <Avatar characterId={item.id} size={38} />
+                <span className="min-w-0 flex-1 truncate text-[15px] text-[var(--text)]">{item.name}</span>
+                <span className={`shrink-0 text-[11px] ${isPresent ? 'font-semibold text-[var(--text)]' : 'text-[var(--text-sub)]'}`}>
+                  {isPresent ? '✓ 在場' : '加入對話'}
+                </span>
+              </button>
+              <button
+                type="button"
+                aria-label={`編輯${item.name}`}
+                onClick={() => push('character-editor', item.id)}
+                className="shrink-0 rounded-full px-2 py-1 text-sm active:bg-[var(--border)]"
+              >
+                ✏️
               </button>
             </div>
           )

@@ -245,10 +245,18 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
   `desktop-updated` WS 推播觸發 `RemoteEventSource` 的 `state-invalidated`，手機端 `refresh()`
   本來就會重抓 `/api/state`（含目前使用中的對話），不需要新的事件型別。
 - 新增 `src/mobile/ui/conversations/ConversationsView.tsx`：清單 + 切換（點列＝切換並關閉
-  sheet）+ 新增 + 改名（✏️）+ 刪除（🗑️，無「至少留一個」限制，照抄桌面端「刪光自動生一個
-  新對話」的行為，不像角色/預設組那樣會刪到壞掉）。
+  sheet）+ 新增；改名與刪除移到 `ConversationEditor.tsx`（見下方「跨畫面操作邏輯統一」）。
+  刪除無「至少留一個」限制，照抄桌面端「刪光自動生一個新對話」的行為，不像角色/預設組
+  那樣會刪到壞掉。
 - `scripts/mobile-stub-server.mjs` 補上對應四支端點；`messages` 變數改成指向「目前使用中
   對話」的訊息陣列（`let` 而非 `const`），切換/新增/刪除對話時重新指派。
+- **跨畫面操作邏輯統一（2026-08-05 owner 回報）**：對話／情境／世界觀／使用者設定
+  （`PresetsView`）／角色庫／在場角色（`PresenceSheet`）五個清單畫面原本位置不一致——
+  `PresetsView` 是「左邊大按鈕套用、右邊 ✏️ 編輯」，但角色庫、`PresenceSheet`、原本的
+  `ConversationsView` 都是反過來或另外把改名/刪除擠在清單列上。統一成同一套：
+  **左邊大按鈕永遠是「套用／切換」或「加入／移出對話」這組動作，右邊固定一顆 ✏️ 進編輯，
+  刪除一律收進編輯器內，清單列上不放刪除**（角色卡編輯器、預設組編輯器本來就是這樣，
+  新增的 `ConversationEditor.tsx` 比照辦理）。使用中/在場的項目統一用薄荷綠底色標示。
 - **驗收**：桌面切換對話後，手機不用重新整理就換成同一份訊息串（靠 `state-invalidated`
   推播 + `refresh()`）；手機清單新增/改名/刪除對話後，桌面端 log 視窗與桌寵泡泡跟著更新
   （沿用既有的 `broadcastConversationUpdate`）。**尚待 owner 真機驗證**，跟階段 5 一樣走

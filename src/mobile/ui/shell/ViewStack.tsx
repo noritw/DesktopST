@@ -14,6 +14,7 @@ import { ReminderEditor } from '../settings/ReminderEditor'
 import { PresetsView } from '../presets/PresetsView'
 import { PresetEditor } from '../presets/PresetEditor'
 import { ConversationsView } from '../conversations/ConversationsView'
+import { ConversationEditor } from '../conversations/ConversationEditor'
 
 /**
  * 畫面堆疊的渲染端（清單 G3）。
@@ -24,6 +25,7 @@ import { ConversationsView } from '../conversations/ConversationsView'
 
 const TITLES: Record<ViewKind, string> = {
   conversations: '對話',
+  'conversation-editor': '編輯對話',
   presence: '這次對話有誰在場',
   'character-menu': '角色',
   'message-menu': '訊息',
@@ -57,6 +59,7 @@ export function ViewStack(): JSX.Element | null {
 
 function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'conversations') return <ConversationsView />
+  if (entry.kind === 'conversation-editor' && entry.param) return <ConversationEditor conversationId={entry.param} />
   if (entry.kind === 'theme-picker') return <ThemePicker />
   if (entry.kind === 'random-tools') return <RandomToolsSheet />
   if (entry.kind === 'presence') return <PresenceSheet />

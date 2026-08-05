@@ -9,13 +9,14 @@ import { describeSettingsError } from '../settings/settingsErrors'
  *
  * 桌面切換對話時，手機端現在會靠 `state-invalidated` 重抓 `/api/state` 跟著換
  * （見 `src/main/index.ts` 的 `setMobileConversationHook`）；這裡管的是**手機主動
- * 切換／新增／改名／刪除**，跟桌面端 `SettingsWindow` 沒有專屬對話管理視窗不同——
- * 手機把它當成一個獨立畫面，用清單 + 進場即切換的形式做。
+ * 切換／新增**。改名與刪除都收進 `ConversationEditor`（點 ✏️ 才進得去）——
+ * 跟情境／世界觀／使用者設定（`PresetsView`）、角色庫同一套操作邏輯：
+ * 每列左邊大按鈕＝「套用／切換」這組動作，右邊固定一顆 ✏️ 進編輯，
+ * 危險的刪除不放在清單列上，避免手滑（owner 2026-08-05 回報四處操作位置不統一）。
  */
 export function ConversationsView(): JSX.Element {
   const toast = useUiStore((s) => s.toast)
-  const confirm = useUiStore((s) => s.confirm)
-  const prompt = useUiStore((s) => s.prompt)
+  const push = useUiStore((s) => s.push)
   const pop = useUiStore((s) => s.pop)
   const refresh = useAppStore((s) => s.refresh)
 
@@ -67,49 +68,6 @@ export function ConversationsView(): JSX.Element {
     }
   }
 
-  const rename = async (item: ConversationListItem): Promise<void> => {
-    const next = await prompt({
-      title: '重新命名',
-      message: '這個對話要叫什麼名字？',
-      defaultValue: item.title,
-      confirmLabel: '儲存'
-    })
-    if (next === null) return
-    setBusyId(item.id)
-    try {
-      await getData().conversations.rename(item.id, next)
-      await load()
-    } catch (e) {
-      toast(describeSettingsError(e, '重新命名'), 'error')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const remove = async (item: ConversationListItem): Promise<void> => {
-    // 電腦端沒有「至少保留一個」的限制——刪光最後一個對話會自動生一個新的空對話，
-    // 跟角色／預設組那種「刪到剩 0 個」會壞掉的情況不一樣，這裡不用擋。
-    const ok = await confirm({
-      title: `刪除「${item.title}」`,
-      message: '這個對話裡的訊息會一起刪掉，而且不能復原。',
-      confirmLabel: '刪除',
-      destructive: true
-    })
-    if (!ok) return
-    setBusyId(item.id)
-    try {
-      await getData().conversations.remove(item.id)
-      // 刪的如果是目前使用中的那個，電腦端會自動換到另一個，訊息串要跟著換。
-      if (item.active) await refresh()
-      await load()
-      toast('已刪除')
-    } catch (e) {
-      toast(describeSettingsError(e, '刪除'), 'error')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
   if (failed) {
     return (
       <div className="py-8 text-center">
@@ -158,21 +116,11 @@ export function ConversationsView(): JSX.Element {
               </button>
               <button
                 type="button"
-                aria-label={`重新命名${item.title}`}
-                disabled={busyId === item.id}
-                onClick={() => void rename(item)}
-                className="shrink-0 rounded-full px-2 py-1 text-sm active:bg-[var(--border)] disabled:opacity-50"
+                aria-label={`編輯${item.title}`}
+                onClick={() => push('conversation-editor', item.id)}
+                className="shrink-0 rounded-full px-2 py-1 text-sm active:bg-[var(--border)]"
               >
                 ✏️
-              </button>
-              <button
-                type="button"
-                aria-label={`刪除${item.title}`}
-                disabled={busyId === item.id}
-                onClick={() => void remove(item)}
-                className="shrink-0 rounded-full px-2 py-1 text-sm text-[var(--danger)] active:bg-[var(--border)] disabled:opacity-50"
-              >
-                🗑️
               </button>
             </div>
           ))}

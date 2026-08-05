@@ -16,6 +16,9 @@ import { Avatar } from './Avatar'
  * 只剩一位時這裡不顯示「移出」，而電腦端仍會拒絕（回 `ok: false`）——
  * UI 那層是為了不讓使用者按到必定失敗的按鈕，
  * 電腦端那層才是真的規則（別台裝置同時操作時只有它擋得住）。
+ *
+ * 跟角色庫、對話清單、情境／世界觀／使用者設定同一套位置慣例（2026-08-05）：
+ * 左邊大按鈕做「加入／移出」，右邊固定一顆 ✏️ 進角色卡編輯，刪除留在編輯器裡。
  */
 export function PresenceSheet(): JSX.Element {
   const present = useAppStore((s) => s.snapshot?.presentCharacters ?? [])
@@ -91,20 +94,31 @@ export function PresenceSheet(): JSX.Element {
         // 只剩一位時不給移出按鈕（D5）。留著會是一顆必定失敗的按鈕。
         const canRemove = !(isPresent && onlyOneLeft)
         return (
-          <div key={item.id} className="mb-2 flex items-center gap-3 rounded-[14px] bg-[var(--bg)] px-3 py-2.5">
-            <Avatar characterId={item.id} size={38} />
-            <span className="min-w-0 flex-1 truncate text-[15px] text-[var(--text)]">{item.name}</span>
+          <div
+            key={item.id}
+            className={`mb-2 flex items-center gap-2 rounded-[14px] border px-3 py-2.5 ${
+              isPresent ? 'border-[var(--mint)] bg-[var(--mint)]/25' : 'border-[var(--border)] bg-[var(--bg)]'
+            }`}
+          >
             <button
               type="button"
               disabled={busyId === item.id || !canRemove}
               onClick={() => void toggle(item)}
-              className={`shrink-0 rounded-full px-3.5 py-1.5 text-[13px] transition-opacity disabled:opacity-40 ${
-                isPresent
-                  ? 'bg-[var(--mint2)] text-[var(--text)]'
-                  : 'border border-[var(--border)] text-[var(--text-sub)]'
-              }`}
+              className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:opacity-50"
             >
-              {isPresent ? '在場 ✓' : '加入'}
+              <Avatar characterId={item.id} size={38} />
+              <span className="min-w-0 flex-1 truncate text-[15px] text-[var(--text)]">{item.name}</span>
+              <span className={`shrink-0 text-[11px] ${isPresent ? 'font-semibold text-[var(--text)]' : 'text-[var(--text-sub)]'}`}>
+                {isPresent ? '✓ 在場' : '加入對話'}
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-label={`編輯${item.name}`}
+              onClick={() => useUiStore.getState().push('character-editor', item.id)}
+              className="shrink-0 rounded-full px-2 py-1 text-sm active:bg-[var(--border)]"
+            >
+              ✏️
             </button>
           </div>
         )
