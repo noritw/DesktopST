@@ -29,11 +29,10 @@ export function PersonaIdentity(): JSX.Element | null {
       await refresh()
     } catch (e) { toast(describeSettingsError(e, '切換使用者身分'), 'error') }
   }
-  return <div className="flex items-center gap-1 px-3 pt-1.5 text-xs text-[var(--text-sub)]">
-    <span>目前以</span>
-    <select aria-label="目前使用者身分" value={activeId} onChange={(e) => void switchPersona(e.target.value)} className="max-w-[12rem] rounded-full bg-[var(--butter)]/70 px-2 py-0.5 font-semibold text-[var(--text)] outline-none">
+  return <div className="flex items-center gap-1.5 px-3 pt-1.5 text-xs text-[var(--text-sub)]">
+    <span>發言身分</span>
+    <select aria-label="目前使用者身分" value={activeId} onChange={(e) => void switchPersona(e.target.value)} className="max-w-[12rem] rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-0.5 font-semibold text-[var(--text)] outline-none">
       {personas.map(p => <option key={p.id} value={p.id}>{p.id === activeId ? name : p.name}</option>)}
     </select>
-    <span>發言</span>
   </div>
 }

@@ -18,7 +18,7 @@ export function CurrentContext(): JSX.Element | null {
   useEffect(() => { void load() }, [load])
   if (!labels.scene && !labels.world) return null
   return <div className="flex shrink-0 items-center gap-1 overflow-x-auto bg-[var(--surface)] px-4 py-1 text-[11px] text-[var(--text-sub)]">
-    {labels.scene && <span className="rounded-full bg-[var(--lavender)]/60 px-2 py-0.5">情境：{labels.scene}</span>}
-    {labels.world && <span className="rounded-full bg-[var(--aqua)]/60 px-2 py-0.5">世界：{labels.world}</span>}
+    {labels.scene && <span className="rounded-full border border-[var(--border)] bg-[var(--mint)]/40 px-2 py-0.5">情境：{labels.scene}</span>}
+    {labels.world && <span className="rounded-full border border-[var(--border)] bg-[var(--mint2)]/40 px-2 py-0.5">世界：{labels.world}</span>}
   </div>
 }
