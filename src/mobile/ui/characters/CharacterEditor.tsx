@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { cloneElement, isValidElement, useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactElement } from 'react'
 import type { Character } from '@core/types'
 import type { PresetListItem } from '@core/data'
 import { getData, useAppStore } from '../stores/appStore'
@@ -215,11 +216,11 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
       </Field>
 
       <Field label="個性">
-        <textarea className="field min-h-[88px]" value={draft.personality} onChange={(e) => set('personality', e.target.value)} />
+        <textarea className="field min-h-[88px]" placeholder="角色的性格特質、說話方式..." value={draft.personality} onChange={(e) => set('personality', e.target.value)} />
       </Field>
 
       <Field label="招呼語">
-        <textarea className="field min-h-[72px]" value={draft.firstMessage} onChange={(e) => set('firstMessage', e.target.value)} />
+        <textarea className="field min-h-[72px]" placeholder="開場白，角色第一句話會說什麼" value={draft.firstMessage} onChange={(e) => set('firstMessage', e.target.value)} />
       </Field>
 
       <Field label="對話範例" hint="可用標籤：{{user}}、{{char}}">
@@ -330,12 +331,16 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
   )
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }): JSX.Element {
+/**
+ * 說明文字放進欄位的 placeholder，而不是標籤下方一整行小字——
+ * 手機螢幕窄，小字排版擠在一起很難唸完，placeholder 有內容時自動讓開更省地方（owner 2026-08-05 實機回報）。
+ */
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactElement }): JSX.Element {
+  const field = hint && isValidElement(children) ? cloneElement(children, { placeholder: hint } as Partial<{ placeholder: string }>) : children
   return (
     <label className="mb-4 block">
       <span className="text-xs font-semibold text-[var(--text)]">{label}</span>
-      {hint && <span className="mt-0.5 block text-[11px] leading-relaxed text-[var(--text-sub)]">{hint}</span>}
-      <span className="mt-1 block">{children}</span>
+      <span className="mt-1 block">{field}</span>
     </label>
   )
 }
@@ -352,8 +357,10 @@ function AvatarPicker({ draft, onPick, busy }: { draft: Character; onPick: () =>
 
   return (
     <div className="mb-4">
+      {/* 去背 PNG 的建議只對桌面（角色浮在桌面上）有意義，手機上主圖是放在對話框裡顯示，不去背也沒差——
+          那句建議留在桌面版 BasicInfoTab.tsx（owner 2026-08-05 決議）。 */}
       <span className="text-xs font-semibold text-[var(--text)]">主圖</span>
-      <p className="mt-0.5 text-[11px] text-[var(--text-sub)]">角色站在電腦桌面上顯示的那張圖。去背的 PNG 效果最好。</p>
+      <p className="mt-0.5 text-[11px] text-[var(--text-sub)]">角色站在電腦桌面上顯示的那張圖。</p>
       <button
         type="button"
         disabled={busy}

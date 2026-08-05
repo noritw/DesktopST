@@ -119,7 +119,7 @@ export default function BasicInfoTab({ draft, setDraft, onError }: Props) {
 
       <div>
         <span className="text-xs font-semibold text-primary">主圖</span>
-        <p className="text-[11px] text-secondary mt-0.5 mb-2">此圖片為角色站在桌面上顯示的主圖。</p>
+        <p className="text-[11px] text-secondary mt-0.5 mb-2">此圖片為角色站在桌面上顯示的主圖。建議使用去背的 PNG，站在桌面上效果最好。</p>
         <input ref={inputRef} type="file" accept=".png,.jpg,.jpeg,.gif,.webp" className="hidden" onChange={onFile} />
         <button
           type="button"
