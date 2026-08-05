@@ -3,6 +3,7 @@ import type { ConversationListItem } from '@core/data'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from '../settings/settingsErrors'
+import { StatusChip } from '../shell/StatusChip'
 
 /**
  * 對話清單（B3 階段 8，E1–E2）。
@@ -110,9 +111,11 @@ export function ConversationsView(): JSX.Element {
                 className="min-w-0 flex-1 text-left disabled:opacity-50"
               >
                 <p className="truncate text-sm text-[var(--text)]">{item.title || '（未命名）'}</p>
-                <p className={`mt-0.5 text-[11px] ${item.active ? 'font-semibold text-[var(--text)]' : 'text-[var(--text-sub)]'}`}>
-                  {item.active ? '✓ 目前對話' : formatUpdatedAt(item.updatedAt)}
-                </p>
+                {item.active ? (
+                  <StatusChip active>✓ 目前對話</StatusChip>
+                ) : (
+                  <p className="mt-1 text-[11px] text-[var(--text-sub)]">{formatUpdatedAt(item.updatedAt)}</p>
+                )}
               </button>
               <button
                 type="button"

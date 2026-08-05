@@ -4,6 +4,7 @@ import { DataError } from '@core/data'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { Avatar } from './Avatar'
+import { StatusChip } from '../shell/StatusChip'
 
 /**
  * 「這次對話有誰在場」（清單 D4、D5）。
@@ -107,9 +108,9 @@ export function PresenceSheet(): JSX.Element {
               className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:opacity-50"
             >
               <Avatar characterId={item.id} size={38} />
-              <span className="min-w-0 flex-1 truncate text-[15px] text-[var(--text)]">{item.name}</span>
-              <span className={`shrink-0 text-[11px] ${isPresent ? 'font-semibold text-[var(--text)]' : 'text-[var(--text-sub)]'}`}>
-                {isPresent ? '✓ 在場' : '加入對話'}
+              <span className="min-w-0 flex-1">
+                <p className="truncate text-[15px] text-[var(--text)]">{item.name}</p>
+                <StatusChip active={isPresent}>{isPresent ? '✓ 在場' : '加入對話'}</StatusChip>
               </span>
             </button>
             <button

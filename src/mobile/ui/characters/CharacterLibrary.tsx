@@ -6,6 +6,7 @@ import { useUiStore } from '../stores/uiStore'
 import { Avatar } from './Avatar'
 import { describeCharacterError } from './characterErrors'
 import { downloadBytes, pickFile } from '../shell/fileTransfer'
+import { StatusChip } from '../shell/StatusChip'
 
 /**
  * 角色庫（決議④：手機要能自己建角色，不然「不需要電腦」不成立）。
@@ -189,6 +190,9 @@ export function CharacterLibrary(): JSX.Element {
           // 跟 PresetsView（情境／世界觀／使用者設定）、ConversationsView 同一個位置慣例，
           // 之前是反過來（點名字進編輯、加入鍵縮在旁邊），四處操作邏輯對不起來
           // （owner 2026-08-05 回報）。刪除已經在編輯器裡，這裡不重複放。
+          // 名稱與狀態上下疊，不要跟編輯按鈕擠在同一條水平線上——手指點不準
+          // （owner 2026-08-05 二次回報）；狀態用 `StatusChip` 而不是純文字，
+          // 兩行文字疊在一起才不會糊成一團。
           return (
             <div
               key={item.id}
@@ -203,9 +207,9 @@ export function CharacterLibrary(): JSX.Element {
                 className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:opacity-50"
               >
                 <Avatar characterId={item.id} size={38} />
-                <span className="min-w-0 flex-1 truncate text-[15px] text-[var(--text)]">{item.name}</span>
-                <span className={`shrink-0 text-[11px] ${isPresent ? 'font-semibold text-[var(--text)]' : 'text-[var(--text-sub)]'}`}>
-                  {isPresent ? '✓ 在場' : '加入對話'}
+                <span className="min-w-0 flex-1">
+                  <p className="truncate text-[15px] text-[var(--text)]">{item.name}</p>
+                  <StatusChip active={isPresent}>{isPresent ? '✓ 在場' : '加入對話'}</StatusChip>
                 </span>
               </button>
               <button

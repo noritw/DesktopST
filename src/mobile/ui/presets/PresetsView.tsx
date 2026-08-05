@@ -4,6 +4,7 @@ import { getData } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from '../settings/settingsErrors'
 import { useAppStore } from '../stores/appStore'
+import { StatusChip } from '../shell/StatusChip'
 
 type Kind = 'scene' | 'persona' | 'world'
 
@@ -55,7 +56,7 @@ export function PresetsView(): JSX.Element {
           return <div key={item.id} className={`flex items-center gap-2 rounded-[14px] border px-3 py-2.5 ${isActive ? 'border-[var(--mint)] bg-[var(--mint)]/25' : 'border-[var(--border)] bg-[var(--bg)]'}`}>
             <button type="button" className="min-w-0 flex-1 text-left" onClick={() => void apply(kind, item.id)}>
               <p className="truncate text-sm text-[var(--text)]">{item.name}</p>
-              <p className={`mt-0.5 text-[11px] ${isActive ? 'font-semibold text-[var(--text)]' : 'text-[var(--text-sub)]'}`}>{isActive ? '✓ 目前使用中' : '點此套用'}</p>
+              <StatusChip active={isActive}>{isActive ? '✓ 目前使用中' : '點此套用'}</StatusChip>
             </button>
             <button type="button" aria-label={`編輯${item.name}`} onClick={() => push('preset-editor', `${kind}:${item.id}`)} className="rounded-full px-2 py-1 text-sm active:bg-[var(--border)]">✏️</button>
           </div>
