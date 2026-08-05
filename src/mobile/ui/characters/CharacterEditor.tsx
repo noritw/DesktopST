@@ -357,10 +357,11 @@ function AvatarPicker({ draft, onPick, busy }: { draft: Character; onPick: () =>
 
   return (
     <div className="mb-4">
-      {/* 去背 PNG 的建議只對桌面（角色浮在桌面上）有意義，手機上主圖是放在對話框裡顯示，不去背也沒差——
-          那句建議留在桌面版 BasicInfoTab.tsx（owner 2026-08-05 決議）。 */}
+      {/* 不提「電腦桌面」：手機版之後要能獨立運作（不依賴電腦），這段文案不該預設使用者
+          背後有一台開著 DeST 的電腦。去背 PNG 的建議也只對桌面（角色浮在桌面上）有意義，
+          留在桌面版 BasicInfoTab.tsx（owner 2026-08-05 決議）。 */}
       <span className="text-xs font-semibold text-[var(--text)]">主圖</span>
-      <p className="mt-0.5 text-[11px] text-[var(--text-sub)]">角色站在電腦桌面上顯示的那張圖。</p>
+      <p className="mt-0.5 text-[11px] text-[var(--text-sub)]">對話中代表這個角色的圖片。</p>
       <button
         type="button"
         disabled={busy}
