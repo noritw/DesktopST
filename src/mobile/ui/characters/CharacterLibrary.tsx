@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CharacterListItem } from '@core/data'
+import { DataError } from '@core/data'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { Avatar } from './Avatar'
@@ -24,6 +25,7 @@ export function CharacterLibrary(): JSX.Element {
   const [list, setList] = useState<CharacterListItem[] | null>(null)
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [presenceBusyId, setPresenceBusyId] = useState<string | null>(null)
 
   const load = useCallback(async (): Promise<void> => {
     setFailed(false)
@@ -99,6 +101,27 @@ export function CharacterLibrary(): JSX.Element {
     }
   }
 
+  /**
+   * 角色庫直接能加入／移出對話（清單 D4、D5 的另一個入口）——
+   * 原本只能點進編輯器，使用者要「這隻要不要上場」得先繞去角色列的 ＋ 才找得到，
+   * owner 2026-08-05 實機回報不直覺。跟 `PresenceSheet.tsx` 打同一支 API，
+   * D5「至少保留一個」的真正規則仍在電腦端，這裡的按鈕禁用只是不讓人按到必定失敗的操作。
+   */
+  const togglePresence = async (item: CharacterListItem, isPresent: boolean): Promise<void> => {
+    setPresenceBusyId(item.id)
+    try {
+      await getData().characters.setPresent(item.id, !isPresent)
+      await refresh()
+    } catch (e) {
+      toast(
+        e instanceof DataError && e.code === 'conflict' ? '至少要留一個角色在對話裡' : '操作失敗',
+        'error'
+      )
+    } finally {
+      setPresenceBusyId(null)
+    }
+  }
+
   const exportPack = async (): Promise<void> => {
     if (!list || list.length === 0) return
     setBusy(true)
@@ -158,23 +181,36 @@ export function CharacterLibrary(): JSX.Element {
       {list.length === 0 ? (
         <p className="py-8 text-center text-sm text-[var(--text-sub)]">還沒有任何角色，先建一隻吧。</p>
       ) : (
-        list.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => push('character-editor', item.id)}
-            className="mb-2 flex w-full items-center gap-3 rounded-[14px] bg-[var(--bg)] px-3 py-2.5 text-left active:opacity-70"
-          >
-            <Avatar characterId={item.id} size={38} />
-            <span className="min-w-0 flex-1 truncate text-[15px] text-[var(--text)]">{item.name}</span>
-            {presentIds.has(item.id) && (
-              <span className="shrink-0 rounded-full bg-[var(--mint2)] px-2 py-0.5 text-[11px] text-[var(--text)]">
-                在場
-              </span>
-            )}
-            <span className="shrink-0 text-[var(--text-sub)]">›</span>
-          </button>
-        ))
+        list.map((item) => {
+          const isPresent = presentIds.has(item.id)
+          // 只剩一位在場時不給移出按鈕（D5：至少保留一個）。留著會是一顆必定失敗的按鈕。
+          const canToggleOff = !(isPresent && presentIds.size <= 1)
+          return (
+            <div key={item.id} className="mb-2 flex items-center gap-2 rounded-[14px] bg-[var(--bg)] px-3 py-2.5">
+              <button
+                type="button"
+                onClick={() => push('character-editor', item.id)}
+                className="flex min-w-0 flex-1 items-center gap-3 text-left active:opacity-70"
+              >
+                <Avatar characterId={item.id} size={38} />
+                <span className="min-w-0 flex-1 truncate text-[15px] text-[var(--text)]">{item.name}</span>
+                <span className="shrink-0 text-[var(--text-sub)]">›</span>
+              </button>
+              <button
+                type="button"
+                disabled={presenceBusyId === item.id || (isPresent && !canToggleOff)}
+                onClick={() => void togglePresence(item, isPresent)}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-[13px] transition-opacity disabled:opacity-40 ${
+                  isPresent
+                    ? 'bg-[var(--mint2)] text-[var(--text)]'
+                    : 'border border-[var(--border)] text-[var(--text-sub)]'
+                }`}
+              >
+                {isPresent ? '在場 ✓' : '加入'}
+              </button>
+            </div>
+          )
+        })
       )}
 
       {list.length > 0 && (
