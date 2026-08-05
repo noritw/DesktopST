@@ -41,6 +41,7 @@ http://<電腦區網IP>:5180/?server=http://<電腦區網IP>:5999&token=x
 | `MAXIMG` | 5 | 圖片張數上限，驗「超過上限時的提示」 |
 | `NR` | — | `NR=0` 關閉隨機工具，驗 C6 總開關關閉時 🎲 入口消失 |
 | `THEME` | mint | 換色彩主題 |
+| `LANDIRECT` | `1` | 設 `0` 驗「經中繼連線」那條路徑：設定畫面 API Key 欄位隱藏、寫入回 409 |
 
 ## ⚠️ 一條規矩：要連「拒絕條件」一起模擬
 
@@ -80,6 +81,12 @@ owner 實測回報「按了只有刪掉後面」，追下去才發現。
 | `POST /api/characters/{import,export}-card` | 太小的檔案當成「不是角色卡」回 400 |
 | `POST /api/characters/{import,export}-pack` | 沒選角色／檔案損毀皆回 400 |
 | `GET /api/lorebooks` | 兩本假的用語解說（驗角色卡的綁定勾選） |
+| `GET /api/connection-info` | 回 `{ lanDirect }`；`LANDIRECT=0` 模擬經中繼連線 |
+| `GET/POST /api/settings/llm`、`llm-provider`、`llm-model`、`llm-endpoint` | 供應商／模型／端點；`hasApiKey` 只回布林，不回明文 |
+| `POST /api/settings/llm-apikey` | **`LANDIRECT=0` 時回 409**（照抄真伺服器的區網直連限制） |
+| `GET/POST /api/settings/memory` | 數值超出範圍回 400（1–200 / 1–500，照抄 `setMemorySettingsDirect`） |
+| `GET /api/settings/modules`、`POST .../toggle` | 天氣／Spotify／日曆／新聞四個開關；未知 id 回 400 |
+| `GET /api/reminders`、`POST .../{create,save,delete,toggle}` | `save` 缺 `reminder.id` 回 400（照抄 `mobileServer.ts`） |
 
 沒實作的端點一律回 404 並印在終端，「這支還沒模擬」一眼看得出來。
 

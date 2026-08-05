@@ -4,7 +4,7 @@
 > 範圍定義：`docs/mobile-html-feature-inventory.md`（49 項獨立版必做 ＋ §6.1 的 10 項設定 UI）
 > 設計約束：`docs/multi-device-platform-roadmap.md` §2（四大目標）、§3.3、§4.5、§4.7、§8
 >
-> **狀態：階段 0–3 完成（0-③／1／2a–2d／3a／3b）。下一步是階段 4（設定 UI）。**
+> **狀態：階段 0–4 完成（0-③／1／2a–2d／3a／3b／4）。下一步是階段 5（預設組編輯）。**
 > 進度見 §4.9，實機踩到的坑見 §4.10–§4.14（**寫任何手機 UI 前務必讀完**）。
 > 沒開 DeST 時的驗證方式見 §4.9 與 `scripts/README-mobile-stub.md`。
 
@@ -261,7 +261,7 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 | **2d 角色列**（D1–D6）＋ A6 | ✅ 已人工驗機 | `00206fa` |
 | **3a 角色卡寫入的資料面**（端點 ＋ DataSource） | ✅ 行為已驗 | `7bd2d3d` |
 | **3b 角色庫 ＋ 角色卡編輯 UI** | ✅ 行為已驗，**待 owner 實機看畫面** | `d74d269` |
-| 4 設定 | ⬜ 下一步 | |
+| **4 設定**（API Key／供應商／模型／進階：endpoint／記憶／模組開關／提醒 CRUD） | ✅ 行為已驗（假伺服器 ＋ 瀏覽器），**待 owner 實機看畫面** | 落地筆記見 §4.15 |
 | 5–7 | ⬜ | |
 
 ### 開發時怎麼連上真資料
@@ -542,6 +542,75 @@ guard 回 `false` 時自己去開確認對話框，使用者按「捨棄」再�
 sheet 的入場位移，差 690px —— 差點被當成 sticky 壞掉）。
 版面改以幾何數值確認（無橫向捲動、欄位字級 16px、儲存鍵貼在捲動容器底部），
 **但 §4.10 第 2 點說得很清楚：驗行為不等於驗外觀。外觀仍待 owner 過目。**
+
+---
+
+## 4.15 階段 4（設定）的落地筆記
+
+### 範圍比 §4.8 描述的窄，是刻意的
+
+`ipcHandlers.ts` 的 LLM 設定其實還有 `temperature`／`maxResponseTokens`／`maxGroupRounds`／
+輔助模型等桌面獨有的細部調校欄位。**這次刻意不搬**——owner 交付這階段時明確列的是
+「API Key ＋ 供應商／模型」＋「進階：endpoint、記憶參數、模組開關」＋「提醒 CRUD」，
+這份清單本身就是範圍，不是「先做這些、其餘之後補」的暫定清單。
+
+### `Capabilities.apiKeyAccess` 需要一次額外的往返，這是刻意的取捨
+
+`capabilities` 是 `DataSource` 的唯讀同步欄位（階段 0-③ 定的規則），但「是不是區網直連」
+只有問了電腦才知道。解法是 `App.tsx` 在建構 `RemoteDataSource` 前先打一次
+`GET /api/connection-info`（不需要 `bridge` ready，純傳輸層判斷），問到答案才建構
+`RemoteDataSource` 並 `attach()`。代價是遙控模式開啟 app 多一次序列往返，
+換來的是 `Capabilities` 全程維持「唯讀、同步」——UI 不必為了這一個欄位另外訂閱變化。
+
+### LAN 判定是「私有位址且非 loopback」，不是「同網段」
+
+roadmap §4.7 原文寫「私有位址且與自身同網段」，但 relay／cloudflared tunnel 轉發進來的
+請求，從 `req.socket.remoteAddress` 看也是 `127.0.0.1`（tunnel client 在本機把流量轉給
+mobileServer）——跟「桌機自己開瀏覽器測」是同一種表面特徵。真正分得出「手機經區網直連」
+的訊號只有「是不是 loopback」：手機在區網一定會顯示成自己的私有位址（192.168.x 等）。
+`isLanDirectRequest()`（`mobileServer.ts`）因此簡化成「私有位址 AND NOT loopback」，
+不比對子網路遮罩——差異只在「同路由器下的不同網段」這種邊緣案例，不影響
+「區網直連 vs 經 relay」這條真正要守的界線。
+
+### API Key 只能寫、不能讀回明文
+
+`LlmSettingsSnapshot.hasApiKey` 只回布林。就算 `apiKeyAccess` 為 true（區網直連），
+也不把金鑰明文送到手機顯示——換一把新的不需要先看到舊的，這是不必要的曝光面。
+UI 顯示「已設定」／「尚未設定」，輸入框永遠是空的，使用者要嘛不填、要嘛整把換掉。
+
+### API Key 寫入被拒絕用 409，不是 401/403
+
+`statusToCode()`（`httpClient.ts`）把 401/403 都翻成「連線權杖失效」。如果拿它們表示
+「這支端點只能區網直連呼叫」，使用者會被導去重新掃 QR code，但問題其實是連線方式——
+兩件事文案上完全不搭。改用 409（`conflict`），UI 端 `describeSettingsError()` 對這個代碼
+講的是「API Key 只能在與電腦同一個區網時修改」。正常情況下這條路徑走不到——
+`Capabilities.apiKeyAccess` 應該已經把欄位藏起來了，409 只是「畫面顯示之後連線方式才變」
+那種邊緣情況的防線。
+
+### 提醒沿用 `characters.create()` 的 id 產生方式
+
+`RemindersApi` 沒有讓 UI 自己生 id，而是 `create()` 在電腦端建好空白提醒、生好 id、
+立刻存檔，回傳完整物件。理由與角色卡一致（`core/data/types.ts` 的註解）：手機上
+`crypto.randomUUID()` 在非安全內容（`http://192.168.x.x`）不存在，讓 UI 自己生 id
+會重踩計畫書 §4.10 第 3 點那個坑。
+
+### 端點邏輯一行都沒新寫，reminder 那四支 IPC handler 順手瘦身
+
+比照階段 3：`mobileServer.ts` 的新端點全部呼叫 `ipcHandlers.ts` 的 `*Direct` 函式，
+桌面 IPC handler 同時改成薄轉呼叫（`reminder:list/save/delete/toggle` 從各自的內聯邏輯
+改成一行呼叫對應的 `*Direct`）。桌面與手機因此不可能各存出一份不一致的提醒清單。
+
+### 驗證方式
+
+假伺服器（`mobile-stub-server.mjs`）新增了對應端點，**含拒絕與空值路徑**
+（`llm-apikey` 在 `LANDIRECT=0` 時回 409、`memory` 數值超出範圍回 400、
+`modules/toggle` 未知 id 回 400、`reminders/save` 缺 id 回 400）。用瀏覽器對著
+`npm run dev:mobile` 走過：供應商切換／模型與端點儲存／API Key 欄位在 `LANDIRECT=0`
+時正確隱藏並顯示中繼連線提示／記憶數值儲存／模組開關即時切換並持久化／
+新增·編輯·刪除提醒的完整流程，過程中 console 無錯誤。
+
+⚠️ **這一輪同樣沒有截圖**（環境限制，理由同 §4.14）：改用 `getComputedText` 與直接呼叫
+React 事件 handler（而非模擬原生 DOM 事件）驗證每個互動的落地結果。**外觀仍待 owner 過目。**
 
 ---
 

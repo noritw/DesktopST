@@ -53,3 +53,24 @@ export function wsUrlFor(conn: Connection): string {
   const base = conn.baseUrl.replace(/^http/, 'ws')
   return `${base}/?token=${encodeURIComponent(conn.token)}`
 }
+
+/**
+ * 是不是區網直連（`Capabilities.apiKeyAccess` 的依據，roadmap §4.7）。
+ *
+ * 判定**由電腦端做**（檢查來源 IP，見 `mobileServer.ts` 的 `isLanDirectRequest`）——
+ * 手機端只是把答案問回來，不可以自己猜。查不到（電腦還沒開、逾時⋯⋯）保守回 false，
+ * 這與 `RemoteDataSource` 建構時的預設值一致（不確定就不給 API Key 存取）。
+ */
+export async function detectLanDirect(conn: Connection): Promise<boolean> {
+  try {
+    const base = conn.baseUrl.replace(/\/$/, '')
+    const res = await fetch(`${base}/api/connection-info`, {
+      headers: { 'X-DesktopST-Token': conn.token }
+    })
+    if (!res.ok) return false
+    const data = (await res.json()) as { lanDirect?: boolean }
+    return data.lanDirect === true
+  } catch {
+    return false
+  }
+}

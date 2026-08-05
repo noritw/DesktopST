@@ -79,6 +79,40 @@ const messages = [
 /** messageId → data URI 陣列。`/api/message-image` 從這裡取。 */
 const images = new Map()
 
+// ── 設定 ＋ 提醒（B3 階段 4）─────────────────────────────────
+
+// `LANDIRECT=0` 用來驗「API Key 欄位隱藏、寫入回 409」那條路徑
+// （真伺服器裡 loopback 一律不算區網直連，stub 直接用環境變數代替）。
+const LAN_DIRECT = process.env.LANDIRECT !== '0'
+
+const llmSettings = {
+  provider: 'openai',
+  models: { openai: 'gpt-5.4-mini', claude: 'claude-sonnet-5', gemini: 'gemini-3.5-flash', grok: 'grok-4.5' },
+  endpoint: '',
+  apiKeys: { openai: '', claude: '', gemini: '', grok: '' }
+}
+const PROVIDERS = ['openai', 'claude', 'gemini', 'grok']
+
+const memorySettings = { keepRecentN: 20, autoSummarizeAfter: 50, autoSummarizeEnabled: true }
+
+const moduleToggles = [
+  { id: 'desktopst.weather', label: '天氣', enabled: false },
+  { id: 'desktopst.spotify', label: 'Spotify 音樂偵測', enabled: false },
+  { id: 'desktopst.calendar', label: 'Google 日曆', enabled: false },
+  { id: 'desktopst.news', label: '新聞陪聊', enabled: true }
+]
+
+let reminders = [
+  {
+    id: 'r1',
+    label: '早安問候',
+    prompt: '',
+    schedule: { type: 'daily', hour: 8, minute: 0 },
+    enabled: true,
+    createdAt: Date.now()
+  }
+]
+
 const state = () => ({
   desktopCharacters: presentIds.map((id) => ({
     id,
@@ -227,6 +261,131 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.startsWith('/api/lorebooks')) return json(res, { lorebooks })
+
+  // ── 連線資訊 ＋ 設定 ＋ 提醒（B3 階段 4）─────────────────
+
+  if (url.startsWith('/api/connection-info')) return json(res, { lanDirect: LAN_DIRECT })
+
+  if (url.startsWith('/api/settings/llm-provider')) {
+    const p = await readBody(req)
+    if (!PROVIDERS.includes(p.provider)) return json(res, { error: '不支援的供應商' }, 400)
+    llmSettings.provider = p.provider
+    console.log(`[settings] provider -> ${p.provider}`)
+    return json(res, { ok: true })
+  }
+
+  if (url.startsWith('/api/settings/llm-model')) {
+    const p = await readBody(req)
+    if (!PROVIDERS.includes(p.provider)) return json(res, { error: '不支援的供應商' }, 400)
+    if (!String(p.model || '').trim()) return json(res, { error: '模型名稱不可空白' }, 400)
+    llmSettings.models[p.provider] = p.model.trim()
+    console.log(`[settings] model[${p.provider}] -> ${p.model}`)
+    return json(res, { ok: true })
+  }
+
+  if (url.startsWith('/api/settings/llm-endpoint')) {
+    const p = await readBody(req)
+    llmSettings.endpoint = String(p.endpoint || '').trim() || undefined
+    console.log(`[settings] endpoint -> ${llmSettings.endpoint || '(空)'}`)
+    return json(res, { ok: true })
+  }
+
+  if (url.startsWith('/api/settings/llm-apikey')) {
+    const p = await readBody(req)
+    // ⚠️ 照抄真伺服器：非區網直連一律拒絕（409），不是假裝存了。
+    if (!LAN_DIRECT) return json(res, { error: 'API key can only be set over a direct LAN connection' }, 409)
+    if (!PROVIDERS.includes(p.provider)) return json(res, { error: '不支援的供應商' }, 400)
+    llmSettings.apiKeys[p.provider] = p.apiKey || ''
+    console.log(`[settings] apiKey[${p.provider}] set (${(p.apiKey || '').length} chars)`)
+    return json(res, { ok: true })
+  }
+
+  if (url.startsWith('/api/settings/llm')) {
+    const hasApiKey = {}
+    for (const pr of PROVIDERS) hasApiKey[pr] = !!llmSettings.apiKeys[pr]?.trim()
+    return json(res, {
+      llm: {
+        provider: llmSettings.provider,
+        model: llmSettings.models[llmSettings.provider],
+        models: llmSettings.models,
+        endpoint: llmSettings.endpoint,
+        hasApiKey
+      }
+    })
+  }
+
+  if (url.startsWith('/api/settings/memory')) {
+    if (req.method === 'GET') return json(res, { memory: memorySettings })
+    const p = await readBody(req)
+    const keepRecentN = Math.round(Number(p.keepRecentN))
+    const autoSummarizeAfter = Math.round(Number(p.autoSummarizeAfter))
+    // 照抄真伺服器的範圍檢查（`setMemorySettingsDirect`）
+    if (!Number.isFinite(keepRecentN) || keepRecentN < 1 || keepRecentN > 200) {
+      return json(res, { error: '「保留最近幾則」超出範圍（1–200）' }, 400)
+    }
+    if (!Number.isFinite(autoSummarizeAfter) || autoSummarizeAfter < 1 || autoSummarizeAfter > 500) {
+      return json(res, { error: '「自動摘要門檻」超出範圍（1–500）' }, 400)
+    }
+    Object.assign(memorySettings, { keepRecentN, autoSummarizeAfter, autoSummarizeEnabled: !!p.autoSummarizeEnabled })
+    console.log('[settings] memory ->', JSON.stringify(memorySettings))
+    return json(res, { ok: true })
+  }
+
+  if (url.startsWith('/api/settings/modules/toggle')) {
+    const p = await readBody(req)
+    const m = moduleToggles.find((x) => x.id === p.id)
+    if (!m) return json(res, { error: '未知的模組' }, 400)
+    m.enabled = !!p.enabled
+    console.log(`[settings] module ${p.id} -> ${m.enabled}`)
+    return json(res, { ok: true })
+  }
+
+  if (url.startsWith('/api/settings/modules')) return json(res, { modules: moduleToggles })
+
+  if (url.startsWith('/api/reminders/create')) {
+    const now = new Date()
+    const reminder = {
+      id: 'rem-' + Date.now(),
+      label: '',
+      prompt: '',
+      schedule: { type: 'daily', hour: now.getHours(), minute: now.getMinutes() },
+      enabled: true,
+      createdAt: Date.now()
+    }
+    reminders.push(reminder)
+    console.log(`[reminders] create -> ${reminder.id}`)
+    return json(res, { reminder })
+  }
+
+  if (url.startsWith('/api/reminders/save')) {
+    const p = await readBody(req)
+    // 照抄真伺服器：沒有 id 回 400（`mobileServer.ts` 的 `/api/reminders/save`）
+    if (!p.reminder?.id) return json(res, { error: 'reminder required' }, 400)
+    const idx = reminders.findIndex((r) => r.id === p.reminder.id)
+    if (idx >= 0) reminders[idx] = p.reminder
+    else reminders.push(p.reminder)
+    console.log(`[reminders] save ${p.reminder.id} "${p.reminder.label}"`)
+    return json(res, { reminder: p.reminder })
+  }
+
+  if (url.startsWith('/api/reminders/delete')) {
+    const p = await readBody(req)
+    if (!p.id) return json(res, { error: 'id required' }, 400)
+    reminders = reminders.filter((r) => r.id !== p.id)
+    console.log(`[reminders] delete ${p.id}`)
+    return json(res, { ok: true })
+  }
+
+  if (url.startsWith('/api/reminders/toggle')) {
+    const p = await readBody(req)
+    if (!p.id) return json(res, { error: 'id required' }, 400)
+    const r = reminders.find((x) => x.id === p.id)
+    if (r) r.enabled = !!p.enabled
+    console.log(`[reminders] toggle ${p.id} -> ${!!p.enabled}`)
+    return json(res, { ok: true })
+  }
+
+  if (url.startsWith('/api/reminders')) return json(res, { reminders })
 
   // ── 角色卡讀寫（階段 3）────────────────────────────────────
   //

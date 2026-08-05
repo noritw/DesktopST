@@ -72,6 +72,29 @@ export interface MobileBridge {
   notifyRemoteAction: () => void        // 點擊後廣播：顯示遠端控制指示
   hideWindowsForRemote: () => void      // 遙控模式：隱藏所有 DeST 視窗
   restoreWindowsForRemote: () => void   // 遙控模式：恢復所有 DeST 視窗
+  // ── 設定（B3 階段 4）──
+  // 邏輯全在 `ipcHandlers.ts` 的 *Direct，桌面設定視窗與手機共用同一份。
+  getLlmSettings: () => {
+    provider: string
+    model: string
+    models: Record<string, string | undefined>
+    endpoint?: string
+    hasApiKey: Record<string, boolean>
+  }
+  setLlmProvider: (provider: string) => { ok: true } | { error: string }
+  setLlmModel: (provider: string, model: string) => { ok: true } | { error: string }
+  setLlmEndpoint: (endpoint: string) => { ok: true } | { error: string }
+  setLlmApiKey: (provider: string, apiKey: string) => { ok: true } | { error: string }
+  getMemorySettings: () => { keepRecentN: number; autoSummarizeAfter: number; autoSummarizeEnabled: boolean }
+  setMemorySettings: (m: { keepRecentN: number; autoSummarizeAfter: number; autoSummarizeEnabled: boolean }) => { ok: true } | { error: string }
+  listModuleToggles: () => { id: string; label: string; enabled: boolean }[]
+  setModuleToggle: (id: string, enabled: boolean) => { ok: true } | { error: string }
+  // ── 提醒 CRUD（B3 階段 4；排程本身是 B5）──
+  listReminders: () => import('./types').Reminder[]
+  createReminder: () => import('./types').Reminder
+  saveReminder: (reminder: import('./types').Reminder) => import('./types').Reminder
+  deleteReminder: (id: string) => void
+  toggleReminder: (id: string, enabled: boolean) => void
 }
 
 export interface MobileRouteContext {
@@ -943,6 +966,141 @@ async function handleRequest(
     return
   }
 
+  // ── GET /api/connection-info ──
+  // 手機端在建立 `RemoteDataSource` 前先問一次，決定 `Capabilities.apiKeyAccess`
+  // （roadmap §4.7）。不需要 `bridge` ready，純粹是傳輸層的判斷。
+  if (method === 'GET' && url === '/api/connection-info') {
+    jsonOk(res, { lanDirect: isLanDirectRequest(req) })
+    return
+  }
+
+  // ── 設定（B3 階段 4）────────────────────────────────────
+  if (method === 'GET' && url === '/api/settings/llm') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, { llm: bridge.getLlmSettings() })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-provider') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ provider?: string }>(req, res)
+    if (!payload) return
+    const r = bridge.setLlmProvider(String(payload.provider ?? ''))
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-model') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ provider?: string; model?: string }>(req, res)
+    if (!payload) return
+    const r = bridge.setLlmModel(String(payload.provider ?? ''), String(payload.model ?? ''))
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-endpoint') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ endpoint?: string }>(req, res)
+    if (!payload) return
+    const r = bridge.setLlmEndpoint(String(payload.endpoint ?? ''))
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-apikey') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    // ⚠️ **金鑰只在區網直連時可寫**（roadmap §4.7）。由電腦端檢查來源 IP，
+    // 不可信任手機端自稱；手機 UI 應該已經靠 `Capabilities.apiKeyAccess` 隱藏
+    // 這個欄位，走到這裡代表連線方式在畫面顯示之後才變成經 relay，屬邊緣情況。
+    // 用 409 而非 401/403：那兩個會被翻成「連線權杖失效」，與這裡的真正原因無關。
+    if (!isLanDirectRequest(req)) { jsonError(res, 409, 'API key can only be set over a direct LAN connection'); return }
+    const payload = await readJson<{ provider?: string; apiKey?: string }>(req, res)
+    if (!payload) return
+    const r = bridge.setLlmApiKey(String(payload.provider ?? ''), String(payload.apiKey ?? ''))
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'GET' && url === '/api/settings/memory') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, { memory: bridge.getMemorySettings() })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/memory') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ keepRecentN?: number; autoSummarizeAfter?: number; autoSummarizeEnabled?: boolean }>(req, res)
+    if (!payload) return
+    const r = bridge.setMemorySettings({
+      keepRecentN: Number(payload.keepRecentN),
+      autoSummarizeAfter: Number(payload.autoSummarizeAfter),
+      autoSummarizeEnabled: !!payload.autoSummarizeEnabled
+    })
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'GET' && url === '/api/settings/modules') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, { modules: bridge.listModuleToggles() })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/modules/toggle') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ id?: string; enabled?: boolean }>(req, res)
+    if (!payload) return
+    const r = bridge.setModuleToggle(String(payload.id ?? ''), !!payload.enabled)
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  // ── 提醒 CRUD（B3 階段 4）───────────────────────────────
+  if (method === 'GET' && url === '/api/reminders') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, { reminders: bridge.listReminders() })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/reminders/create') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, { reminder: bridge.createReminder() })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/reminders/save') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ reminder?: import('./types').Reminder }>(req, res)
+    if (!payload?.reminder?.id) { jsonError(res, 400, 'reminder required'); return }
+    jsonOk(res, { reminder: bridge.saveReminder(payload.reminder) })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/reminders/delete') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ id?: string }>(req, res)
+    if (!payload?.id) { jsonError(res, 400, 'id required'); return }
+    bridge.deleteReminder(payload.id)
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/reminders/toggle') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ id?: string; enabled?: boolean }>(req, res)
+    if (!payload?.id) { jsonError(res, 400, 'id required'); return }
+    bridge.toggleReminder(payload.id, !!payload.enabled)
+    jsonOk(res, { ok: true })
+    return
+  }
+
   // -- Module route registry ---------------------------------------------
   const moduleRoute = findRegisteredRoute(method, url)
   if (moduleRoute) {
@@ -1119,6 +1277,35 @@ function isAuthorized(req: http.IncomingMessage, url: URL): boolean {
     : ''
   const queryToken = url.searchParams.get('token') ?? ''
   return headerToken === expected || bearer === expected || queryToken === expected
+}
+
+/**
+ * 是不是「區網直連」（roadmap §4.7，`Capabilities.apiKeyAccess` 的判定依據）。
+ *
+ * ⚠️ **不是單純「私有位址」判斷** —— relay／cloudflared tunnel 轉發進來的請求，
+ * 從 `req.socket.remoteAddress` 看也是 `127.0.0.1`（cloudflared 在本機把流量
+ * 轉給 mobileServer），跟手機直接連區網 IP 是同一種表面特徵，唯一分得出來的
+ * 差異就是「是不是 loopback」：真正的手機在區網會顯示成它自己的私有位址
+ * （192.168.x 等），不會是 127.0.0.1。
+ *
+ * 這是 roadmap §4.7 描述的「同網段」判斷的簡化版：不比對子網路遮罩，
+ * 只分「私有位址但非 loopback」vs 其他。差異只在「同一個路由器下的不同網段」
+ * 這種邊緣案例，不影響「區網直連 vs 經 relay」這條真正要守的界線。
+ */
+function isLanDirectRequest(req: http.IncomingMessage): boolean {
+  const addr = req.socket.remoteAddress
+  if (!addr) return false
+  const ip = addr.startsWith('::ffff:') ? addr.slice(7) : addr
+  if (ip === '::1' || ip === '127.0.0.1' || ip.startsWith('127.')) return false
+  const parts = ip.split('.')
+  if (parts.length !== 4) return false
+  const nums = parts.map(p => Number(p))
+  if (nums.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return false
+  const [a, b] = nums
+  if (a === 10) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  return false
 }
 
 // 讓 screenshot 能用 desktopCapturer（需從 electron import）

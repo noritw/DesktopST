@@ -5,17 +5,21 @@ import type {
   CardFile,
   CharacterListItem,
   CharactersApi,
+  LlmSettingsSnapshot,
   LorebooksApi,
+  MemorySettingsSnapshot,
+  ModuleToggle,
   ConversationListItem,
   ConversationsApi,
   DataSource,
   MessagesApi,
   PresetListItem,
   PresetsApi,
+  RemindersApi,
   SendMessageInput,
   SettingsApi
 } from '@core/data'
-import type { Character, PersonaPreset, ScenePreset, WorldPreset } from '@core/types'
+import type { Character, PersonaPreset, Reminder, ScenePreset, WorldPreset } from '@core/types'
 import { base64ToBytes, bytesToBase64 } from '@core/util/base64'
 import { HttpClient } from './httpClient'
 import type { HttpClientOptions } from './httpClient'
@@ -187,11 +191,31 @@ export class RemoteDataSource implements DataSource {
   }
 
   readonly settings: SettingsApi = {
-    setColorTheme: async (theme) => { await this.http.post('/api/settings/color-theme', { theme }) }
+    setColorTheme: async (theme) => { await this.http.post('/api/settings/color-theme', { theme }) },
+
+    getLlm: async () => (await this.http.get<{ llm: LlmSettingsSnapshot }>('/api/settings/llm')).llm,
+    setLlmProvider: async (provider) => { await this.http.post('/api/settings/llm-provider', { provider }) },
+    setLlmModel: async (provider, model) => { await this.http.post('/api/settings/llm-model', { provider, model }) },
+    setLlmEndpoint: async (endpoint) => { await this.http.post('/api/settings/llm-endpoint', { endpoint }) },
+    setLlmApiKey: async (provider, apiKey) => { await this.http.post('/api/settings/llm-apikey', { provider, apiKey }) },
+
+    getMemory: async () => (await this.http.get<{ memory: MemorySettingsSnapshot }>('/api/settings/memory')).memory,
+    setMemory: async (m) => { await this.http.post('/api/settings/memory', m) },
+
+    listModules: async () => (await this.http.get<{ modules: ModuleToggle[] }>('/api/settings/modules')).modules,
+    setModuleEnabled: async (id, enabled) => { await this.http.post('/api/settings/modules/toggle', { id, enabled }) }
   }
 
   readonly lorebooks: LorebooksApi = {
     list: async () => (await this.http.get<{ lorebooks: PresetListItem[] }>('/api/lorebooks')).lorebooks
+  }
+
+  readonly reminders: RemindersApi = {
+    list: async () => (await this.http.get<{ reminders: Reminder[] }>('/api/reminders')).reminders,
+    create: async () => (await this.http.post<{ reminder: Reminder }>('/api/reminders/create')).reminder,
+    save: async (reminder) => (await this.http.post<{ reminder: Reminder }>('/api/reminders/save', { reminder })).reminder,
+    remove: async (id) => { await this.http.post('/api/reminders/delete', { id }) },
+    toggle: async (id, enabled) => { await this.http.post('/api/reminders/toggle', { id, enabled }) }
   }
 
   private fetchPresets(): Promise<{

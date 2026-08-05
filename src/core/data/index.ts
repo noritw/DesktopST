@@ -5,6 +5,10 @@ export type {
   CharacterListItem,
   CharactersApi,
   LorebooksApi,
+  LlmProvider,
+  LlmSettingsSnapshot,
+  MemorySettingsSnapshot,
+  ModuleToggle,
   PackConflictPolicy,
   ConversationListItem,
   ConversationSnapshot,
@@ -17,6 +21,7 @@ export type {
   PresentCharacter,
   PresetListItem,
   PresetsApi,
+  RemindersApi,
   SendMessageInput,
   SettingsApi
 } from './types'

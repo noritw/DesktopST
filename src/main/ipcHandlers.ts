@@ -61,7 +61,7 @@ import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
 import {
   getNewsInjectionForSpeak, getActiveNewsTopic, setActiveNewsTopic,
   setPendingNewsCredit, consumePendingNewsCredit, applyNewsFeedbackDelta,
-  buildSurveyDirective, buildNotesDirective, loadNewsModuleSettings,
+  buildSurveyDirective, buildNotesDirective, loadNewsModuleSettings, saveNewsModuleSettings,
   collectInterestTerms, fetchAllSources, NEWS_MODULE_ID,
   type NewsTopic, type NewsSelectionContext, type NewsModuleSettings
 } from './modules/news'
@@ -583,6 +583,237 @@ export function activateWorldDirect(id: string): boolean {
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return true
+}
+
+// ── 手機端設定（B3 階段 4）──────────────────────────────
+//
+// 桌面設定視窗的 LLM 分頁涵蓋供應商目錄、價格提示等桌面專屬的呈現邏輯；
+// 手機第一層只需要「填 API Key ＋ 供應商／模型」，這裡只做資料面的讀寫，
+// 供應商清單／模型建議清單等 UI 文案留在 `src/mobile/ui/`（roadmap §3.3）。
+
+const MOBILE_LLM_PROVIDERS: AppSettings['llm']['provider'][] = ['openai', 'claude', 'gemini', 'grok']
+
+function isMobileLlmProvider(v: unknown): v is AppSettings['llm']['provider'] {
+  return typeof v === 'string' && (MOBILE_LLM_PROVIDERS as string[]).includes(v)
+}
+
+/**
+ * ⚠️ **刻意不回傳金鑰本身**（roadmap §4.7）：就算區網直連可以編輯，也不必把明文
+ * 送到手機顯示——換一把新的不需要先看到舊的。`hasApiKey` 只回答「有沒有設定」，
+ * 涵蓋解密失敗時留在 `encryptedApiKeyFallbacks` 的情況（此時 `apiKeys[p]` 是空字串）。
+ */
+export function getLlmSettingsSummaryDirect(): {
+  provider: AppSettings['llm']['provider']
+  model: string
+  models: Partial<Record<AppSettings['llm']['provider'], string>>
+  endpoint?: string
+  hasApiKey: Record<AppSettings['llm']['provider'], boolean>
+} {
+  const hasApiKey = {} as Record<AppSettings['llm']['provider'], boolean>
+  for (const p of MOBILE_LLM_PROVIDERS) {
+    hasApiKey[p] = !!(settings.llm.apiKeys?.[p] ?? '').trim() || fileStore.encryptedApiKeyFallbacks.has(p)
+  }
+  return {
+    provider: settings.llm.provider,
+    model: settings.llm.models?.[settings.llm.provider] ?? settings.llm.model,
+    models: { ...settings.llm.models },
+    endpoint: settings.llm.endpoint,
+    hasApiKey
+  }
+}
+
+export function setLlmProviderDirect(provider: string): { ok: true } | { error: string } {
+  if (!isMobileLlmProvider(provider)) return { error: '不支援的供應商' }
+  settings.llm.provider = provider
+  const savedModel = settings.llm.models?.[provider]
+  if (savedModel) settings.llm.model = savedModel
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+export function setLlmModelDirect(provider: string, model: string): { ok: true } | { error: string } {
+  if (!isMobileLlmProvider(provider)) return { error: '不支援的供應商' }
+  const trimmed = model.trim()
+  if (!trimmed) return { error: '模型名稱不可空白' }
+  if (!settings.llm.models) settings.llm.models = {}
+  settings.llm.models[provider] = trimmed
+  if (settings.llm.provider === provider) settings.llm.model = trimmed
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+export function setLlmEndpointDirect(endpoint: string): { ok: true } | { error: string } {
+  settings.llm.endpoint = endpoint.trim() || undefined
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+/**
+ * 覆寫 API Key。呼叫端（`mobileServer.ts`）必須先做來源 IP 檢查再呼叫這支——
+ * 這裡本身不重複判斷，是否區網直連是傳輸層的事，不是設定層的事。
+ */
+export function setLlmApiKeyDirect(provider: string, apiKey: string): { ok: true } | { error: string } {
+  if (!isMobileLlmProvider(provider)) return { error: '不支援的供應商' }
+  if (!settings.llm.apiKeys) settings.llm.apiKeys = {}
+  settings.llm.apiKeys[provider] = apiKey
+  fileStore.encryptedApiKeyFallbacks.delete(provider)
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+export function getMemorySettingsDirect(): { keepRecentN: number; autoSummarizeAfter: number; autoSummarizeEnabled: boolean } {
+  return {
+    keepRecentN: settings.memory.keepRecentN,
+    autoSummarizeAfter: settings.memory.autoSummarizeAfter,
+    autoSummarizeEnabled: settings.memory.autoSummarizeEnabled
+  }
+}
+
+export function setMemorySettingsDirect(m: {
+  keepRecentN: number
+  autoSummarizeAfter: number
+  autoSummarizeEnabled: boolean
+}): { ok: true } | { error: string } {
+  const keepRecentN = Math.round(Number(m.keepRecentN))
+  const autoSummarizeAfter = Math.round(Number(m.autoSummarizeAfter))
+  if (!Number.isFinite(keepRecentN) || keepRecentN < 1 || keepRecentN > 200) return { error: '「保留最近幾則」超出範圍（1–200）' }
+  if (!Number.isFinite(autoSummarizeAfter) || autoSummarizeAfter < 1 || autoSummarizeAfter > 500) return { error: '「自動摘要門檻」超出範圍（1–500）' }
+  settings.memory = { ...settings.memory, keepRecentN, autoSummarizeAfter, autoSummarizeEnabled: !!m.autoSummarizeEnabled }
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+/**
+ * 手機「進階」摺疊區的模組開關。**只涵蓋有簡單全域 `enabled` 旗標的模組**——
+ * 遙控是獨立的 B6 功能（`Capabilities.remoteControl`），用語解說沒有全域開關
+ * （見 `isModuleEffectivelyEnabled` 對 `LORE_MODULE_ID` 的註解），皆不在此列。
+ */
+// 用函式而非模組頂層 const：`WEATHER_MODULE_ID` 等常數宣告在本檔更下面，
+// 頂層 const 會在它們賦值前就執行而撞到 TDZ（`used before its declaration`）。
+function mobileModuleToggleDefs(): { id: string; label: string }[] {
+  return [
+    { id: WEATHER_MODULE_ID, label: '天氣' },
+    { id: SPOTIFY_MODULE_ID, label: 'Spotify 音樂偵測' },
+    { id: CALENDAR_MODULE_ID, label: 'Google 日曆' },
+    { id: NEWS_MODULE_ID, label: '新聞陪聊' }
+  ]
+}
+
+export function listMobileModuleTogglesDirect(): { id: string; label: string; enabled: boolean }[] {
+  return mobileModuleToggleDefs().map(m => ({
+    id: m.id,
+    label: m.label,
+    enabled:
+      m.id === WEATHER_MODULE_ID ? !!settings.weather?.enabled :
+      m.id === SPOTIFY_MODULE_ID ? !!settings.spotify?.enabled :
+      m.id === CALENDAR_MODULE_ID ? !!settings.calendar?.enabled :
+      m.id === NEWS_MODULE_ID ? loadNewsModuleSettings().enabled :
+      false
+  }))
+}
+
+/**
+ * 天氣／Spotify／日曆需要先在電腦上完成基本設定（地點、Client ID⋯⋯）才有
+ * 對應的 settings 子物件；手機這支只負責開關，不做這幾個模組的完整設定流程
+ * （那是外部服務的 OAuth／API Key 設定，超出「模組開關」的範圍）。
+ */
+export function setMobileModuleEnabledDirect(id: string, enabled: boolean): { ok: true } | { error: string } {
+  switch (id) {
+    case WEATHER_MODULE_ID:
+      if (!settings.weather) return { error: '尚未在電腦上設定天氣模組' }
+      settings.weather = { ...settings.weather, enabled }
+      break
+    case SPOTIFY_MODULE_ID:
+      if (!settings.spotify) return { error: '尚未在電腦上設定 Spotify' }
+      settings.spotify = { ...settings.spotify, enabled }
+      break
+    case CALENDAR_MODULE_ID:
+      if (!settings.calendar) return { error: '尚未在電腦上連結 Google 日曆' }
+      settings.calendar = { ...settings.calendar, enabled }
+      break
+    case NEWS_MODULE_ID:
+      saveNewsModuleSettings({ enabled })
+      break
+    default:
+      return { error: '未知的模組' }
+  }
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+// ── 提醒 CRUD（B3 階段 4 資料面；排程本身是 B5）───────────
+//
+// 桌面 IPC handler 與手機端共用這幾支，避免「桌面存得起來、手機存出一份
+// 存不進排程」這種 drift（比照角色卡寫入，計畫書 §4.14）。
+
+export function listRemindersDirect(): Reminder[] {
+  return fileStore.loadReminders()
+}
+
+/**
+ * 建立一個空白提醒並立刻存檔，回傳含新 id 的完整物件。
+ *
+ * id 在這裡產生、不讓手機端自己生：手機上 `crypto.randomUUID()` 在非安全內容
+ * （`http://192.168.x.x`）不存在，同 `createCharacterDirect` 的理由。
+ */
+export function createReminderDirect(): Reminder {
+  const now = new Date()
+  const reminder: Reminder = {
+    id: uuidv4(),
+    label: '',
+    prompt: '',
+    schedule: { type: 'daily', hour: now.getHours(), minute: now.getMinutes() },
+    enabled: true,
+    createdAt: Date.now()
+  }
+  const list = fileStore.loadReminders()
+  list.push(reminder)
+  fileStore.saveReminders(list)
+  reloadReminders()
+  broadcastToAll('reminders:updated', null)
+  return reminder
+}
+
+export function saveReminderDirect(reminder: Reminder): Reminder {
+  const list = fileStore.loadReminders()
+  const idx = list.findIndex(r => r.id === reminder.id)
+  if (idx >= 0) list[idx] = reminder
+  else list.push(reminder)
+  fileStore.saveReminders(list)
+  reloadReminders()
+  broadcastToAll('reminders:updated', null)
+  return reminder
+}
+
+export function deleteReminderDirect(id: string): void {
+  const list = fileStore.loadReminders().filter(r => r.id !== id)
+  fileStore.saveReminders(list)
+  reloadReminders()
+  broadcastToAll('reminders:updated', null)
+}
+
+export function toggleReminderDirect(id: string, enabled: boolean): void {
+  const list = fileStore.loadReminders()
+  const r = list.find(x => x.id === id)
+  if (!r) return
+  r.enabled = enabled
+  if (enabled) {
+    const now = new Date()
+    const s = r.schedule
+    if (s.type === 'daily' || s.type === 'weekly') {
+      s.hour = now.getHours()
+      s.minute = now.getMinutes()
+    }
+  }
+  fileStore.saveReminders(list)
+  reloadReminders()
+  broadcastToAll('reminders:updated', null)
 }
 
 /** mobile:get-status IPC 的 status 查詢函式（由 index.ts 注入）*/
@@ -4337,45 +4568,12 @@ export function registerIpcHandlers() {
   // 已註冊模組清單（情境模組開關 UI 用；排除遠端遙控等基礎設施由 renderer 決定）
   ipcMain.handle('modules:list', () => listRegisteredModules())
 
-  // ── Reminders ────────────────────────────────────────────
+  // ── Reminders（邏輯在上面的 *Direct，桌面與手機共用）───────
 
-  ipcMain.handle('reminder:list', () => fileStore.loadReminders())
-
-  ipcMain.handle('reminder:save', (_, reminder: Reminder) => {
-    const list = fileStore.loadReminders()
-    const idx = list.findIndex(r => r.id === reminder.id)
-    if (idx >= 0) list[idx] = reminder
-    else list.push(reminder)
-    fileStore.saveReminders(list)
-    reloadReminders()
-    broadcastToAll('reminders:updated', null)
-    return reminder
-  })
-
-  ipcMain.handle('reminder:delete', (_, id: string) => {
-    const list = fileStore.loadReminders().filter(r => r.id !== id)
-    fileStore.saveReminders(list)
-    reloadReminders()
-    broadcastToAll('reminders:updated', null)
-  })
-
-  ipcMain.handle('reminder:toggle', (_, id: string, enabled: boolean) => {
-    const list = fileStore.loadReminders()
-    const r = list.find(x => x.id === id)
-    if (!r) return
-    r.enabled = enabled
-    if (enabled) {
-      const now = new Date()
-      const s = r.schedule
-      if (s.type === 'daily' || s.type === 'weekly') {
-        s.hour = now.getHours()
-        s.minute = now.getMinutes()
-      }
-    }
-    fileStore.saveReminders(list)
-    reloadReminders()
-    broadcastToAll('reminders:updated', null)
-  })
+  ipcMain.handle('reminder:list', () => listRemindersDirect())
+  ipcMain.handle('reminder:save', (_, reminder: Reminder) => saveReminderDirect(reminder))
+  ipcMain.handle('reminder:delete', (_, id: string) => deleteReminderDirect(id))
+  ipcMain.handle('reminder:toggle', (_, id: string, enabled: boolean) => toggleReminderDirect(id, enabled))
 
   ipcMain.handle('shell:open-external', (_, url: string) => {
     return shell.openExternal(url)

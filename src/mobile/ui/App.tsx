@@ -10,7 +10,7 @@ import { Lightbox } from './shell/Lightbox'
 import { MessageList } from './chat/MessageList'
 import { Composer } from './chat/Composer'
 import { AvatarBar } from './characters/AvatarBar'
-import { resolveConnection, wsUrlFor } from './connection'
+import { detectLanDirect, resolveConnection, wsUrlFor } from './connection'
 import { RemoteDataSource } from '../data/remoteDataSource'
 import { getDeviceIdentity } from '../data/deviceIdentity'
 import { RemoteEventSource } from '../events/remoteEventSource'
@@ -65,18 +65,35 @@ export function App(): JSX.Element {
   const conn = useMemo(() => resolveConnection(), [])
 
   useEffect(() => {
-    const data = new RemoteDataSource({
-      baseUrl: () => conn.baseUrl,
-      token: () => conn.token,
-      // 少了這個，電腦端會把訊息當成「Desktop」送來的，角色會以為你在電腦前打字。
-      device: () => getDeviceIdentity()
-    })
-    const events = new RemoteEventSource({
-      wsUrl: () => wsUrlFor(conn),
-      // relay 情境下連續失敗要回頁面重新取得 tunnel URL；開發時沒有這回事。
-      onNeedsReload: conn.baseUrl === location.origin ? () => location.reload() : undefined
-    })
-    return attach({ data, events })
+    let cancelled = false
+    let detach: (() => void) | null = null
+
+    void (async () => {
+      // `Capabilities.apiKeyAccess` 要在建構 `RemoteDataSource` 之前就知道
+      // （capabilities 是唯讀的同步欄位，見 `core/data/types.ts`），所以先問一次
+      // 這支輕量端點。查不到就保守當非區網直連 —— 不確定就不給 API Key 存取。
+      const lanDirect = await detectLanDirect(conn)
+      if (cancelled) return
+
+      const data = new RemoteDataSource({
+        baseUrl: () => conn.baseUrl,
+        token: () => conn.token,
+        // 少了這個，電腦端會把訊息當成「Desktop」送來的，角色會以為你在電腦前打字。
+        device: () => getDeviceIdentity(),
+        lanDirect
+      })
+      const events = new RemoteEventSource({
+        wsUrl: () => wsUrlFor(conn),
+        // relay 情境下連續失敗要回頁面重新取得 tunnel URL；開發時沒有這回事。
+        onNeedsReload: conn.baseUrl === location.origin ? () => location.reload() : undefined
+      })
+      detach = attach({ data, events })
+    })()
+
+    return () => {
+      cancelled = true
+      detach?.()
+    }
   }, [conn, attach])
 
   // 回前景時對帳（遙控模式才有作用，獨立模式是 no-op）。
@@ -102,6 +119,7 @@ export function App(): JSX.Element {
           <HeaderButton onClick={() => push('news')}>📰</HeaderButton>
           <HeaderButton onClick={() => push('characters')}>👥</HeaderButton>
           <HeaderButton onClick={() => push('theme-picker')}>🎨</HeaderButton>
+          <HeaderButton onClick={() => push('settings')}>⚙️</HeaderButton>
         </div>
       </header>
 

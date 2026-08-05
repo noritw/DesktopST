@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets, getDataDir } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, setColorThemeDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect, createCharacterDirect, saveCharacterDirect, deleteCharacterDirect, saveCharacterAvatarDirect, importCharacterPngDirect, importCharacterJsonDirect, exportCharacterPngDirect, exportCharacterJsonDirect, buildDstPackDirect, importDstPackDirect, listLorebooksDirect } from './ipcHandlers'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, setColorThemeDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect, createCharacterDirect, saveCharacterDirect, deleteCharacterDirect, saveCharacterAvatarDirect, importCharacterPngDirect, importCharacterJsonDirect, exportCharacterPngDirect, exportCharacterJsonDirect, buildDstPackDirect, importDstPackDirect, listLorebooksDirect, getLlmSettingsSummaryDirect, setLlmProviderDirect, setLlmModelDirect, setLlmEndpointDirect, setLlmApiKeyDirect, getMemorySettingsDirect, setMemorySettingsDirect, listMobileModuleTogglesDirect, setMobileModuleEnabledDirect, listRemindersDirect, createReminderDirect, saveReminderDirect, deleteReminderDirect, toggleReminderDirect } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import { loadNewsModuleSettings } from './modules/news/settings'
@@ -588,7 +588,23 @@ function initMobileServer(): void {
     notifyRemoteClickPending: () => broadcastToAll('character:remote-click-pending', {}),
     notifyRemoteAction: () => broadcastToAll('character:remote-action', {}),
     hideWindowsForRemote: () => hideAllWindowsForRemote(),
-    restoreWindowsForRemote: () => restoreAllWindowsAfterRemote()
+    restoreWindowsForRemote: () => restoreAllWindowsAfterRemote(),
+    // 設定（B3 階段 4）：與桌面設定視窗共用同一批 `*Direct`
+    getLlmSettings: () => getLlmSettingsSummaryDirect(),
+    setLlmProvider: (provider) => setLlmProviderDirect(provider),
+    setLlmModel: (provider, model) => setLlmModelDirect(provider, model),
+    setLlmEndpoint: (endpoint) => setLlmEndpointDirect(endpoint),
+    setLlmApiKey: (provider, apiKey) => setLlmApiKeyDirect(provider, apiKey),
+    getMemorySettings: () => getMemorySettingsDirect(),
+    setMemorySettings: (m) => setMemorySettingsDirect(m),
+    listModuleToggles: () => listMobileModuleTogglesDirect(),
+    setModuleToggle: (id, enabled) => setMobileModuleEnabledDirect(id, enabled),
+    // 提醒 CRUD（B3 階段 4）
+    listReminders: () => listRemindersDirect(),
+    createReminder: () => createReminderDirect(),
+    saveReminder: (reminder) => saveReminderDirect(reminder),
+    deleteReminder: (id) => deleteReminderDirect(id),
+    toggleReminder: (id, enabled) => toggleReminderDirect(id, enabled)
   })
 
   // Hook conversation broadcasts → push new messages to mobile clients

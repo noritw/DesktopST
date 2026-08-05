@@ -8,6 +8,7 @@ import type {
   MessagesApi,
   LorebooksApi,
   PresetsApi,
+  RemindersApi,
   SendMessageInput,
   SettingsApi
 } from '@core/data'
@@ -104,11 +105,28 @@ export class LocalDataSource implements DataSource {
   }
 
   readonly settings: SettingsApi = {
-    setColorTheme: () => Promise.reject(pending('settings.setColorTheme', 4))
+    setColorTheme: () => Promise.reject(pending('settings.setColorTheme', 4)),
+    getLlm: () => Promise.reject(pending('settings.getLlm', 4)),
+    setLlmProvider: () => Promise.reject(pending('settings.setLlmProvider', 4)),
+    setLlmModel: () => Promise.reject(pending('settings.setLlmModel', 4)),
+    setLlmEndpoint: () => Promise.reject(pending('settings.setLlmEndpoint', 4)),
+    setLlmApiKey: () => Promise.reject(pending('settings.setLlmApiKey', 4)),
+    getMemory: () => Promise.reject(pending('settings.getMemory', 4)),
+    setMemory: () => Promise.reject(pending('settings.setMemory', 4)),
+    listModules: () => Promise.reject(pending('settings.listModules', 4)),
+    setModuleEnabled: () => Promise.reject(pending('settings.setModuleEnabled', 4))
   }
 
   readonly lorebooks: LorebooksApi = {
     list: () => Promise.reject(pending('lorebooks.list', 3))
+  }
+
+  readonly reminders: RemindersApi = {
+    list: () => Promise.reject(pending('reminders.list', 4)),
+    create: () => Promise.reject(pending('reminders.create', 4)),
+    save: () => Promise.reject(pending('reminders.save', 4)),
+    remove: () => Promise.reject(pending('reminders.remove', 4)),
+    toggle: () => Promise.reject(pending('reminders.toggle', 4))
   }
 }
 

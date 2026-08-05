@@ -26,6 +26,8 @@ export type ViewKind =
   | 'character-editor'
   | 'presets'
   | 'settings'
+  | 'reminders'
+  | 'reminder-editor'
   | 'news'
   | 'random-tools'
   | 'theme-picker'

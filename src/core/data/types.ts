@@ -6,6 +6,7 @@ import type {
   PendingRandomTool,
   PersonaPreset,
   RandomResult,
+  Reminder,
   ScenePreset,
   WorldPreset
 } from '../types'
@@ -272,15 +273,85 @@ export interface PresetsApi {
   removeScene(id: string): Promise<void>
 }
 
+/** 四家供應商，與桌面 `AppSettings['llm']['provider']` 同一組值。 */
+export type LlmProvider = 'openai' | 'claude' | 'gemini' | 'grok'
+
 /**
- * 設定。目前只有主題，其餘（API Key、模型、記憶參數⋯⋯）在階段 4 補齊。
+ * LLM 設定的手機端快照。
+ *
+ * ⚠️ **刻意不含 API Key 的實際內容**（roadmap §4.7）：
+ * 就算 `Capabilities.apiKeyAccess` 為 true（區網直連），也不透過這支把金鑰明文
+ * 傳到手機顯示 —— 那是不必要的曝光面，使用者要換金鑰直接覆寫即可，不需要先看到舊的。
+ * `hasApiKey` 只回答「有沒有設定」，UI 用來顯示「已設定」／「尚未設定」。
+ */
+export interface LlmSettingsSnapshot {
+  provider: LlmProvider
+  /** 目前供應商生效的那個模型（等同 `models[provider]`，先攤平方便顯示）。 */
+  model: string
+  models: Partial<Record<LlmProvider, string>>
+  endpoint?: string
+  hasApiKey: Record<LlmProvider, boolean>
+}
+
+export interface MemorySettingsSnapshot {
+  keepRecentN: number
+  autoSummarizeAfter: number
+  autoSummarizeEnabled: boolean
+}
+
+/** 「進階」摺疊區裡的模組開關一列（清單外的 B3 決議④項目）。 */
+export interface ModuleToggle {
+  id: string
+  label: string
+  enabled: boolean
+}
+
+/**
+ * 設定。
  *
  * ⚠️ **主題不是手機的本機偏好**，是 `settings.ui.colorTheme` 的一部分。
  * 只存在手機上的話，換裝置或重新整理就會不一致 ——
  * owner 2026-08-04 回報「配色不會儲存、也不會和桌面同步」正是這個。
+ *
+ * 依 §2 目標 4，第一層只露「填 API Key」＋供應商／模型；endpoint、記憶參數、
+ * 模組開關收進 UI 的「進階」摺疊區，但介面本身不分層——分層是 UI 的事。
  */
 export interface SettingsApi {
   setColorTheme(theme: ColorTheme): Promise<void>
+
+  getLlm(): Promise<LlmSettingsSnapshot>
+  setLlmProvider(provider: LlmProvider): Promise<void>
+  setLlmModel(provider: LlmProvider, model: string): Promise<void>
+  setLlmEndpoint(endpoint: string): Promise<void>
+  /**
+   * 覆寫金鑰。**只能寫、讀不到舊值**（見 `LlmSettingsSnapshot` 的說明）。
+   * 遙控模式下電腦端會依來源 IP 拒絕非區網直連的請求
+   * （`DataError('unauthorized')`）——正常情況下 UI 應該先靠
+   * `Capabilities.apiKeyAccess` 隱藏欄位，不應該讓使用者走到這步。
+   */
+  setLlmApiKey(provider: LlmProvider, apiKey: string): Promise<void>
+
+  getMemory(): Promise<MemorySettingsSnapshot>
+  setMemory(settings: MemorySettingsSnapshot): Promise<void>
+
+  /** 只涵蓋有簡單全域開關的模組（天氣／Spotify／日曆／新聞）。遙控（B6）不在其中。 */
+  listModules(): Promise<ModuleToggle[]>
+  setModuleEnabled(id: string, enabled: boolean): Promise<void>
+}
+
+/**
+ * 提醒 CRUD（資料面；排程本身是 B5）。
+ *
+ * ⚠️ **id 由資料來源產生**（`create()`），理由同 `CharactersApi.create()`：
+ * 手機上 `crypto.randomUUID()` 在非安全內容下不存在，讓 UI 自己生 id 會重踩
+ * 計畫書 §4.10 第 3 點那個坑。建立流程是 `create()` 拿到空白提醒 → 編輯 → `save()`。
+ */
+export interface RemindersApi {
+  list(): Promise<Reminder[]>
+  create(): Promise<Reminder>
+  save(reminder: Reminder): Promise<Reminder>
+  remove(id: string): Promise<void>
+  toggle(id: string, enabled: boolean): Promise<void>
 }
 
 /**
@@ -311,6 +382,7 @@ export interface DataSource {
   readonly presets: PresetsApi
   readonly settings: SettingsApi
   readonly lorebooks: LorebooksApi
+  readonly reminders: RemindersApi
 }
 
 /**

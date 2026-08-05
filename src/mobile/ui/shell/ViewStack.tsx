@@ -8,6 +8,9 @@ import { CharacterMenu } from '../characters/CharacterMenu'
 import { PresenceSheet } from '../characters/PresenceSheet'
 import { CharacterLibrary } from '../characters/CharacterLibrary'
 import { CharacterEditor } from '../characters/CharacterEditor'
+import { SettingsView } from '../settings/SettingsView'
+import { RemindersView } from '../settings/RemindersView'
+import { ReminderEditor } from '../settings/ReminderEditor'
 
 /**
  * 畫面堆疊的渲染端（清單 G3）。
@@ -25,6 +28,8 @@ const TITLES: Record<ViewKind, string> = {
   'character-editor': '編輯角色',
   presets: '情境與設定組',
   settings: '設定',
+  reminders: '提醒',
+  'reminder-editor': '編輯提醒',
   news: '個人新聞報',
   'random-tools': '隨機工具',
   'theme-picker': '色彩主題'
@@ -52,6 +57,9 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'presence') return <PresenceSheet />
   if (entry.kind === 'characters') return <CharacterLibrary />
   if (entry.kind === 'character-editor' && entry.param) return <CharacterEditor characterId={entry.param} />
+  if (entry.kind === 'settings') return <SettingsView />
+  if (entry.kind === 'reminders') return <RemindersView />
+  if (entry.kind === 'reminder-editor' && entry.param) return <ReminderEditor reminderId={entry.param} />
   // param 是必要的：沒有它不知道在講哪個角色／哪則訊息。
   // 缺了就當成程式錯誤讓它顯示「尚未實作」，不要靜靜地畫一個空選單。
   if (entry.kind === 'character-menu' && entry.param) return <CharacterMenu characterId={entry.param} />
