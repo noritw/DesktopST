@@ -399,7 +399,11 @@ const server = http.createServer(async (req, res) => {
       const saved = { ...incoming, id, createdAt: existing >= 0 ? list[existing].createdAt : Date.now(), updatedAt: Date.now() }
       if (existing >= 0) list[existing] = saved; else list.push(saved)
       if (kind === 'persona') personas = list; else if (kind === 'world') worlds = list; else scenes = list
-      console.log(`[presets] save ${kind} ${id}`); return json(res, { preset: saved })
+      console.log(`[presets] save ${kind} ${id}`)
+      // 照抄真伺服器：讓其他已連線裝置知道要重抓，不然改名只有動手那台看得到
+      // （PersonaIdentity.tsx／CurrentContext.tsx 這種常駐元件才會跟著刷新）。
+      push({ type: 'desktop-updated' })
+      return json(res, { preset: saved })
     }
     if (action === 'delete') {
       if (!p.id) return json(res, { error: 'id required' }, 400)
@@ -410,7 +414,9 @@ const server = http.createServer(async (req, res) => {
       if (kind === 'persona') { personas = list; if (activePersonaId === p.id) activePersonaId = list[0]?.id || '' }
       else if (kind === 'world') { worlds = list; if (activeWorldId === p.id) activeWorldId = list[0]?.id || '' }
       else scenes = list
-      console.log(`[presets] delete ${kind} ${p.id}`); return json(res, { ok: true })
+      console.log(`[presets] delete ${kind} ${p.id}`)
+      push({ type: 'desktop-updated' })
+      return json(res, { ok: true })
     }
   }
 

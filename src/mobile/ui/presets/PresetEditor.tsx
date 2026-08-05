@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PersonaPreset, ScenePreset, WorldPreset } from '@core/types'
 import type { PresetListItem } from '@core/data'
-import { getData } from '../stores/appStore'
+import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from '../settings/settingsErrors'
 
@@ -21,6 +21,7 @@ export function PresetEditor({ presetKey }: { presetKey: string }): JSX.Element 
   const [kind, id] = presetKey.split(':') as [Kind, string]
   const pop = useUiStore((s) => s.pop); const toast = useUiStore((s) => s.toast); const confirm = useUiStore((s) => s.confirm)
   const setCloseGuard = useUiStore((s) => s.setCloseGuard)
+  const refresh = useAppStore((s) => s.refresh)
   const [draft, setDraft] = useState<Draft | null>(null); const [busy, setBusy] = useState(false)
   const [lorebooks, setLorebooks] = useState<{ id: string; name: string }[]>([])
   const [modules, setModules] = useState<{ id: string; label: string; enabled: boolean }[]>([])
@@ -57,13 +58,23 @@ export function PresetEditor({ presetKey }: { presetKey: string }): JSX.Element 
       if (kind === 'persona') await api.savePersona(draft as PersonaPreset)
       else if (kind === 'world') await api.saveWorld(draft as WorldPreset)
       else await api.saveScene(draft as ScenePreset)
-      dirty.current = false; setIsDirty(false); toast('已儲存'); pop()
+      dirty.current = false; setIsDirty(false)
+      // 這個畫面關掉之後，`PersonaIdentity`／`CurrentContext` 那種常駐、不會重新
+      // 掛載的元件是靠 snapshot 換了參照才知道要重抓清單——存檔／刪除不會自動
+      // 觸發 state-invalidated，得自己呼叫一次，不然剛改的名字要等下次真正的
+      // 狀態變動（切對話、重連……）才會顯示（owner 2026-08-05 實機回報）。
+      await refresh(); toast('已儲存'); pop()
     } catch (e) { toast(describeSettingsError(e, '儲存'), 'error') } finally { setBusy(false) }
   }
   const remove = async (): Promise<void> => {
     if (!draft || id === 'new') return
     if (!await confirm({ title: `刪除「${draft.name}」`, message: '刪除後不能復原。', confirmLabel: '刪除', destructive: true })) return
-    setBusy(true); try { const api = getData().presets; if (kind === 'persona') await api.removePersona(id); else if (kind === 'world') await api.removeWorld(id); else await api.removeScene(id); dirty.current = false; setIsDirty(false); toast('已刪除'); pop() } catch (e) { toast(describeSettingsError(e, '刪除'), 'error') } finally { setBusy(false) }
+    setBusy(true); try {
+      const api = getData().presets
+      if (kind === 'persona') await api.removePersona(id); else if (kind === 'world') await api.removeWorld(id); else await api.removeScene(id)
+      dirty.current = false; setIsDirty(false)
+      await refresh(); toast('已刪除'); pop()
+    } catch (e) { toast(describeSettingsError(e, '刪除'), 'error') } finally { setBusy(false) }
   }
   if (!draft) return <div className="py-8 text-center text-sm text-[var(--text-sub)]">載入中⋯⋯</div>
   const lore = 'lorebookIds' in draft ? draft.lorebookIds ?? [] : []

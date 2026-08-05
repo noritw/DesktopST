@@ -14,7 +14,10 @@ export function CurrentContext(): JSX.Element | null {
         world: worlds.find(x => x.id === snapshot?.activeWorldId)?.name ?? ''
       })
     } catch { /* 標籤載不到時不阻擋聊天 */ }
-  }, [snapshot?.activeSceneId, snapshot?.activeWorldId])
+    // 依賴整包 snapshot 而不只是兩個 id：這個元件常駐在角色列上方，不會重新掛載，
+    // 改名／刪除「不是目前使用中」的情境或世界觀時兩個 id 都不會變，
+    // 只看 id 的話標籤會一直顯示舊名字，見 PersonaIdentity.tsx 同一個坑。
+  }, [snapshot])
   useEffect(() => { void load() }, [load])
   if (!labels.scene && !labels.world) return null
   return <div className="flex shrink-0 items-center gap-1 overflow-x-auto bg-[var(--surface)] px-4 py-1 text-[11px] text-[var(--text-sub)]">

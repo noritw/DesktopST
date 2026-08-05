@@ -659,6 +659,10 @@ async function handleRequest(
       : kind === 'world'
         ? bridge.saveWorldPreset(payload.preset as import('./types').WorldPreset)
         : bridge.saveScenePreset(payload.preset as import('./types').ScenePreset)
+    // 這支自己的呼叫端會另外呼叫 refresh() 拿到最新結果，這裡是讓「其他」已連線的
+    // 裝置（另一支手機、或日後桌面也走這個管道時）知道要重抓——不然改名／新增
+    // 只有動手的那台看得到，別台永遠不知道發生過（owner 2026-08-05 實機回報）。
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
     jsonOk(res, { preset })
     return
   }
@@ -673,6 +677,7 @@ async function handleRequest(
     const result = kind === 'persona' ? bridge.removePersonaPreset(payload.id)
       : kind === 'world' ? bridge.removeWorldPreset(payload.id) : bridge.removeScenePreset(payload.id)
     if ('error' in result) { jsonError(res, result.error === 'not-found' ? 404 : 409, result.error); return }
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
     jsonOk(res, result)
     return
   }

@@ -8,6 +8,12 @@ import { describeSettingsError } from '../settings/settingsErrors'
 /** 輸入前確認「我是誰」；名稱可直接切換，不必跳去設定頁找。 */
 export function PersonaIdentity(): JSX.Element | null {
   const activeId = useAppStore((s) => s.snapshot?.activePersonaId)
+  // 這個元件常駐在輸入框上方、不會像 sheet 那樣每次打開都重新掛載——
+  // 只用 activeId 當 deps 的話，刪掉／改名一個「不是目前使用中」的使用者設定時
+  // activeId 不會變，選單會一直留著已經刪掉的那個選項，直到整個 App 重新整理
+  // （owner 2026-08-05 實機回報）。改成整包 `snapshot` 當 deps，
+  // 每次 state-invalidated 重抓狀態都順便刷新選單清單。
+  const snapshot = useAppStore((s) => s.snapshot)
   const refresh = useAppStore((s) => s.refresh)
   const toast = useUiStore((s) => s.toast)
   const [personas, setPersonas] = useState<PresetListItem[]>([])
@@ -20,7 +26,7 @@ export function PersonaIdentity(): JSX.Element | null {
       setPersonas(list); setActive(preset)
     } catch { /* 不阻擋輸入；下一次狀態更新會重試 */ }
   }, [activeId])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load() }, [load, snapshot])
   if (!activeId || !active) return null
   const name = active.displayName.trim() || active.nickname.trim() || active.name
   const switchPersona = async (id: string): Promise<void> => {
