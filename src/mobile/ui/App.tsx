@@ -10,11 +10,12 @@ import { Lightbox } from './shell/Lightbox'
 import { MessageList } from './chat/MessageList'
 import { Composer } from './chat/Composer'
 import { AvatarBar } from './characters/AvatarBar'
+import MonoIcon from '@shared/MonoIcon'
 import { detectLanDirect, resolveConnection, wsUrlFor } from './connection'
 import { RemoteDataSource } from '../data/remoteDataSource'
 import { getDeviceIdentity } from '../data/deviceIdentity'
 import { RemoteEventSource } from '../events/remoteEventSource'
-import { CurrentContext } from './context/CurrentContext'
+import { HeaderChips } from './context/HeaderChips'
 
 /**
  * 手機 UI 的根元件。
@@ -109,20 +110,26 @@ export function App(): JSX.Element {
 
   return (
     <div className="flex h-full flex-col bg-[var(--bg)]">
+      {/*
+        Header 一列做完三件事（owner 2026-08-06 設計）：顯示目前狀態、當作切換入口、
+        收納所有功能。原本是「DeST 字樣 ＋ 六顆 emoji 按鈕」，狀態列另外掛在下面一整條——
+        現在狀態標籤自己就是入口，功能全收進 ☰，省下一整條的高度。
+        `DeST` 字樣拿掉是刻意的：手機螢幕窄，標籤要那個寬度，而 app 名稱在這裡沒有資訊量。
+      */}
       <header
         ref={headerRef}
-        className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--mint)] px-4 pb-2"
+        className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--mint)] px-3 pb-2"
         style={{ paddingTop: 'calc(var(--safe-top) + 8px)' }}
       >
-        <span className="text-[17px] font-semibold text-[var(--text)]">DeST</span>
-        <div className="flex items-center gap-1">
-          <HeaderButton onClick={() => push('conversations')}>💬</HeaderButton>
-          <HeaderButton onClick={() => push('news')}>📰</HeaderButton>
-          <HeaderButton onClick={() => push('characters')}>👥</HeaderButton>
-          <HeaderButton onClick={() => push('presets')}>🗂️</HeaderButton>
-          <HeaderButton onClick={() => push('theme-picker')}>🎨</HeaderButton>
-          <HeaderButton onClick={() => push('settings')}>⚙️</HeaderButton>
-        </div>
+        {ready ? <HeaderChips /> : <span className="flex-1 text-[13px] font-semibold text-[var(--text)]">DeST</span>}
+        <button
+          type="button"
+          onClick={() => push('menu')}
+          aria-label="選單"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--text)] active:bg-[var(--surface)]/60"
+        >
+          <MonoIcon name="menu" className="h-5 w-5" />
+        </button>
       </header>
 
       {/* 連線狀態列：獨立模式永遠是 online，所以這條自然不會出現，
@@ -139,7 +146,6 @@ export function App(): JSX.Element {
         <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-sub)]">載入中⋯⋯</div>
       ) : (
         <>
-          <CurrentContext />
           <AvatarBar />
           <MessageList />
         </>
@@ -155,22 +161,10 @@ export function App(): JSX.Element {
   )
 }
 
-function HeaderButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }): JSX.Element {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex h-9 w-9 items-center justify-center rounded-full text-lg active:bg-[var(--surface)]/60"
-    >
-      {children}
-    </button>
-  )
-}
-
 function LoadFailed({ message, onRetry }: { message: string; onRetry: () => void }): JSX.Element {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
-      <div className="text-3xl">🔌</div>
+      <MonoIcon name="plug" className="h-8 w-8 text-[var(--text-sub)]" />
       <p className="text-sm leading-relaxed text-[var(--text-sub)]">{message}</p>
       <button
         type="button"

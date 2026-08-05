@@ -4,7 +4,8 @@
 > 範圍定義：`docs/mobile-html-feature-inventory.md`（49 項獨立版必做 ＋ §6.1 的 10 項設定 UI）
 > 設計約束：`docs/multi-device-platform-roadmap.md` §2（四大目標）、§3.3、§4.5、§4.7、§8
 >
-> **狀態：階段 0–5 程式與契約測試完成（0-③／1／2a–2d／3a／3b／4／5）。階段 5 尚待 owner 以真機驗證完整操作與資料最終狀態。**
+> **狀態：階段 0–5、8、9 程式與契約測試完成（0-③／1／2a–2d／3a／3b／4／5／8／9）。
+> 階段 5／8／9 尚待 owner 以真機驗證完整操作與資料最終狀態。**
 > **下一步順序改為 8 → 9 → 6 → 7**（2026-08-05 owner 決議，見下方理由）：對話清單與切換、
 > 用語解說內容編輯，先於個人新聞報。階段 6／7 的內容與驗收不變，只是排到後面。
 > 進度見 §4.9，實機踩到的坑見 §4.10–§4.14（**寫任何手機 UI 前務必讀完**）。
@@ -273,6 +274,7 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
   的 preset 編輯器形狀（一個共用的清單 + 編輯器，資料只走 `DataSource`）。
 - **驗收**：手機能新增一本用語解說、加/刪條目、存檔後角色下一則回覆看得出生效；
   桌面端打開同一本書看到手機端的修改。
+- ✅ **已完成，2026-08-05**，程式與 stub 端點驗證完成。落地筆記見 §4.18。
 
 > 階段 2–6 順序可依當下狀況調換，**唯一硬性約束是階段 0-③ 與階段 1 必須在前**。
 > 階段 8、9 排在階段 7 之後單純是加入排程的時間順序，實際上不依賴階段 7 完成，
@@ -317,7 +319,8 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 | **5 預設組編輯**（Scene／Persona／World 新增、編輯、刪除） | ✅ 程式與契約測試完成（假伺服器）；**待 owner 真機驗證** | 本次未提交變更 |
 | 6–7 | ⬜ | |
 | **8 對話清單與切換**（E1–E2） | ✅ 程式與手動端點驗證完成（stub）；**待 owner 真機驗證** | 見 §4「階段 8」 |
-| **9 用語解說內容編輯** | ⬜ 已排入計畫，未開工 | 見 §4「階段 9」 |
+| **9 用語解說內容編輯** | ✅ 程式與 stub 端點驗證完成；**待 owner 真機驗證** | 見 §4.18「階段 9 落地筆記」 |
+| **資訊架構重整 ＋ 單色圖示**（owner 2026-08-06 回報） | ✅ 程式與瀏覽器 DOM 驗證完成；**畫面外觀待 owner 實機確認** | 見 §4.19 |
 
 ### 開發時怎麼連上真資料
 
@@ -791,6 +794,336 @@ D5「至少留一位」的判斷兩處一致（只剩一位時不顯示這一項
 ⚠️ **`accept` 本身仍只能由 owner 在真機上驗**——那是 Android 相簿 App 的行為，桌機重現不了。
 另外 owner 回報**改完要重開 `npm run dev:mobile`**，光重新整理頁面不一定吃得到
 （Vite HMR 對這幾支模組沒有完整重新求值）。驗不出來時先重開 dev server 再說。
+
+---
+
+## 4.18 階段 9（用語解說內容編輯）落地筆記
+
+### 端點邏輯一行都沒新寫，跟階段 4／5 同一個模式
+
+`ipcHandlers.ts` 早就有 `lorebook:get` / `create` / `save` / `delete` 的 `ipcMain.handle`，
+只是邏輯直接寫在 handler 裡、沒有拆成可重用的函式。這次拆出
+`getLorebookDirect` / `createLorebookDirect` / `saveLorebookDirect` / `removeLorebookDirect`，
+桌面 IPC 改呼叫這四支，`mobileServer.ts` 的新端點也呼叫同一批——
+與階段 3／4／5 的既有慣例一致：手機端不得複製業務邏輯，只能薄轉呼叫。
+
+### `mobileServer.ts` 的路由順序有一個坑：舊的 `GET /api/lorebooks` 是前綴比對
+
+新增 `/api/lorebooks/:id`、`/api/lorebooks/create`、`/api/lorebooks/save`、
+`/api/lorebooks/delete` 之前，`scripts/mobile-stub-server.mjs` 原本用
+`url.startsWith('/api/lorebooks')` 判斷清單端點——這個寫法會把新加的四支路由全部
+吃掉（都是同一個字首）。改成 `url === '/api/lorebooks'` 精確比對後才安全新增其餘路由。
+真的 `mobileServer.ts` 本來就是逐支 `method === 'GET' && url === '...'` 或 regex 比對，
+沒有這個問題，但這次順手在 stub 也修掉，避免下次照抄舊寫法又踩一次。
+
+### 拒絕條件沒少：save 缺 `book.id`、缺 `book`、id 不存在都要回錯誤
+
+比照 `scripts/README-mobile-stub.md` 的規矩，`/api/lorebooks/save` 在 stub 端補了
+`book required`（400）與 `Lorebook not found`（404）兩條路徑，不是只模擬成功；
+`/api/lorebooks/delete` 缺 `id` 一樣回 400。
+
+### `LorebooksApi` 的型別來自 `core/lore`，不是 `core/types`
+
+`Lorebook` / `LoreEntry` 定義在 `src/core/lore/types.ts`，`core/data/types.ts`
+原本只 import `../types`，這次另外加一行 `import type { Lorebook } from '../lore'`。
+容易漏看的地方：`@core/lore` 這個路徑別名在 `tsconfig.json` 與 `tsconfig.node.json`
+都已經有（`@core/*` 泛用別名涵蓋），不用額外配置。
+
+### 條目編輯照抄桌面版 `LorebookSection.tsx` 的四欄位限制與 UX 細節
+
+`priority` / `insertion_order` / `secondary_keys` 依規格 §7.1 不進 UI，存檔時整個
+`LoreEntry` 物件原樣 spread 回去，這幾個欄位不會被手機端弄丟。條目 id 沿用桌面版
+`Date.now()-隨機字串` 的產生方式，不用 `crypto.randomUUID()`——階段 3（角色卡建立）
+已經踩過一次「非安全內容（`http://192.168.x.x`）沒有這個 API」的坑（計畫書 §4.10 第 3 點），
+新增用語條目是純前端狀態操作、不經 `create()` 端點，所以沒辦法比照角色/提醒讓伺服器發 id。
+
+### 入口放在「設定 → 進階」，不另開分頁
+
+依 §2 目標 4，這是進階功能，跟「管理提醒」放在同一層、同一種按鈕樣式
+（`SettingsView.tsx` 的 `showAdvanced` 區塊）。清單畫面（`LorebookLibrary.tsx`）
+沒有「套用／切換」這個動作——一本書是否生效由角色卡或情境的勾選決定，不在這裡，
+所以左邊大按鈕與右邊 ✏️ 做的是同一件事（進編輯），不是四個既有清單畫面那種
+「左邊切換、右邊編輯」的兩種動作並存。
+
+### 驗證方式與這次的限制
+
+`npm run typecheck`、`npm test`（300 條，含既有 `tests/lore/*`）全綠。
+`node scripts/mobile-stub-server.mjs` 起假伺服器後用 `curl` 逐支打過
+list／get／create／save（含缺 id 的 400）／delete，回應與檔案內狀態符合預期。
+**沒有** 用瀏覽器實際操作過 UI（`npm run dev:mobile` 未啟動驗證），也沒有驗證
+「存檔後角色下一則回覆看得出生效」這條端到端路徑——那需要真的 LLM 呼叫，
+比照階段 5／8 的慣例交給 owner 用 `MobileST-real-test.bat` 驗。
+
+---
+
+## 4.19 資訊架構重整 ＋ 全面單色圖示（owner 2026-08-06 回報）
+
+階段 9 收工後 owner 一次回報六件事，全部是「東西都在，但找不到／看不懂／很醜」，
+所以這一輪動的是**資訊架構與視覺**，不是功能。
+
+### Header 改成「狀態即入口」（owner 自己提的設計，比原提案好）
+
+原本：`DeST` 字樣 ＋ 六顆 emoji 按鈕（💬📰👥🗂️🎨⚙️），底下再掛一整條
+`CurrentContext` 顯示情境／世界觀。問題是按鈕越加越多、圖案全靠猜，而且狀態列
+只能看不能點。
+
+現在：**一列做完三件事** —— 對話標題／情境／世界觀三個標籤本身就是入口
+（點下去分別進對話清單與預設組），右邊一顆 ☰ 收所有功能。
+省掉一整條狀態列的高度，`DeST` 字樣也拿掉（手機螢幕窄，app 名稱在這裡沒有資訊量）。
+
+- `context/CurrentContext.tsx` → `context/HeaderChips.tsx`（角色變了，順便改名）
+- 點情境標籤會帶 `openParam='scene'` 進 `PresetsView`，直接展開那一組
+
+### ☰ 主選單：`replace` 不是 `push`
+
+`shell/MainMenu.tsx` 七項，每項都是**圖示＋名稱＋一句說明**。
+⚠️ **點項目一律用新加的 `uiStore.replace()`** —— 用 `push` 的話選單會留在返回堆疊裡，
+從「設定」按返回會先回到選單、要再按一次才回聊天。
+
+「提醒」從設定的「進階」搬到這裡（owner 決定：它是會固定使用的功能，不是設定項）。
+
+### 設定頁：一個「進階」大雜燴拆成三個平行區塊
+
+owner 原話「分類太亂，容易讓新手困惑」。原本 endpoint／記憶／模組開關／提醒
+全塞在同一個叫「進階」的摺疊區裡。現在：
+
+| 區塊 | 內容 |
+|---|---|
+| 連線（不可收合） | 供應商／模型／API Key —— 唯一必填的東西 |
+| 記憶 | 保留則數、摘要門檻、自動摘要 |
+| 模組開關 | 四個模組，**每個都有一句說明**（`settings/moduleInfo.ts`）|
+| 進階 | 只剩自訂端點 |
+
+**自訂端點留著但收到最底**（owner 決定）：它是接 OpenRouter／自架代理／本機模型的
+唯一入口，拿掉會讓已設定的人壞掉。文案改成「用官方 API 的話請留空」。
+
+⚠️ 模組說明**不寫「去電腦上設定」**（手機版要能獨立運作的既有慣例），
+只講「需要先完成設定才會生效」，不指定哪台裝置。
+
+### 用語解說併進 `PresetsView`，四區塊改成 accordion
+
+owner：「用語解說應該跟情境／使用者／世界觀放在同一頁」——它們確實是同一類東西
+（都是「這次對話用哪一組設定」），拆開放使用者找不到。四組清單全攤開太長，改成
+點標題才展開。`lorebooks/LorebookLibrary.tsx` 因此刪除，功能併入 `PresetsView`。
+
+⚠️ **只有一種動作可做時不要放 `StatusChip`。** owner：「用語解說如果只有『編輯』選項，
+那『點此編輯內容』的標籤就顯得很多餘」——說得對，那是一句廢話。
+`StatusChip` 的檔頭已補上這條規則。
+
+### 全面單色圖示：`src/shared/MonoIcon.tsx`
+
+owner：「Icon 花花綠綠我覺得很醜，能統一成單色的，對齊桌面版樣式嗎」。
+
+桌面版本來就有一份 26 個圖示的 `MonoIcon`。**與其在手機再抄一份（那就是 §4.1 的
+drift），直接把實作搬到 `src/shared/`，兩邊 import 同一個檔案。**
+`src/renderer/src/components/MonoIcon.tsx` 改成一層 re-export，
+桌面既有的 15 個呼叫端**一行都沒改**。手機需要的 16 個新圖示（menu／chat／news／
+users／palette／dice／paw／plus／chevron×3／book／volume／mute／exit／plug）加在同一份，
+桌面日後也用得到。
+
+新增 `src/shared/` 這個目錄的理由：`core/` 是純資料與邏輯層、`main/`（Node）也會
+import 它，因此不得依賴 React。`src/shared/` 專收「兩個 UI 都要用、但不屬於 core」
+的純呈現元件。
+
+#### 這一輪踩到的三個坑
+
+1. **改了 vite alias 一定要重開 dev server。**
+   新增 `@shared` 之後 HMR 吃不到，畫面會整片壞掉但錯誤訊息指向 import ——
+   §4.16 已經記過「改完要重開 `npm run dev:mobile`」，這次是同一件事的更硬版本
+   （設定檔改動 100% 需要重啟，不是「不一定吃得到」）。
+2. **`tailwind.mobile.config.ts` 的 `content` 要加 `./src/shared/**`。**
+   不加的話 `MonoIcon` 預設的 `w-4 h-4` 不會被生成，圖示全部變成 0×0 ——
+   跟 §4.10 第 1 點那個 postcss 坑同一個家族：**沒有錯誤訊息，只是安靜地消失**。
+   桌面的 `tailwind.config.ts` 也一併加了。
+3. **`<MonoIcon className="" />` 會讓 SVG 失去尺寸。**
+   TS 的預設參數只在傳 `undefined` 時生效，傳空字串就是空字串，
+   svg 沒有任何尺寸 class 就塌掉。`Avatar` 要跟著頭像大小縮放，
+   正確寫法是傳比例 class（`h-1/2 w-1/2`），不是傳空字串再靠 style 撐。
+
+### 模型清單與價格搬進 `core/llm/modelCatalog.ts`
+
+owner：「模型清單應該跟桌面版同步，並且把價錢都標上去」。
+`providerInfo.ts` 原本自己列了四五個常用型號，桌面加新型號時手機不會跟上。
+
+現在型號清單、每百萬 tokens 參考價、高單價判定（`isHighPriceModel` /
+`splitModelsByPrice`）全在 core，兩個 UI 共用。手機的模型欄位從自由輸入的
+`<datalist>` 改成 `<select>`＋`optgroup`（一般／⚠ 高單價），每個選項都標價。
+
+⚠️ **`core/llm/index.ts` 不得 re-export 這個檔案** —— `index.ts` 會 import
+Anthropic／OpenAI／Google 的 SDK，透過它取用會把整包 SDK 拖進手機的 bundle。
+呼叫端一律直接 `import ... from '@core/llm/modelCatalog'`。
+
+中文文案（「⚠ 高單價」「一般」、帶價格的顯示字串）仍留在各自的 UI 層，符合 §3.3。
+
+### 驗證方式與這次的限制
+
+`npm run typecheck`、`npm test`（300 條）全綠。
+`npm run dev:mobile` ＋ 假伺服器，用 DOM 查詢逐項確認：header 三個標籤與 ☰ 都在、
+主選單七項各有圖示與說明、20 個 SVG 全部有非零尺寸（證明 Tailwind glob 生效）、
+`PresetsView` 四區塊 accordion 且用語解說顯示 2 本、「點此編輯內容」已消失、
+模型下拉 25 個選項分成「一般 / ⚠ 高單價」兩組且都帶價格、模組開關四項都有說明。
+
+⚠️ **沒有看到實際畫面** —— 本次環境的瀏覽器窗格無法顯示，截圖取不到。
+版面是否好看、標籤在窄螢幕會不會擠、圖示線條粗細在真機上的觀感，
+**這些只能由 owner 實機確認**。
+
+---
+
+## 4.20 兩個入口並存：`/app` 新版 ＋ `/` 舊版（owner 2026-08-06）
+
+### 為什麼是並存而不是切換
+
+階段 7 原本寫「`mobileServer` 改提供 `out/mobile/`，`mobile.html` 保留一個版本週期再刪」。
+盤點後發現這個講法低估了：**遙控面板（H1–H11）排在 B6**，比整個 B3 還晚，
+而那是 `mobile.html` 獨有的功能。所以就算階段 6 新聞報做完，舊版仍然刪不掉。
+
+→ owner 決定過渡期**兩個 QR 同時出**：新版日常聊天用，舊版留著出外遙控用。
+
+### 路由
+
+| 路徑 | 內容 |
+|---|---|
+| `/` | `assets/mobile.html`（舊版，含遙控） |
+| `/?ui=app` | `out/mobile/index.html`（新版 B3 React） |
+| `/assets/*` | 建置產物，**不需 token**（見下） |
+
+#### ⚠️⚠️ relay 的真實行為（2026-08-06 對實機實測，不要再靠推測）
+
+新版連續兩次「掃了全白」，兩次都是因為**猜 relay 的行為而沒去量**。
+以下全部是拿 owner 的真實 relay URL 打過確認的：
+
+| 事實 | 證據 |
+|---|---|
+| relay 是**反向代理**，不是轉址 | 瀏覽器網址一直停在 `relay.nori.tw/<deviceId>` |
+| **每個請求**都要 `/<deviceId>` 路徑 | 少了 → relay 自己回 **503**（它的 HTML 錯誤頁） |
+| **每個請求**都要 token（query 或 `X-DesktopST-Token` header） | 少了 → relay 自己回 **401** |
+| 兩者都給就會轉給 DeST | `/<deviceId>/assets/x.js?token=` → **200, 271KB** |
+| relay 會**注入**四個變數 ＋ 一個 fetch patch | 見下 |
+
+注入的相容層（Cloudflare Worker 寫進 HTML 的）：
+
+```js
+window.__relayDeviceId, __relayPageUrl, __tunnelWsUrl, __mobileToken
+// 並且 patch fetch：
+if (typeof input==='string' && input.startsWith('/') && !input.startsWith('/'+deviceId))
+  input = '/'+deviceId+input          // 補前綴
+h.set('X-DesktopST-Token', __mobileToken)  // 補 token
+```
+
+#### 由此推出的三條硬約束
+
+**① 產物必須是單一自足的 HTML（沒有任何子資源）**
+
+Worker **只 patch 了 `fetch`**。`<script src>` / `<link href>` 是瀏覽器原生的
+子資源載入，**完全繞過 fetch**，既不會補 deviceId 也不會帶 token
+→ relay 回 503／401 → **整頁全白**。
+`mobile.html` 從來沒事，正是因為它是單一檔案、零子資源。
+
+→ `vite.mobile.config.ts` 關掉 code split／CSS split、資產全轉 data URI，
+再由 `scripts/inline-mobile-build.mjs` 把 JS 與 CSS 內嵌進 index.html。
+該腳本**最後會驗收**：只要還留著任何非 `data:`／`http` 的外部引用就直接
+`exit 1`，因為那在 relay 上必然是白畫面。
+
+**② `baseUrl` 必須是「相對路徑」，不能是 `location.origin`**
+
+舊寫法組出 `https://relay.nori.tw/api/state` 這種**完整網址**，
+不符合 Worker patch 的 `startsWith('/')` 條件 → 不補 deviceId → 503。
+
+→ 改成：relay 時 `baseUrl = '/<deviceId>'`、區網時 `''`、`?server=` 時維持完整網址。
+帶前綴的路徑會被 Worker 的 `!startsWith('/'+deviceId)` 判斷跳過，不會變成兩層。
+
+**③ `<img src>` 與 WebSocket 得自己處理**
+
+Worker 幫不上忙：圖片不經 fetch、WebSocket 也不是 fetch。
+
+- 圖片：靠 ② 的 `baseUrl` 自帶 `/<deviceId>` 前綴，再由 `HttpClient.url()` 補 `?token=`
+- WebSocket：**一定要用注入的 `__tunnelWsUrl`**（relay 只代理 HTTP，
+  WS 得直連 cloudflared tunnel）。自己從 `location` 推會得到
+  `wss://relay.nori.tw/...`，連不上。`mobile.html` 1220 行本來就是這樣做的。
+
+> **教訓（兩次都栽在同一件事）**：跨越外部服務時，**先去量它的實際行為**，
+> 不要從自家程式碼推測。第一次推測「relay 是轉址服務」，錯；
+> 第二次推測「query 一定沒問題」，方向對但漏了子資源與 img/WS 三個面向。
+> 真正解決是在拿真實 URL 打了六七個 curl、把回應碼與錯誤頁內容看清楚之後。
+
+#### ⚠️ 靜態 bundle 刻意不要求 token
+
+`mobile.html` 是單一自足檔案（CSS/JS 全內嵌），進入網址帶 `?token=` 就結束了。
+React 版不同：index.html 會再去要 `./assets/*.js`，那些請求是**瀏覽器自己發的、
+不會帶 query string**，照 token 擋就是 401、白畫面。
+
+**cookie 方案評估後放棄**：進入頁面時種下、資源請求自動帶上，本地可行，
+但經 relay 的路徑語意不確定，要繞過就得放寬成 `Path=/`，
+等於讓 cookie 也能驗 `/api/*`，防線反而更鬆。
+
+**最後只放行 `/assets/*`**：帶雜湊檔名的開源建置產物，不含使用者資料與金鑰
+（API Key 從來不下發到手機，見 `LlmSettingsSnapshot` 的說明）。
+入口頁本身與所有 `/api/*` 一律仍需 token。
+
+`serveMobileAppFile()` 有**路徑穿越防護**：解析成絕對路徑後確認仍在 `out/mobile` 之內。
+這台伺服器對區網（甚至經 relay 對外）開著，`/app/../../settings.json` 這種請求
+若照單全收等於把整台電腦的檔案交出去。
+
+### 打包
+
+`out/**` 早就在 `electron-builder.yml` 的 `files` 裡，打包後在 asar 內而 `fs` 讀得到 asar，
+所以 `path.join(app.getAppPath(), 'out', 'mobile')` 在 dev 與打包都成立 ——
+**不必像 `mobile.html` 那樣分兩種路徑**（那是因為 `assets` 走 extraFiles 在 asar 外）。
+
+### QR 視窗
+
+`QRCodeWindow.tsx` 改成上下兩組（各 160px），共用 `QrBlock` 版型與
+「relay → tunnel → 區網」的同一套優先順序。沒跑過 `npm run build:mobile` 時
+新版那組顯示「尚未建置」提示而不是一個掃了會 503 的碼。
+
+#### ⚠️ 視窗被切掉：**兩個原因，都要修**（owner 2026-08-06 截圖回報）
+
+第一版只放大了內容，結果第二張 QR 整個看不到也捲不到。成因有兩層：
+
+1. **視窗高度不夠** —— 原本寫死 `320×440`，兩組 QR 的卡片實測高 **618px**。
+   改成 `340 × min(700, max(420, workArea高 - 60))`，並開放 `resizable`。
+2. **flex 置中會裁掉兩端，而且沒有捲軸** —— `root` 原本是
+   `display:flex; alignItems:center` 且沒給 `overflow`。內容一旦高於容器，
+   **上下同時被裁**，第二張 QR 完全拿不到。
+   改成 `flexDirection:'column'` 由上往下堆 ＋ `overflowY:'auto'` ＋ `maxHeight:'100vh'`，
+   卡片再補 `flexShrink:0`（column flex 裡預設會被壓縮，一壓縮又變成內容被切）。
+
+**只修高度是不夠的**：螢幕比例千奇百怪，總會遇到更矮的工作區。
+兩層都處理過才不會再切一次。
+
+實測（把真實樣式抽成獨立頁面量）：視窗高 700 剛好不需捲動；
+560／420／360 三種高度都可捲，且捲到底時第二張的複製鈕確實落在視野內。
+
+### dev 一鍵
+
+`DesktopST-dev.bat` 啟動前先跑 `npm run build:mobile`（約 6 秒），
+所以 QR 的新版永遠是最新程式碼，**不必再另外開 `MobileST-*.bat`**。
+
+⚠️ **代價：新版走的是建置產物，沒有 HMR。** 改完手機 UI 要重跑一次 bat（或手動
+`npm run build:mobile`）才會生效。要邊改邊看仍然用 `MobileST-test.bat`（vite dev server）。
+
+### 驗證方式
+
+前兩次都因為「假 relay 是照推測寫的」而驗過頭卻沒驗到重點。
+這次先用 owner 的真實 relay URL 打 curl 把行為量清楚（見上表），
+再照量到的結果重寫假 relay（scratchpad）：反向代理、要求 deviceId ＋ token、
+注入四變數與 fetch patch —— 與實測逐條對齊。
+
+然後用瀏覽器完整走一次，全部通過：
+
+| 檢查 | 結果 |
+|---|---|
+| 外部子資源數量 | **0**（單一檔產物生效） |
+| React 掛載並顯示資料 | ✅ |
+| API 路徑 | `/<deviceId>/api/state` → 200 ✅ |
+| 頭像（`<img>`，不經 fetch） | `/<deviceId>/api/avatar/c1?token=` → 200 ✅ |
+| WebSocket | 用注入的 `__tunnelWsUrl` 連上；推一則提醒，toast 有到 ✅ |
+| 缺 token / 缺 deviceId | 401 / 503（與實測相同）✅ |
+
+⚠️ **仍未在真的 DeST ＋ 真的 relay 上跑完整個流程** —— mobileServer 在 Electron
+主行程內，本次未啟動桌面程式。假 relay 這次是「照實測結果」而非推測寫的，
+可信度高很多，但最終仍以 owner 實機掃碼為準。
+打包後 asar 內的 `out/mobile` 讀取也還沒驗。
 
 ---
 

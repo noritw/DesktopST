@@ -74,10 +74,10 @@ export function MessageMenu({ messageId }: { messageId: string }): JSX.Element {
           對角色訊息顯示這一項等於給一顆必定失敗的按鈕 ——
           與 D5 那顆移出鈕同一種錯。 */}
       {message.role === 'user' && (
-        <MenuItem icon="🔄" label="重新發送" hint="刪掉這則之後的內容並重新產生回覆" onClick={() => void resend()} />
+        <MenuItem icon="resend" label="重新發送" hint="刪掉這則之後的內容並重新產生回覆" onClick={() => void resend()} />
       )}
-      <MenuItem icon="✏️" label="編輯" hint="改內容，不會重新產生回覆" onClick={() => void edit()} />
-      <MenuItem icon="🗑" label="刪除" destructive onClick={() => void remove()} />
+      <MenuItem icon="edit" label="編輯" hint="改內容，不會重新產生回覆" onClick={() => void edit()} />
+      <MenuItem icon="trash" label="刪除" destructive onClick={() => void remove()} />
     </div>
   )
 }

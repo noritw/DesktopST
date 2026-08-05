@@ -1,3 +1,4 @@
+import MonoIcon from '@shared/MonoIcon'
 import { useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { Avatar } from './Avatar'
@@ -38,9 +39,9 @@ export function AvatarBar(): JSX.Element {
         type="button"
         onClick={() => push('presence')}
         aria-label="這次對話有誰在場"
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-dashed border-[var(--border)] text-lg text-[var(--text-sub)] active:bg-[var(--bg)]"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-dashed border-[var(--border)] text-[var(--text-sub)] active:bg-[var(--bg)]"
       >
-        ＋
+        <MonoIcon name="plus" className="h-4 w-4" />
       </button>
     </div>
   )

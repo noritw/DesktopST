@@ -20,6 +20,7 @@ import type {
   SettingsApi
 } from '@core/data'
 import type { Character, PersonaPreset, Reminder, ScenePreset, WorldPreset } from '@core/types'
+import type { Lorebook } from '@core/lore'
 import { base64ToBytes, bytesToBase64 } from '@core/util/base64'
 import { HttpClient } from './httpClient'
 import type { HttpClientOptions } from './httpClient'
@@ -211,7 +212,11 @@ export class RemoteDataSource implements DataSource {
   }
 
   readonly lorebooks: LorebooksApi = {
-    list: async () => (await this.http.get<{ lorebooks: PresetListItem[] }>('/api/lorebooks')).lorebooks
+    list: async () => (await this.http.get<{ lorebooks: PresetListItem[] }>('/api/lorebooks')).lorebooks,
+    get: async (id) => (await this.http.get<{ book: Lorebook }>(`/api/lorebooks/${encodeURIComponent(id)}`)).book,
+    save: async (book) => (await this.http.post<{ book: Lorebook }>('/api/lorebooks/save', { book })).book,
+    remove: async (id) => { await this.http.post('/api/lorebooks/delete', { id }) },
+    create: async (name) => (await this.http.post<{ book: Lorebook }>('/api/lorebooks/create', { name })).book
   }
 
   readonly reminders: RemindersApi = {

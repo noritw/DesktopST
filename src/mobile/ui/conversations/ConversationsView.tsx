@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ConversationListItem } from '@core/data'
+import MonoIcon from '@shared/MonoIcon'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from '../settings/settingsErrors'
@@ -88,9 +89,10 @@ export function ConversationsView(): JSX.Element {
         type="button"
         disabled={creating}
         onClick={() => void create()}
-        className="mb-3 w-full rounded-full bg-[var(--mint)] py-2.5 text-sm text-[var(--text)] disabled:opacity-50"
+        className="mb-3 flex w-full items-center justify-center gap-1 rounded-full bg-[var(--mint)] py-2.5 text-sm text-[var(--text)] disabled:opacity-50"
       >
-        ＋ 新對話
+        <MonoIcon name="plus" className="h-3.5 w-3.5" />
+        新對話
       </button>
 
       {list.length === 0 ? (
@@ -112,7 +114,7 @@ export function ConversationsView(): JSX.Element {
               >
                 <p className="truncate text-sm text-[var(--text)]">{item.title || '（未命名）'}</p>
                 {item.active ? (
-                  <StatusChip active>✓ 目前對話</StatusChip>
+                  <StatusChip active>目前對話</StatusChip>
                 ) : (
                   <p className="mt-1 text-[11px] text-[var(--text-sub)]">{formatUpdatedAt(item.updatedAt)}</p>
                 )}
@@ -121,9 +123,9 @@ export function ConversationsView(): JSX.Element {
                 type="button"
                 aria-label={`編輯${item.title}`}
                 onClick={() => push('conversation-editor', item.id)}
-                className="shrink-0 rounded-full px-2 py-1 text-sm active:bg-[var(--border)]"
+                className="shrink-0 rounded-full p-2 text-[var(--text-sub)] active:bg-[var(--border)]"
               >
-                ✏️
+                <MonoIcon name="edit" className="h-4 w-4" />
               </button>
             </div>
           ))}

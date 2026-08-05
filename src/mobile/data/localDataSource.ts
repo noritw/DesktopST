@@ -119,7 +119,11 @@ export class LocalDataSource implements DataSource {
   }
 
   readonly lorebooks: LorebooksApi = {
-    list: () => Promise.reject(pending('lorebooks.list', 3))
+    list: () => Promise.reject(pending('lorebooks.list', 3)),
+    get: () => Promise.reject(pending('lorebooks.get', 9)),
+    save: () => Promise.reject(pending('lorebooks.save', 9)),
+    remove: () => Promise.reject(pending('lorebooks.remove', 9)),
+    create: () => Promise.reject(pending('lorebooks.create', 9))
   }
 
   readonly reminders: RemindersApi = {

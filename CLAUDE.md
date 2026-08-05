@@ -50,6 +50,10 @@ DesktopST\
 ├── CLAUDE.md               ← 本文件
 ├── DesktopST-Spec.md       ← 完整規格書
 ├── src\                    ← 程式碼（Electron + React）
+│   ├── core\               ← 純 TS 邏輯，禁 import electron/fs/path
+│   ├── shared\             ← 桌面與手機共用的純呈現元件（目前只有 MonoIcon）
+│   ├── main\ renderer\     ← Electron 主行程／桌面 UI
+│   └── mobile\             ← 手機 UI（B3）
 ├── assets\                 ← 設計素材（owner 製作的圖片）
 └── dist\                   ← 打包輸出（不要 commit）
 ```
@@ -71,6 +75,8 @@ DesktopST\
 - `src/styles/theme.css`
 - `tailwind.config.ts`
 - `src/styles/global.css`
+- `src/shared/MonoIcon.tsx`（單色圖示，**桌面與手機共用同一份**——
+  要加圖示改這裡，不要在任一邊另抄一份）
 
 ---
 
@@ -154,8 +160,19 @@ API Key safeStorage 加密・Spotify 音樂偵測・多人聊天與泡泡效能�
 - [x] 實機回報修正 → 計畫書 §4.16。⚠️ **選檔的 `accept` 只給 `image/*` 這種大類，
   不要列具體格式或副檔名**（Android 相簿會一張圖都不顯示）；格式把關留給選完之後
 - [x] 階段 8：對話清單與切換（2026-08-05，程式與 stub 端點驗證完成，待真機驗證）
-- [ ] **下一步：階段 9**（用語解說內容編輯）→ 6（個人新聞報）
-  → 7 取代 `mobile.html` ＋ APK 正式打包
+- [x] 階段 9：用語解說（Lorebook）內容編輯（2026-08-06，程式與 stub 端點驗證完成，待真機驗證）
+- [x] 資訊架構重整 ＋ 全面單色圖示（2026-08-06 owner 回報）→ 計畫書 §4.19。
+  Header 改「狀態標籤即入口」＋☰ 主選單／設定頁拆成平行區塊／用語解說併進情境頁／
+  `MonoIcon` 與模型定價表抽成桌面手機共用。⚠️ **改 vite alias 或 tailwind content 後
+  一定要重開 dev server**，否則圖示會無聲消失
+- [x] 兩個入口並存：`/?ui=app` 新版 ＋ `/` 舊版 `mobile.html`，QR 視窗出兩組碼（2026-08-06）。
+  ⚠️ **relay 的三條硬約束**（實測，見計畫書 §4.20，改動手機連線相關必讀）：
+  ①手機產物必須是**單一自足 HTML**（relay 只 patch fetch，子資源會 503／401 → 全白）；
+  ②`baseUrl` 要用相對路徑不能用 `location.origin`；③WebSocket 必須用注入的 `__tunnelWsUrl`
+  → 計畫書 §4.20。`DesktopST-dev.bat` 會先建置手機 UI，dev 不必再開 `MobileST-*.bat`。
+  ⚠️ **新版走建置產物沒有 HMR**，改完要重跑 bat；邊改邊看仍用 `MobileST-test.bat`
+- [ ] **下一步：階段 6**（個人新聞報）→ 7 ＋ APK 正式打包。
+  ⚠️ **`mobile.html` 不能在 B6 之前刪掉**——遙控面板（H1–H11）只有舊版有
 
 **規劃中：**
 - [ ] 手機獨立版與平台擴充 → `docs/multi-device-platform-roadmap.md`

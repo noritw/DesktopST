@@ -686,6 +686,61 @@ export function removeScenePresetDirect(id: string): { ok: true } | { error: 'no
   return { ok: true }
 }
 
+// ── 用語解說（Lorebook）CRUD（B3 階段 9）───────────────────
+// 桌面 IPC（`lorebook:*`）與手機 mobileServer 都薄轉呼叫這幾支，邏輯只有一份。
+export function getLorebookDirect(id: string): Lorebook | null {
+  return fileStore.loadLorebook(id)
+}
+
+export function createLorebookDirect(name?: string): Lorebook {
+  const now = Date.now()
+  const book: Lorebook = {
+    id: uuidv4(),
+    name: (name ?? '').trim() || '用語解說',
+    entries: [],
+    scan_depth: DEFAULT_SCAN_DEPTH,
+    token_budget: DEFAULT_TOKEN_BUDGET,
+    createdAt: now,
+    updatedAt: now
+  }
+  fileStore.saveLorebook(book)
+  broadcastToAll('lorebooks:updated', null)
+  return book
+}
+
+export function saveLorebookDirect(incoming: Lorebook): { ok: true; book: Lorebook } | { error: 'invalid-input' } {
+  if (!incoming?.id) return { error: 'invalid-input' }
+  const book: Lorebook = { ...incoming, updatedAt: Date.now() }
+  fileStore.saveLorebook(book)
+  broadcastToAll('lorebooks:updated', null)
+  return { ok: true, book }
+}
+
+export function removeLorebookDirect(id: string): { ok: true } {
+  fileStore.deleteLorebook(id)
+  // 掛在角色卡／世界觀／情境上的參照一併清掉，避免留下指向不存在的 id
+  for (const c of characters) {
+    if (c.lorebookIds?.includes(id)) {
+      c.lorebookIds = c.lorebookIds.filter(x => x !== id)
+      fileStore.saveCharacter(c)
+    }
+  }
+  for (const w of fileStore.loadWorldPresets()) {
+    if (w.lorebookIds?.includes(id)) {
+      fileStore.saveWorldPreset({ ...w, lorebookIds: w.lorebookIds.filter(x => x !== id), updatedAt: Date.now() })
+    }
+  }
+  for (const s of fileStore.loadScenePresets()) {
+    if (s.lorebookIds?.includes(id)) {
+      fileStore.saveScenePreset({ ...s, lorebookIds: s.lorebookIds.filter(x => x !== id), updatedAt: Date.now() })
+    }
+  }
+  broadcastToAll('lorebooks:updated', null)
+  broadcastToAll('characters:updated', characters)
+  broadcastToAll('scenes:updated', null)
+  return { ok: true }
+}
+
 // ── 手機端設定（B3 階段 4）──────────────────────────────
 //
 // 桌面設定視窗的 LLM 分頁涵蓋供應商目錄、價格提示等桌面專屬的呈現邏輯；
@@ -4493,54 +4548,14 @@ export function registerIpcHandlers() {
 
   // ── 用語解說（Lorebook）CRUD ＋ ST 匯入匯出 ──────────────
   ipcMain.handle('lorebook:list', () => fileStore.loadLorebooks())
-  ipcMain.handle('lorebook:get', (_, id: string) => fileStore.loadLorebook(id))
-
-  ipcMain.handle('lorebook:create', (_, name: string) => {
-    const now = Date.now()
-    const book: Lorebook = {
-      id: uuidv4(),
-      name: (name ?? '').trim() || '用語解說',
-      entries: [],
-      // 0 ＝ 跟隨上下文：掃描範圍與模型看得到的訊息一致
-      scan_depth: DEFAULT_SCAN_DEPTH,
-      token_budget: DEFAULT_TOKEN_BUDGET,
-      createdAt: now,
-      updatedAt: now
-    }
-    fileStore.saveLorebook(book)
-    broadcastToAll('lorebooks:updated', null)
-    return book
-  })
-
+  ipcMain.handle('lorebook:get', (_, id: string) => getLorebookDirect(id))
+  ipcMain.handle('lorebook:create', (_, name: string) => createLorebookDirect(name))
   ipcMain.handle('lorebook:save', (_, book: Lorebook) => {
-    if (!book?.id) return false
-    fileStore.saveLorebook({ ...book, updatedAt: Date.now() })
-    broadcastToAll('lorebooks:updated', null)
-    return true
+    const r = saveLorebookDirect(book)
+    return 'ok' in r
   })
-
   ipcMain.handle('lorebook:delete', (_, id: string) => {
-    fileStore.deleteLorebook(id)
-    // 掛在角色卡／世界觀／情境上的參照一併清掉，避免留下指向不存在的 id
-    for (const c of characters) {
-      if (c.lorebookIds?.includes(id)) {
-        c.lorebookIds = c.lorebookIds.filter(x => x !== id)
-        fileStore.saveCharacter(c)
-      }
-    }
-    for (const w of fileStore.loadWorldPresets()) {
-      if (w.lorebookIds?.includes(id)) {
-        fileStore.saveWorldPreset({ ...w, lorebookIds: w.lorebookIds.filter(x => x !== id), updatedAt: Date.now() })
-      }
-    }
-    for (const s of fileStore.loadScenePresets()) {
-      if (s.lorebookIds?.includes(id)) {
-        fileStore.saveScenePreset({ ...s, lorebookIds: s.lorebookIds.filter(x => x !== id), updatedAt: Date.now() })
-      }
-    }
-    broadcastToAll('lorebooks:updated', null)
-    broadcastToAll('characters:updated', characters)
-    broadcastToAll('scenes:updated', null)
+    removeLorebookDirect(id)
     return true
   })
 

@@ -33,6 +33,9 @@ export type ViewKind =
   | 'news'
   | 'random-tools'
   | 'theme-picker'
+  | 'lorebook-editor'
+  /** 頂部那顆 ☰ 展開的主選單（B3 2026-08-06 資訊架構重整）。 */
+  | 'menu'
 
 export interface ViewEntry {
   /** 每次 push 都不同，讓 React 的 key 穩定（同一個 kind 可以疊兩層）。 */
@@ -90,6 +93,13 @@ interface UiState {
 
   stack: ViewEntry[]
   push: (kind: ViewKind, param?: string) => void
+  /**
+   * 換掉最上層畫面（不是疊上去）。
+   *
+   * 主選單專用：從 ☰ 點進「設定」之後，返回應該直接回到聊天，
+   * 而不是回到選單再按一次。用 `push` 的話選單會留在堆疊裡變成多一層。
+   */
+  replace: (kind: ViewKind, param?: string) => void
   pop: () => void
   /**
    * 使用者要求關閉最上層畫面（✕、點遮罩、返回鍵三者共用）。
@@ -144,6 +154,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   stack: [],
   // 疊新畫面時清掉 guard：它屬於底下那一層，留著會讓上層被誤攔。
   push: (kind, param) => set((s) => ({ stack: [...s.stack, { id: nextId(), kind, param }], closeGuard: null })),
+  replace: (kind, param) =>
+    set((s) => ({ stack: [...s.stack.slice(0, -1), { id: nextId(), kind, param }], closeGuard: null })),
   pop: () => set((s) => ({ stack: s.stack.slice(0, -1), closeGuard: null })),
   popAll: () => set({ stack: [], closeGuard: null }),
 

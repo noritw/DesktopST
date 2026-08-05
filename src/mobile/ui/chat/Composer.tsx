@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { expandRandomTokens, hasRandomTokens } from '@core/prompt/randomTokens'
+import MonoIcon from '@shared/MonoIcon'
 import { useAppStore } from '../stores/appStore'
 import { useComposerStore } from '../stores/composerStore'
 import { useUiStore } from '../stores/uiStore'
@@ -173,9 +174,10 @@ export function Composer(): JSX.Element {
           onClick={() => fileRef.current?.click()}
           disabled={picking || images.length >= maxImages}
           aria-label="附加圖片"
-          className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl text-[var(--text-sub)] transition-opacity active:bg-[var(--bg)] disabled:opacity-40"
+          className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--text-sub)] transition-opacity active:bg-[var(--bg)] disabled:opacity-40"
         >
-          {picking ? '⏳' : '🖼'}
+          {/* 選檔中用轉圈的重送圖示代替沙漏 emoji，維持單色風格 */}
+          <MonoIcon name={picking ? 'resend' : 'image'} className={picking ? 'h-5 w-5 anim-breathe' : 'h-5 w-5'} />
         </button>
 
         {randomToolsEnabled && (
@@ -183,9 +185,9 @@ export function Composer(): JSX.Element {
             type="button"
             onClick={() => push('random-tools')}
             aria-label="隨機工具"
-            className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl text-[var(--text-sub)] active:bg-[var(--bg)]"
+            className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--text-sub)] active:bg-[var(--bg)]"
           >
-            🎲
+            <MonoIcon name="dice" className="h-5 w-5" />
           </button>
         )}
 
@@ -227,7 +229,7 @@ export function Composer(): JSX.Element {
           aria-label="送出"
           className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--mint)] text-[var(--text)] transition-opacity disabled:opacity-40"
         >
-          ➤
+          <MonoIcon name="send" className="h-[18px] w-[18px]" />
         </button>
       </div>
     </div>

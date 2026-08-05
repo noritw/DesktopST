@@ -24,8 +24,17 @@ export interface Connection {
 
 declare global {
   interface Window {
-    /** relay 的 Cloudflare Worker 會在頁面注入這個。 */
+    /**
+     * relay 的 Cloudflare Worker 注入的四個值。
+     *
+     * relay 是**反向代理**（不是轉址），且每個請求都要「`/<deviceId>` 路徑 ＋ token」。
+     * Worker 會在它代理的 HTML 裡注入這些，並 patch `window.fetch` 幫忙補上前綴與 header。
+     * ⚠️ 但**只有 `fetch` 被 patch** —— `<img src>` 與 WebSocket 都得自己處理，見下。
+     */
     __mobileToken?: string
+    __relayDeviceId?: string
+    __relayPageUrl?: string
+    __tunnelWsUrl?: string
   }
 }
 
@@ -43,15 +52,54 @@ export function resolveConnection(loc: Location = location): Connection {
   const token = window.__mobileToken || params.get('token') || ''
   const serverOverride = params.get('server')
 
-  const baseUrl = (serverOverride || loc.origin).replace(/\/$/, '')
+  /*
+   * ⚠️ **同源時 `baseUrl` 必須是「相對路徑」而不是 `loc.origin`**
+   * （2026-08-06 實機打臉後改）。
+   *
+   * 舊寫法組出 `https://relay.nori.tw/api/state` 這種**完整網址**，
+   * 而 relay Worker 的 fetch patch 只改寫「`/` 開頭的字串」：
+   *
+   *     input.startsWith('/') && !input.startsWith('/' + deviceId)
+   *
+   * 完整網址不符合條件 → 不補 deviceId → relay 不知道要轉給哪台電腦 → 503。
+   *
+   * 改成相對路徑後：
+   *   - relay：`baseUrl = '/<deviceId>'`，組出 `/<deviceId>/api/state`。
+   *     已經帶前綴，Worker 的 `!startsWith` 判斷會跳過（不會變成兩層），
+   *     而 `<img src>` 這類**不經 fetch** 的請求也因此自帶前綴 —— 這是關鍵，
+   *     Worker 幫不了圖片，只能我們自己組對。
+   *   - 區網直連：`baseUrl = ''`，組出 `/api/state`，同源本來就對。
+   *   - 開發（`?server=`）：維持完整網址，那條路沒有 Worker。
+   */
+  const relayDeviceId = window.__relayDeviceId
+  const baseUrl = serverOverride
+    ? serverOverride.replace(/\/$/, '')
+    : relayDeviceId
+      ? `/${relayDeviceId}`
+      : ''
 
   return { mode: 'remote', baseUrl, token }
 }
 
-/** WebSocket 位址。`http(s)` → `ws(s)`，權杖走 query（WS 不能加 header）。 */
+/**
+ * WebSocket 位址。`http(s)` → `ws(s)`，權杖走 query（WS 不能加 header）。
+ *
+ * ⚠️ **經 relay 時一定要用 Worker 注入的 `__tunnelWsUrl`。**
+ * relay 只代理 HTTP，WebSocket 得直接連 cloudflared tunnel；
+ * 自己從 `location` 推會得到 `wss://relay.nori.tw/...`，那是連不上的
+ * （`mobile.html` 1220 行本來就是這樣處理，這裡照抄同一個優先順序）。
+ */
 export function wsUrlFor(conn: Connection): string {
-  const base = conn.baseUrl.replace(/^http/, 'ws')
-  return `${base}/?token=${encodeURIComponent(conn.token)}`
+  if (window.__tunnelWsUrl) return window.__tunnelWsUrl
+
+  const token = encodeURIComponent(conn.token)
+  // baseUrl 現在可能是相對路徑（''／'/<deviceId>'），沒有 protocol 可以換，
+  // 這種情況要拿當前頁面的 origin 來組。
+  if (/^https?:/i.test(conn.baseUrl)) {
+    return `${conn.baseUrl.replace(/^http/, 'ws')}/?token=${token}`
+  }
+  const wsOrigin = location.origin.replace(/^http/, 'ws')
+  return `${wsOrigin}${conn.baseUrl}/?token=${token}`
 }
 
 /**

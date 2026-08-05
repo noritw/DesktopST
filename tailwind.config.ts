@@ -2,7 +2,9 @@ import type { Config } from 'tailwindcss'
 
 const config: Config = {
   content: [
-    './src/renderer/**/*.{js,ts,jsx,tsx,html}'
+    './src/renderer/**/*.{js,ts,jsx,tsx,html}',
+    // 與手機共用的呈現元件（MonoIcon 的預設 `w-4 h-4` 要掃得到）
+    './src/shared/**/*.{ts,tsx}'
   ],
   theme: {
     extend: {

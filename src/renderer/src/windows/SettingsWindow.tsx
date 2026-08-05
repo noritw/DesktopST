@@ -5,6 +5,18 @@ import {
   OPENAI_DATA_SHARING_INCENTIVE_10M_GROUP,
   OPENAI_DATA_SHARING_INCENTIVE_1M_GROUP
 } from '../constants/openaiDataSharingIncentiveModels'
+import {
+  OPENAI_MODELS,
+  CLAUDE_MODELS,
+  GEMINI_MODELS,
+  GROK_MODELS,
+  MODEL_DATA_UPDATED,
+  HIGH_PRICE_INPUT,
+  HIGH_PRICE_OUTPUT,
+  isHighPriceModel,
+  modelPriceText,
+  splitModelsByPrice
+} from '@core/llm/modelCatalog'
 import { useAppStore } from '../stores/useAppStore'
 import type { AppSettings, PersonaPreset, RemoteCapability, ScenePreset, WorldPreset } from '../types'
 import MonoIcon from '../components/MonoIcon'
@@ -42,129 +54,17 @@ function openaiModelOptionsFor(mode: OpenaiModelListMode): string[] {
   return mode === 'catalog' ? MODELS : openaiDatalistOptions(mode)
 }
 
-/** 建議值：與官方目錄同步手動維護，或以帳戶可用的 `GET https://api.openai.com/v1/models` 為準 */
-const MODELS = [
-  'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
-  'gpt-5.5', 'gpt-5.5-pro',
-  'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano',
-  'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.1',
-  'gpt-5', 'gpt-5-pro', 'gpt-5-mini', 'gpt-5-nano',
-  'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
-  'gpt-4o', 'gpt-4o-mini',
-  'o3', 'o3-pro', 'o4-mini', 'o1'
-]
+/**
+ * ⚠️ **模型清單與價格已搬到 `src/core/llm/modelCatalog.ts`**（2026-08-06）。
+ * 手機版設定頁 import 同一份，兩邊不會再各列一份而走鐘。
+ * **要加新型號或改價格請改那個檔，不要改這裡。**
+ */
+const MODELS = OPENAI_MODELS
 
-const CLAUDE_MODELS = [
-  'claude-fable-5',
-  'claude-opus-5',
-  'claude-opus-4-8',
-  'claude-sonnet-5',
-  'claude-opus-4-7',
-  'claude-sonnet-4-6',
-  'claude-opus-4-6',
-  'claude-haiku-4-5'
-]
-
-const GEMINI_MODELS = [
-  'gemini-3.6-flash',
-  'gemini-3.5-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite',
-  'gemini-3.1-pro-preview',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-pro'
-]
-
-const GROK_MODELS = [
-  'grok-4.5',
-  'grok-4.3',
-  'grok-4.20-0309-reasoning',
-  'grok-4.20-0309-non-reasoning'
-]
-
-/** 模型清單與價格的人工同步日期（依各家官方定價頁） */
-const MODEL_DATA_UPDATED = '2026-08-01'
-
-/** 每百萬 tokens 美金價（輸入, 輸出）；未列出的模型（如官方快照 ID、自訂 ID）不顯示價格 */
-const MODEL_PRICES: Record<string, [number, number]> = {
-  // OpenAI
-  'gpt-5.6-sol': [5, 30],
-  'gpt-5.6-terra': [2, 12],
-  'gpt-5.6-luna': [0.2, 1.2],
-  'gpt-5.5': [5, 30],
-  'gpt-5.5-pro': [30, 180],
-  'gpt-5.4': [2.5, 15],
-  'gpt-5.4-pro': [30, 180],
-  'gpt-5.4-mini': [0.75, 4.5],
-  'gpt-5.4-nano': [0.2, 1.25],
-  'gpt-5.2': [1.75, 14],
-  'gpt-5.2-pro': [21, 168],
-  'gpt-5.1': [1.25, 10],
-  'gpt-5': [1.25, 10],
-  'gpt-5-pro': [15, 120],
-  'gpt-5-mini': [0.25, 2],
-  'gpt-5-nano': [0.05, 0.4],
-  'gpt-4.1': [2, 8],
-  'gpt-4.1-mini': [0.4, 1.6],
-  'gpt-4.1-nano': [0.1, 0.4],
-  'gpt-4o': [2.5, 10],
-  'gpt-4o-mini': [0.15, 0.6],
-  'o3': [2, 8],
-  'o3-pro': [20, 80],
-  'o4-mini': [1.1, 4.4],
-  'o1': [15, 60],
-  // Anthropic Claude
-  'claude-fable-5': [10, 50],
-  'claude-opus-5': [5, 25],
-  'claude-opus-4-8': [5, 25],
-  'claude-sonnet-5': [3, 15],
-  'claude-opus-4-7': [5, 25],
-  'claude-sonnet-4-6': [3, 15],
-  'claude-opus-4-6': [5, 25],
-  'claude-haiku-4-5': [1, 5],
-  // Google Gemini（長 prompt 分級價以 ≤200K tokens 計）
-  'gemini-3.6-flash': [1.5, 7.5],
-  'gemini-3.5-flash': [1.5, 9],
-  'gemini-3.5-flash-lite': [0.3, 2.5],
-  'gemini-3.1-flash-lite': [0.25, 1.5],
-  'gemini-3.1-pro-preview': [2, 12],
-  'gemini-2.5-flash': [0.3, 2.5],
-  'gemini-2.5-flash-lite': [0.1, 0.4],
-  'gemini-2.5-pro': [1.25, 10],
-  // xAI Grok
-  'grok-4.5': [2, 6],
-  'grok-4.3': [1.25, 2.5],
-  'grok-4.20-0309-reasoning': [1.25, 2.5],
-  'grok-4.20-0309-non-reasoning': [1.25, 2.5]
-}
-
-function modelPriceText(m: string): string | null {
-  const p = MODEL_PRICES[m]
-  return p ? `$${p[0]} / $${p[1]}` : null
-}
-
+/** 帶價格的顯示字串。屬 UI 文案，故留在這一層。 */
 function modelOptionLabel(m: string): string {
   const price = modelPriceText(m)
   return price ? `${m}（${price}）` : m
-}
-
-/** 高單價門檻（每百萬 tokens 美金）：輸入或輸出任一超過就歸到高單價區並加警告 */
-const HIGH_PRICE_INPUT = 10
-const HIGH_PRICE_OUTPUT = 50
-
-function isHighPriceModel(m: string): boolean {
-  const p = MODEL_PRICES[m]
-  if (!p) return false
-  return p[0] >= HIGH_PRICE_INPUT || p[1] >= HIGH_PRICE_OUTPUT
-}
-
-/** 把模型清單依單價拆成一般／高單價兩組，供 optgroup 使用 */
-function splitModelsByPrice(list: string[]): { normal: string[]; high: string[] } {
-  const normal: string[] = []
-  const high: string[] = []
-  for (const m of list) (isHighPriceModel(m) ? high : normal).push(m)
-  return { normal, high }
 }
 
 const HIGH_PRICE_GROUP_LABEL = `⚠ 高單價（輸入 ≥$${HIGH_PRICE_INPUT} 或輸出 ≥$${HIGH_PRICE_OUTPUT}）`

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { AppStateSnapshot, DataSource, MessageSnapshot, SendMessageInput } from '@core/data'
 import { DataError } from '@core/data'
 import type { AppEvent, ConnectionStatus, EventSource } from '@core/events'
+import { useUiStore } from './uiStore'
 
 /**
  * 應用資料狀態。**聊天元件唯一的資料入口。**
@@ -212,8 +213,11 @@ function handleEvent(e: AppEvent, set: Setter, get: () => AppState): void {
       return
 
     case 'reminder':
-      // 提醒的內容是角色要說的話，會另外以訊息形式進來；
-      // 這裡不重複塞進訊息串，交給 UI 決定要不要跳提示。
+      // 提醒的內容是角色要說的話，會另外以訊息形式進來，所以**不重複塞進訊息串**。
+      // 但仍要跳一則 toast：使用者可能正開著某個 sheet（設定、角色庫⋯⋯），
+      // 看不到底下的訊息串就完全不會發現提醒到了。
+      // `mobile.html` 本來就有這個行為（1254 行），漏掉等於功能倒退。
+      useUiStore.getState().toast(e.content || '收到提醒')
       return
 
     case 'state-invalidated':

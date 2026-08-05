@@ -1,29 +1,51 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { LlmProvider, LlmSettingsSnapshot, MemorySettingsSnapshot, ModuleToggle } from '@core/data'
+import { MODEL_DATA_UPDATED } from '@core/llm/modelCatalog'
+import MonoIcon from '@shared/MonoIcon'
 import { getData } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from './settingsErrors'
-import { PROVIDERS, PROVIDER_KEY_PLACEHOLDER, PROVIDER_LABELS, PROVIDER_MODEL_SUGGESTIONS } from './providerInfo'
+import {
+  HIGH_PRICE_GROUP_LABEL,
+  NORMAL_PRICE_GROUP_LABEL,
+  PROVIDERS,
+  PROVIDER_KEY_PLACEHOLDER,
+  PROVIDER_LABELS,
+  modelOptionLabel,
+  modelsFor,
+  splitModelsByPrice
+} from './providerInfo'
+import { moduleDescription } from './moduleInfo'
 
 /**
- * 設定（B3 階段 4）。
+ * 設定（B3 階段 4；2026-08-06 依 owner 回報重整資訊架構）。
  *
- * 依 §2 目標 4 分兩層：第一層只有「供應商／模型／API Key」，
- * 其餘（endpoint、記憶參數、模組開關、提醒）收進「進階」摺疊區——
- * 新安裝的使用者不必先看懂這些名詞才能開始聊天。
+ * ## 改了什麼
+ *
+ * 原本是「第一層 ＋ 一個叫『進階』的大雜燴」，端點、記憶、模組開關、提醒全塞在裡面，
+ * owner 回報「分類太亂，容易讓新手困惑」。現在改成**平行的展開區塊**，
+ * 每一塊自己一個標題，點了才展開：
+ *
+ *   ┌ 連線（不可收合，這是唯一必填的東西）── 供應商／模型／API Key
+ *   ├ 記憶            ← 從「進階」獨立出來
+ *   ├ 模組開關         ← 從「進階」獨立出來，而且每個模組都有一句說明
+ *   └ 進階            ← 只剩自訂端點這一項
+ *
+ * 「提醒」已搬到頂部 ☰ 主選單（owner 決定：它是會固定使用的功能，不是設定項）。
+ *
+ * ## 模型清單
+ *
+ * 改吃 `@core/llm/modelCatalog`，與桌面版同一份，並在每個選項標上
+ * 每百萬 tokens 的參考價；高單價的另外分一組加警告，避免誤選很貴的型號。
  */
 export function SettingsView(): JSX.Element {
   const toast = useUiStore((s) => s.toast)
-  const push = useUiStore((s) => s.push)
 
   const [llm, setLlm] = useState<LlmSettingsSnapshot | null>(null)
   const [memory, setMemory] = useState<MemorySettingsSnapshot | null>(null)
   const [modules, setModules] = useState<ModuleToggle[] | null>(null)
   const [failed, setFailed] = useState(false)
-  const [showAdvanced, setShowAdvanced] = useState(false)
-  // 這個畫面只能透過已就緒之後才會出現的頭像列／設定入口打開，理論上 `getData()`
-  // 這時一定接好了；仍然用 try/catch 取而非直接同步呼叫，避免任何時序邊緣情況
-  // 讓整個畫面崩掉（`getData()` 沒接上時會 throw）。
+  const [open, setOpen] = useState<'memory' | 'modules' | 'advanced' | null>(null)
   const [apiKeyAccess, setApiKeyAccess] = useState(false)
 
   const [modelDraft, setModelDraft] = useState('')
@@ -52,7 +74,6 @@ export function SettingsView(): JSX.Element {
     try {
       setModules(await getData().settings.listModules())
     } catch {
-      // 進階區才用得到；載入失敗就留空白，不擋整頁設定。
       setModules([])
     }
   }, [])
@@ -62,13 +83,12 @@ export function SettingsView(): JSX.Element {
   }, [load])
 
   useEffect(() => {
-    if (showAdvanced && modules === null) void loadModules()
-  }, [showAdvanced, modules, loadModules])
+    if (open === 'modules' && modules === null) void loadModules()
+  }, [open, modules, loadModules])
 
   const changeProvider = async (provider: LlmProvider): Promise<void> => {
     if (!llm) return
     const previous = llm
-    // 樂觀切換：下拉選單本身就是即時回饋，不必等伺服器答完才動畫面。
     setLlm({ ...llm, provider, model: llm.models[provider] ?? '' })
     try {
       await getData().settings.setLlmProvider(provider)
@@ -79,9 +99,9 @@ export function SettingsView(): JSX.Element {
     }
   }
 
-  const saveModel = async (): Promise<void> => {
+  const saveModel = async (value: string): Promise<void> => {
     if (!llm) return
-    const trimmed = modelDraft.trim()
+    const trimmed = value.trim()
     if (!trimmed || trimmed === llm.model) return
     setSavingModel(true)
     try {
@@ -165,164 +185,225 @@ export function SettingsView(): JSX.Element {
 
   if (!llm || !memory) return <div className="py-8 text-center text-sm text-[var(--text-sub)]">載入中⋯⋯</div>
 
+  const { normal, high } = splitModelsByPrice(modelsFor(llm.provider))
+
   return (
-    <div className="pb-2">
-      <Field label="供應商">
-        <select
-          className="field"
-          value={llm.provider}
-          onChange={(e) => void changeProvider(e.target.value as LlmProvider)}
-        >
-          {PROVIDERS.map((p) => (
-            <option key={p} value={p}>
-              {PROVIDER_LABELS[p]}
-            </option>
-          ))}
-        </select>
-      </Field>
-
-      <Field label="模型">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            className="field flex-1"
-            list="mobile-model-suggestions"
-            value={modelDraft}
-            onChange={(e) => setModelDraft(e.target.value)}
-            onBlur={() => void saveModel()}
-          />
-          <button
-            type="button"
-            disabled={savingModel || modelDraft.trim() === llm.model}
-            onClick={() => void saveModel()}
-            className="btn-ghost px-4 disabled:opacity-40"
+    <div className="space-y-4 pb-2">
+      {/* ── 連線：唯一必填的一塊，永遠攤開 ────────────────── */}
+      <section className="space-y-3">
+        <Field label="供應商">
+          <select
+            className="field"
+            value={llm.provider}
+            onChange={(e) => void changeProvider(e.target.value as LlmProvider)}
           >
-            儲存
-          </button>
-        </div>
-        <datalist id="mobile-model-suggestions">
-          {PROVIDER_MODEL_SUGGESTIONS[llm.provider].map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
-      </Field>
-
-      {apiKeyAccess ? (
-        <Field
-          label={`API Key（${PROVIDER_LABELS[llm.provider]}）`}
-          hint={llm.hasApiKey[llm.provider] ? '已設定。輸入新的內容並儲存即可覆蓋，看不到舊金鑰。' : '尚未設定。'}
-        >
-          <div className="flex gap-2">
-            <input
-              type="password"
-              className="field flex-1"
-              placeholder={PROVIDER_KEY_PLACEHOLDER[llm.provider]}
-              value={apiKeyDraft}
-              onChange={(e) => setApiKeyDraft(e.target.value)}
-            />
-            <button
-              type="button"
-              disabled={savingKey || !apiKeyDraft.trim()}
-              onClick={() => void saveApiKey()}
-              className="btn-ghost px-4 disabled:opacity-40"
-            >
-              儲存
-            </button>
-          </div>
+            {PROVIDERS.map((p) => (
+              <option key={p} value={p}>
+                {PROVIDER_LABELS[p]}
+              </option>
+            ))}
+          </select>
         </Field>
-      ) : (
-        <div className="mb-4 rounded-[14px] bg-[var(--bg)] p-3 text-[11px] leading-relaxed text-[var(--text-sub)]">
-          目前透過中繼伺服器連線，為保護金鑰安全，API Key 欄位不會顯示。改用與電腦同一個區網連線即可編輯。
-        </div>
-      )}
 
-      <button
-        type="button"
-        onClick={() => setShowAdvanced((v) => !v)}
-        className="mt-1 flex w-full items-center gap-1.5 border-t border-[var(--border)] pt-3 text-sm text-[var(--text-sub)]"
-      >
-        <span className={showAdvanced ? 'rotate-90 transition-transform' : 'transition-transform'}>▶</span>
-        進階
-      </button>
+        <Field
+          label="模型"
+          hint={`括號內是參考價：每百萬 tokens 的美金價（輸入 / 輸出），更新於 ${MODEL_DATA_UPDATED}。`}
+        >
+          <select
+            className="field"
+            disabled={savingModel}
+            value={modelsFor(llm.provider).includes(modelDraft) ? modelDraft : ''}
+            onChange={(e) => {
+              setModelDraft(e.target.value)
+              void saveModel(e.target.value)
+            }}
+          >
+            {/* 自訂／快照型號不在目錄裡時，保留一個代表目前值的選項，避免顯示成空白 */}
+            {!modelsFor(llm.provider).includes(modelDraft) && (
+              <option value="">{modelDraft || '（尚未選擇）'}</option>
+            )}
+            <optgroup label={NORMAL_PRICE_GROUP_LABEL}>
+              {normal.map((m) => (
+                <option key={m} value={m}>
+                  {modelOptionLabel(m)}
+                </option>
+              ))}
+            </optgroup>
+            {high.length > 0 && (
+              <optgroup label={HIGH_PRICE_GROUP_LABEL}>
+                {high.map((m) => (
+                  <option key={m} value={m}>
+                    {modelOptionLabel(m)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </Field>
 
-      {showAdvanced && (
-        <div className="mt-2">
-          <Field label="自訂端點" hint="一般不需填寫；留空使用預設端點。">
+        {apiKeyAccess ? (
+          <Field
+            label={`API Key（${PROVIDER_LABELS[llm.provider]}）`}
+            hint={llm.hasApiKey[llm.provider] ? '已設定。輸入新的內容並儲存即可覆蓋，看不到舊金鑰。' : '尚未設定。'}
+          >
             <div className="flex gap-2">
               <input
-                type="text"
+                type="password"
                 className="field flex-1"
-                placeholder="https://api.example.com/v1"
-                value={endpointDraft}
-                onChange={(e) => setEndpointDraft(e.target.value)}
-                onBlur={() => void saveEndpoint()}
+                placeholder={PROVIDER_KEY_PLACEHOLDER[llm.provider]}
+                value={apiKeyDraft}
+                onChange={(e) => setApiKeyDraft(e.target.value)}
               />
               <button
                 type="button"
-                disabled={savingEndpoint || endpointDraft.trim() === (llm.endpoint ?? '')}
-                onClick={() => void saveEndpoint()}
+                disabled={savingKey || !apiKeyDraft.trim()}
+                onClick={() => void saveApiKey()}
                 className="btn-ghost px-4 disabled:opacity-40"
               >
                 儲存
               </button>
             </div>
           </Field>
+        ) : (
+          <div className="rounded-[14px] bg-[var(--bg)] p-3 text-[11px] leading-relaxed text-[var(--text-sub)]">
+            目前透過中繼伺服器連線，為保護金鑰安全，API Key 欄位不會顯示。改用同一個區網連線即可編輯。
+          </div>
+        )}
+      </section>
 
-          <Field label="記憶" hint="上下文只送最近幾則訊息，超出的會自動濃縮成摘要。">
-            <div className="space-y-2">
-              <NumberRow
-                label="保留最近幾則"
-                value={memory.keepRecentN}
-                min={1}
-                max={200}
-                onCommit={(v) => void saveMemory({ ...memory, keepRecentN: v })}
-              />
-              <NumberRow
-                label="自動摘要門檻"
-                value={memory.autoSummarizeAfter}
-                min={1}
-                max={500}
-                onCommit={(v) => void saveMemory({ ...memory, autoSummarizeAfter: v })}
-              />
-              <ToggleRow
-                label="自動摘要"
-                checked={memory.autoSummarizeEnabled}
-                onChange={(v) => void saveMemory({ ...memory, autoSummarizeEnabled: v })}
-              />
-            </div>
-          </Field>
+      {/* ── 記憶 ────────────────────────────────────────── */}
+      <Section
+        title="記憶"
+        hint="角色記得多少之前的對話"
+        expanded={open === 'memory'}
+        onToggle={() => setOpen(open === 'memory' ? null : 'memory')}
+      >
+        <p className="mb-2 text-[11px] leading-relaxed text-[var(--text-sub)]">
+          每次回話只會把最近幾則送給角色，太舊的會自動濃縮成一段摘要——這樣角色記得住重點，又不會每次都花大錢重讀整段歷史。
+        </p>
+        <NumberRow
+          label="保留最近幾則"
+          value={memory.keepRecentN}
+          min={1}
+          max={200}
+          onCommit={(v) => void saveMemory({ ...memory, keepRecentN: v })}
+        />
+        <NumberRow
+          label="自動摘要門檻"
+          value={memory.autoSummarizeAfter}
+          min={1}
+          max={500}
+          onCommit={(v) => void saveMemory({ ...memory, autoSummarizeAfter: v })}
+        />
+        <ToggleRow
+          label="自動摘要"
+          checked={memory.autoSummarizeEnabled}
+          onChange={(v) => void saveMemory({ ...memory, autoSummarizeEnabled: v })}
+        />
+      </Section>
 
-          <Field label="模組開關">
-            {modules === null ? (
-              <p className="text-[11px] text-[var(--text-sub)]">載入中⋯⋯</p>
-            ) : modules.length === 0 ? (
-              <p className="text-[11px] text-[var(--text-sub)]">沒有可切換的模組。</p>
-            ) : (
-              <div className="space-y-1.5">
-                {modules.map((m) => (
-                  <ToggleRow key={m.id} label={m.label} checked={m.enabled} onChange={() => void toggleModule(m)} />
-                ))}
+      {/* ── 模組開關 ────────────────────────────────────── */}
+      <Section
+        title="模組開關"
+        hint="角色還能知道哪些事"
+        expanded={open === 'modules'}
+        onToggle={() => setOpen(open === 'modules' ? null : 'modules')}
+      >
+        {modules === null ? (
+          <p className="text-[11px] text-[var(--text-sub)]">載入中⋯⋯</p>
+        ) : modules.length === 0 ? (
+          <p className="text-[11px] text-[var(--text-sub)]">沒有可切換的模組。</p>
+        ) : (
+          <div className="space-y-3">
+            {modules.map((m) => (
+              <div key={m.id}>
+                <ToggleRow label={m.label} checked={m.enabled} onChange={() => void toggleModule(m)} />
+                {moduleDescription(m.id) && (
+                  <p className="mt-0.5 pr-8 text-[11px] leading-relaxed text-[var(--text-sub)]">
+                    {moduleDescription(m.id)}
+                  </p>
+                )}
               </div>
-            )}
-          </Field>
+            ))}
+          </div>
+        )}
+      </Section>
 
-          <button
-            type="button"
-            onClick={() => push('reminders')}
-            className="mt-1 flex w-full items-center justify-between rounded-[14px] border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5 text-sm text-[var(--text)]"
-          >
-            <span>管理提醒</span>
-            <span className="text-[var(--text-sub)]">›</span>
-          </button>
-        </div>
-      )}
+      {/* ── 進階：只剩自訂端點 ──────────────────────────── */}
+      <Section
+        title="進階"
+        hint="一般不需要動"
+        expanded={open === 'advanced'}
+        onToggle={() => setOpen(open === 'advanced' ? null : 'advanced')}
+      >
+        <Field
+          label="自訂端點"
+          hint="用官方 API 的話請留空。只有當你改走相容的第三方服務（例如 OpenRouter、自架代理、本機模型）時才需要填。"
+        >
+          <div className="flex gap-2">
+            <input
+              type="text"
+              className="field flex-1"
+              placeholder="https://api.example.com/v1"
+              value={endpointDraft}
+              onChange={(e) => setEndpointDraft(e.target.value)}
+              onBlur={() => void saveEndpoint()}
+            />
+            <button
+              type="button"
+              disabled={savingEndpoint || endpointDraft.trim() === (llm.endpoint ?? '')}
+              onClick={() => void saveEndpoint()}
+              className="btn-ghost px-4 disabled:opacity-40"
+            >
+              儲存
+            </button>
+          </div>
+        </Field>
+      </Section>
     </div>
+  )
+}
+
+/** 可收合的設定區塊。四塊平行、各自一個標題，取代原本那個什麼都塞的「進階」。 */
+function Section({
+  title,
+  hint,
+  expanded,
+  onToggle,
+  children
+}: {
+  title: string
+  hint: string
+  expanded: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}): JSX.Element {
+  return (
+    <section className="overflow-hidden rounded-[14px] border border-[var(--border)]">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 bg-[var(--bg)] px-3 py-2.5 text-left active:bg-[var(--surface)]"
+      >
+        <MonoIcon
+          name={expanded ? 'chevron-down' : 'chevron-right'}
+          className="h-4 w-4 shrink-0 text-[var(--text-sub)]"
+        />
+        <span className="flex-1">
+          <span className="block text-sm font-semibold text-[var(--text)]">{title}</span>
+          <span className="text-[11px] text-[var(--text-sub)]">{hint}</span>
+        </span>
+      </button>
+      {expanded && (
+        <div className="border-t border-[var(--border)] bg-[var(--surface)]/30 px-3 py-3">{children}</div>
+      )}
+    </section>
   )
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }): JSX.Element {
   return (
-    <label className="mb-4 block">
+    <label className="block">
       <span className="text-xs font-semibold text-[var(--text)]">{label}</span>
       {hint && <span className="mt-0.5 block text-[11px] leading-relaxed text-[var(--text-sub)]">{hint}</span>}
       <span className="mt-1 block">{children}</span>
@@ -356,7 +437,7 @@ function NumberRow({
   }
 
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div className="mb-2 flex items-center justify-between gap-3">
       <span className="text-sm text-[var(--text)]">{label}</span>
       <input
         type="number"
@@ -387,7 +468,7 @@ function ToggleRow({
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-4 w-4 accent-[var(--mint2)]"
+        className="h-4 w-4 shrink-0 accent-[var(--mint2)]"
       />
     </label>
   )

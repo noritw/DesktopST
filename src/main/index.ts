@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets, getDataDir } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, savePersonaPresetDirect, saveWorldPresetDirect, saveScenePresetDirect, removePersonaPresetDirect, removeWorldPresetDirect, removeScenePresetDirect, setColorThemeDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect, createCharacterDirect, saveCharacterDirect, deleteCharacterDirect, saveCharacterAvatarDirect, importCharacterPngDirect, importCharacterJsonDirect, exportCharacterPngDirect, exportCharacterJsonDirect, buildDstPackDirect, importDstPackDirect, listLorebooksDirect, getLlmSettingsSummaryDirect, setLlmProviderDirect, setLlmModelDirect, setLlmEndpointDirect, setLlmApiKeyDirect, getMemorySettingsDirect, setMemorySettingsDirect, listMobileModuleTogglesDirect, setMobileModuleEnabledDirect, listRemindersDirect, createReminderDirect, saveReminderDirect, deleteReminderDirect, toggleReminderDirect } from './ipcHandlers'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, savePersonaPresetDirect, saveWorldPresetDirect, saveScenePresetDirect, removePersonaPresetDirect, removeWorldPresetDirect, removeScenePresetDirect, setColorThemeDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect, createCharacterDirect, saveCharacterDirect, deleteCharacterDirect, saveCharacterAvatarDirect, importCharacterPngDirect, importCharacterJsonDirect, exportCharacterPngDirect, exportCharacterJsonDirect, buildDstPackDirect, importDstPackDirect, listLorebooksDirect, getLorebookDirect, createLorebookDirect, saveLorebookDirect, removeLorebookDirect, getLlmSettingsSummaryDirect, setLlmProviderDirect, setLlmModelDirect, setLlmEndpointDirect, setLlmApiKeyDirect, getMemorySettingsDirect, setMemorySettingsDirect, listMobileModuleTogglesDirect, setMobileModuleEnabledDirect, listRemindersDirect, createReminderDirect, saveReminderDirect, deleteReminderDirect, toggleReminderDirect } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import { loadNewsModuleSettings } from './modules/news/settings'
@@ -41,7 +41,8 @@ import {
   pushDesktopUpdate,
   pushRemoteControlState,
   getConnectedCount,
-  isServerRunning
+  isServerRunning,
+  isMobileAppBuilt
 } from './mobileServer'
 import {
   startCloudflared,
@@ -442,16 +443,38 @@ export function getMobileStatus() {
   const networkIp = getLocalIp()
   const token = encodeURIComponent(getAccessToken())
   const tunnelUrl = getCloudflaredUrl()
+  const relayUrl = getRelayUrl()
   return {
     enabled: s.mobile?.enabled ?? false,
     running: isServerRunning(),
     tunnelReady: !!tunnelUrl,
     url: tunnelUrl ? `${tunnelUrl}?token=${token}` : null,
     localUrl: `http://${networkIp}:${port}?token=${token}`,
-    relayUrl: getRelayUrl(),
+    relayUrl,
+    // ── 新版手機 UI（B3 React）的對應網址（過渡期與 mobile.html 並存）──
+    // 用 **query 參數 `ui=app`**，不是 `/app` 路徑 —— 路徑版實測掃了全白，
+    // 原因見 `mobileServer.ts` 的 `GET /` 說明（relay 是轉址服務不是路徑代理）。
+    appUrl: tunnelUrl ? `${tunnelUrl}?ui=app&token=${token}` : null,
+    localAppUrl: `http://${networkIp}:${port}?ui=app&token=${token}`,
+    relayAppUrl: withAppFlag(relayUrl),
+    /** 沒跑過 `npm run build:mobile` 時為 false，QR 視窗要顯示提示而不是壞掉的碼。 */
+    appAvailable: isMobileAppBuilt(),
     connectedCount: getConnectedCount(),
     cloudflaredAvailable: isCloudflaredAvailable()
   }
+}
+
+/**
+ * 加上 `ui=app` 旗標，讓入口頁改送新版手機 UI。
+ *
+ * ⚠️ **不要改回插入 `/app` 路徑。** relay 是「查表轉址到當下 tunnel」的服務
+ * （見 `relayService.ts`），不是路徑前綴代理，多一段路徑會不會被轉發完全取決於
+ * 那個外部服務 —— 實測是掃了全白（owner 2026-08-06）。
+ * query 參數則已知會被保留：`?token=` 今天就靠它在 relay 上運作。
+ */
+function withAppFlag(url: string): string {
+  if (!url) return ''
+  return url.includes('?') ? `${url}&ui=app` : `${url}?ui=app`
 }
 
 function getLocalIp(): string {
@@ -573,6 +596,10 @@ function initMobileServer(): void {
       confirmGlobalSettings: async () => opts.applyGlobalSettings
     }),
     listLorebooks: () => listLorebooksDirect(),
+    getLorebook: (id) => getLorebookDirect(id),
+    createLorebook: (name) => createLorebookDirect(name),
+    saveLorebook: (book) => saveLorebookDirect(book),
+    removeLorebook: (id) => removeLorebookDirect(id),
     getRemoteControlSettings: () => getSettings().remoteControl,
     setRemoteControlEnabled: (enabled: boolean) => {
       const s = getSettings()

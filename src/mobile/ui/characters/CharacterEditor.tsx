@@ -2,6 +2,7 @@ import { cloneElement, isValidElement, useCallback, useEffect, useRef, useState 
 import type { ReactElement } from 'react'
 import type { Character } from '@core/types'
 import type { PresetListItem } from '@core/data'
+import MonoIcon from '@shared/MonoIcon'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeCharacterError } from './characterErrors'
@@ -371,7 +372,10 @@ function AvatarPicker({ draft, onPick, busy }: { draft: Character; onPick: () =>
         {showImage ? (
           <img src={url} alt="" className="max-h-40 object-contain" onError={() => setBroken(true)} />
         ) : (
-          <span className="text-sm text-[var(--text-sub)]">🐾 點一下選圖</span>
+          <span className="flex items-center gap-1.5 text-sm text-[var(--text-sub)]">
+            <MonoIcon name="paw" className="h-5 w-5" />
+            點一下選圖
+          </span>
         )}
         {showImage && <span className="text-[11px] text-[var(--text-sub)]">點一下換一張</span>}
       </button>
@@ -384,7 +388,7 @@ function NicknameField({ values, onChange }: { values: string[]; onChange: (next
     <ChipField
       label="暱稱"
       hint="這個角色其他的稱呼、綽號或小名。輸入後按 Enter。"
-      placeholder="＋ 新增暱稱"
+      placeholder="新增暱稱⋯⋯"
       values={values}
       onChange={onChange}
     />
@@ -432,7 +436,7 @@ function ChipField({
               onClick={() => onChange(values.filter((x) => x !== v))}
               className="opacity-60"
             >
-              ×
+              <MonoIcon name="close" className="h-3 w-3" />
             </button>
           </span>
         ))}

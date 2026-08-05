@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
+import MonoIcon from '@shared/MonoIcon'
 import { useUiStore } from '../stores/uiStore'
 
 /**
@@ -237,10 +238,10 @@ export function Lightbox(): JSX.Element | null {
         type="button"
         aria-label="關閉"
         onClick={close}
-        className="absolute right-4 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-lg text-white"
+        className="absolute right-4 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white"
         style={{ top: 'calc(var(--safe-top) + 8px)' }}
       >
-        ✕
+        <MonoIcon name="close" className="h-5 w-5" />
       </button>
 
       {images.length > 1 && (
@@ -274,11 +275,11 @@ function NavButton({
       aria-label={side === 'left' ? '上一張' : '下一張'}
       disabled={disabled}
       onClick={onClick}
-      className={`absolute top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-xl text-white transition-opacity ${
+      className={`absolute top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white transition-opacity ${
         side === 'left' ? 'left-2' : 'right-2'
       } ${disabled ? 'pointer-events-none opacity-0' : ''}`}
     >
-      {side === 'left' ? '‹' : '›'}
+      <MonoIcon name={side === 'left' ? 'chevron-left' : 'chevron-right'} className="h-5 w-5" />
     </button>
   )
 }

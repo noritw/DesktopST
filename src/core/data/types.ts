@@ -10,6 +10,7 @@ import type {
   ScenePreset,
   WorldPreset
 } from '../types'
+import type { Lorebook } from '../lore'
 
 /**
  * 資料來源（B3 階段 0-③）。
@@ -361,12 +362,17 @@ export interface RemindersApi {
 /**
  * 用語解說（Lorebook）。
  *
- * B3 階段 3 只需要**清單**：角色卡編輯器要讓使用者勾「這個角色帶哪幾本」
- * （`Character.lorebookIds`，疊加式）。條目的編輯本身屬於世界觀那塊（階段 5），
- * 現在就把 get／save 放進來只會是一組沒有呼叫端的方法。
+ * B3 階段 3 只做了**清單**：角色卡編輯器要讓使用者勾「這個角色帶哪幾本」
+ * （`Character.lorebookIds`，疊加式）。內容編輯（get／save／remove／create）
+ * 是階段 9 補的缺口，比照 `PresetsApi` 的 list（摘要）／get（完整）分法——
+ * 編輯器必須逐本讀完整資料，不可拿 list 給的 `{id, name}` 直接存回去。
  */
 export interface LorebooksApi {
   list(): Promise<PresetListItem[]>
+  get(id: string): Promise<Lorebook>
+  save(book: Lorebook): Promise<Lorebook>
+  remove(id: string): Promise<void>
+  create(name?: string): Promise<Lorebook>
 }
 
 export interface DataSource {

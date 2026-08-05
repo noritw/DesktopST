@@ -1,3 +1,4 @@
+import MonoIcon from '@shared/MonoIcon'
 import { useUiStore } from '../stores/uiStore'
 
 /**
@@ -32,9 +33,9 @@ export function AttachmentStrip({
             type="button"
             aria-label={`移除第 ${i + 1} 張圖片`}
             onClick={() => onRemove(i)}
-            className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-[11px] leading-none text-white"
+            className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white"
           >
-            ✕
+            <MonoIcon name="close" className="h-3 w-3" />
           </button>
         </div>
       ))}

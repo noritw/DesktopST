@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { CharacterListItem } from '@core/data'
 import { DataError } from '@core/data'
+import MonoIcon from '@shared/MonoIcon'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { Avatar } from './Avatar'
@@ -110,16 +111,16 @@ export function PresenceSheet(): JSX.Element {
               <Avatar characterId={item.id} size={38} />
               <span className="min-w-0 flex-1">
                 <p className="truncate text-[15px] text-[var(--text)]">{item.name}</p>
-                <StatusChip active={isPresent}>{isPresent ? '✓ 在場' : '加入對話'}</StatusChip>
+                <StatusChip active={isPresent}>{isPresent ? '在場' : '加入對話'}</StatusChip>
               </span>
             </button>
             <button
               type="button"
               aria-label={`編輯${item.name}`}
               onClick={() => useUiStore.getState().push('character-editor', item.id)}
-              className="shrink-0 rounded-full px-2 py-1 text-sm active:bg-[var(--border)]"
+              className="shrink-0 rounded-full p-2 text-[var(--text-sub)] active:bg-[var(--border)]"
             >
-              ✏️
+              <MonoIcon name="edit" className="h-4 w-4" />
             </button>
           </div>
         )

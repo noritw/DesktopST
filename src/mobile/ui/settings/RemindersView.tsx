@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Reminder, ReminderSchedule } from '@core/types'
+import MonoIcon from '@shared/MonoIcon'
 import { getData } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from './settingsErrors'
@@ -118,9 +119,10 @@ export function RemindersView(): JSX.Element {
         type="button"
         disabled={busy}
         onClick={() => void create()}
-        className="mt-3 w-full rounded-full bg-[var(--mint)] py-2.5 text-sm text-[var(--text)] disabled:opacity-50"
+        className="mt-3 flex w-full items-center justify-center gap-1 rounded-full bg-[var(--mint)] py-2.5 text-sm text-[var(--text)] disabled:opacity-50"
       >
-        ＋ 新增提醒
+        <MonoIcon name="plus" className="h-3.5 w-3.5" />
+        新增提醒
       </button>
     </div>
   )

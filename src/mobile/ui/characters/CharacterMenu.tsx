@@ -1,4 +1,5 @@
 import { DataError } from '@core/data'
+import MonoIcon, { type MonoIconName } from '@shared/MonoIcon'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { Avatar } from './Avatar'
@@ -75,9 +76,9 @@ export function CharacterMenu({ characterId }: { characterId: string }): JSX.Ele
         </div>
       </div>
 
-      <MenuItem icon="💬" label="說點什麼" hint="讓這個角色主動開口" onClick={() => void speak()} />
+      <MenuItem icon="chat" label="說點什麼" hint="讓這個角色主動開口" onClick={() => void speak()} />
       <MenuItem
-        icon={character.muted ? '🔊' : '🔇'}
+        icon={character.muted ? 'volume' : 'mute'}
         label={character.muted ? '解除禁言' : '禁言'}
         hint={character.muted ? '恢復後會照常參與對話' : '禁言後不會回話，但仍留在對話裡'}
         onClick={() => void toggleMute()}
@@ -85,14 +86,14 @@ export function CharacterMenu({ characterId }: { characterId: string }): JSX.Ele
       {/* 從聊天畫面點頭像進來就能直接改人格，是手機上最短的那條路徑；
           角色庫那個入口是給「還沒在對話裡的角色」用的。 */}
       <MenuItem
-        icon="✏️"
+        icon="edit"
         label="編輯角色"
         hint="名稱、人格、招呼語、主圖"
         onClick={() => push('character-editor', characterId)}
       />
       {canRemove && (
         <MenuItem
-          icon="🚪"
+          icon="exit"
           label="移出對話"
           hint="角色卡不會被刪，之後可以再從角色庫加回來"
           destructive
@@ -115,7 +116,7 @@ function MenuItem({
   onClick,
   destructive = false
 }: {
-  icon: string
+  icon: MonoIconName
   label: string
   hint?: string
   onClick: () => void
@@ -127,7 +128,9 @@ function MenuItem({
       onClick={onClick}
       className="mb-2 flex w-full items-center gap-3 rounded-[14px] bg-[var(--bg)] px-4 py-3 text-left active:opacity-70"
     >
-      <span className="text-lg">{icon}</span>
+      <span className={`shrink-0 ${destructive ? 'text-[var(--danger-text)]' : 'text-[var(--text-sub)]'}`}>
+        <MonoIcon name={icon} className="h-[18px] w-[18px]" />
+      </span>
       <span className="min-w-0 flex-1">
         <span className={`block text-[15px] ${destructive ? 'text-[var(--danger-text)]' : 'text-[var(--text)]'}`}>
           {label}

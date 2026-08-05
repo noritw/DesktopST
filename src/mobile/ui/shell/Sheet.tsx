@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
+import MonoIcon from '@shared/MonoIcon'
 
 /**
  * 底部 sheet（清單 G3）—— 整個手機 UI 的互動骨架。
@@ -65,7 +66,7 @@ export function Sheet({ title, action, onClose, children, scrollable = true }: S
                 aria-label="關閉"
                 className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-sub)] active:bg-[var(--border)]"
               >
-                ✕
+                <MonoIcon name="close" className="h-4 w-4" />
               </button>
             </div>
           </div>

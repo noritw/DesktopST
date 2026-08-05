@@ -11,7 +11,7 @@ import type { Config } from 'tailwindcss'
  * 的說明），不是桌面那套 `--color-mint`。
  */
 const config: Config = {
-  content: ['./src/mobile/ui/**/*.{ts,tsx,html}'],
+  content: ['./src/mobile/ui/**/*.{ts,tsx,html}', './src/shared/**/*.{ts,tsx}'],
   theme: {
     extend: {
       colors: {

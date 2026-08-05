@@ -75,6 +75,10 @@ export interface MobileBridge {
     opts: { onConflict: 'skip' | 'overwrite' | 'new'; applyGlobalSettings: boolean }
   ) => Promise<{ ok: true; imported: number; skipped: number } | { error: string }>
   listLorebooks: () => { id: string; name: string }[]
+  getLorebook: (id: string) => import('../core/lore').Lorebook | null
+  createLorebook: (name?: string) => import('../core/lore').Lorebook
+  saveLorebook: (book: import('../core/lore').Lorebook) => { ok: true; book: import('../core/lore').Lorebook } | { error: string }
+  removeLorebook: (id: string) => { ok: true }
   getRemoteControlSettings: () => import('./types').RemoteControlSettings | undefined
   setRemoteControlEnabled: (enabled: boolean) => { ok: true } | { error: string }
   touchAllowedRemoteDevice?: (device: { id: string; nickname: string; label?: string }) => void
@@ -216,6 +220,68 @@ function getMobileHtmlPath(): string {
   return path.join(app.getAppPath(), 'assets', 'mobile.html')
 }
 
+/**
+ * 新版手機 UI（B3 React）的建置產物目錄。
+ *
+ * `out/**` 已在 `electron-builder.yml` 的 `files` 裡，打包後在 asar 內，
+ * 而 `fs` 讀得到 asar，所以 dev 與打包都能用 `app.getAppPath()` 解析 ——
+ * 不必像 `mobile.html` 那樣分兩種路徑（那是因為 assets 走 extraFiles 在 asar 外）。
+ */
+function getMobileAppDir(): string {
+  return path.join(app.getAppPath(), 'out', 'mobile')
+}
+
+/** 有沒有跑過 `npm run build:mobile`。沒有的話 QR 視窗要顯示提示而不是給一個壞掉的碼。 */
+export function isMobileAppBuilt(): boolean {
+  try {
+    return fs.existsSync(path.join(getMobileAppDir(), 'index.html'))
+  } catch {
+    return false
+  }
+}
+
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2'
+}
+
+/**
+ * 供應 `out/mobile/` 底下的靜態檔。
+ *
+ * ⚠️ **一定要擋路徑穿越。** 這台伺服器對區網（甚至經 relay 對外）開著，
+ * `/app/../../settings.json` 這種請求若照單全收就等於把整台電腦的檔案交出去。
+ * 作法是解析成絕對路徑後確認仍在 `out/mobile` 之內，不在就 404。
+ */
+function serveMobileAppFile(res: http.ServerResponse, relativePath: string): void {
+  const root = getMobileAppDir()
+  const target = path.resolve(root, relativePath || 'index.html')
+  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep
+  if (target !== root && !target.startsWith(rootWithSep)) {
+    res.writeHead(404, { 'Content-Type': 'text/plain' })
+    res.end('Not found')
+    return
+  }
+  if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
+    res.writeHead(404, { 'Content-Type': 'text/plain' })
+    res.end('Not found')
+    return
+  }
+  const type = MIME[path.extname(target).toLowerCase()] ?? 'application/octet-stream'
+  // 帶雜湊的檔名（assets/index-XXXX.js）可以長快取；index.html 一定要不快取，
+  // 否則重新建置後手機還是拿到舊的那份，會以為改動沒生效。
+  const cache = /^assets[\\/]/.test(relativePath) ? 'public, max-age=31536000, immutable' : 'no-cache'
+  res.writeHead(200, { 'Content-Type': type, 'Cache-Control': cache })
+  res.end(fs.readFileSync(target))
+}
+
 // ── 隨機工具邏輯 ───────────────────────────────────────────
 
 /**
@@ -330,13 +396,64 @@ async function handleRequest(
     return
   }
 
+  // ── 新版手機 UI 的靜態 bundle：**刻意不要求 token** ────────
+  //
+  // `mobile.html` 是單一自足檔案（CSS/JS 全內嵌），進入網址帶了 `?token=` 就結束了。
+  // React 版不同：index.html 會再去要 `./assets/index-xxx.js`，
+  // 而那些請求是**瀏覽器自己發的，不會帶 query string** —— 照 token 擋就是 401、
+  // 畫面全白且看不出原因。
+  //
+  // 曾考慮用 cookie 補（進入頁面時種下、資源請求自動帶上），但經 relay 會失效，
+  // 要繞過得放寬成 `Path=/`，等於讓 cookie 也能驗 `/api/*`，防線反而更鬆。
+  //
+  // 最後選擇：**只放行這批帶雜湊檔名的靜態產物**。它們是開源程式碼的建置結果，
+  // 不含任何使用者資料與金鑰（API Key 從來不下發到手機，見 `LlmSettingsSnapshot`）。
+  // 入口頁本身與所有 `/api/*` 資料端點，一律仍需 token。
+  if (method === 'GET' && url.startsWith('/assets/')) {
+    if (!isMobileAppBuilt()) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' })
+      res.end('Not found')
+      return
+    }
+    serveMobileAppFile(res, decodeURIComponent(url.slice(1).split('?')[0].split('#')[0]))
+    return
+  }
+
   if (!isAuthorized(req, requestUrl)) {
     jsonError(res, 401, 'Unauthorized')
     return
   }
 
-  // ── GET / → mobile.html ──
-  if (method === 'GET' && url === '/') {
+  // ── GET /app/* → 新版手機 UI（B3 React，過渡期與 mobile.html 並存）──
+  //
+  // ⚠️ **`/app` 一定要重導到 `/app/`。**
+  // 建置用 `base: './'`（APK 走 file:// 必須相對路徑），產出的 index.html 引用
+  // `./assets/index-xxx.js`。瀏覽器在 `/app`（無結尾斜線）下會把它解析成
+  // `/assets/index-xxx.js` → 404，畫面全白且沒有明顯錯誤；
+  // 在 `/app/` 下才會解析成 `/app/assets/index-xxx.js`。
+  // 重導時**必須帶著 query string**，否則 `?token=` 掉了會變成未授權。
+  // ── GET / → 新版（`?ui=app`）或舊版 mobile.html ──
+  if (method === 'GET' && requestUrl.pathname === '/') {
+    // 新版走 **query 參數而不是 `/app` 路徑**，這是被實機打臉後改的（owner 2026-08-06）：
+    //
+    // relay 不是路徑前綴代理，而是「查表後轉址到當下的 tunnel」
+    // （`relayService.ts` 的 `postToRelay` 存的是 deviceId → tunnelUrl）。
+    // `https://relay/<deviceId>/app?token=X` 的 `/app` 那段能不能被轉發，
+    // 取決於一個我們無法驗證也改不了的外部服務 —— 實測結果是**掃了全白**。
+    //
+    // query 參數則是**已知會被保留**的：`?token=` 今天就靠它在 relay 上運作。
+    // 而且入口停在 `/`，`./assets/x.js` 剛好解析成 `/assets/x.js`，
+    // 區網、tunnel、relay 三條路徑的行為完全一致。
+    if (requestUrl.searchParams.get('ui') === 'app') {
+      if (!isMobileAppBuilt()) {
+        res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end('新版手機 UI 尚未建置。請先執行：npm run build:mobile')
+        return
+      }
+      serveMobileAppFile(res, 'index.html')
+      return
+    }
+
     const htmlPath = getMobileHtmlPath()
     if (!fs.existsSync(htmlPath)) {
       res.writeHead(404, { 'Content-Type': 'text/plain' })
@@ -1026,6 +1143,49 @@ async function handleRequest(
   if (method === 'GET' && url === '/api/lorebooks') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
     jsonOk(res, { lorebooks: bridge.listLorebooks() })
+    return
+  }
+
+  // ── 用語解說完整讀寫（B3 階段 9）── list 只帶 {id, name}，編輯器要逐本讀完整資料
+  const lorebookGet = url.match(/^\/api\/lorebooks\/([^/]+)$/)
+  if (method === 'GET' && lorebookGet) {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const book = bridge.getLorebook(decodeURIComponent(lorebookGet[1]))
+    if (!book) { jsonError(res, 404, 'Lorebook not found'); return }
+    jsonOk(res, { book })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/lorebooks/create') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ name?: string }>(req, res)
+    if (!payload) return
+    const book = bridge.createLorebook(payload.name)
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, { book })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/lorebooks/save') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ book?: unknown }>(req, res)
+    if (!payload || !payload.book || typeof payload.book !== 'object') { if (payload) jsonError(res, 400, 'book required'); return }
+    const result = bridge.saveLorebook(payload.book as import('../core/lore').Lorebook)
+    if ('error' in result) { jsonError(res, 400, result.error); return }
+    // 讓其他已連線的裝置（另一支手機、桌面）知道要重抓，比照預設組編輯器的既有慣例
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, { book: result.book })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/lorebooks/delete') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ id?: string }>(req, res)
+    if (!payload) return
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    bridge.removeLorebook(payload.id)
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, { ok: true })
     return
   }
 

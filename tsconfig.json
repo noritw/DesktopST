@@ -16,10 +16,11 @@
     "noUnusedParameters": false,
     "paths": {
       "@/*": ["./src/renderer/src/*"],
-      "@core/*": ["./src/core/*"]
+      "@core/*": ["./src/core/*"],
+      "@shared/*": ["./src/shared/*"]
     }
   },
-  "include": ["src/renderer/src", "src/core", "src/mobile"],
+  "include": ["src/renderer/src", "src/core", "src/mobile", "src/shared"],
   // smoketest 是 2026-08-03 的一次性能力探針，不是產品程式碼（見 pre-b3-work-assessment.md §5.1）
   "exclude": ["src/mobile/smoketest"]
 }

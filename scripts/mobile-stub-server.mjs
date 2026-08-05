@@ -57,9 +57,16 @@ const library = [
   }
 ]
 
-const lorebooks = [
-  { id: 'b1', name: '桌寵世界用語' },
-  { id: 'b2', name: 'TRPG 名詞' }
+// 完整資料（B3 階段 9）；`/api/lorebooks` 清單只回 {id, name} 摘要，照抄預設組的界線。
+let lorebooks = [
+  {
+    id: 'b1', name: '桌寵世界用語',
+    entries: [
+      { id: 'e1', keys: ['DeST', '桌友'], content: 'DeST 是使用者開發的桌面程式，暱稱「桌友」。', enabled: true, constant: true, insertion_order: 0 }
+    ],
+    scan_depth: 0, token_budget: 2000, createdAt: Date.now(), updatedAt: Date.now()
+  },
+  { id: 'b2', name: 'TRPG 名詞', entries: [], scan_depth: 0, token_budget: 2000, createdAt: Date.now(), updatedAt: Date.now() }
 ]
 
 /** 角色 id → 手機上傳的主圖 data URI。`/api/avatar/:id` 優先回這個。 */
@@ -240,6 +247,15 @@ const server = http.createServer(async (req, res) => {
     )
   }
 
+  // 測試用觸發器：從瀏覽器或 curl 打一下就推一則提醒（G7 的 toast 路徑）。
+  // 真伺服器是排程到點才推，桌機上沒辦法乾等，所以 stub 給一個手動入口。
+  if (url.startsWith('/api/test/reminder')) {
+    const content = new URL(url, 'http://x').searchParams.get('content') || '該喝水了'
+    push({ type: 'reminder', content })
+    console.log(`[test] 推送提醒：${content}`)
+    return json(res, { ok: true, content })
+  }
+
   if (url.startsWith('/api/state')) return json(res, state())
 
   if (url.startsWith('/api/characters/library')) {
@@ -278,7 +294,46 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
-  if (url.startsWith('/api/lorebooks')) return json(res, { lorebooks })
+  // 摘要清單。**必須用精確比對**，不能用 startsWith，否則會連下面幾支
+  // /api/lorebooks/:id、/create、/save、/delete 一起吃掉（都是同一個字首）。
+  if (url === '/api/lorebooks') return json(res, { lorebooks: lorebooks.map((b) => ({ id: b.id, name: b.name })) })
+
+  // 完整讀寫（B3 階段 9）
+  const lorebookGetMatch = url.match(/^\/api\/lorebooks\/([^/?]+)$/)
+  if (req.method === 'GET' && lorebookGetMatch) {
+    const book = lorebooks.find((b) => b.id === decodeURIComponent(lorebookGetMatch[1]))
+    if (!book) return json(res, { error: '找不到這本用語解說' }, 404)
+    return json(res, { book })
+  }
+
+  if (url === '/api/lorebooks/create') {
+    const p = await readBody(req)
+    const now = Date.now()
+    const book = { id: 'b' + now, name: (p.name || '').trim() || '用語解說', entries: [], scan_depth: 0, token_budget: 2000, createdAt: now, updatedAt: now }
+    lorebooks.push(book)
+    console.log(`[lorebooks] create -> ${book.name}`)
+    return json(res, { book })
+  }
+
+  if (url === '/api/lorebooks/save') {
+    const p = await readBody(req)
+    // 拒絕條件：缺 id 或 id 不存在——不能只模擬成功路徑（scripts/README-mobile-stub.md）。
+    if (!p.book || !p.book.id) return json(res, { error: 'book required' }, 400)
+    const idx = lorebooks.findIndex((b) => b.id === p.book.id)
+    if (idx === -1) return json(res, { error: 'Lorebook not found' }, 404)
+    const book = { ...p.book, updatedAt: Date.now() }
+    lorebooks[idx] = book
+    console.log(`[lorebooks] save -> ${book.name}（${book.entries.length} 條）`)
+    return json(res, { book })
+  }
+
+  if (url === '/api/lorebooks/delete') {
+    const p = await readBody(req)
+    if (!p.id) return json(res, { error: 'id required' }, 400)
+    lorebooks = lorebooks.filter((b) => b.id !== p.id)
+    console.log(`[lorebooks] delete -> ${p.id}`)
+    return json(res, { ok: true })
+  }
 
   // ── 連線資訊 ＋ 設定 ＋ 提醒（B3 階段 4）─────────────────
 

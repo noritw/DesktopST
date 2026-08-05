@@ -15,7 +15,9 @@ export default defineConfig({
         '@': resolve('src/renderer/src'),
         // 前端直接吃 core/（純 TS、零 Node 依賴），避免邏輯在 renderer 重寫一份。
         // 手機 UI（B3）會走同一個 alias。
-        '@core': resolve('src/core')
+        '@core': resolve('src/core'),
+        // 與手機共用的純呈現元件（目前是 MonoIcon）。見 src/shared/MonoIcon.tsx 檔頭。
+        '@shared': resolve('src/shared')
       }
     },
     plugins: [react()],
