@@ -1,7 +1,8 @@
 # DeST 多裝置與平台擴充 — 評估與規劃
 
-> 狀態：**A／B1／B2／B2.7／B2.5 完成，`mobile.html` 對照清單完成；下一步是 B2.6 Lorebook 桌面 UI（不擋 B3）**
-> 基準版本：v0.3.11｜討論日期：2026-08-02｜最後更新：**2026-08-04**
+> 狀態：**A／B1／B2／B2.5／B2.6／B2.7 完成；B3 手機 UI 進行中**
+> （階段 0–5、8、9 ＋ 資訊架構／雙入口完成；**下一步階段 6 個人新聞報** → 7）
+> 基準版本：v0.3.11｜討論日期：2026-08-02｜最後更新：**2026-08-06**
 >
 > **進度一覽**
 > - ✅ **A1 Google Calendar 模組** —— 已完成並實機驗證（見 §6.1、`CLAUDE.md`）
@@ -11,14 +12,13 @@
 > - ✅ ~~renderer 重複一份 news types~~ —— **已解**（改為轉出檔指向 `@core/news/`）
 > - ✅ **已實機驗證並合併回 `main`**（2026-08-03）：owner 實測四家 LLM、傳圖、
 >   API Key 持久化皆正常；另有 prompt 全等比對 48 情境逐字相同（`scripts/README-prompt-equivalence.md`）
+> - ✅ **B2.7／B2.5／B2.6** —— `fileStore` 抽 core、Lorebook core、Lorebook 桌面 UI（2026-08-03～04）
+> - 🚧 **B3 手機 UI** —— 詳見 `docs/b3-mobile-ui-plan.md`；對照清單 `docs/mobile-html-feature-inventory.md`
 >
-> ### 👉 下一步是 **B2.7（`fileStore` 抽 core），不是 B3**
+> ### 👉 現在的下一步是 **B3 階段 6（個人新聞報）**，不是重做 B2.x
 >
-> 2026-08-03 盤點發現規劃缺一塊：**五個 adapter 裡只有 `HttpAdapter` 有呼叫端**，
-> 儲存／金鑰／排程／通知都是 0 個，而 `fileStore.ts`（989 行、128 處 `fs`）
-> 內含設定遷移等真邏輯。不抽則 B3 會在手機端重寫一份 → 最核心資料的 drift。
->
-> **完整順序與測試策略見 `docs/pre-b3-work-assessment.md`（開工前必讀）。**
+> 設計約束（§2 四大目標、§8 已否決方案）仍然有效；動手機連線／散布方式前
+> 必讀 b3 計畫 §4.20（relay 三條硬約束）。
 >
 > 相關：`docs/module-system-roadmap.md`、`docs/news-reader-mobile-plan.md`、
 > `docs/remote-control-plan.md`、`docs/future-lorebook.md`、`docs/future-character-impression.md`
@@ -990,29 +990,33 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 
 **開工前必讀**：本文件 §2（四大目標）、§4.4（抽 core 切法）、§8（已否決清單）、§11（提醒）。
 
-> ## 👉 現在的下一步是 **B2.6 Lorebook 桌面 UI**（不擋 B3；要趕 B3 可直接跳 B3）
+> ## 👉 現在的下一步是 **B3 階段 6（個人新聞報）→ 7（收尾／APK）**
 >
-> 更新於 2026-08-04。0–3 已全部完成：
+> 更新於 2026-08-06。前置與 B3 前半已完成：
 >
 > | 順序 | 項目 | 狀態 |
 > |---|---|---|
 > | 0 | 驗證 ＋ 合併 `feat/mobile-standalone` | ✅ 完成 2026-08-03（四家 LLM 實測 ＋ 48 情境全等比對）|
 > | 1 | Hello World APK 試打 | ✅ 完成 2026-08-03（實機七項全過，見 `pre-b3-work-assessment.md` §5.1）|
 > | 2 | `mobile.html` 功能對照清單 | ✅ 完成 2026-08-03，**四個決策議題 owner 已於 2026-08-04 定案**。見 `docs/mobile-html-feature-inventory.md` |
-> | 3 | B2.7 `fileStore` 抽 core | ✅ 完成 2026-08-03（989 → 777 行，對外簽名一行未改）|
-> | 4 | B2.5 Lorebook core | ✅ 完成 2026-08-04（`src/core/lore/`，57 項測試，零呼叫端）|
-> | 5 | **B2.6 Lorebook 桌面 UI（4–7 天）** | ⬜ **下一步**。owner 決議現在做（不擋 B3）|
-> | 6 | B3 手機 UI（8–12 週）| ⬜ 範圍已定義完畢，見對照清單 |
+> | 3 | B2.7 `fileStore` 抽 core | ✅ 完成 2026-08-03 |
+> | 4 | B2.5 Lorebook core | ✅ 完成 2026-08-04 |
+> | 5 | B2.6 Lorebook 桌面 UI | ✅ 完成 2026-08-04 |
+> | 6 | **B3 手機 UI** | 🚧 **進行中**（`feat/mobile-ui`）。階段 0–5、8、9 ＋ IA／雙入口完成；**下一步階段 6 新聞報**。詳見 `docs/b3-mobile-ui-plan.md` |
+>
+> ⚠️ **不要重做 B2.x**，也不要在 B6 之前刪 `mobile.html`（遙控 H1–H11 只有舊版有）。
+> 改手機連線相關必讀計畫書 §4.20（relay 三條硬約束）。
 >
 > **B3 開工前務必讀對照清單的 §3（四個決議）與 §5.3（三件不先做會付兩次錢的事）。**
-> 工作分支：B3 真正開始寫手機 UI 時再開新分支（依 §11.1；B1／B2 已合併回 `main`）。
+> 工作分支：`feat/mobile-ui`。
 >
 > **不要重做已完成的部分**——`core/` 目前已含：
 > `types`、prompt 組裝、群組接龍、`stCardMapper`、`pngCard`、base64、
 > 新聞 `types`／`keywordGroups`／`filter`／`topicState`／`trigger`（指令組裝）、
 > **`llm/` 全部（主流程 ＋ 四家 provider ＋ 記憶摘要）**、
-> `reminder/nextFire`（下次觸發計算）、五個 adapter 介面。
-> 桌面實作在 `src/main/adapters/`；renderer 已直接吃 core（`@core/*` alias）。
+> `reminder/nextFire`（下次觸發計算）、五個 adapter 介面、`store/`、`lore/`、`modelCatalog`。
+> 桌面實作在 `src/main/adapters/`；renderer 已直接吃 core（`@core/*` alias）；
+> 桌面與手機共用呈現元件在 `src/shared/`（目前 `MonoIcon`）。
 >
 > **開工前先讀 §4.4b**——六個已定案的設計決定與三個落地慣例。照著走，不要重新發明。
 >

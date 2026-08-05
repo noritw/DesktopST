@@ -753,10 +753,10 @@
     但 owner 決議**仍排在 B3 之後（B8）**：它是 LLM 自動寫入、驗收靠手感、會持續花 token，
     不宜與 B3（4–8 週）同時點火。理由見 `docs/pre-b3-work-assessment.md` §4
 
-**已排程、尚未實作：**
-- **Lorebook（用語解說）** → `docs/future-lorebook.md`（規格已定案，無待決事項）。
-  **B2.5 core ＋ B2.6 桌面 UI 已於 2026-08-04 完成**（見上）。
-  **2026-08-03 owner 決議要做**，不再屬於「第一版排除」
+**已排程、尚未實作／進行中：**
+- **Lorebook（用語解說）** → `docs/future-lorebook.md`。
+  **B2.5 core ＋ B2.6 桌面 UI 已於 2026-08-04 完成**；**B3 階段 9 手機內容編輯已於 2026-08-06 完成**（待真機驗證）。
+- **B3 階段 6 個人新聞報** → 見 `docs/b3-mobile-ui-plan.md`（**目前下一步**）
 - **角色對使用者／角色對角色的印象** → `docs/future-character-impression.md`。
   排程 **B8（B3 之後）**，owner 2026-08-03 決議完全延後、連型別都不先定
   （理由見 `docs/pre-b3-work-assessment.md` §8）
@@ -771,5 +771,35 @@
 
 - 完成 Scene／Persona／World preset 的 RemoteDataSource `get/save/remove`、mobileServer 端點、stub 拒絕條件，以及共用 `ipcHandlers.ts` `*Direct` 寫入邏輯；桌面 IPC 改為薄轉呼叫。
 - 手機 UI 新增共用預設組清單／編輯器；目前 Scene／World 在角色列上方顯示名稱 chip，Persona 在 Composer 上方顯示「目前以誰發言」並可點選切換。Scene 套用後會 refresh，既有每情境最後對話邏輯未另寫手機版本。
-- 新增 `MobileST-test.bat`（假伺服器）與 `MobileST-real-test.bat`（DeST 真資料，自動找 IP／token／mobileServer 埠並配對 Vite 埠）。階段 7 前 DeST 內建 QR 仍服務舊 `assets/mobile.html`。
+- 新增 `MobileST-test.bat`（假伺服器）與 `MobileST-real-test.bat`（DeST 真資料，自動找 IP／token／mobileServer 埠並配對 Vite 埠）。
+  ~~階段 7 前 DeST 內建 QR 仍服務舊 `assets/mobile.html`。~~ → **已過時**：2026-08-06 起 QR 出兩組碼（見下方「雙入口」條）。
 - 驗證：`npm.cmd run typecheck` 通過；`npm.cmd test` 通過，300/300（18 files）。尚未宣稱 owner 真機端到端通過；下一步需確認 UI 操作後 `%APPDATA%\desktop-st\Data\` 下 `card.json`／`settings.json`／preset 檔案的最終內容，而非只看 HTTP 200。
+
+## 2026-08-05 B3 階段 8 —— 對話清單與切換
+
+- E1／E2：對話清單、切換、新增／改名／刪除；改名與刪除走 `ConversationEditor`（不用瀏覽器 `prompt()`／`confirm()`）。
+- 桌面切換對話時推播給手機；`RemoteDataSource.conversations` 端點此前已齊，本階段主要是 UI。
+- 程式與 stub 端點驗證完成；**待 owner 真機驗證**。詳見 `docs/b3-mobile-ui-plan.md` 階段 8。
+
+## 2026-08-06 B3 階段 9 —— 用語解說內容編輯
+
+- `LorebooksApi` 補 `get/save/remove/create`；`mobileServer`／stub 薄轉呼叫既有 `*Direct`。
+- 手機 `LorebookEditor`；入口後來依資訊架構重整併進 `PresetsView`（見下）。
+- 程式與 stub 端點驗證完成；**待 owner 真機驗證**。詳見計畫書 §4.18。
+
+## 2026-08-06 資訊架構重整 ＋ 單色圖示（§4.19）
+
+- Header：狀態標籤即入口（`HeaderChips`）＋ ☰ `MainMenu`（`uiStore.replace`，避免選單留在返回堆疊）。
+- 設定頁拆成連線／記憶／模組開關／進階；提醒搬到主選單；用語解說併進情境頁 accordion。
+- `MonoIcon` 抽到 `src/shared/`（桌面 re-export）；`modelCatalog.ts` 桌面手機共用型號與參考價。
+- ⚠️ 改 vite alias／tailwind `content` 後一定要重開 dev server，否則圖示無聲消失。
+- DOM 驗證通過；**畫面觀感待 owner 實機確認**。
+
+## 2026-08-06 雙入口並存 ＋ relay 硬約束（§4.20）
+
+- `/`＝舊 `mobile.html`（含遙控）；`/?ui=app`＝新版 React（`out/mobile`）。QR 視窗兩組碼。
+- ⚠️ relay 三約束（實測）：①產物必須單一自足 HTML（`inline-mobile-build.mjs`）；
+  ②`baseUrl` 用相對路徑；③WebSocket 用注入的 `__tunnelWsUrl`。
+- `DesktopST-dev.bat` 先 `build:mobile`；新版無 HMR，邊改邊看仍用 `MobileST-test.bat`。
+- **`mobile.html` 不能在 B6 之前刪掉**（H1–H11 只有舊版有）。
+- 下一步：**階段 6 個人新聞報** → 7（收尾／APK）。

@@ -7,7 +7,7 @@ interface MobileStatus {
   url: string | null
   localUrl: string
   relayUrl: string
-  /** 新版手機 UI（B3 React）的對應網址，多一段 `/app`。 */
+  /** 新版手機 UI（B3 React）的對應網址（`?ui=app`）。 */
   appUrl: string | null
   localAppUrl: string
   relayAppUrl: string
