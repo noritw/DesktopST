@@ -1,187 +1,125 @@
-# DesktopST — 專案說明（給 AI 助手讀的）
+# DesktopST — AI 接手說明（每次新對話只讀這份）
 
-這個資料夾是一個桌面 AI 角色扮演寵物程式的開發工作區。
-**請先讀完這份文件再開始任何工作。**
-
----
-
-## 這個專案是什麼
-
-一款 Windows 桌面寵物程式，結合 LLM 即時對話與角色扮演。
-類似 SillyTavern 的功能，但介面更簡單直覺，以「桌面寵物」為主體而非聊天視窗。
-
-- 角色站在桌面上，點擊才叫出輸入框
-- 支援多角色同時在桌面、群組互相對話
-- 相容 SillyTavern 角色卡格式（匯入）
-- 可自訂角色圖片、人格、情緒
+> **省 Token 硬規則**
+> 1. 新對話**預設只讀本文件**，讀完即可開工。
+> 2. **禁止**一開工就整份讀：`DesktopST-Spec.md`、`docs/multi-device-platform-roadmap.md`、
+>    `docs/progress-log.md`、`docs/b3-mobile-ui-plan.md`、`docs/mobile-html-feature-inventory.md`、
+>    `docs/pre-b3-work-assessment.md`。
+> 3. 需要細節時依下方「依任務選讀」開**對應段落**；用 Grep 找關鍵字，不要從頭掃到尾。
+> 4. `AGENTS.md` 只是薄轉址，**以本文件為準**。文件總索引：`docs/README.md`。
 
 ---
 
-## 必讀規格書
+## 1. 專案是什麼
 
-**`DesktopST-Spec.md`**（同資料夾）— 所有功能、UI、資料結構、LLM 整合的完整規格。
-實作前務必讀完對應章節，不要憑空猜測規格。
+Windows 桌面 AI 角色扮演寵物（Electron）＋ 進行中的手機 UI（B3）。
+角色站在桌面、點擊才叫出輸入；相容 SillyTavern 角色卡；多角色／群組。
 
-**`docs/multi-device-platform-roadmap.md`** — 手機獨立版與平台擴充的評估與規劃。
-**動到手機版／跨平台／多電腦／散布方式之前先讀完**，特別是：
-§2「公開版四大目標」（所有提案要先過這四把尺）、§8「已否決的方案」（不要重新提案）。
+定位擴張見 roadmap（選讀）：主線是「AI 角色聊天平台，有桌寵版與手機版」，
+手機獨立版是一般使用者第一優先——但**不要為了定位去整份讀 roadmap**。
 
 ---
 
-## 技術棧
+## 2. 技術棧與目錄
 
 | 項目 | 選用 |
 |---|---|
-| 桌面框架 | Electron |
-| 前端 | React + TypeScript |
-| 樣式 | Tailwind CSS |
-| 狀態管理 | Zustand |
-| 資料儲存 | 本地 JSON（AppData）|
-| 打包 | electron-builder |
-
-程式碼放在 `src/` 資料夾（尚未建立時由 AI 初始化）。
-
----
-
-## 資料夾結構
+| 桌面 | Electron ＋ React ＋ TS ＋ Tailwind ＋ Zustand |
+| 資料 | 本地 JSON（`%APPDATA%\DesktopST\`），API Key 走 `safeStorage` |
+| 邏輯 | `src/core/` 純 TS（**禁** import electron／fs／path；**禁**被 `main/` 反向污染） |
+| 共用 UI | `src/shared/`（目前只有 `MonoIcon`） |
+| 手機 | `src/mobile/`（B3 React）；舊遙控頁仍是 `assets/mobile.html` |
 
 ```
-DesktopST\
-├── CLAUDE.md               ← 本文件
-├── DesktopST-Spec.md       ← 完整規格書
-├── src\                    ← 程式碼（Electron + React）
-│   ├── core\               ← 純 TS 邏輯，禁 import electron/fs/path
-│   ├── shared\             ← 桌面與手機共用的純呈現元件（目前只有 MonoIcon）
-│   ├── main\ renderer\     ← Electron 主行程／桌面 UI
-│   └── mobile\             ← 手機 UI（B3）
-├── assets\                 ← 設計素材（owner 製作的圖片）
-└── dist\                   ← 打包輸出（不要 commit）
+src/core/   純邏輯
+src/shared/ 桌面＋手機共用呈現
+src/main/   Electron 主行程
+src/renderer/ 桌面 UI
+src/mobile/ 手機 UI
 ```
 
 ---
 
-## 視覺設計原則（不可隨意變更）
+## 3. 硬規則（永遠有效）
 
-- **風格**：扁平化、圓潤、春夏粉彩、可愛
-- **主色系**：薄荷綠 `#CBFBC4` / 薄荷 `#AAEEDD` / 天藍 `#AAEEFF`（清爽綠藍優先）
-- **輔色**：奶油黃 `#FFE8AA` / 粉紅 `#FFBBBB` / 薰衣草 `#F0BBFF`
-- **背景**：`#F7FFFC`（薄荷白）、文字：`#3D5A52`（深綠灰）
-- **圓角**：盡量多用，面板 16–24px，按鈕/圖示用圓形（50%）
-- **禁止**：厚重陰影、毛玻璃、純黑色文字、尖角設計
+**產品／範圍**
+- 不做規格外功能；有想法先跟 owner 討論
+- 第一版排除：自動發話、TTS、Live2D、ST 對話記錄匯入
+- Lorebook（用語解說）**要做**——桌面＋手機內容編輯已完成；規格 `docs/future-lorebook.md`（選讀）
+- 桌面至少留一個角色；只剩一個時隱藏移除
+- 解除安裝不刪使用者資料
 
-色票與字型細節在規格書 §13。
+**視覺（只改這些檔，勿動邏輯）**
+- 扁平、圓潤、春夏粉彩；主色薄荷／天藍；背景 `#F7FFFC`；文字 `#3D5A52`
+- 禁止：厚重陰影、毛玻璃、純黑字、尖角
+- 檔案：`src/styles/theme.css`、`tailwind.config.ts`、`src/styles/global.css`、`src/shared/MonoIcon.tsx`
+- 加圖示只改 `src/shared/MonoIcon.tsx`，不要在桌面／手機各抄一份
 
-**視覺修改只改這幾個檔案，不要動邏輯程式碼：**
-- `src/styles/theme.css`
-- `tailwind.config.ts`
-- `src/styles/global.css`
-- `src/shared/MonoIcon.tsx`（單色圖示，**桌面與手機共用同一份**——
-  要加圖示改這裡，不要在任一邊另抄一份）
-
----
-
-## 開發原則
-
-- 不要做規格書範圍外的功能，有想法先提出討論
-- 第一版不實作：自動發話、TTS、Live2D、ST 對話記錄匯入
-  - ⚠️ **Lorebook 已於 2026-08-03 改為要做**（owner 決議），規格見 `docs/future-lorebook.md`。
-    做的是**用語解說**（角色聽得懂專有名詞）而非完整 ST World Info，
-    但資料格式吃 ST `character_book` 子集。排程為 B2.5／B2.6，見 roadmap §10
-- 桌面上至少保留一個角色，只剩一個時隱藏移除按鈕
-- API Key 必須加密（`safeStorage`），不可存純文字
-- 所有使用者資料存 `%APPDATA%\DesktopST\`，解除安裝不刪資料
+**架構（手機／跨平台提案必過）**——濃縮自 roadmap §2／§8，細節選讀原文
+- 四大目標：①裝置上可單機聊自己的角色 ②不另付費給作者（無須營運後端）
+  ③敏感資料不放第三方（relay 是例外，須揭露＋可自架 Tunnel）④新手三步上手（分層，進階勿擠第一層）
+- **已否決、不要重提**：雲端同步後端、React Native 重寫、手機重寫一份 prompt 邏輯、
+  NAS 當 DeST host、付費模式、Relay 代排程、RTC 半夜喚醒、把 HTML 打包進遙控 APK、Spotify 自動選歌
 
 ---
 
-## 開發指令
+## 4. 現況與下一步
+
+| 區塊 | 狀態 |
+|---|---|
+| 桌面版 | MVP～進階大致完成（新聞、情境覆蓋、reaction、記憶摘要、日曆、Lorebook 桌面…） |
+| B1／B2／B2.5–2.7 | 完成（`core/`、adapter、store、Lorebook） |
+| **B3 手機 UI** | 階段 0–5、8、9 ＋ 資訊架構／雙入口完成；**待真機確認**部份畫面 |
+| **下一步** | **階段 6 個人新聞報** → 7（收尾／APK） |
+| 延後 | 角色印象（B8）；系統通知（B5）；遙控 UI 搬新版（B6） |
+
+⚠️ **`mobile.html` 不能在 B6 之前刪**——遙控面板（H1–H11）只有舊版有。
+分支：`feat/mobile-ui`。
+
+---
+
+## 5. 進行中仍會踩的坑（寫手機相關時看這裡就夠）
+
+- 選檔 `accept` **只給** `image/*` 大類，不要列副檔名（Android 相簿會空）
+- 改 vite alias 或 tailwind `content` 後**一定重開** `dev:mobile`，否則圖示無聲消失
+- relay 三約束（改連線／建置／QR 必守；細節 §4.20）：
+  ①產物＝**單一自足 HTML**（`build:mobile` 含 inline）②`baseUrl` 相對路徑
+  ③WebSocket 用注入的 `__tunnelWsUrl`
+- 入口：`/?ui=app` 新版、`/` 舊版；`DesktopST-dev.bat` 先建置手機（**無 HMR**）；
+  邊改邊看用 `MobileST-test.bat`
+- 業務邏輯寫在 `core/` 或既有 `*Direct`；手機／`mobileServer` 只做薄轉呼叫
+
+---
+
+## 6. 依任務選讀（不要整份開）
+
+| 你要做的事 | 讀這些 | 不要先讀 |
+|---|---|---|
+| 一般小修／問進度 | **本文件即可** | 一切長文 |
+| B3 手機 UI（階段 6 等） | `b3-mobile-ui-plan.md` **文首＋§4.9**；該階段正文；對應落地筆記（如新聞→階段 6） | 整份計畫、舊階段筆記 |
+| 改 QR／relay／手機建置 | 計畫書 **只讀 §4.20** | §4.10–4.18 |
+| 查「以前為什麼這樣做／已知坑」 | `progress-log.md` **Grep 關鍵字** | 整份 log |
+| 實作某桌面／資料規格 | `DesktopST-Spec.md` **對應章節** | 整本 Spec |
+| 提案跨平台／散布／同步架構 | roadmap **§2、§8**（必要時 §4.5–4.7） | 整份 roadmap、§10 舊順序敘事 |
+| 對照 mobile.html 還缺什麼 | `mobile-html-feature-inventory.md` **§6／§7** | 整份 inventory |
+| Lorebook 規格 | `future-lorebook.md` | — |
+| 新聞報（階段 6） | `news-reader-mobile-plan.md` ＋ b3 階段 6 | 所有 `news-future-*`（那是構想） |
+| 假伺服器怎麼驗 | `scripts/README-mobile-stub.md` | — |
+
+文件夾總表與「必讀／選讀」標記：`docs/README.md`。
+
+---
+
+## 7. 開發指令
 
 ```bash
-npm install       # 安裝套件（第一次）
-npm run dev       # 開發模式（熱重載）
-npm run build     # 打包成 .exe
-npm run typecheck # 型別檢查
-npm test          # 自動測試（vitest，只測 src/core/）
-npm run test:watch # 測試 watch 模式（存檔自動重跑）
+npm install
+npm run dev          # 桌面；DesktopST-dev.bat 會先 build:mobile
+npm run build
+npm run typecheck
+npm test             # 只測 src/core/，見 tests/README.md
+npm run dev:mobile   # 手機 HMR（搭配 stub 或 real-test bat）
+npm run build:mobile # 產出 out/mobile（含 inline，給 QR／relay）
 ```
 
-測試說明見 `tests/README.md`（測什麼、不測什麼、快照怎麼更新）。
-
----
-
-## 開源資訊
-
-- **授權**：採作者**自訂條款**（非 MIT／非標準 CC 單檔套用）；禁止將程式與官方素材以重新打包等方式作為商品販售；修改後若免費再發布無須事先徵詢，欲販售或為營利目的單獨發行須事先取得作者同意。公開全文：**https://nori.tw/DeST/license.html**（設定「關於」可開啟）；本 repo 亦含 `docs/license.html` 供離線／打包附帶。
-- **素材**：`assets/` 等官方美術之使用範圍以網站／repo 內公告為準。
-- 目標：程式碼可閱讀與社群貢獻，owner 維護主 repo；免費再散布原則上自由，販售或營利單獨發行依自訂條款須作者同意。
-- 平台：Windows 10/11 優先，保留跨平台擴充空間
-
----
-
-## 目前進度
-
-> **這裡只列標題，一行一項。** 每項當初的設計取捨、踩過的坑、⚠️ 警告，
-> 全部原文搬到 `docs/progress-log.md`——動到對應功能、或懷疑自己在重踩已知的坑時才去查，
-> **不要每次開工都整份讀過**（那份很長，是專門拿來搬出 CLAUDE.md 節省每次對話成本用的）。
-
-**桌面版（MVP → 完整功能，早期階段）：**
-規格書完成 v1.3・專案骨架・階段 1 MVP（角色視窗／輸入視窗／LLM 對話）・
-UI 操作優化・角色縮放・輔助視窗記憶・Persona/World Preset・便利貼・色彩主題（9 種）・
-Emoji 選擇器・圖片附件/截圖・角色翻轉・DST Pack & ST PNG 格式・對話記錄管理・
-LLM 多供應商（OpenAI/Claude/Gemini/Grok）・資料夾搬遷・系統托盤・提醒/定時發話・
-API Key safeStorage 加密・Spotify 音樂偵測・多人聊天與泡泡效能優化
-
-**桌面版（進階功能）：**
-- [x] 新聞陪聊模組 → 未解決構想見 `docs/news-future-*.md`
-- [x] 情境模組開關覆蓋（Scene Module Overrides）
-- [x] 訊息 emoji reaction
-- [x] 記憶摘要（自動＋手動）
-- [x] 時間感知強化
-- [x] 手機版個人新聞報 ＋ 遠端同步修正 → `docs/news-reader-mobile-plan.md`
-- [x] Google 日曆模組（唯讀）→ 設定教學 `docs/google-calendar-setup.html`
-
-**core 抽離與手機平台地基（B1／B2）：**
-- [x] B1：抽出 `src/core/`（純 TS，禁止 import electron/fs/path，禁止反向 import `src/main/`）
-- [x] B2：Capacitor 骨架 ＋ 五個 adapter 介面（Storage/Secret/Http/Scheduler/Notifier）
-- [x] B2.7：`fileStore` 邏輯抽 core（`core/store/` 零 I/O）
-- [x] APK 試打成功（實機 Pixel 10a／Android 17）
-- [x] `mobile.html` 功能對照清單 → `docs/mobile-html-feature-inventory.md`（B3 範圍定義）
-- [x] 自動測試導入（vitest）→ `tests/README.md`
-- [x] 隨機工具搬進 core（御神籤／擲筊機率桌面手機統一）
-- [x] B2.5 Lorebook core ＋ B2.6 Lorebook 桌面 UI → `docs/future-lorebook.md`
-
-**B3 手機 UI（進行中）→ 詳細計畫 `docs/b3-mobile-ui-plan.md`：**
-- [x] 階段 0-①②③：StorageAdapter 接上呼叫端／事件來源抽象／DataSource 抽象
-- [x] 階段 1：UI 骨架（ViewStack／Sheet／Toast／Dialog／9 種主題／返回鍵）
-- [x] 階段 2a-2d：聊天主線／圖片附件／隨機工具／角色列與訊息編修
-- [x] 開發工具：假 mobileServer → `scripts/README-mobile-stub.md`
-- [x] 階段 3：角色庫 ＋ 角色卡編輯
-- [x] 階段 4：設定 UI（API Key／供應商／模型／記憶／模組開關／提醒 CRUD）
-- [x] 階段 5：情境／Persona／World 預設組新增、編輯、刪除
-- [x] 實機回報修正 → 計畫書 §4.16。⚠️ **選檔的 `accept` 只給 `image/*` 這種大類，
-  不要列具體格式或副檔名**（Android 相簿會一張圖都不顯示）；格式把關留給選完之後
-- [x] 階段 8：對話清單與切換（2026-08-05，程式與 stub 端點驗證完成，待真機驗證）
-- [x] 階段 9：用語解說（Lorebook）內容編輯（2026-08-06，程式與 stub 端點驗證完成，待真機驗證）
-- [x] 資訊架構重整 ＋ 全面單色圖示（2026-08-06 owner 回報）→ 計畫書 §4.19。
-  Header 改「狀態標籤即入口」＋☰ 主選單／設定頁拆成平行區塊／用語解說併進情境頁／
-  `MonoIcon` 與模型定價表抽成桌面手機共用。⚠️ **改 vite alias 或 tailwind content 後
-  一定要重開 dev server**，否則圖示會無聲消失
-- [x] 兩個入口並存：`/?ui=app` 新版 ＋ `/` 舊版 `mobile.html`，QR 視窗出兩組碼（2026-08-06）。
-  ⚠️ **relay 的三條硬約束**（實測，見計畫書 §4.20，改動手機連線相關必讀）：
-  ①手機產物必須是**單一自足 HTML**（relay 只 patch fetch，子資源會 503／401 → 全白）；
-  ②`baseUrl` 要用相對路徑不能用 `location.origin`；③WebSocket 必須用注入的 `__tunnelWsUrl`
-  → 計畫書 §4.20。`DesktopST-dev.bat` 會先建置手機 UI，dev 不必再開 `MobileST-*.bat`。
-  ⚠️ **新版走建置產物沒有 HMR**，改完要重跑 bat；邊改邊看仍用 `MobileST-test.bat`
-- [ ] **下一步：階段 6**（個人新聞報）→ 7 ＋ APK 正式打包。
-  ⚠️ **`mobile.html` 不能在 B6 之前刪掉**——遙控面板（H1–H11）只有舊版有
-
-**規劃中：**
-- [ ] 手機獨立版與平台擴充 → `docs/multi-device-platform-roadmap.md`
-  **動手機版／跨平台／散布方式之前必讀 §2（四大目標）／§8（已否決方案）**
-
-**提案中、尚未實作：**
-- 角色對使用者／角色的印象（自動記憶）→ `docs/future-character-impression.md`。
-  排程 **B8（B3 之後）**，owner 決議完全延後
-
-**第一版排除：** TTS、Live2D、SillyTavern 對話記錄匯入
-
-詳細開發階段見規格書 §11；完整歷史記錄與踩坑細節見 `docs/progress-log.md`。
+授權：作者自訂條款 → https://nori.tw/DeST/license.html（repo 內 `docs/license.html`）。
