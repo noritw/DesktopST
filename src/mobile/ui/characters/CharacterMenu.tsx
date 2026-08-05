@@ -1,3 +1,4 @@
+import { DataError } from '@core/data'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { Avatar } from './Avatar'
@@ -7,9 +8,16 @@ import { Avatar } from './Avatar'
  *
  * 「說點什麼」在遙控模式下是叫電腦上的角色主動發話 —— 送出後**要立刻關掉選單**，
  * 因為回應是以訊息形式推回聊天串的，停在選單上會什麼都看不到。
+ *
+ * ⚠️ **「移出對話」原本只放在 `PresenceSheet`**（點「誰在場」再點一次「在場 ✓」）。
+ * owner 2026-08-05 實機回報「從角色庫加了角色進來，卻找不到收回去的地方」——
+ * 從頭像點進來的這個選單才是使用者對著「這個角色」動作時最直覺會找的地方，
+ * 這裡沒有的話等於這條路徑走不通。兩處都能移出，邏輯共用同一支 `setPresent`。
  */
 export function CharacterMenu({ characterId }: { characterId: string }): JSX.Element {
   const character = useAppStore((s) => s.snapshot?.presentCharacters.find((c) => c.id === characterId))
+  const presentCount = useAppStore((s) => s.snapshot?.presentCharacters.length ?? 0)
+  const refresh = useAppStore((s) => s.refresh)
   const pop = useUiStore((s) => s.pop)
   const push = useUiStore((s) => s.push)
   const toast = useUiStore((s) => s.toast)
@@ -40,6 +48,23 @@ export function CharacterMenu({ characterId }: { characterId: string }): JSX.Ele
     }
   }
 
+  // D5「至少保留一個」：只剩一位時不給這顆按鈕，同 `PresenceSheet` 的判斷。
+  const canRemove = presentCount > 1
+
+  const remove = async (): Promise<void> => {
+    pop()
+    try {
+      await getData().characters.setPresent(characterId, false)
+      await refresh()
+      toast(`已將 ${character.name} 移出對話`)
+    } catch (e) {
+      toast(
+        e instanceof DataError && e.code === 'conflict' ? '至少要留一個角色在對話裡' : '操作失敗',
+        'error'
+      )
+    }
+  }
+
   return (
     <div className="pb-2">
       <div className="mb-3 flex items-center gap-3">
@@ -65,6 +90,20 @@ export function CharacterMenu({ characterId }: { characterId: string }): JSX.Ele
         hint="名稱、人格、招呼語、主圖"
         onClick={() => push('character-editor', characterId)}
       />
+      {canRemove && (
+        <MenuItem
+          icon="🚪"
+          label="移出對話"
+          hint="角色卡不會被刪，之後可以再從角色庫加回來"
+          destructive
+          onClick={() => void remove()}
+        />
+      )}
+      {!canRemove && (
+        <p className="mt-1 px-1 text-xs leading-relaxed text-[var(--text-sub)]">
+          至少要留一個角色在對話裡，所以最後一位不能移出。
+        </p>
+      )}
     </div>
   )
 }

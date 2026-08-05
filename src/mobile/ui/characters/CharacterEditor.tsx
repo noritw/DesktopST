@@ -109,7 +109,9 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
   }, [setCloseGuard, confirm, pop])
 
   const changeAvatar = async (): Promise<void> => {
-    const file = await pickFile('image/png,image/jpeg,image/gif,image/webp')
+    // ⚠️ 一律 `image/*`，不要列具體格式（見 `pickFile` 的說明）。
+    // 真正的格式把關在 `prepareAvatar`，不是在選圖器上。
+    const file = await pickFile('image/*')
     if (!file || !draft) return
     setBusy(true)
     try {

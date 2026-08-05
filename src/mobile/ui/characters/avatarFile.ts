@@ -35,10 +35,38 @@ export function extOf(filename: string): string {
   return i < 0 ? '' : filename.slice(i).toLowerCase()
 }
 
+/** MIME → 副檔名，判斷不出來才退回檔名（見 `resolveExt` 的說明）。 */
+const MIME_TO_EXT: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/gif': '.gif',
+  'image/webp': '.webp'
+}
+
+/**
+ * 判斷成品要用哪個副檔名。回空字串代表「不是電腦端直接收得下的格式」。
+ *
+ * ⚠️ **不能只看 `file.name` 的副檔名。** 手機相簿挑圖（尤其 Google 相簿走
+ * `content://` 來源）常常給一個沒有副檔名、或副檔名對不上實際格式的檔名。
+ * `File.type`（瀏覽器自己偵測出的 MIME）比檔名可靠得多，優先採用。
+ */
+function resolveExt(file: File): string {
+  const fromMime = MIME_TO_EXT[file.type]
+  if (fromMime) return fromMime
+  const fromName = extOf(file.name)
+  return ALLOWED.has(fromName) ? fromName : ''
+}
+
 /** 讀一個檔案 → 可以送給 `characters.saveAvatar()` 的位元組。 */
 export async function prepareAvatar(file: File): Promise<{ bytes: Uint8Array; ext: string }> {
-  const ext = extOf(file.name)
-  if (!ALLOWED.has(ext)) throw new AvatarFileError('bad-format')
+  const ext = resolveExt(file)
+
+  // ⚠️ **不認得的格式不要直接擋掉，先問瀏覽器讀不讀得出來。**
+  // Pixel 等 Android 機在「省空間」模式下拍照存的是 **HEIC／HEIF**，
+  // 電腦端不收這個副檔名，但手機的 Chrome 多半解得開（走系統解碼器）——
+  // 只要解得開，就能在這裡轉成 PNG 再送出去，使用者完全不必知道有這回事。
+  // 直接擋的話，使用者會拿到「請選 PNG、JPG…」而手上根本沒有那種檔案。
+  if (!ext && !file.type.startsWith('image/')) throw new AvatarFileError('bad-format')
 
   // GIF 一律原檔：重繪只會留下第一格，動圖就死了。太大就直接擋，不要偷偷弄壞它。
   const asIs = async (): Promise<{ bytes: Uint8Array; ext: string }> => {
@@ -47,9 +75,10 @@ export async function prepareAvatar(file: File): Promise<{ bytes: Uint8Array; ex
   }
   if (ext === '.gif') return asIs()
 
-  const img = await decode(file)
+  const img = await decode(file, ext === '')
   const tooWide = Math.max(img.width, img.height) > MAX_EDGE
-  if (!tooWide && file.size <= REENCODE_OVER_BYTES) return asIs()
+  // `ext` 為空＝格式本身就得換掉，一定要重編，不能走原檔那條路。
+  if (ext && !tooWide && file.size <= REENCODE_OVER_BYTES) return asIs()
 
   const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height))
   const w = Math.max(1, Math.round(img.width * scale))
@@ -63,14 +92,20 @@ export async function prepareAvatar(file: File): Promise<{ bytes: Uint8Array; ex
   ctx.drawImage(img, 0, 0, w, h)
 
   // 來源可能有透明就輸出 PNG；相機來的 JPEG 沒有透明，轉 PNG 只會變成好幾 MB。
-  const keepAlpha = ext === '.png' || ext === '.webp'
+  // 認不出格式的（HEIC…）也走 PNG：不知道有沒有透明時，保住它比省容量重要。
+  const keepAlpha = ext === '.png' || ext === '.webp' || ext === ''
   const dataUrl = keepAlpha ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.9)
   const bytes = dataUrlToBytes(dataUrl)
   if (bytes.length > MAX_BYTES) throw new AvatarFileError('too-large')
   return { bytes, ext: keepAlpha ? '.png' : '.jpg' }
 }
 
-function decode(file: File): Promise<HTMLImageElement> {
+/**
+ * `unknownFormat` 只影響**失敗時要說哪一句話**：
+ * 本來就不認得的格式（HEIC…）解不開，真正的意思是「這個格式不支援」，
+ * 不是「你的檔案壞了」——後者會讓使用者跑去檢查一張其實好好的照片。
+ */
+function decode(file: File, unknownFormat = false): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file)
     const img = new Image()
@@ -80,7 +115,7 @@ function decode(file: File): Promise<HTMLImageElement> {
     }
     img.onerror = () => {
       URL.revokeObjectURL(url)
-      reject(new AvatarFileError('decode'))
+      reject(new AvatarFileError(unknownFormat ? 'bad-format' : 'decode'))
     }
     img.src = url
   })

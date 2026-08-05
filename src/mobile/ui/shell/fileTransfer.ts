@@ -11,15 +11,46 @@
  * 接上時多半要重寫。這支檔案的存在就是為了讓那天只要改這裡。
  */
 
-/** 讓使用者挑一個檔案。取消時回 `null`。 */
+/**
+ * 讓使用者挑一個檔案。取消時回 `null`。
+ *
+ * ⚠️ **`accept` 在手機上要給「大類」不要給「一串具體格式」。**
+ * Android 的 Chrome 會把 `accept` 轉成丟給相簿 App 的篩選條件：`image/*` 一切正常，
+ * 但換成 `image/png,image/jpeg,…` 這種具體清單時，Google 相簿等 App 常常就篩不出
+ * 任何東西——症狀是「點了相簿，一張圖都沒有」（owner 2026-08-05 實機回報）。
+ * 副檔名形式（`.png,.dstpack`）更糟：Android 沒有副檔名的概念，自訂副檔名對映不到
+ * 任何 MIME，檔案會整片灰掉不能選。
+ * `ui/chat/Composer.tsx` 的聊天傳圖從頭到尾沒出過事，用的就是 `image/*`。
+ * **格式的把關留給選完之後**（`avatarFile.ts` 會驗），不要在選圖器上把關。
+ *
+ * ⚠️ **`<input>` 一定要先掛進 DOM 再 `.click()`。**
+ * 原本用 `document.createElement` 生一個從沒掛進文件樹的 input，桌面瀏覽器與
+ * `npm run dev:mobile` 的桌機模擬都測得過，但手機上跳去相簿選圖、切回瀏覽器後
+ * `change` 事件收不到——症狀是「選了圖但完全沒反應」（owner 2026-08-05 兩度實機
+ * 回報）。`ui/chat/Composer.tsx` 的圖片附件一直是好的，因為那支的 `<input>` 是
+ * 寫在 JSX 裡、`hidden` 但確實在畫面上，不是憑空生一個丟著。這裡照同樣的作法。
+ */
 export function pickFile(accept: string): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = accept
-    // ⚠️ 沒有「取消」事件可以靠：使用者按取消時多數瀏覽器什麼都不發。
-    // 元件因此不能等這個 Promise 來收 loading 狀態 —— 它可能永遠不 resolve(File)。
-    input.onchange = () => resolve(input.files?.[0] ?? null)
+    input.hidden = true
+    document.body.appendChild(input)
+
+    input.onchange = () => {
+      input.remove()
+      resolve(input.files?.[0] ?? null)
+    }
+
+    // ⚠️ **刻意不用 `window focus` 猜「使用者取消了」。**
+    // 曾經加過：跳去選圖器再切回來時補一次檢查，順便把懸空的 input 清掉。
+    // 結果剛拍的照片（檔案較大，Android 的系統選圖器交還檔案前有明顯延遲）
+    // 反而被這個猜測搶先判定成「取消」，`onchange` 才姍姍來遲時 input 已經被拔掉——
+    // owner 2026-08-05 實機回報「隨手拍的照片選不進去」正是這個（gallery 裡現成的
+    // 小圖通常快到不會踩到，才會看起來像是「有些圖可以、有些不行」）。
+    // 取消時 input 就留著（隱形、不掛在畫面上任何可見的地方），
+    // 只是輕微的 DOM 孤兒節點，換來的是選圖不會被自己的「智慧判斷」搶答。
     input.click()
   })
 }

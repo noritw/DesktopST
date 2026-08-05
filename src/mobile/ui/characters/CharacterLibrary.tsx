@@ -60,7 +60,11 @@ export function CharacterLibrary(): JSX.Element {
 
   /** 匯入：PNG 角色卡、JSON 角色卡、DST Pack 三種吃同一個入口。 */
   const importFile = async (): Promise<void> => {
-    const file = await pickFile('.png,.json,.dstpack')
+    // 副檔名給桌面瀏覽器看，MIME 給 Android 看（見 `pickFile` 的說明）——
+    // 只寫副檔名的話，`.dstpack` 在 Android 對映不到任何格式，檔案會整片不能選。
+    // `application/octet-stream` 是 `.dstpack` 這種自訂副檔名唯一涵蓋得到的類別。
+    // 判斷實際是哪一種仍然看檔名（下面的 `lower.endsWith`），accept 只管「選得到」。
+    const file = await pickFile('.png,.json,.dstpack,image/png,application/json,application/octet-stream')
     if (!file) return
     setBusy(true)
     try {
