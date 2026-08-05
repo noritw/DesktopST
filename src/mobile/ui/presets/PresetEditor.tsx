@@ -27,7 +27,8 @@ export function PresetEditor({ presetKey }: { presetKey: string }): JSX.Element 
   const [personas, setPersonas] = useState<PresetListItem[]>([])
   const [worlds, setWorlds] = useState<PresetListItem[]>([])
   const dirty = useRef(false)
-  const mark = (): void => { dirty.current = true }
+  const [isDirty, setIsDirty] = useState(false)
+  const mark = (): void => { dirty.current = true; setIsDirty(true) }
   const load = useCallback(async () => {
     try {
       const api = getData(); const fetched = id === 'new' ? blank(kind) : kind === 'persona' ? await api.presets.getPersona(id) : kind === 'world' ? await api.presets.getWorld(id) : await api.presets.getScene(id)
@@ -56,18 +57,19 @@ export function PresetEditor({ presetKey }: { presetKey: string }): JSX.Element 
       if (kind === 'persona') await api.savePersona(draft as PersonaPreset)
       else if (kind === 'world') await api.saveWorld(draft as WorldPreset)
       else await api.saveScene(draft as ScenePreset)
-      dirty.current = false; toast('已儲存'); pop()
+      dirty.current = false; setIsDirty(false); toast('已儲存'); pop()
     } catch (e) { toast(describeSettingsError(e, '儲存'), 'error') } finally { setBusy(false) }
   }
   const remove = async (): Promise<void> => {
     if (!draft || id === 'new') return
     if (!await confirm({ title: `刪除「${draft.name}」`, message: '刪除後不能復原。', confirmLabel: '刪除', destructive: true })) return
-    setBusy(true); try { const api = getData().presets; if (kind === 'persona') await api.removePersona(id); else if (kind === 'world') await api.removeWorld(id); else await api.removeScene(id); dirty.current = false; toast('已刪除'); pop() } catch (e) { toast(describeSettingsError(e, '刪除'), 'error') } finally { setBusy(false) }
+    setBusy(true); try { const api = getData().presets; if (kind === 'persona') await api.removePersona(id); else if (kind === 'world') await api.removeWorld(id); else await api.removeScene(id); dirty.current = false; setIsDirty(false); toast('已刪除'); pop() } catch (e) { toast(describeSettingsError(e, '刪除'), 'error') } finally { setBusy(false) }
   }
   if (!draft) return <div className="py-8 text-center text-sm text-[var(--text-sub)]">載入中⋯⋯</div>
   const lore = 'lorebookIds' in draft ? draft.lorebookIds ?? [] : []
   const toggleLore = (bookId: string): void => change({ ...draft, lorebookIds: lore.includes(bookId) ? lore.filter(x => x !== bookId) : [...lore, bookId] } as Draft)
   return <div className="space-y-4 pb-2">
+    {isDirty && <p className="text-xs text-[var(--text-sub)]">＊ 有未儲存的變更</p>}
     <Field label="名稱"><input className="field" value={draft.name} maxLength={60} onChange={e => change({ ...draft, name: e.target.value })} /></Field>
     {kind === 'persona' && <PersonaFields draft={draft as PersonaPreset} change={change} />}
     {kind === 'world' && <WorldFields draft={draft as WorldPreset} change={change} />}

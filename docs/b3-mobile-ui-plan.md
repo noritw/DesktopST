@@ -303,6 +303,43 @@ node scripts/mobile-stub-server.mjs
 - `MobileST-test.bat` 只驗 React UI 與拒絕條件 stub，資料不會持久化；`MobileST-real-test.bat` 才是接真 DeST 的入口，DeST 必須先啟動並開啟 mobileServer。DeST 內建 QR 在階段 7 前仍指向舊的 `assets/mobile.html`，不會自動顯示新版 React UI。
 - 寫入驗證終點是 `%APPDATA%\desktop-st\Data\`（依實際資料根目錄）內對應的 `card.json`、`settings.json` 與 preset 檔案最終內容，不是 HTTP 200；測試選檔時 `accept` 只用 `image/*`。
 
+#### 真機檢查清單
+
+準備：DeST 先啟動並開啟 mobileServer → 跑 `MobileST-real-test.bat` → 手機掃碼連線。
+資料根目錄預設在 `%APPDATA%\desktop-st\Data\`；preset 各自一個檔案存在 `personas\<id>.json`／`worlds\<id>.json`／`scenes\<id>.json`（見 [keys.ts](../src/core/store/keys.ts)），啟用中的 id 記在 `settings.json` 的 `activePersonaId`／`activeWorldId`（Scene 目前無 active 概念，套用即切換對話，不落地成 settings 欄位——若手機端顯示的 chip 與桌面實際使用中的情境不一致，這是要抓的重點）。每一步都是「操作 → 看畫面回饋 → 開檔案／桌面視窗核對實際內容」，不是看 HTTP 200 就算過。
+
+1. **新增**
+   - 手機端新增一個 Scene／Persona／World，填入名稱與內容後存檔。
+   - 檢查對應 `Data\{personas|worlds|scenes}\<新 id>.json` 是否生成，欄位是否與手機填的一致。
+   - 回桌面開設定視窗，確認新項目出現在清單裡（不用重啟 DeST）。
+
+2. **編輯**
+   - 在手機端修改一個既有 preset 的內容（如世界觀正文、Persona 名稱）並存檔。
+   - 檔案內容應原地更新，id 不變；桌面端清單/設定視窗打開後應看到新內容。
+   - 若該 preset 正是目前啟用中的（如 activePersonaId 指到它），確認下一則對話送出的 prompt 已套用新內容，而不是舊的快取版本。
+
+3. **刪除**
+   - 刪除一個非啟用中的 preset，確認對應檔案從資料夾消失，手機清單即時移除。
+   - 嘗試刪除「目前唯一」或「正啟用中」的 Persona／World（比照桌面既有的保護邏輯，桌面端目前禁止刪到剩 0 個或刪除啟用中項目），確認手機端出現清楚的拒絕 UI，而不是靜默失敗或看起來成功但檔案還在。
+
+4. **Scene 切換與對話保留**
+   - 建立兩個以上 Scene，各自對話幾句後切到另一個 Scene 再切回來。
+   - 確認切回原 Scene 時對話內容是原本那段（桌面「每個情境記住最後對話」的邏輯），而不是清空或串到別的情境。
+   - 手機上角色列上方的 chip 名稱要跟著切換同步更新，不能停在舊名稱。
+
+5. **Persona 切換身份**
+   - 在輸入框上方點目前 Persona 名稱切換到另一個 Persona。
+   - 送出一則訊息，確認：(a) `settings.json` 的 `activePersonaId` 已更新；(b) 這則訊息裡「使用者」的名稱／人稱如果會出現在 prompt 或訊息中，是用新 Persona 的設定，不是切換前殘留的。
+
+6. **World 切換**
+   - 切換 World 後送一則訊息，確認 `settings.json` 的 `activeWorldId` 更新，且角色回覆能反映新世界觀設定（例如 prompt 組裝時帶入新 World 的正文，可搭配桌面 log 或直接觀察角色回覆內容判斷）。
+
+7. **拒絕條件與錯誤 UI**
+   - 對照 `scripts/README-mobile-stub.md` 已模擬的拒絕情境（如刪除保護、必填欄位缺失），在真機／真伺服器上重現一次，確認錯誤訊息看得懂、不是原始 stack 或英文代碼直接丟出來。
+   - 手機端網路中斷或 mobileServer 關閉時嘗試存檔，確認出現「存檔失敗」提示而不是假裝成功。
+
+驗證完成後回來更新本節與 §4.9 表格的狀態，並同步 `docs/progress-log.md`。
+
 ---
 
 ## 4.10 現場筆記：階段 1–2a 實機踩到的五個坑

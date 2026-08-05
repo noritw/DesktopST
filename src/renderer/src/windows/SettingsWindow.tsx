@@ -388,6 +388,10 @@ export default function SettingsWindow() {
   const dirtyRef = useRef(false)
   const personaDraftRef = useRef<PersonaPreset | null>(null)
   const worldDraftRef = useRef<WorldPreset | null>(null)
+  const worldPresetsRef = useRef(worldPresets)
+  const personaPresetsRef = useRef(personaPresets)
+  useEffect(() => { worldPresetsRef.current = worldPresets }, [worldPresets])
+  useEffect(() => { personaPresetsRef.current = personaPresets }, [personaPresets])
 
   // 提醒音效路徑改變時重新建立 Audio 實例（只載入一次）
   const customSoundPath = draft?.ui.reminderNotificationSound?.customSoundPath
@@ -581,17 +585,21 @@ export default function SettingsWindow() {
     setDraft(nextDraft)
   }, [settings, dirty])
 
+  // 只在「切換到另一組」時才用最新資料覆蓋草稿 —— 依賴 worldPresets/personaPresets
+  // 本身會在每次自動儲存後的 presets:updated 廣播觸發（見 useAppStore.loadPresets），
+  // 若把整個陣列列進 deps，正在輸入時的自動儲存往返會用舊值蓋掉剛打的字，
+  // 中文輸入法組字到一半被外部覆蓋會整段亂跳（owner 2026-08-05 實機回報）。
   useEffect(() => {
     if (!draft) return
-    const w = worldPresets.find(p => p.id === draft.activeWorldId)
+    const w = worldPresetsRef.current.find(p => p.id === draft.activeWorldId)
     setWorldDraft(w ? { ...w } : null)
-  }, [draft?.activeWorldId, worldPresets])
+  }, [draft?.activeWorldId])
 
   useEffect(() => {
     if (!draft) return
-    const p = personaPresets.find(p => p.id === draft.activePersonaId)
+    const p = personaPresetsRef.current.find(p => p.id === draft.activePersonaId)
     setPersonaDraft(p ? { ...p } : null)
-  }, [draft?.activePersonaId, personaPresets])
+  }, [draft?.activePersonaId])
 
   // 保持 ref 與最新 state 同步，供 unmount cleanup 使用
   useEffect(() => { draftRef.current = draft }, [draft])

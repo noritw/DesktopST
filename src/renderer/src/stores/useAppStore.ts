@@ -215,7 +215,10 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
 
   deleteCharacter: async (id) => {
-    await window.api.invoke('character:delete', id)
+    const result = (await window.api.invoke('character:delete', id)) as { ok: true } | { error: 'last-character' | 'not-found' }
+    if ('error' in result) {
+      window.alert(result.error === 'last-character' ? '至少需要保留一個角色。' : '找不到這個角色。')
+    }
   },
 
   addToDesktop: async (characterId) => {

@@ -16,7 +16,7 @@ export function describeSettingsError(e: unknown, action: string): string {
     case 'unauthorized':
       return `${action}失敗：連線權杖失效，請重新掃描 QR code。`
     case 'conflict':
-      return `${action}失敗：API Key 只能在與電腦同一個區網時修改，經中繼連線時不行。`
+      return `${action}失敗：目前狀態不允許這個操作（例如至少要保留一組、或這組正在使用中無法刪除、或 API Key 只能在與電腦同一個區網時修改）。`
     case 'invalid-input':
       return `${action}失敗：內容不符合限制（例如數值超出範圍、名稱空白）。`
     case 'not-supported':

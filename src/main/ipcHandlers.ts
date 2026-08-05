@@ -1019,7 +1019,9 @@ export function saveCharacterDirect(char: Character): true {
   return true
 }
 
-export function deleteCharacterDirect(id: string): true {
+export function deleteCharacterDirect(id: string): { ok: true } | { error: 'last-character' | 'not-found' } {
+  if (!characters.some(c => c.id === id)) return { error: 'not-found' }
+  if (characters.length <= 1) return { error: 'last-character' }
   characters = characters.filter(c => c.id !== id)
   fileStore.deleteCharacter(id)
   // Remove from desktop if present
@@ -1028,7 +1030,7 @@ export function deleteCharacterDirect(id: string): true {
   closeCharacterWindow(id)
   broadcastToAll('characters:updated', characters)
   broadcastToAll('desktop:updated', settings.ui.desktopCharacters)
-  return true
+  return { ok: true }
 }
 
 export function saveCharacterAvatarDirect(payload: { id: string; buffer: ArrayBuffer; ext: string }): { path: string } | { error: string } {

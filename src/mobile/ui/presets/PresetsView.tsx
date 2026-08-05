@@ -50,13 +50,16 @@ export function PresetsView(): JSX.Element {
         <button type="button" onClick={() => push('preset-editor', `${kind}:new`)} className="rounded-full bg-[var(--mint)] px-3 py-1 text-xs text-[var(--text)]">＋ 新增</button>
       </div>
       <div className="space-y-2">
-        {lists[kind].map((item) => <div key={item.id} className="flex items-center gap-2 rounded-[14px] border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5">
-          <button type="button" className="min-w-0 flex-1 text-left" onClick={() => void apply(kind, item.id)}>
-            <p className="truncate text-sm text-[var(--text)]">{item.name}</p>
-            <p className={`mt-0.5 text-[11px] ${((kind === 'scene' && activeScene === item.id) || (kind !== 'scene' && active[kind] === item.id)) ? 'font-semibold text-[var(--text)]' : 'text-[var(--text-sub)]'}`}>{((kind === 'scene' && activeScene === item.id) || (kind !== 'scene' && active[kind] === item.id)) ? '✓ 目前使用中' : '點此套用'}</p>
-          </button>
-          <button type="button" aria-label={`編輯${item.name}`} onClick={() => push('preset-editor', `${kind}:${item.id}`)} className="rounded-full px-2 py-1 text-sm active:bg-[var(--border)]">✏️</button>
-        </div>)}
+        {lists[kind].map((item) => {
+          const isActive = (kind === 'scene' && activeScene === item.id) || (kind !== 'scene' && active[kind] === item.id)
+          return <div key={item.id} className={`flex items-center gap-2 rounded-[14px] border px-3 py-2.5 ${isActive ? 'border-[var(--mint)] bg-[var(--mint)]/25' : 'border-[var(--border)] bg-[var(--bg)]'}`}>
+            <button type="button" className="min-w-0 flex-1 text-left" onClick={() => void apply(kind, item.id)}>
+              <p className="truncate text-sm text-[var(--text)]">{item.name}</p>
+              <p className={`mt-0.5 text-[11px] ${isActive ? 'font-semibold text-[var(--text)]' : 'text-[var(--text-sub)]'}`}>{isActive ? '✓ 目前使用中' : '點此套用'}</p>
+            </button>
+            <button type="button" aria-label={`編輯${item.name}`} onClick={() => push('preset-editor', `${kind}:${item.id}`)} className="rounded-full px-2 py-1 text-sm active:bg-[var(--border)]">✏️</button>
+          </div>
+        })}
       </div>
     </section>)}
   </div>

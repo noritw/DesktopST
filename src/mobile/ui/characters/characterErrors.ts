@@ -30,6 +30,8 @@ export function describeCharacterError(e: unknown, action: string): string {
       return `${action}失敗：連線權杖失效，請重新掃描 QR code。`
     case 'not-found':
       return `${action}失敗：找不到這個角色，可能已經在電腦上被刪掉了。`
+    case 'conflict':
+      return `${action}失敗：桌面上至少要保留一個角色，不能刪到剩 0 個。`
     case 'invalid-input':
       return `${action}失敗：內容不符合限制（角色名稱不可空白；匯入的檔案要是角色卡或 .dstpack）。`
     case 'not-supported':

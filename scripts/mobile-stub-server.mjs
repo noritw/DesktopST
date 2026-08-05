@@ -505,6 +505,10 @@ const server = http.createServer(async (req, res) => {
     const p = await readBody(req)
     const idx = library.findIndex((c) => c.id === p.id)
     if (idx < 0) return json(res, { error: 'Character not found' }, 404)
+    if (library.length <= 1) {
+      console.log(`[delete-rejected] ${p.id} last-character`)
+      return json(res, { error: 'last-character' }, 409)
+    }
     library.splice(idx, 1)
     presentIds = presentIds.filter((i) => i !== p.id)
     console.log(`[delete] ${p.id}`)

@@ -63,7 +63,7 @@ export interface MobileBridge {
   getCharacterCard: (id: string) => import('./types').Character | null
   createCharacter: (name?: string) => import('./types').Character
   saveCharacter: (char: import('./types').Character) => void
-  deleteCharacter: (id: string) => void
+  deleteCharacter: (id: string) => { ok: true } | { error: 'last-character' | 'not-found' }
   saveCharacterAvatar: (id: string, buffer: ArrayBuffer, ext: string) => { path: string } | { error: string }
   importCharacterPng: (buffer: ArrayBuffer) => import('./types').Character | { error: string }
   importCharacterJson: (json: string) => import('./types').Character | { error: string }
@@ -933,9 +933,10 @@ async function handleRequest(
     if (!payload) return
     if (!payload.id) { jsonError(res, 400, 'id required'); return }
     if (!bridge.getCharacterCard(payload.id)) { jsonError(res, 404, 'Character not found'); return }
-    bridge.deleteCharacter(payload.id)
+    const result = bridge.deleteCharacter(payload.id)
+    if ('error' in result) { jsonError(res, result.error === 'not-found' ? 404 : 409, result.error); return }
     pushDesktopUpdate(bridge.getDesktopCharacterIds())
-    jsonOk(res, { ok: true })
+    jsonOk(res, result)
     return
   }
 
