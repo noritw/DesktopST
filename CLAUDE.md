@@ -150,9 +150,10 @@ API Key safeStorage 加密・Spotify 音樂偵測・多人聊天與泡泡效能�
 - [x] 開發工具：假 mobileServer → `scripts/README-mobile-stub.md`
 - [x] 階段 3：角色庫 ＋ 角色卡編輯
 - [x] 階段 4：設定 UI（API Key／供應商／模型／記憶／模組開關／提醒 CRUD）
+- [x] 階段 5：情境／Persona／World 預設組新增、編輯、刪除
 - [x] 實機回報修正 → 計畫書 §4.16。⚠️ **選檔的 `accept` 只給 `image/*` 這種大類，
   不要列具體格式或副檔名**（Android 相簿會一張圖都不顯示）；格式把關留給選完之後
-- [ ] **下一步：階段 5**（情境／Persona／世界觀編輯）→ 6 新聞報 → 7 取代 `mobile.html` ＋ APK 正式打包
+- [ ] **下一步：階段 6**（個人新聞報）→ 7 取代 `mobile.html` ＋ APK 正式打包
 
 **規劃中：**
 - [ ] 手機獨立版與平台擴充 → `docs/multi-device-platform-roadmap.md`

@@ -136,6 +136,9 @@ export interface AppStateSnapshot {
   colorTheme: ColorTheme
   randomToolsEnabled: boolean
   maxImagesPerMessage: number
+  activeSceneId?: string
+  activePersonaId?: string
+  activeWorldId?: string
 }
 
 export interface SendMessageInput {
@@ -260,6 +263,7 @@ export interface PresetsApi {
 
   activePersonaId(): Promise<string>
   activeWorldId(): Promise<string>
+  activeSceneId(): Promise<string | undefined>
 
   activatePersona(id: string): Promise<void>
   activateWorld(id: string): Promise<void>

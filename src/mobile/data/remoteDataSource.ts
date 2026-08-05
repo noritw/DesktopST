@@ -32,10 +32,7 @@ import type { HttpClientOptions } from './httpClient'
  * ## ⚠️ 尚未有對應端點的方法
  *
  * 階段 3 已補上角色卡的寫入端點（建立／存檔／刪除／主圖／匯入匯出）。
- * **預設組**的寫入仍缺（階段 5），那幾支因此暫時擲出 `not-supported`。
- *
- * **不用「假裝成功」或悄悄退化成唯讀** —— 那會讓使用者以為存檔了。
- * 擲錯誤，UI 顯示「這台電腦的版本還不支援」，是誠實且可行動的。
+ * 預設組讀寫也走同一組 DataSource 方法；手機 UI 不知道資料是在電腦還是本機。
  */
 
 export interface RemoteDataSourceOptions extends HttpClientOptions {
@@ -67,6 +64,9 @@ export class RemoteDataSource implements DataSource {
       colorTheme: AppStateSnapshot['colorTheme']
       randomToolsEnabled: boolean
       maxImages: number
+      activeSceneId?: string
+      activePersonaId?: string
+      activeWorldId?: string
     }>('/api/state')
 
     return {
@@ -76,7 +76,10 @@ export class RemoteDataSource implements DataSource {
       conversation: d.conversation ?? null,
       colorTheme: d.colorTheme,
       randomToolsEnabled: d.randomToolsEnabled,
-      maxImagesPerMessage: d.maxImages
+      maxImagesPerMessage: d.maxImages,
+      activeSceneId: d.activeSceneId,
+      activePersonaId: d.activePersonaId,
+      activeWorldId: d.activeWorldId
     }
   }
 
@@ -171,23 +174,24 @@ export class RemoteDataSource implements DataSource {
     listWorlds: async () => (await this.fetchPresets()).worlds,
     listScenes: async () => (await this.http.get<{ scenes: PresetListItem[] }>('/api/scenes')).scenes,
 
-    getPersona: async (): Promise<PersonaPreset> => { throw notYet('presets.getPersona', 5) },
-    getWorld: async (): Promise<WorldPreset> => { throw notYet('presets.getWorld', 5) },
-    getScene: async (): Promise<ScenePreset> => { throw notYet('presets.getScene', 5) },
+    getPersona: async (id): Promise<PersonaPreset> => (await this.http.get<{ preset: PersonaPreset }>(`/api/presets/persona/${encodeURIComponent(id)}`)).preset,
+    getWorld: async (id): Promise<WorldPreset> => (await this.http.get<{ preset: WorldPreset }>(`/api/presets/world/${encodeURIComponent(id)}`)).preset,
+    getScene: async (id): Promise<ScenePreset> => (await this.http.get<{ preset: ScenePreset }>(`/api/presets/scene/${encodeURIComponent(id)}`)).preset,
 
     activePersonaId: async () => (await this.fetchPresets()).activePersonaId,
     activeWorldId: async () => (await this.fetchPresets()).activeWorldId,
+    activeSceneId: async () => (await this.fetchPresets()).activeSceneId,
 
     activatePersona: async (id) => { await this.http.post('/api/presets/activate-persona', { id }) },
     activateWorld: async (id) => { await this.http.post('/api/presets/activate-world', { id }) },
     applyScene: async (id) => { await this.http.post('/api/scenes/apply', { id }) },
 
-    savePersona: async (): Promise<void> => { throw notYet('presets.savePersona', 5) },
-    saveWorld: async (): Promise<void> => { throw notYet('presets.saveWorld', 5) },
-    saveScene: async (): Promise<void> => { throw notYet('presets.saveScene', 5) },
-    removePersona: async (): Promise<void> => { throw notYet('presets.removePersona', 5) },
-    removeWorld: async (): Promise<void> => { throw notYet('presets.removeWorld', 5) },
-    removeScene: async (): Promise<void> => { throw notYet('presets.removeScene', 5) }
+    savePersona: async (preset): Promise<void> => { await this.http.post('/api/presets/persona/save', { preset }) },
+    saveWorld: async (preset): Promise<void> => { await this.http.post('/api/presets/world/save', { preset }) },
+    saveScene: async (preset): Promise<void> => { await this.http.post('/api/presets/scene/save', { preset }) },
+    removePersona: async (id): Promise<void> => { await this.http.post('/api/presets/persona/delete', { id }) },
+    removeWorld: async (id): Promise<void> => { await this.http.post('/api/presets/world/delete', { id }) },
+    removeScene: async (id): Promise<void> => { await this.http.post('/api/presets/scene/delete', { id }) }
   }
 
   readonly settings: SettingsApi = {
@@ -223,6 +227,7 @@ export class RemoteDataSource implements DataSource {
     worlds: PresetListItem[]
     activePersonaId: string
     activeWorldId: string
+    activeSceneId?: string
   }> {
     // `/api/presets` 一次回四樣，四個方法共用同一支端點。
     // 刻意不快取：呼叫端是 UI 開啟選單時才問，量很小，快取反而要處理失效。
@@ -232,9 +237,4 @@ export class RemoteDataSource implements DataSource {
 
 function toCardFile(r: { data: string; filename: string }): CardFile {
   return { bytes: base64ToBytes(r.data), filename: r.filename }
-}
-
-/** 電腦端還沒有對應端點。標明會在哪個階段補上，免得日後只看到一句 not-supported。 */
-function notYet(method: string, stage: number): DataError {
-  return new DataError('not-supported', `${method}: mobileServer 尚無對應端點（B3 階段 ${stage} 補上）`)
 }

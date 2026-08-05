@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets, getDataDir } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, setColorThemeDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect, createCharacterDirect, saveCharacterDirect, deleteCharacterDirect, saveCharacterAvatarDirect, importCharacterPngDirect, importCharacterJsonDirect, exportCharacterPngDirect, exportCharacterJsonDirect, buildDstPackDirect, importDstPackDirect, listLorebooksDirect, getLlmSettingsSummaryDirect, setLlmProviderDirect, setLlmModelDirect, setLlmEndpointDirect, setLlmApiKeyDirect, getMemorySettingsDirect, setMemorySettingsDirect, listMobileModuleTogglesDirect, setMobileModuleEnabledDirect, listRemindersDirect, createReminderDirect, saveReminderDirect, deleteReminderDirect, toggleReminderDirect } from './ipcHandlers'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, savePersonaPresetDirect, saveWorldPresetDirect, saveScenePresetDirect, removePersonaPresetDirect, removeWorldPresetDirect, removeScenePresetDirect, setColorThemeDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect, createCharacterDirect, saveCharacterDirect, deleteCharacterDirect, saveCharacterAvatarDirect, importCharacterPngDirect, importCharacterJsonDirect, exportCharacterPngDirect, exportCharacterJsonDirect, buildDstPackDirect, importDstPackDirect, listLorebooksDirect, getLlmSettingsSummaryDirect, setLlmProviderDirect, setLlmModelDirect, setLlmEndpointDirect, setLlmApiKeyDirect, getMemorySettingsDirect, setMemorySettingsDirect, listMobileModuleTogglesDirect, setMobileModuleEnabledDirect, listRemindersDirect, createReminderDirect, saveReminderDirect, deleteReminderDirect, toggleReminderDirect } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import { loadNewsModuleSettings } from './modules/news/settings'
@@ -538,6 +538,16 @@ function initMobileServer(): void {
     activateWorld: activateWorldDirect,
     getActivePersonaId: () => getSettings().activePersonaId,
     getActiveWorldId: () => getSettings().activeWorldId,
+    getActiveSceneId: () => getSettings().activeSceneId,
+    getPersonaPreset: (id) => loadPersonaPresets().find(p => p.id === id) ?? null,
+    getWorldPreset: (id) => loadWorldPresets().find(p => p.id === id) ?? null,
+    getScenePreset: (id) => loadScenePresets().find(p => p.id === id) ?? null,
+    savePersonaPreset: savePersonaPresetDirect,
+    saveWorldPreset: saveWorldPresetDirect,
+    saveScenePreset: saveScenePresetDirect,
+    removePersonaPreset: removePersonaPresetDirect,
+    removeWorldPreset: removeWorldPresetDirect,
+    removeScenePreset: removeScenePresetDirect,
     getColorTheme: () => getSettings().ui.colorTheme ?? 'mint',
     setColorTheme: (theme) => setColorThemeDirect(theme),
     getRandomToolsEnabled: () => getSettings().ui.randomToolsEnabled !== false,

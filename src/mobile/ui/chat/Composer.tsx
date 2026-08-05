@@ -5,6 +5,7 @@ import { useComposerStore } from '../stores/composerStore'
 import { useUiStore } from '../stores/uiStore'
 import { AttachmentStrip } from './AttachmentStrip'
 import { ImageCompressError, compressImage } from './imageCompress'
+import { PersonaIdentity } from '../context/PersonaIdentity'
 
 /**
  * 輸入框（清單 A2、A5）＋ 圖片附件（B1、B3、B5）。
@@ -144,6 +145,7 @@ export function Composer(): JSX.Element {
 
   return (
     <div className="border-t border-[var(--border)] bg-[var(--surface)]">
+      <PersonaIdentity />
       <AttachmentStrip
         images={images}
         onRemove={(i) => setImages((prev) => prev.filter((_, idx) => idx !== i))}

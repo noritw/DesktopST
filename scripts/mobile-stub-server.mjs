@@ -102,6 +102,15 @@ const moduleToggles = [
   { id: 'desktopst.news', label: '新聞陪聊', enabled: true }
 ]
 
+// ── 預設組（B3 階段 5）───────────────────────────────────────
+// 完整資料與清單摘要分開，照抄真 mobileServer 的界線。
+let personas = [{ id: 'p1', name: '預設使用者', displayName: '小諾', nickname: '諾諾', description: '喜歡和角色聊天。', createdAt: Date.now(), updatedAt: Date.now() }]
+let worlds = [{ id: 'w1', name: '預設世界觀', worldSetting: '現代台灣。', interactionExample: '', lorebookIds: ['b1'], createdAt: Date.now(), updatedAt: Date.now() }]
+let scenes = [{ id: 's1', name: '日常', activePersonaId: 'p1', activeWorldId: 'w1', desktopCharacters: [], lorebookIds: [], moduleOverrides: {}, createdAt: Date.now(), updatedAt: Date.now() }]
+let activePersonaId = 'p1'
+let activeWorldId = 'w1'
+let activeSceneId = 's1'
+
 let reminders = [
   {
     id: 'r1',
@@ -124,6 +133,7 @@ const state = () => ({
   // NR=0 用來驗「隨機工具總開關關閉時 🎲 入口整個消失」（清單 C6）
   randomToolsEnabled: process.env.NR !== '0',
   maxImages: Number(process.env.MAXIMG || 5)
+  ,activeSceneId, activePersonaId, activeWorldId
 })
 
 // ── 基礎設施 ────────────────────────────────────────────────
@@ -341,6 +351,60 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.startsWith('/api/settings/modules')) return json(res, { modules: moduleToggles })
+
+  if (url === '/api/presets' && req.method === 'GET') return json(res, {
+    personas: personas.map(({ id, name, displayName, nickname }) => ({ id, name, displayName, nickname })),
+    worlds: worlds.map(({ id, name, worldSetting }) => ({ id, name, worldSetting: worldSetting.slice(0, 100) })),
+    activePersonaId, activeWorldId
+  })
+  if (url === '/api/scenes' && req.method === 'GET') return json(res, { scenes: scenes.map(({ id, name }) => ({ id, name })) })
+  if (url === '/api/presets/activate-persona') {
+    const p = await readBody(req)
+    if (!personas.some(x => x.id === p.id)) return json(res, { error: 'Preset not found' }, 400)
+    activePersonaId = p.id; console.log(`[presets] activate persona ${p.id}`); return json(res, { ok: true })
+  }
+  if (url === '/api/presets/activate-world') {
+    const p = await readBody(req)
+    if (!worlds.some(x => x.id === p.id)) return json(res, { error: 'Preset not found' }, 400)
+    activeWorldId = p.id; console.log(`[presets] activate world ${p.id}`); return json(res, { ok: true })
+  }
+  if (url === '/api/scenes/apply') {
+    const p = await readBody(req)
+    if (!scenes.some(x => x.id === p.id)) return json(res, { error: 'Preset not found' }, 400)
+    activeSceneId = p.id; console.log(`[presets] apply scene ${p.id}`); return json(res, { ok: true })
+  }
+  const presetMatch = url.match(/^\/api\/presets\/(persona|world|scene)\/(.+)$/)
+  if (presetMatch) {
+    const [, kind, action] = presetMatch
+    const p = req.method === 'GET' ? null : await readBody(req)
+    let list = kind === 'persona' ? personas : kind === 'world' ? worlds : scenes
+    if (req.method === 'GET') {
+      const found = list.find(x => x.id === decodeURIComponent(action))
+      return found ? json(res, { preset: found }) : json(res, { error: 'Preset not found' }, 404)
+    }
+    if (action === 'save') {
+      if (!p.preset || typeof p.preset !== 'object') return json(res, { error: 'preset required' }, 400)
+      const incoming = p.preset
+      if (!String(incoming.name || '').trim()) return json(res, { error: 'Preset name required' }, 400)
+      const id = incoming.id || `${kind}-${Date.now()}`
+      const existing = list.findIndex(x => x.id === id)
+      const saved = { ...incoming, id, createdAt: existing >= 0 ? list[existing].createdAt : Date.now(), updatedAt: Date.now() }
+      if (existing >= 0) list[existing] = saved; else list.push(saved)
+      if (kind === 'persona') personas = list; else if (kind === 'world') worlds = list; else scenes = list
+      console.log(`[presets] save ${kind} ${id}`); return json(res, { preset: saved })
+    }
+    if (action === 'delete') {
+      if (!p.id) return json(res, { error: 'id required' }, 400)
+      const found = list.findIndex(x => x.id === p.id)
+      if (found < 0) return json(res, { error: 'Preset not found' }, 404)
+      if ((kind === 'persona' || kind === 'world') && list.length <= 1) return json(res, { error: 'last-preset' }, 409)
+      list.splice(found, 1)
+      if (kind === 'persona') { personas = list; if (activePersonaId === p.id) activePersonaId = list[0]?.id || '' }
+      else if (kind === 'world') { worlds = list; if (activeWorldId === p.id) activeWorldId = list[0]?.id || '' }
+      else scenes = list
+      console.log(`[presets] delete ${kind} ${p.id}`); return json(res, { ok: true })
+    }
+  }
 
   if (url.startsWith('/api/reminders/create')) {
     const now = new Date()

@@ -31,6 +31,15 @@ npm run dev:mobile
 http://<電腦區網IP>:5180/?server=http://<電腦區網IP>:5999&token=x
 ```
 
+Windows 也可以直接雙擊專案根目錄的 `MobileST-test.bat`：它會啟動假伺服器、
+手機 UI、產生 `mobile-test-qr.png` 並開啟 QR Code。手機與電腦必須在同一個 Wi‑Fi；
+測試完成後關閉批次檔開出的兩個命令視窗即可。
+
+要用**真實 DeST 資料＋新的 React 手機 UI**，請先開啟 DeST 並啟用 mobileServer，
+再雙擊根目錄的 `MobileST-real-test.bat`。它會自動偵測區網 IP、讀取 access token、
+確認 `http://電腦IP:3721` 的 mobileServer 可連，並自動選擇未被占用的 Vite 埠、產生正確的 QR Code。DeST 內建 QR 視窗在階段 7 前仍指向舊的
+`assets/mobile.html`，不適合用來驗證這批新 UI。
+
 桌機瀏覽器用 `localhost` 也可以。`token` 隨便填，這支不驗。
 
 ### 環境變數
@@ -87,6 +96,7 @@ owner 實測回報「按了只有刪掉後面」，追下去才發現。
 | `GET/POST /api/settings/memory` | 數值超出範圍回 400（1–200 / 1–500，照抄 `setMemorySettingsDirect`） |
 | `GET /api/settings/modules`、`POST .../toggle` | 天氣／Spotify／日曆／新聞四個開關；未知 id 回 400 |
 | `GET /api/reminders`、`POST .../{create,save,delete,toggle}` | `save` 缺 `reminder.id` 回 400（照抄 `mobileServer.ts`） |
+| `GET /api/presets`、`/api/scenes`、`GET/POST /api/presets/{persona,world,scene}/*` | 預設組完整讀寫；不存在回 404，Persona／World 最後一組刪除回 409 |
 
 沒實作的端點一律回 404 並印在終端，「這支還沒模擬」一眼看得出來。
 

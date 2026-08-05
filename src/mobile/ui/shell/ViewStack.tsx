@@ -11,6 +11,8 @@ import { CharacterEditor } from '../characters/CharacterEditor'
 import { SettingsView } from '../settings/SettingsView'
 import { RemindersView } from '../settings/RemindersView'
 import { ReminderEditor } from '../settings/ReminderEditor'
+import { PresetsView } from '../presets/PresetsView'
+import { PresetEditor } from '../presets/PresetEditor'
 
 /**
  * 畫面堆疊的渲染端（清單 G3）。
@@ -27,6 +29,7 @@ const TITLES: Record<ViewKind, string> = {
   characters: '角色庫',
   'character-editor': '編輯角色',
   presets: '情境與設定組',
+  'preset-editor': '編輯預設組',
   settings: '設定',
   reminders: '提醒',
   'reminder-editor': '編輯提醒',
@@ -58,6 +61,8 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'characters') return <CharacterLibrary />
   if (entry.kind === 'character-editor' && entry.param) return <CharacterEditor characterId={entry.param} />
   if (entry.kind === 'settings') return <SettingsView />
+  if (entry.kind === 'presets') return <PresetsView />
+  if (entry.kind === 'preset-editor' && entry.param) return <PresetEditor presetKey={entry.param} />
   if (entry.kind === 'reminders') return <RemindersView />
   if (entry.kind === 'reminder-editor' && entry.param) return <ReminderEditor reminderId={entry.param} />
   // param 是必要的：沒有它不知道在講哪個角色／哪則訊息。

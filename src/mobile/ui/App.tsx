@@ -14,6 +14,7 @@ import { detectLanDirect, resolveConnection, wsUrlFor } from './connection'
 import { RemoteDataSource } from '../data/remoteDataSource'
 import { getDeviceIdentity } from '../data/deviceIdentity'
 import { RemoteEventSource } from '../events/remoteEventSource'
+import { CurrentContext } from './context/CurrentContext'
 
 /**
  * 手機 UI 的根元件。
@@ -118,6 +119,7 @@ export function App(): JSX.Element {
           <HeaderButton onClick={() => push('conversations')}>💬</HeaderButton>
           <HeaderButton onClick={() => push('news')}>📰</HeaderButton>
           <HeaderButton onClick={() => push('characters')}>👥</HeaderButton>
+          <HeaderButton onClick={() => push('presets')}>🗂️</HeaderButton>
           <HeaderButton onClick={() => push('theme-picker')}>🎨</HeaderButton>
           <HeaderButton onClick={() => push('settings')}>⚙️</HeaderButton>
         </div>
@@ -137,6 +139,7 @@ export function App(): JSX.Element {
         <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-sub)]">載入中⋯⋯</div>
       ) : (
         <>
+          <CurrentContext />
           <AvatarBar />
           <MessageList />
         </>

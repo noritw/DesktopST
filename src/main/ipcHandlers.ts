@@ -585,6 +585,107 @@ export function activateWorldDirect(id: string): boolean {
   return true
 }
 
+// ── 手機／桌面共用的預設組 CRUD（B3 階段 5）───────────────
+// 寫入必須集中在這裡：mobileServer 只是 RPC 轉接，桌面 IPC 也只是薄轉呼叫。
+// 這樣兩端的「至少保留一組」與啟用中刪除後的 fallback 不會各自漂移。
+export function savePersonaPresetDirect(incoming: PersonaPreset): PersonaPreset {
+  const now = Date.now()
+  const existing = incoming.id ? fileStore.loadPersonaPreset(incoming.id) : null
+  const preset: PersonaPreset = {
+    ...incoming,
+    id: existing?.id ?? uuidv4(),
+    name: incoming.name.trim() || '未命名使用者設定',
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now
+  }
+  fileStore.savePersonaPreset(preset)
+  broadcastToAll('presets:updated', null)
+  return preset
+}
+
+export function removePersonaPresetDirect(id: string): { ok: true } | { error: 'last-preset' | 'not-found' } {
+  const all = fileStore.loadPersonaPresets()
+  if (!all.some(p => p.id === id)) return { error: 'not-found' }
+  if (all.length <= 1) return { error: 'last-preset' }
+  fileStore.deletePersonaPreset(id)
+  if (settings.activePersonaId === id) {
+    settings.activePersonaId = fileStore.loadPersonaPresets()[0]?.id ?? ''
+    fileStore.saveSettings(settings)
+    broadcastToAll('settings:updated', settings)
+  }
+  broadcastToAll('presets:updated', null)
+  return { ok: true }
+}
+
+export function saveWorldPresetDirect(incoming: WorldPreset): WorldPreset {
+  const now = Date.now()
+  const existing = incoming.id ? fileStore.loadWorldPreset(incoming.id) : null
+  const preset: WorldPreset = {
+    ...incoming,
+    id: existing?.id ?? uuidv4(),
+    name: incoming.name.trim() || '未命名世界觀',
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now
+  }
+  fileStore.saveWorldPreset(preset)
+  broadcastToAll('presets:updated', null)
+  return preset
+}
+
+export function removeWorldPresetDirect(id: string): { ok: true } | { error: 'last-preset' | 'not-found' } {
+  const all = fileStore.loadWorldPresets()
+  if (!all.some(p => p.id === id)) return { error: 'not-found' }
+  if (all.length <= 1) return { error: 'last-preset' }
+  fileStore.deleteWorldPreset(id)
+  if (settings.activeWorldId === id) {
+    settings.activeWorldId = fileStore.loadWorldPresets()[0]?.id ?? ''
+    fileStore.saveSettings(settings)
+    broadcastToAll('settings:updated', settings)
+  }
+  broadcastToAll('presets:updated', null)
+  return { ok: true }
+}
+
+export function saveScenePresetDirect(incoming: ScenePreset): ScenePreset {
+  const now = Date.now()
+  const existing = incoming.id ? fileStore.loadScenePreset(incoming.id) : null
+  // 新增情境時以現在的桌面狀態為快照；手機不必、也不應自行拼桌面視窗座標。
+  const base: ScenePreset = existing ?? {
+    id: uuidv4(), name: '未命名情境', activePersonaId: settings.activePersonaId,
+    activeWorldId: settings.activeWorldId,
+    desktopCharacters: JSON.parse(JSON.stringify(settings.ui.desktopCharacters)),
+    lastActiveConversationId: settings.ui.lastActiveConversationId,
+    colorTheme: settings.ui.colorTheme,
+    inputWindowBounds: settings.ui.inputWindowBounds,
+    logWindowBounds: settings.ui.logWindowBounds,
+    createdAt: now, updatedAt: now
+  }
+  const preset: ScenePreset = {
+    ...base,
+    name: incoming.name.trim() || base.name,
+    activePersonaId: incoming.activePersonaId || base.activePersonaId,
+    activeWorldId: incoming.activeWorldId || base.activeWorldId,
+    lorebookIds: incoming.lorebookIds,
+    moduleOverrides: incoming.moduleOverrides,
+    updatedAt: now
+  }
+  fileStore.saveScenePreset(preset)
+  broadcastToAll('scenes:updated', null)
+  return preset
+}
+
+export function removeScenePresetDirect(id: string): { ok: true } | { error: 'not-found' } {
+  if (!fileStore.loadScenePreset(id)) return { error: 'not-found' }
+  fileStore.deleteScenePreset(id)
+  if (settings.activeSceneId === id) {
+    settings.activeSceneId = undefined
+    fileStore.saveSettings(settings)
+    broadcastToAll('settings:updated', settings)
+  }
+  broadcastToAll('scenes:updated', null)
+  return { ok: true }
+}
+
 // ── 手機端設定（B3 階段 4）──────────────────────────────
 //
 // 桌面設定視窗的 LLM 分頁涵蓋供應商目錄、價格提示等桌面專屬的呈現邏輯；
@@ -4341,78 +4442,24 @@ export function registerIpcHandlers() {
   // ── Persona Presets ──────────────────────────────────────
   ipcMain.handle('presets:persona:list', () => fileStore.loadPersonaPresets())
 
-  ipcMain.handle('presets:persona:save', (_, preset: PersonaPreset) => {
-    preset.updatedAt = Date.now()
-    fileStore.savePersonaPreset(preset)
-    broadcastToAll('presets:updated', null)
-    return true
-  })
+  ipcMain.handle('presets:persona:save', (_, preset: PersonaPreset) => savePersonaPresetDirect(preset))
 
-  ipcMain.handle('presets:persona:delete', (_, id: string) => {
-    const all = fileStore.loadPersonaPresets()
-    if (all.length <= 1) {
-      return { error: '至少需要保留一組使用者預設。' }
-    }
-    fileStore.deletePersonaPreset(id)
-    if (settings.activePersonaId === id) {
-      const remaining = fileStore.loadPersonaPresets()
-      settings.activePersonaId = remaining[0]?.id ?? ''
-      fileStore.saveSettings(settings)
-      broadcastToAll('settings:updated', settings)
-    }
-    broadcastToAll('presets:updated', null)
-    return true
-  })
+  ipcMain.handle('presets:persona:delete', (_, id: string) => removePersonaPresetDirect(id))
 
   // ── World Presets ────────────────────────────────────────
   ipcMain.handle('presets:world:list', () => fileStore.loadWorldPresets())
 
-  ipcMain.handle('presets:world:save', (_, preset: WorldPreset) => {
-    preset.updatedAt = Date.now()
-    fileStore.saveWorldPreset(preset)
-    broadcastToAll('presets:updated', null)
-    return true
-  })
+  ipcMain.handle('presets:world:save', (_, preset: WorldPreset) => saveWorldPresetDirect(preset))
 
-  ipcMain.handle('presets:world:delete', (_, id: string) => {
-    const all = fileStore.loadWorldPresets()
-    if (all.length <= 1) {
-      return { error: '至少需要保留一組世界觀。' }
-    }
-    fileStore.deleteWorldPreset(id)
-    if (settings.activeWorldId === id) {
-      const remaining = fileStore.loadWorldPresets()
-      settings.activeWorldId = remaining[0]?.id ?? ''
-      fileStore.saveSettings(settings)
-      broadcastToAll('settings:updated', settings)
-    }
-    broadcastToAll('presets:updated', null)
-    return true
-  })
+  ipcMain.handle('presets:world:delete', (_, id: string) => removeWorldPresetDirect(id))
 
   // ── Scene Presets ─────────────────────────────────────────
 
   ipcMain.handle('scene:list', () => fileStore.loadScenePresets())
 
-  ipcMain.handle('scene:save', (_, preset: ScenePreset) => {
-    const now = Date.now()
-    preset.updatedAt = now
-    if (!preset.createdAt) preset.createdAt = now
-    fileStore.saveScenePreset(preset)
-    broadcastToAll('scenes:updated', null)
-    return preset
-  })
+  ipcMain.handle('scene:save', (_, preset: ScenePreset) => saveScenePresetDirect(preset))
 
-  ipcMain.handle('scene:delete', (_, id: string) => {
-    fileStore.deleteScenePreset(id)
-    if (settings.activeSceneId === id) {
-      settings.activeSceneId = undefined
-      fileStore.saveSettings(settings)
-      broadcastToAll('settings:updated', settings)
-    }
-    broadcastToAll('scenes:updated', null)
-    return true
-  })
+  ipcMain.handle('scene:delete', (_, id: string) => removeScenePresetDirect(id))
 
   // Capture current app state as a scene snapshot (create new or update existing)
   ipcMain.handle('scene:capture', (_, id: string | null, name: string) => {

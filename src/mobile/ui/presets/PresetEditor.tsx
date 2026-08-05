@@ -1,0 +1,84 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { PersonaPreset, ScenePreset, WorldPreset } from '@core/types'
+import type { PresetListItem } from '@core/data'
+import { getData } from '../stores/appStore'
+import { useUiStore } from '../stores/uiStore'
+import { describeSettingsError } from '../settings/settingsErrors'
+
+type Kind = 'scene' | 'persona' | 'world'
+type Draft = PersonaPreset | WorldPreset | ScenePreset
+const now = (): number => Date.now()
+
+function blank(kind: Kind): Draft {
+  const stamp = now()
+  if (kind === 'persona') return { id: '', name: '', displayName: '', nickname: '', description: '', createdAt: stamp, updatedAt: stamp }
+  if (kind === 'world') return { id: '', name: '', worldSetting: '', interactionExample: '', lorebookIds: [], createdAt: stamp, updatedAt: stamp }
+  return { id: '', name: '', activePersonaId: '', activeWorldId: '', desktopCharacters: [], lorebookIds: [], moduleOverrides: {}, createdAt: stamp, updatedAt: stamp }
+}
+
+/** 三種預設組共用一個編輯器；資料通道只經 appStore 取得。 */
+export function PresetEditor({ presetKey }: { presetKey: string }): JSX.Element {
+  const [kind, id] = presetKey.split(':') as [Kind, string]
+  const pop = useUiStore((s) => s.pop); const toast = useUiStore((s) => s.toast); const confirm = useUiStore((s) => s.confirm)
+  const setCloseGuard = useUiStore((s) => s.setCloseGuard)
+  const [draft, setDraft] = useState<Draft | null>(null); const [busy, setBusy] = useState(false)
+  const [lorebooks, setLorebooks] = useState<{ id: string; name: string }[]>([])
+  const [modules, setModules] = useState<{ id: string; label: string; enabled: boolean }[]>([])
+  const [personas, setPersonas] = useState<PresetListItem[]>([])
+  const [worlds, setWorlds] = useState<PresetListItem[]>([])
+  const dirty = useRef(false)
+  const mark = (): void => { dirty.current = true }
+  const load = useCallback(async () => {
+    try {
+      const api = getData(); const fetched = id === 'new' ? blank(kind) : kind === 'persona' ? await api.presets.getPersona(id) : kind === 'world' ? await api.presets.getWorld(id) : await api.presets.getScene(id)
+      setDraft(fetched)
+      if (kind !== 'persona') setLorebooks(await api.lorebooks.list())
+      if (kind === 'scene') {
+        const [moduleList, personaList, worldList] = await Promise.all([
+          api.settings.listModules(), api.presets.listPersonas(), api.presets.listWorlds()
+        ])
+        setModules(moduleList); setPersonas(personaList); setWorlds(worldList)
+      }
+    } catch (e) { toast(describeSettingsError(e, '載入預設組'), 'error') }
+  }, [id, kind, toast])
+  useEffect(() => { void load() }, [load])
+  useEffect(() => { setCloseGuard(() => {
+    if (!dirty.current) return true
+    void (async () => { if (await confirm({ title: '還沒儲存', message: '要捨棄這些改動嗎？', confirmLabel: '捨棄', destructive: true })) { dirty.current = false; pop() } })()
+    return false
+  }); return () => setCloseGuard(null) }, [confirm, pop, setCloseGuard])
+  const change = (next: Draft): void => { setDraft(next); mark() }
+  const save = async (): Promise<void> => {
+    if (!draft) return
+    if (!draft.name.trim()) { toast('名稱不可空白', 'error'); return }
+    setBusy(true); try {
+      const api = getData().presets
+      if (kind === 'persona') await api.savePersona(draft as PersonaPreset)
+      else if (kind === 'world') await api.saveWorld(draft as WorldPreset)
+      else await api.saveScene(draft as ScenePreset)
+      dirty.current = false; toast('已儲存'); pop()
+    } catch (e) { toast(describeSettingsError(e, '儲存'), 'error') } finally { setBusy(false) }
+  }
+  const remove = async (): Promise<void> => {
+    if (!draft || id === 'new') return
+    if (!await confirm({ title: `刪除「${draft.name}」`, message: '刪除後不能復原。', confirmLabel: '刪除', destructive: true })) return
+    setBusy(true); try { const api = getData().presets; if (kind === 'persona') await api.removePersona(id); else if (kind === 'world') await api.removeWorld(id); else await api.removeScene(id); dirty.current = false; toast('已刪除'); pop() } catch (e) { toast(describeSettingsError(e, '刪除'), 'error') } finally { setBusy(false) }
+  }
+  if (!draft) return <div className="py-8 text-center text-sm text-[var(--text-sub)]">載入中⋯⋯</div>
+  const lore = 'lorebookIds' in draft ? draft.lorebookIds ?? [] : []
+  const toggleLore = (bookId: string): void => change({ ...draft, lorebookIds: lore.includes(bookId) ? lore.filter(x => x !== bookId) : [...lore, bookId] } as Draft)
+  return <div className="space-y-4 pb-2">
+    <Field label="名稱"><input className="field" value={draft.name} maxLength={60} onChange={e => change({ ...draft, name: e.target.value })} /></Field>
+    {kind === 'persona' && <PersonaFields draft={draft as PersonaPreset} change={change} />}
+    {kind === 'world' && <WorldFields draft={draft as WorldPreset} change={change} />}
+    {kind === 'scene' && <SceneFields draft={draft as ScenePreset} change={change} lorebooks={lorebooks} modules={modules} personas={personas} worlds={worlds} toggleLore={toggleLore} />}
+    {kind === 'world' && <LorePicker ids={lore} books={lorebooks} toggle={toggleLore} />}
+    <button type="button" disabled={busy} onClick={() => void save()} className="w-full rounded-full bg-[var(--mint)] py-2.5 text-sm text-[var(--text)] disabled:opacity-50">儲存</button>
+    {id !== 'new' && <button type="button" disabled={busy} onClick={() => void remove()} className="w-full rounded-full border border-[var(--danger)] py-2.5 text-sm text-[var(--danger)] disabled:opacity-50">刪除</button>}
+  </div>
+}
+function PersonaFields({ draft, change }: { draft: PersonaPreset; change: (x: Draft) => void }): JSX.Element { return <><Field label="顯示名稱"><input className="field" value={draft.displayName} onChange={e => change({ ...draft, displayName: e.target.value })} /></Field><Field label="暱稱"><input className="field" value={draft.nickname} onChange={e => change({ ...draft, nickname: e.target.value })} /></Field><Field label="自我描述"><textarea className="field min-h-[100px]" value={draft.description} onChange={e => change({ ...draft, description: e.target.value })} /></Field></> }
+function WorldFields({ draft, change }: { draft: WorldPreset; change: (x: Draft) => void }): JSX.Element { return <><Field label="世界觀"><textarea className="field min-h-[120px]" value={draft.worldSetting} onChange={e => change({ ...draft, worldSetting: e.target.value })} /></Field><Field label="互動範例"><textarea className="field min-h-[100px]" value={draft.interactionExample} onChange={e => change({ ...draft, interactionExample: e.target.value })} /></Field></> }
+function SceneFields({ draft, change, lorebooks, modules, personas, worlds, toggleLore }: { draft: ScenePreset; change: (x: Draft) => void; lorebooks: {id:string;name:string}[]; modules: {id:string;label:string;enabled:boolean}[]; personas: PresetListItem[]; worlds: PresetListItem[]; toggleLore: (id:string)=>void }): JSX.Element { const overrides = draft.moduleOverrides ?? {}; return <><Field label="使用者設定"><select className="field" value={draft.activePersonaId} onChange={e => change({ ...draft, activePersonaId: e.target.value })}><option value="">沿用目前使用中的設定</option>{personas.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field><Field label="世界觀"><select className="field" value={draft.activeWorldId} onChange={e => change({ ...draft, activeWorldId: e.target.value })}><option value="">沿用目前使用中的世界觀</option>{worlds.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></Field><LorePicker ids={draft.lorebookIds ?? []} books={lorebooks} toggle={toggleLore} /><Field label="模組開關覆蓋" hint="未選擇就是跟隨全域設定。">{modules.map(m => <div key={m.id} className="mb-2 flex items-center justify-between text-sm"><span>{m.label}</span><select className="rounded border border-[var(--border)] bg-[var(--bg)] p-1" value={overrides[m.id] ?? ''} onChange={e => { const next = { ...overrides }; if (e.target.value) next[m.id] = e.target.value as 'on'|'off'; else delete next[m.id]; change({ ...draft, moduleOverrides: next }) }}><option value="">跟隨全域</option><option value="on">強制開啟</option><option value="off">強制關閉</option></select></div>)}</Field></> }
+function LorePicker({ ids, books, toggle }: { ids: string[]; books: {id:string;name:string}[]; toggle: (id:string)=>void }): JSX.Element { return <Field label="用語解說">{books.length ? <div className="space-y-1">{books.map(b => <label key={b.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={ids.includes(b.id)} onChange={() => toggle(b.id)} />{b.name}</label>)}</div> : <p className="text-xs text-[var(--text-sub)]">尚無用語解說</p>}</Field> }
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }): JSX.Element { return <label className="block text-sm text-[var(--text)]"><span className="mb-1 block font-medium">{label}</span>{hint && <span className="mb-1 block text-xs text-[var(--text-sub)]">{hint}</span>}{children}</label> }

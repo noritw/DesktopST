@@ -39,6 +39,16 @@ export interface MobileBridge {
   activateWorld: (id: string) => boolean
   getActivePersonaId: () => string
   getActiveWorldId: () => string
+  getActiveSceneId: () => string | undefined
+  getPersonaPreset: (id: string) => import('./types').PersonaPreset | null
+  getWorldPreset: (id: string) => import('./types').WorldPreset | null
+  getScenePreset: (id: string) => import('./types').ScenePreset | null
+  savePersonaPreset: (preset: import('./types').PersonaPreset) => import('./types').PersonaPreset
+  saveWorldPreset: (preset: import('./types').WorldPreset) => import('./types').WorldPreset
+  saveScenePreset: (preset: import('./types').ScenePreset) => import('./types').ScenePreset
+  removePersonaPreset: (id: string) => { ok: true } | { error: string }
+  removeWorldPreset: (id: string) => { ok: true } | { error: string }
+  removeScenePreset: (id: string) => { ok: true } | { error: string }
   getColorTheme: () => string
   getRandomToolsEnabled: () => boolean
   getMaxImagesPerMessage: () => number
@@ -351,6 +361,9 @@ async function handleRequest(
       colorTheme: bridge.getColorTheme(),
       randomToolsEnabled: bridge.getRandomToolsEnabled(),
       maxImages: bridge.getMaxImagesPerMessage(),
+      activeSceneId: bridge.getActiveSceneId(),
+      activePersonaId: bridge.getActivePersonaId(),
+      activeWorldId: bridge.getActiveWorldId(),
       remoteControl: getRemoteControlClientStateForDevice(bridge.getRemoteControlSettings(), getDeviceIdFromRequest(req))
     })
     return
@@ -592,6 +605,7 @@ async function handleRequest(
       worlds,
       activePersonaId: bridge.getActivePersonaId(),
       activeWorldId: bridge.getActiveWorldId()
+      ,activeSceneId: bridge.getActiveSceneId()
     })
     return
   }
@@ -617,6 +631,49 @@ async function handleRequest(
     if (!payload.id) { jsonError(res, 400, 'id required'); return }
     const ok = bridge.activateWorld(payload.id)
     jsonOk(res, { ok })
+    return
+  }
+
+  // ── 預設組完整讀寫（B3 階段 5）──
+  // list 端點只帶摘要；編輯器必須逐筆讀完整資料，避免截斷的 worldSetting 被存回去。
+  const presetGet = url.match(/^\/api\/presets\/(persona|world|scene)\/([^/]+)$/)
+  if (method === 'GET' && presetGet) {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const id = decodeURIComponent(presetGet[2])
+    const kind = presetGet[1]
+    const preset = kind === 'persona' ? bridge.getPersonaPreset(id)
+      : kind === 'world' ? bridge.getWorldPreset(id) : bridge.getScenePreset(id)
+    if (!preset) { jsonError(res, 404, 'Preset not found'); return }
+    jsonOk(res, { preset })
+    return
+  }
+
+  const presetSave = url.match(/^\/api\/presets\/(persona|world|scene)\/save$/)
+  if (method === 'POST' && presetSave) {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ preset?: unknown }>(req, res)
+    if (!payload || !payload.preset || typeof payload.preset !== 'object') { if (payload) jsonError(res, 400, 'preset required'); return }
+    const kind = presetSave[1]
+    const preset = kind === 'persona'
+      ? bridge.savePersonaPreset(payload.preset as import('./types').PersonaPreset)
+      : kind === 'world'
+        ? bridge.saveWorldPreset(payload.preset as import('./types').WorldPreset)
+        : bridge.saveScenePreset(payload.preset as import('./types').ScenePreset)
+    jsonOk(res, { preset })
+    return
+  }
+
+  const presetDelete = url.match(/^\/api\/presets\/(persona|world|scene)\/delete$/)
+  if (method === 'POST' && presetDelete) {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ id?: string }>(req, res)
+    if (!payload) return
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const kind = presetDelete[1]
+    const result = kind === 'persona' ? bridge.removePersonaPreset(payload.id)
+      : kind === 'world' ? bridge.removeWorldPreset(payload.id) : bridge.removeScenePreset(payload.id)
+    if ('error' in result) { jsonError(res, result.error === 'not-found' ? 404 : 409, result.error); return }
+    jsonOk(res, result)
     return
   }
 

@@ -31,3 +31,6 @@ assets/*.dstpack
 # Capacitor 產生的原生樹（試打階段先不進 repo，B3 再決定是否納管）
 /android/
 /out/mobile/
+
+# 測試用 QR 圖（MobileST-*-test.bat 產生）
+mobile-test-qr.png

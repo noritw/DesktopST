@@ -767,3 +767,9 @@
 - SillyTavern 對話記錄匯入
 
 詳細開發階段見規格書 §11。
+## 2026-08-05 B3 Stage 5 交接盤點
+
+- 完成 Scene／Persona／World preset 的 RemoteDataSource `get/save/remove`、mobileServer 端點、stub 拒絕條件，以及共用 `ipcHandlers.ts` `*Direct` 寫入邏輯；桌面 IPC 改為薄轉呼叫。
+- 手機 UI 新增共用預設組清單／編輯器；目前 Scene／World 在角色列上方顯示名稱 chip，Persona 在 Composer 上方顯示「目前以誰發言」並可點選切換。Scene 套用後會 refresh，既有每情境最後對話邏輯未另寫手機版本。
+- 新增 `MobileST-test.bat`（假伺服器）與 `MobileST-real-test.bat`（DeST 真資料，自動找 IP／token／mobileServer 埠並配對 Vite 埠）。階段 7 前 DeST 內建 QR 仍服務舊 `assets/mobile.html`。
+- 驗證：`npm.cmd run typecheck` 通過；`npm.cmd test` 通過，300/300（18 files）。尚未宣稱 owner 真機端到端通過；下一步需確認 UI 操作後 `%APPDATA%\desktop-st\Data\` 下 `card.json`／`settings.json`／preset 檔案的最終內容，而非只看 HTTP 200。

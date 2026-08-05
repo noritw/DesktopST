@@ -4,7 +4,7 @@
 > 範圍定義：`docs/mobile-html-feature-inventory.md`（49 項獨立版必做 ＋ §6.1 的 10 項設定 UI）
 > 設計約束：`docs/multi-device-platform-roadmap.md` §2（四大目標）、§3.3、§4.5、§4.7、§8
 >
-> **狀態：階段 0–4 完成（0-③／1／2a–2d／3a／3b／4）。下一步是階段 5（預設組編輯）。**
+> **狀態：階段 0–5 程式與契約測試完成（0-③／1／2a–2d／3a／3b／4／5）；下一步是階段 6（個人新聞報）。階段 5 尚待 owner 以真機驗證完整操作與資料最終狀態。**
 > 進度見 §4.9，實機踩到的坑見 §4.10–§4.14（**寫任何手機 UI 前務必讀完**）。
 > 沒開 DeST 時的驗證方式見 §4.9 與 `scripts/README-mobile-stub.md`。
 
@@ -262,19 +262,20 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 | **3a 角色卡寫入的資料面**（端點 ＋ DataSource） | ✅ 行為已驗 | `7bd2d3d` |
 | **3b 角色庫 ＋ 角色卡編輯 UI** | ✅ 行為已驗，**待 owner 實機看畫面** | `d74d269` |
 | **4 設定**（API Key／供應商／模型／進階：endpoint／記憶／模組開關／提醒 CRUD） | ✅ 行為已驗（假伺服器 ＋ 瀏覽器），**待 owner 實機看畫面** | 落地筆記見 §4.15 |
-| 5–7 | ⬜ | |
+| **5 預設組編輯**（Scene／Persona／World 新增、編輯、刪除） | ✅ 程式與契約測試完成（假伺服器）；**待 owner 真機驗證** | 本次未提交變更 |
+| 6–7 | ⬜ | |
 
 ### 開發時怎麼連上真資料
 
 ```
-http://<電腦區網IP>:5180/?server=http://<電腦區網IP>:<mobileServer 埠>&token=<存取權杖>
+http://<電腦區網IP>:<Vite 埠>/?server=http://<電腦區網IP>:<mobileServer 埠>&token=<存取權杖>
 ```
 
-`npm run dev:mobile` 起 5180；埠與權杖見 DeST 設定 → 擴充 → 手機遠端對話 → QR Code 視窗。
+`MobileST-real-test.bat` 會在 DeST 已啟動且 mobileServer 可用時，自動尋找區網 IP、權杖、mobileServer 埠，並選擇可用的 Vite 埠後產生 QR；不必手動輸入 IP。`MobileST-test.bat` 則啟動假伺服器與假資料。
 正式版是同源、不需要參數（階段 7）。
 
 ⚠️ **dev server 會無聲停掉**（工具重啟、機器休眠）。手機出現「載入失敗」時，
-先確認 5180 還在聽（`Get-NetTCPConnection -LocalPort 5180`）再查別的。
+先確認批次檔選出的 Vite 埠仍在聽，再查別的；若模組改動後畫面沒更新，先重開 dev:mobile。
 
 ### 沒開 DeST 時怎麼驗（多數情況用這個）
 
@@ -293,6 +294,14 @@ node scripts/mobile-stub-server.mjs
 理由與實際踩到的案例見該 README 與下面的 §4.13。
 
 真的要驗角色口吻、prompt 組裝、圖片有沒有送進模型，還是得開 DeST。
+
+### 4.17 階段 5 交接與驗證邊界（2026-08-05）
+
+- 手機 UI 已有 Scene／Persona／World 的新增、編輯、刪除；資料寫入沿用 `ipcHandlers.ts` 的 `*Direct`，桌面 IPC 與 `mobileServer` 都是薄轉呼叫，不在手機端複製邏輯。
+- UI 顯示名稱而非內部 ID：Scene／World 以角色列上方的緊湊 chip 顯示目前使用中項目；Persona 移到輸入框上方，顯示「目前以誰發言」，點名稱可切換。
+- Scene 套用後會 refresh；桌面既有的「每個情境記住最後對話」邏輯仍由共用 handler 負責。這部分尚未由 owner 完成真機端到端確認。
+- `MobileST-test.bat` 只驗 React UI 與拒絕條件 stub，資料不會持久化；`MobileST-real-test.bat` 才是接真 DeST 的入口，DeST 必須先啟動並開啟 mobileServer。DeST 內建 QR 在階段 7 前仍指向舊的 `assets/mobile.html`，不會自動顯示新版 React UI。
+- 寫入驗證終點是 `%APPDATA%\desktop-st\Data\`（依實際資料根目錄）內對應的 `card.json`、`settings.json` 與 preset 檔案最終內容，不是 HTTP 200；測試選檔時 `accept` 只用 `image/*`。
 
 ---
 

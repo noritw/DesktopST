@@ -257,13 +257,13 @@ describe('兩個實作對 UI 是同一個形狀', () => {
     expect(shape(new LocalDataSource())).toEqual(shape(remote))
   })
 
-  it('尚未實作的方法一律 reject 而非假裝成功', async () => {
+  it('本機尚未實作的方法一律 reject 而非假裝成功', async () => {
     const local = new LocalDataSource()
     const { ds: remote } = makeRemote()
     // 「假裝成功」會讓使用者以為存檔了 —— 這是刻意要避免的行為。
     await expect(local.conversations.list()).rejects.toMatchObject({ code: 'not-supported' })
     await expect(local.characters.save({} as never)).rejects.toMatchObject({ code: 'not-supported' })
-    await expect(remote.presets.saveScene({} as never)).rejects.toMatchObject({ code: 'not-supported' })
+    // 預設組遠端寫入已在 B3 階段 5 補齊；端點與欄位另由下方契約測試鎖住。
   })
 
   it('遙控已有端點的方法不該被誤標成未實作', async () => {
@@ -282,7 +282,10 @@ describe('兩個實作對 UI 是同一個形狀', () => {
       '/api/characters/create': { character: { id: 'c9', name: '新角色' } },
       '/api/characters/save': { ok: true },
       '/api/characters/avatar': { avatar: 'D:/x/avatar-1.png' },
-      '/api/lorebooks': { lorebooks: [{ id: 'b1', name: '用語' }] }
+      '/api/lorebooks': { lorebooks: [{ id: 'b1', name: '用語' }] },
+      '/api/presets/persona/p1': { preset: { id: 'p1', name: '我' } },
+      '/api/presets/world/save': { preset: { id: 'w2', name: '新世界' } },
+      '/api/presets/scene/delete': { ok: true }
     })
 
     await expect(ds.characters.get('c1')).resolves.toMatchObject({ id: 'c1' })
@@ -292,17 +295,25 @@ describe('兩個實作對 UI 是同一個形狀', () => {
       ds.characters.saveAvatar('c1', { bytes: new Uint8Array([1, 2, 3]), ext: '.png' })
     ).resolves.toBe('D:/x/avatar-1.png')
     await expect(ds.lorebooks.list()).resolves.toEqual([{ id: 'b1', name: '用語' }])
+    await expect(ds.presets.getPersona('p1')).resolves.toMatchObject({ id: 'p1' })
+    await ds.presets.saveWorld({ id: 'w2', name: '新世界' } as never)
+    await ds.presets.removeScene('s1')
 
     expect(calls.map((c) => c.url.split('?')[0])).toEqual([
       'http://pc:1234/api/characters/card/c1',
       'http://pc:1234/api/characters/create',
       'http://pc:1234/api/characters/save',
       'http://pc:1234/api/characters/avatar',
-      'http://pc:1234/api/lorebooks'
+      'http://pc:1234/api/lorebooks',
+      'http://pc:1234/api/presets/persona/p1',
+      'http://pc:1234/api/presets/world/save',
+      'http://pc:1234/api/presets/scene/delete'
     ])
     // 存檔送的是 `character`，主圖送的是 base64 字串（不是 Uint8Array —— JSON 沒有那個型別）
     expect(calls[2].body).toEqual({ character: { id: 'c1', name: '小綠' } })
     expect((calls[3].body as { data: string }).data).toBe('AQID')
+    expect(calls[6].body).toEqual({ preset: { id: 'w2', name: '新世界' } })
+    expect(calls[7].body).toEqual({ id: 's1' })
   })
 
   it('匯出角色卡把 base64 解回位元組', async () => {
