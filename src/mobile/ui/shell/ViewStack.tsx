@@ -18,6 +18,7 @@ import { ConversationEditor } from '../conversations/ConversationEditor'
 import { LorebookEditor } from '../lorebooks/LorebookEditor'
 import { NewsView } from '../news/NewsView'
 import { NewsSettingsView } from '../news/NewsSettingsView'
+import { RemoteControlView } from '../remote/RemoteControlView'
 import { MainMenu } from './MainMenu'
 
 /**
@@ -45,6 +46,7 @@ const TITLES: Record<ViewKind, string> = {
   'random-tools': '隨機工具',
   'theme-picker': '色彩主題',
   'lorebook-editor': '編輯用語解說',
+  remote: '遙控電腦',
   menu: '選單'
 }
 
@@ -64,7 +66,8 @@ export function ViewStack(): JSX.Element | null {
       onClose={requestPop}
       // 新聞報自己有分頁列、內容區與底部的「換一批」三段式版面，
       // 捲動要發生在中間那段；交給 Sheet 統一捲會讓底部按鈕跟著跑掉。
-      scrollable={top.kind !== 'news'}
+      // 遙控畫面同理：截圖區要固定高度接手勢，交給 Sheet 統一捲會讓觸控被捲動搶走。
+      scrollable={top.kind !== 'news' && top.kind !== 'remote'}
     >
       <ViewBody entry={top} />
     </Sheet>
@@ -89,6 +92,7 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'lorebook-editor' && entry.param) return <LorebookEditor bookId={entry.param} />
   if (entry.kind === 'news') return <NewsView />
   if (entry.kind === 'news-settings') return <NewsSettingsView />
+  if (entry.kind === 'remote') return <RemoteControlView />
   // param 是必要的：沒有它不知道在講哪個角色／哪則訊息。
   // 缺了就當成程式錯誤讓它顯示「尚未實作」，不要靜靜地畫一個空選單。
   if (entry.kind === 'character-menu' && entry.param) return <CharacterMenu characterId={entry.param} />

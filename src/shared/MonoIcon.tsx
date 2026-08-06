@@ -77,6 +77,12 @@ export type MonoIconName =
   | 'arrow-down'
   | 'sliders'
   | 'more'
+  // ── B6（遙控面板）新增 ──
+  | 'monitor'
+  | 'power'
+  | 'keyboard'
+  | 'lock'
+  | 'cursor'
 
 export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIconName; className?: string }) {
   const common = {
@@ -438,6 +444,41 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <circle {...common} cx="12" cy="12" r="1.5" fill="currentColor" />
           <circle {...common} cx="19" cy="12" r="1.5" fill="currentColor" />
         </>
+      )}
+
+      {/* ── B6（遙控面板）新增 ─────────────────────────── */}
+      {name === 'monitor' && (
+        <>
+          <rect {...common} x="3" y="4" width="18" height="12" rx="2" />
+          <path {...common} d="M8 20h8" />
+          <path {...common} d="M12 16v4" />
+        </>
+      )}
+      {name === 'power' && (
+        <>
+          <path {...common} d="M12 3v8" />
+          <path {...common} d="M7 6a7 7 0 1 0 10 0" />
+        </>
+      )}
+      {name === 'keyboard' && (
+        <>
+          <rect {...common} x="3" y="6" width="18" height="12" rx="2" />
+          <path {...common} d="M6.5 10h.01" />
+          <path {...common} d="M9.5 10h.01" />
+          <path {...common} d="M12.5 10h.01" />
+          <path {...common} d="M15.5 10h.01" />
+          <path {...common} d="M17.5 10h.01" />
+          <path {...common} d="M7 14h10" />
+        </>
+      )}
+      {name === 'lock' && (
+        <>
+          <rect {...common} x="5" y="10" width="14" height="10" rx="2" />
+          <path {...common} d="M8 10V7a4 4 0 0 1 8 0v3" />
+        </>
+      )}
+      {name === 'cursor' && (
+        <path {...common} d="M5 3l6.5 16 2-6.7L20 10.5 5 3Z" />
       )}
     </svg>
   )

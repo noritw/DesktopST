@@ -21,6 +21,14 @@ import type {
   PresetListItem,
   PresetsApi,
   RemindersApi,
+  RemoteActionResult,
+  RemoteControlApi,
+  RemoteControlState,
+  RemoteDisplay,
+  RemoteProgram,
+  RemoteScreenBounds,
+  RemoteScreenshot,
+  RemoteWindow,
   SendMessageInput,
   SettingsApi
 } from '@core/data'
@@ -268,6 +276,62 @@ export class RemoteDataSource implements DataSource {
     toggle: async (id, enabled) => { await this.http.post('/api/reminders/toggle', { id, enabled }) }
   }
 
+  /**
+   * 遙控面板（清單 H1–H11，B6）。逐條沿用 `assets/mobile.html` 既有的
+   * `/api/remote/*`、`/api/screenshot/*`、`/api/displays`、`/api/windows`、
+   * `/api/capture-window`、`/api/system/lock-status` 呼叫，只是換成介面形狀。
+   */
+  readonly remoteControl: RemoteControlApi = {
+    getState: async () =>
+      (await this.http.get<{ remoteControl: RemoteControlState }>('/api/state')).remoteControl,
+
+    listDisplays: async () => this.http.get<RemoteDisplay[]>('/api/displays'),
+    listWindows: async () => this.http.get<RemoteWindow[]>('/api/windows'),
+
+    captureDisplay: async (displayIndex, withCharacters) => {
+      const path = `${withCharacters ? '/api/screenshot/with-chars' : '/api/screenshot/clean'}?displayIndex=${displayIndex}`
+      const { blob, headers } = await this.http.getBinary(path)
+      return toScreenshot(blob, headers, 'X-Display-Bounds')
+    },
+    captureWindow: async (win) => {
+      const { blob, headers } = await this.http.postBinary('/api/capture-window', win)
+      return toScreenshot(blob, headers, 'X-Window-Bounds')
+    },
+    isLocked: async () => (await this.http.get<{ locked: boolean }>('/api/system/lock-status')).locked,
+
+    click: async (x, y, opts) =>
+      this.http.post<RemoteActionResult>(
+        '/api/remote/click',
+        { x, y, button: opts.button, double: opts.double },
+        confirmedHeader(opts.confirmed)
+      ),
+    scroll: async (x, y, deltaX, deltaY) =>
+      this.http.post<RemoteActionResult>('/api/remote/scroll', { x, y, deltaX, deltaY }),
+    typeText: async (text, opts) =>
+      this.http.post<RemoteActionResult>(
+        '/api/remote/type',
+        { text, pressEnter: opts.pressEnter },
+        confirmedHeader(opts.confirmed)
+      ),
+    sendKey: async (keys, confirmed) =>
+      this.http.post<RemoteActionResult>('/api/remote/key', { keys }, confirmedHeader(confirmed)),
+
+    listPrograms: async () => this.http.get<RemoteProgram[]>('/api/remote/programs'),
+    launchProgram: async (id, confirmed) =>
+      this.http.post<RemoteActionResult>('/api/remote/programs/launch', { id }, confirmedHeader(confirmed)),
+    closeProgram: async (id, confirmed) =>
+      this.http.post<RemoteActionResult>('/api/remote/programs/close', { id }, confirmedHeader(confirmed)),
+
+    systemAction: async (action, confirmed) => {
+      if (action === 'monitor-off') return this.http.post<RemoteActionResult>('/api/remote/monitor-off', undefined, confirmedHeader(confirmed))
+      if (action === 'wake') return this.http.post<RemoteActionResult>('/api/remote/wake', undefined, confirmedHeader(confirmed))
+      return this.http.post<RemoteActionResult>('/api/remote/system', { action }, confirmedHeader(confirmed))
+    },
+
+    hideWindows: async () => { await this.http.post('/api/remote/hide-windows') },
+    restoreWindows: async () => { await this.http.post('/api/remote/restore-windows') }
+  }
+
   private fetchPresets(): Promise<{
     personas: PresetListItem[]
     worlds: PresetListItem[]
@@ -283,4 +347,18 @@ export class RemoteDataSource implements DataSource {
 
 function toCardFile(r: { data: string; filename: string }): CardFile {
   return { bytes: base64ToBytes(r.data), filename: r.filename }
+}
+
+/** `confirmed` → `X-Remote-Confirmed` header；見 `routes.ts` 的 `hasRemoteConfirmation()`。 */
+function confirmedHeader(confirmed?: boolean): { headers?: Record<string, string> } | undefined {
+  return confirmed ? { headers: { 'X-Remote-Confirmed': '1' } } : undefined
+}
+
+function toScreenshot(blob: Blob, headers: Headers, boundsHeaderName: 'X-Display-Bounds' | 'X-Window-Bounds'): RemoteScreenshot {
+  const raw = headers.get(boundsHeaderName)
+  let bounds: RemoteScreenBounds | null = null
+  if (raw) {
+    try { bounds = JSON.parse(raw) } catch { bounds = null }
+  }
+  return { url: URL.createObjectURL(blob), bounds }
 }

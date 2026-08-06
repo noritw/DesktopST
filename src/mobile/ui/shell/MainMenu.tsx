@@ -1,5 +1,6 @@
 import MonoIcon, { type MonoIconName } from '@shared/MonoIcon'
 import { useUiStore, type ViewKind } from '../stores/uiStore'
+import { getData } from '../stores/appStore'
 
 /**
  * 主選單（owner 2026-08-06）。
@@ -26,15 +27,20 @@ const ITEMS: MenuItemDef[] = [
   { kind: 'news', icon: 'news', label: '個人新聞報', hint: '批次看新聞、釘選，挑一則跟角色聊' },
   { kind: 'reminders', icon: 'alarm', label: '提醒', hint: '設定時間，讓角色主動開口提醒你' },
   { kind: 'theme-picker', icon: 'palette', label: '色彩主題', hint: '換一組配色，會同步到所有裝置' },
-  { kind: 'settings', icon: 'settings', label: '設定', hint: 'API Key、模型、記憶與模組開關' }
+  { kind: 'settings', icon: 'settings', label: '設定', hint: 'API Key、模型、記憶與模組開關' },
+  // 遙控電腦（清單 H1–H11，B6）：只在遙控模式（`RemoteDataSource`）才有意義，
+  // 獨立模式的 `capabilities.remoteControl` 恆為 false，下面用 `.filter()` 整個拿掉這一項——
+  // 不是渲染出來再 disabled，是「這台裝置根本沒有電腦可控」這件事在 UI 上不存在。
+  { kind: 'remote', icon: 'monitor', label: '遙控電腦', hint: '截圖、點擊鍵盤、切換視窗、系統動作' }
 ]
 
 export function MainMenu(): JSX.Element {
   const replace = useUiStore((s) => s.replace)
+  const items = ITEMS.filter((item) => item.kind !== 'remote' || getData().capabilities.remoteControl)
 
   return (
     <div className="space-y-1.5 pb-2">
-      {ITEMS.map((item) => (
+      {items.map((item) => (
         <button
           key={item.kind}
           type="button"

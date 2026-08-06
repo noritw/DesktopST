@@ -29,6 +29,16 @@ export type {
   PresetListItem,
   PresetsApi,
   RemindersApi,
+  RemoteActionResult,
+  RemoteCapability,
+  RemoteControlApi,
+  RemoteControlState,
+  RemoteDisplay,
+  RemoteProgram,
+  RemoteScreenBounds,
+  RemoteScreenshot,
+  RemoteSystemAction,
+  RemoteWindow,
   SendMessageInput,
   SettingsApi
 } from './types'

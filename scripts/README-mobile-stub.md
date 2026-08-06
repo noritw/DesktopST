@@ -51,6 +51,10 @@ Windows 也可以直接雙擊專案根目錄的 `MobileST-test.bat`：它會啟�
 | `NR` | — | `NR=0` 關閉隨機工具，驗 C6 總開關關閉時 🎲 入口消失 |
 | `THEME` | mint | 換色彩主題 |
 | `LANDIRECT` | `1` | 設 `0` 驗「經中繼連線」那條路徑：設定畫面 API Key 欄位隱藏、寫入回 409 |
+| `RC` | `1` | 設 `0` 驗「遙控模組整個關閉」：截圖仍可用，點擊/鍵盤/程式/系統動作全部 403 |
+| `RCDEVICE` | `1` | 設 `0` 驗「這台裝置不在允許清單」：`RemoteControlView` 出現提示橫幅 |
+| `RCCAPS` | 全開 | 逗號分隔，只開放列出的能力，例如 `RCCAPS=remote.pointer.click` |
+| `RCCONFIRM` | — | 設 `1` 驗「需要先確認」：點擊/程式/系統動作類第一次打回 428，UI 要跳確認對話框再帶 header 重打 |
 
 ## ⚠️ 一條規矩：要連「拒絕條件」一起模擬
 
@@ -105,6 +109,12 @@ owner 實測回報「按了只有刪掉後面」，追下去才發現。
 | `GET/POST /api/news/settings` | 關鍵字／黑名單／訂閱來源；**新來源的 id 由伺服器產生**（手機端沒有 `crypto.randomUUID`） |
 | `GET/POST /api/news/scheduler` | 定時陪聊；`enabled` 卻沒給 `schedule` 回 **400** |
 | `GET /api/conversations`、`POST .../{load,new,rename,delete}` | 對話清單完整讀寫（B3 階段 8）；`messages` 一律指向使用中對話的訊息陣列，切換會連帶影響 `/api/state` 與後續送訊息；刪光最後一個會自動生一個新的空對話（照抄桌面端沒有「至少留一個」限制的行為） |
+| `GET /api/displays`、`GET /api/windows`、`GET /api/system/lock-status` | 兩個假螢幕／兩個假視窗；鎖定狀態隨關閉/喚醒螢幕連動（B6） |
+| `GET /api/screenshot/{clean,with-chars}`、`POST /api/capture-window` | 假截圖（色塊 ＋ 標籤文字），帶 `X-Display-Bounds` / `X-Window-Bounds`，供座標換算驗證（B6） |
+| `POST /api/remote/{click,scroll,type,key}` | 依 `RC`／`RCDEVICE`／`RCCAPS`／`RCCONFIRM` 回 403／428；成功只記在終端，不會真的動到任何東西（B6） |
+| `GET /api/remote/programs`、`POST .../{launch,close}` | 兩個假程式，開關會切換 `running` 狀態（B6） |
+| `POST /api/remote/{monitor-off,wake,system}` | 同樣走能力/確認檢查；`system` 的 `action` 不是 `shutdown`/`restart` 回 400（B6，**不會真的關機**） |
+| `POST /api/remote/{hide-windows,restore-windows}` | 只記在終端，一律成功（B6） |
 
 沒實作的端點一律回 404 並印在終端，「這支還沒模擬」一眼看得出來。
 

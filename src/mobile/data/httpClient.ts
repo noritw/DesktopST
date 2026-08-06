@@ -42,11 +42,29 @@ export class HttpClient {
     return this.request<T>('GET', path)
   }
 
-  async post<T>(path: string, body?: unknown): Promise<T> {
-    return this.request<T>('POST', path, body)
+  async post<T>(path: string, body?: unknown, opts?: { headers?: Record<string, string> }): Promise<T> {
+    return this.request<T>('POST', path, body, opts?.headers)
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  /**
+   * 二進位回應（截圖 / 視窗截圖）。**不能走 `request()`**——那支永遠當 JSON 解析。
+   * 回傳的 `headers` 給呼叫端讀 `X-Display-Bounds` / `X-Window-Bounds` /
+   * `X-Scale-Factor`，座標換算只能用那裡面的值，不可自行假設。
+   */
+  async getBinary(path: string): Promise<{ blob: Blob; headers: Headers }> {
+    return this.requestBinary('GET', path)
+  }
+
+  async postBinary(path: string, body?: unknown): Promise<{ blob: Blob; headers: Headers }> {
+    return this.requestBinary('POST', path, body)
+  }
+
+  private async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    extraHeaders?: Record<string, string>
+  ): Promise<T> {
     const fetchImpl = this.opts.fetchImpl ?? globalThis.fetch
     const base = this.opts.baseUrl().replace(/\/$/, '')
 
@@ -59,7 +77,8 @@ export class HttpClient {
     // 與網路無關。**catch 的範圍要剛好只包住真正會有網路問題的那一行。**
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-DesktopST-Token': this.opts.token()
+      'X-DesktopST-Token': this.opts.token(),
+      ...extraHeaders
     }
     const device = this.opts.device?.()
     if (device) {
@@ -89,6 +108,34 @@ export class HttpClient {
     } catch (e) {
       throw new DataError('unknown', `bad json: ${String(e)}`)
     }
+  }
+
+  private async requestBinary(
+    method: string,
+    path: string,
+    body?: unknown
+  ): Promise<{ blob: Blob; headers: Headers }> {
+    const fetchImpl = this.opts.fetchImpl ?? globalThis.fetch
+    const base = this.opts.baseUrl().replace(/\/$/, '')
+    const headers: Record<string, string> = { 'X-DesktopST-Token': this.opts.token() }
+    if (body !== undefined) headers['Content-Type'] = 'application/json'
+
+    let res: Response
+    try {
+      res = await fetchImpl(`${base}${path}`, {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body)
+      })
+    } catch (e) {
+      throw new DataError('unreachable', String(e))
+    }
+
+    if (!res.ok) {
+      throw new DataError(statusToCode(res.status), await safeText(res))
+    }
+
+    return { blob: await res.blob(), headers: res.headers }
   }
 }
 

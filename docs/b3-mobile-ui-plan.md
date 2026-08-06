@@ -19,6 +19,9 @@
 > 執行順序曾改為 8 → 9 → 6 → 7（2026-08-05），現在只剩 7。
 > ⚠️ **`mobile.html` 不能在 B6 之前刪掉**——遙控面板（H1–H11）只有舊版有（見 §4.20）。
 > 沒開 DeST 時的驗證方式見 §4.9 與 `scripts/README-mobile-stub.md`。
+>
+> **B6（遙控 UI 搬新版，B3 之後的里程碑，非 B3 內部階段）程式與 stub 驗證完成，
+> 待 owner 真機驗證** —— 落地筆記見 §4.22。
 
 ---
 
@@ -1310,6 +1313,86 @@ owner 看過捲動修好之後又提三件事：①「關鍵字組」旁邊要�
 走了一輪：新增「遊戲」組並確認自動展開、往裡面加一個關鍵字、刪除整個組
 並確認關鍵字沒有消失（歸回預設組、預設組則數 +1）、確認組清單沒有出現
 重複的「預設組」。
+
+---
+
+## 4.22 B6 落地筆記：遙控 UI 搬新版（2026-08-06）
+
+> 對照 `docs/mobile-html-feature-inventory.md` §2「H. 遙控專屬」與 §3 決議②。
+> 範圍：H1、H2、H4–H11（H3 已決議排除，不做）。
+
+### 這是 UI 移植，不是後端開發
+
+`src/main/mobileServer.ts` 與 `src/main/modules/remote-control/` 的截圖、點擊、
+視窗列舉、程式白名單、系統動作端點在這次任務**開工前就已經全部存在**（含權限
+白名單、裝置限制、需要二次確認的能力清單）。這次只做兩件事：
+`core/data/types.ts` 加一個 `RemoteControlApi` 分組（比照 `NewsApi` 的形狀），
+以及 `src/mobile/ui/remote/` 一份 React 畫面。**一行新的遙控業務邏輯都沒有寫。**
+
+### 落地形狀
+
+- `RemoteControlApi`：`getState`／`listDisplays`／`listWindows`／
+  `captureDisplay`／`captureWindow`／`isLocked`／`click`／`scroll`／
+  `typeText`／`sendKey`／`listPrograms`／`launchProgram`／`closeProgram`／
+  `systemAction`／`hideWindows`／`restoreWindows`。
+- `RemoteDataSource.remoteControl`：逐條打既有端點；`LocalDataSource.remoteControl`
+  的每個方法**永久回 `DataError('not-supported')`**（新的 `unsupported()` helper，
+  刻意與既有的 `pending()` 分開，因為這不是「之後補」的階段，是獨立模式沒有
+  電腦可控這件事不會改變）。
+- 入口：`MainMenu.tsx` 用 `getData().capabilities.remoteControl` 過濾整個選單項，
+  不是渲染出來再 disabled——獨立模式使用者的選單裡完全沒有這一項。
+- 畫面：`src/mobile/ui/remote/RemoteControlView.tsx`（工具列、截圖區、遙控切換、
+  程式／系統動作用內嵌覆蓋層而非疊 Sheet——遙控畫面本身已經是一個 Sheet，
+  再疊一層在小螢幕上滑動衝突）＋ `ScreenshotStage.tsx`（手勢與座標換算）。
+
+### 座標換算：逐字對照，沒有重新推導
+
+`ScreenshotStage.tsx` 的 `toScreenCoords()` 逐字對照 `assets/mobile.html` 的
+`ssToScreenCoords()`（原檔 2459 行）：圖片用
+`transform: translate(tx,ty) scale(scale)`、預設置中的 `transform-origin`，
+換算式因此是 `originX = vpW/2 + tx - imgW*scale/2`。手勢狀態全部放在 `useRef`
+而非 React state——`touchmove` 一秒觸發幾十次，每次都 `setState` 會卡頓，
+縮放/平移改直接寫 `imgRef.current.style.transform`。
+
+### 確認流程（H11 與 `requireConfirmation`）
+
+兩種確認分開處理，不要混成同一套：
+
+- **關機／重開機**：不管桌面設定了什麼，UI 一律先跳 `ui.confirm()`
+  （比照 `mobile.html` 原本的雙重確認），確認後帶 `confirmed: true`。
+- **點擊／輸入／程式／螢幕電源**：只有桌面設定面板把該能力放進
+  `RemoteControlState.requireConfirmation` 時才問一次，問完一樣帶
+  `confirmed: true` 重打。這個旗標透過 `RemoteDataSource` 送
+  `X-Remote-Confirmed: '1'` header，對應 `routes.ts` 的
+  `ensureRemoteConfirmation()`／`hasRemoteConfirmation()`。
+
+### 順便修掉的一個跨來源 bug
+
+實機／dev 測試時發現：`mobileServer.ts` 的 CORS 設定只有
+`Access-Control-Allow-Headers`（管請求方向），沒有
+`Access-Control-Expose-Headers`（管回應方向）。瀏覽器預設只讓 JS 讀到少數
+「安全」回應標頭，跨來源時 `X-Display-Bounds` / `X-Window-Bounds` 會被瀏覽器
+擋下、`response.headers.get()` 永遠回 `null`，導致點擊座標換算全部落空——
+而且**不會有任何錯誤或例外**，只是點了沒反應。手機 UI 的 dev 模式
+（Vite 埠 ≠ mobileServer 埠）正好是跨來源，這條路徑不特別測是踩不到的。
+已在 `mobileServer.ts` 與 `scripts/mobile-stub-server.mjs` 的 CORS 設定加上
+`Access-Control-Expose-Headers`。
+
+### 驗證到哪裡
+
+程式與 stub 端點驗證完成（`scripts/mobile-stub-server.mjs` 新增
+`/api/remote/*`、`/api/screenshot/*`、`/api/displays`、`/api/windows`、
+`/api/capture-window`、`/api/system/lock-status`，含 `RC=0`／`RCDEVICE=0`／
+`RCCONFIRM=1` 三種拒絕情境的環境變數開關）。瀏覽器 375×812 走了一輪：
+截圖顯示、遙控模式切換、單指點擊座標換算、文字輸入、快捷鍵、程式開關、
+系統動作二次確認、裝置不在允許清單時的提示、模組整個關閉時的 toast、
+需要確認時的 428 → 確認對話框 → 帶 header 重打。`npm run typecheck`／
+`npm test`（333 個測試，新增遙控相關契約測試於 `tests/data/dataSource.test.ts`）
+全過。
+
+**尚未驗證**：真的點擊/鍵盤有沒有作用到電腦、程式白名單開關是否真的
+啟動/關閉程式、系統動作是否真的關機——這些只能接真的 `mobileServer` 才驗
+得到，stub 只能驗 UI 流程與型別契約。owner 真機驗證前不刪 `mobile.html`。
 
 ---
 

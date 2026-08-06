@@ -389,6 +389,11 @@ async function handleRequest(
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-DesktopST-Token, Authorization, X-Device-Id, X-Device-Nickname, X-Remote-Confirmed, X-Remote-Confirmation')
+  // ⚠️ 瀏覽器預設只讓 JS 讀到少數幾個「安全」回應標頭，跨來源時其餘一律讀不到——
+  // 即使伺服器有送。手機 UI 開發模式（Vite 埠 ≠ mobileServer 埠）正是跨來源，
+  // 少了這行會讓 `X-Display-Bounds` / `X-Window-Bounds` 在 `res.headers.get()`
+  // 永遠是 null，遙控點擊座標換算全部落空但不會有任何錯誤訊息（B6 開發時踩到）。
+  res.setHeader('Access-Control-Expose-Headers', 'X-Display-Bounds, X-Window-Bounds, X-Scale-Factor')
 
   if (method === 'OPTIONS') {
     res.writeHead(204)

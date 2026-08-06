@@ -250,7 +250,8 @@ describe('兩個實作對 UI 是同一個形狀', () => {
     characters: Object.keys(ds.characters).sort(),
     presets: Object.keys(ds.presets).sort(),
     lorebooks: Object.keys(ds.lorebooks).sort(),
-    news: Object.keys(ds.news).sort()
+    news: Object.keys(ds.news).sort(),
+    remoteControl: Object.keys(ds.remoteControl).sort()
   })
 
   it('方法集合完全相同', () => {
@@ -265,6 +266,17 @@ describe('兩個實作對 UI 是同一個形狀', () => {
     await expect(local.conversations.list()).rejects.toMatchObject({ code: 'not-supported' })
     await expect(local.characters.save({} as never)).rejects.toMatchObject({ code: 'not-supported' })
     // 預設組遠端寫入已在 B3 階段 5 補齊；端點與欄位另由下方契約測試鎖住。
+  })
+
+  /**
+   * 遙控（B6）在獨立模式**永久**不支援 —— 不是「之後補」的 pending stage，
+   * 因為獨立模式沒有電腦可控這件事不會隨任何未來階段改變。
+   */
+  it('遙控在獨立模式永久不支援（不是 pending stage）', async () => {
+    const local = new LocalDataSource()
+    await expect(local.remoteControl.getState()).rejects.toMatchObject({ code: 'not-supported' })
+    await expect(local.remoteControl.click(1, 2, { button: 'left', double: false })).rejects.toMatchObject({ code: 'not-supported' })
+    await expect(local.remoteControl.systemAction('shutdown')).rejects.toMatchObject({ code: 'not-supported' })
   })
 
   it('遙控已有端點的方法不該被誤標成未實作', async () => {
@@ -389,5 +401,76 @@ describe('兩個實作對 UI 是同一個形狀', () => {
     const file = await ds.characters.exportCard('c1', 'png')
     expect(Array.from(file.bytes)).toEqual([1, 2, 3])
     expect(file.filename).toBe('小綠.png')
+  })
+
+  /**
+   * 遙控面板（清單 H1–H11，B6）打對端點與欄位名。截圖走二進位（`getBinary`），
+   * 這裡的假 fetch 沒有 `.blob()`，只驗 JSON 類的指令與讀取方法。
+   */
+  it('遙控面板打對端點與欄位名', async () => {
+    const { ds, calls } = makeRemote({
+      '/api/state': { remoteControl: { enabled: true, allowedCapabilities: [], requireConfirmation: [], restrictToAllowedDevices: false } },
+      '/api/displays': [{ index: 0, label: '螢幕 1', isPrimary: true, bounds: { x: 0, y: 0, width: 1920, height: 1080 } }],
+      '/api/windows': [{ hwnd: 1, pid: 2, title: '記事本', proc: 'notepad', minimized: false, displayIndex: 0, x: 0, y: 0, w: 100, h: 100 }],
+      '/api/system/lock-status': { locked: false },
+      '/api/remote/click': { ok: true },
+      '/api/remote/scroll': { ok: true },
+      '/api/remote/type': { ok: true },
+      '/api/remote/key': { ok: true },
+      '/api/remote/programs': [{ id: 'p1', name: '小算盤', running: false }],
+      '/api/remote/programs/launch': { ok: true },
+      '/api/remote/programs/close': { ok: true },
+      '/api/remote/monitor-off': { ok: true },
+      '/api/remote/wake': { ok: true },
+      '/api/remote/system': { ok: true },
+      '/api/remote/hide-windows': { ok: true },
+      '/api/remote/restore-windows': { ok: true }
+    })
+
+    await expect(ds.remoteControl.getState()).resolves.toMatchObject({ enabled: true })
+    await expect(ds.remoteControl.listDisplays()).resolves.toHaveLength(1)
+    await expect(ds.remoteControl.listWindows()).resolves.toHaveLength(1)
+    await expect(ds.remoteControl.isLocked()).resolves.toBe(false)
+    await ds.remoteControl.click(10, 20, { button: 'left', double: false })
+    await ds.remoteControl.scroll(10, 20, 1, -2)
+    await ds.remoteControl.typeText('嗨', { pressEnter: true })
+    await ds.remoteControl.sendKey('ctrl+c')
+    await expect(ds.remoteControl.listPrograms()).resolves.toHaveLength(1)
+    await ds.remoteControl.launchProgram('p1')
+    await ds.remoteControl.closeProgram('p1')
+    await ds.remoteControl.systemAction('monitor-off')
+    await ds.remoteControl.systemAction('wake')
+    await ds.remoteControl.systemAction('shutdown')
+    await ds.remoteControl.hideWindows()
+    await ds.remoteControl.restoreWindows()
+
+    expect(calls.map((c) => c.url.split('?')[0].replace('http://pc:1234', ''))).toEqual([
+      '/api/state',
+      '/api/displays',
+      '/api/windows',
+      '/api/system/lock-status',
+      '/api/remote/click',
+      '/api/remote/scroll',
+      '/api/remote/type',
+      '/api/remote/key',
+      '/api/remote/programs',
+      '/api/remote/programs/launch',
+      '/api/remote/programs/close',
+      '/api/remote/monitor-off',
+      '/api/remote/wake',
+      '/api/remote/system',
+      '/api/remote/hide-windows',
+      '/api/remote/restore-windows'
+    ])
+    expect(calls[4].body).toEqual({ x: 10, y: 20, button: 'left', double: false })
+    expect(calls[6].body).toEqual({ text: '嗨', pressEnter: true })
+    expect(calls[13].body).toEqual({ action: 'shutdown' })
+  })
+
+  /** `confirmed: true` 要帶 `X-Remote-Confirmed` header，否則伺服器有要求確認的能力一律 428。 */
+  it('confirmed 選項會帶 X-Remote-Confirmed header', async () => {
+    const { ds, calls } = makeRemote({ '/api/remote/click': { ok: true } })
+    await ds.remoteControl.click(1, 2, { button: 'left', double: false, confirmed: true })
+    expect(calls[0].headers['X-Remote-Confirmed']).toBe('1')
   })
 })

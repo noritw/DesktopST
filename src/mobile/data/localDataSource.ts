@@ -10,6 +10,7 @@ import type {
   LorebooksApi,
   PresetsApi,
   RemindersApi,
+  RemoteControlApi,
   SendMessageInput,
   SettingsApi
 } from '@core/data'
@@ -152,9 +153,39 @@ export class LocalDataSource implements DataSource {
     remove: () => Promise.reject(pending('reminders.remove', 4)),
     toggle: () => Promise.reject(pending('reminders.toggle', 4))
   }
+
+  /**
+   * 遙控面板（清單 H1–H11，B6）。**永久不支援，不是 pending stage** ——
+   * 獨立模式沒有電腦可控，這件事不會在任何未來階段被填入。
+   * `capabilities.remoteControl` 恆為 false，UI 應該先靠這個旗標把入口整個
+   * 藏起來（不渲染，不是顯示但 disabled），走到這裡代表 UI 出了 bug。
+   */
+  readonly remoteControl: RemoteControlApi = {
+    getState: () => Promise.reject(unsupported('remoteControl.getState')),
+    listDisplays: () => Promise.reject(unsupported('remoteControl.listDisplays')),
+    listWindows: () => Promise.reject(unsupported('remoteControl.listWindows')),
+    captureDisplay: () => Promise.reject(unsupported('remoteControl.captureDisplay')),
+    captureWindow: () => Promise.reject(unsupported('remoteControl.captureWindow')),
+    isLocked: () => Promise.reject(unsupported('remoteControl.isLocked')),
+    click: () => Promise.reject(unsupported('remoteControl.click')),
+    scroll: () => Promise.reject(unsupported('remoteControl.scroll')),
+    typeText: () => Promise.reject(unsupported('remoteControl.typeText')),
+    sendKey: () => Promise.reject(unsupported('remoteControl.sendKey')),
+    listPrograms: () => Promise.reject(unsupported('remoteControl.listPrograms')),
+    launchProgram: () => Promise.reject(unsupported('remoteControl.launchProgram')),
+    closeProgram: () => Promise.reject(unsupported('remoteControl.closeProgram')),
+    systemAction: () => Promise.reject(unsupported('remoteControl.systemAction')),
+    hideWindows: () => Promise.reject(unsupported('remoteControl.hideWindows')),
+    restoreWindows: () => Promise.reject(unsupported('remoteControl.restoreWindows'))
+  }
 }
 
 /** 尚未實作。標明會在哪個階段填入，免得日後只看到一句 not-supported。 */
 function pending(method: string, stage: number): DataError {
   return new DataError('not-supported', `${method}: 獨立模式尚未實作（B3 階段 ${stage}）`)
+}
+
+/** 永久不支援（見 `remoteControl` 上的說明），與 `pending()` 刻意分開避免誤植階段編號。 */
+function unsupported(method: string): DataError {
+  return new DataError('not-supported', `${method}: 獨立模式沒有電腦可控，永久不支援`)
 }

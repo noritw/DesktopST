@@ -479,6 +479,126 @@ export interface NewsApi {
   setSchedule(next: NewsScheduleSnapshot): Promise<void>
 }
 
+/**
+ * 遙控面板（清單 H1–H11，B6）。
+ *
+ * ⚠️ **獨立模式永久不支援**（不是「之後補」的 pending stage）——
+ * 遙控在獨立模式沒有意義，因為沒有電腦可控。`LocalDataSource` 的每個方法
+ * 都回 `DataError('not-supported')`，介面形狀留著只是為了讓兩個實作維持同一個型別。
+ *
+ * 電腦端的截圖／點擊／視窗列舉／程式白名單／系統動作全部已經有現成端點
+ * （`mobileServer.ts` ＋ `modules/remote-control/`），這裡只是把它們對映成
+ * `DataSource` 的形狀，**不寫任何新的業務邏輯**。
+ */
+export type RemoteCapability =
+  | 'remote.pointer.click'
+  | 'remote.pointer.scroll'
+  | 'remote.keyboard.type'
+  | 'remote.keyboard.hotkey'
+  | 'remote.program.launch'
+  | 'remote.program.close'
+  | 'remote.monitor.power'
+  | 'remote.system.shutdown'
+  | 'remote.system.restart'
+
+/**
+ * 桌面設定面板已經設定好的權限狀態。手機端只讀，**不重做管理介面**——
+ * 白名單、裝置限制、需要二次確認的能力清單全部由桌面設定，
+ * 手機只是照著顯示／隱藏對應的按鈕。
+ */
+export interface RemoteControlState {
+  enabled: boolean
+  allowedCapabilities: RemoteCapability[]
+  requireConfirmation: RemoteCapability[]
+  restrictToAllowedDevices: boolean
+  currentDeviceAllowed?: boolean
+}
+
+export interface RemoteDisplay {
+  index: number
+  label: string
+  isPrimary: boolean
+  bounds: { x: number; y: number; width: number; height: number }
+}
+
+export interface RemoteWindow {
+  hwnd: number
+  pid: number
+  title: string
+  proc: string
+  minimized: boolean
+  displayIndex: number
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * 截圖對應的桌面物理座標範圍（`mobileServer.ts` 的 `X-Display-Bounds` /
+ * `X-Window-Bounds`）。**點擊／滾動座標換算一律要用這個**，不可自行假設
+ * 螢幕解析度或重新推導公式——不同電腦的螢幕縮放比例（`scaleFactor`）不一樣。
+ */
+export interface RemoteScreenBounds {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface RemoteScreenshot {
+  /** 可直接餵給 `<img src>` 的位址（object URL）。**呼叫端用完要自行 `URL.revokeObjectURL()`**。 */
+  url: string
+  bounds: RemoteScreenBounds | null
+}
+
+export interface RemoteProgram {
+  id: string
+  name: string
+  iconDataUrl?: string
+  running: boolean
+}
+
+export type RemoteSystemAction = 'shutdown' | 'restart' | 'monitor-off' | 'wake'
+
+export interface RemoteActionResult {
+  ok: boolean
+  /** 電腦端給的除錯訊息，UI 顯示前先翻中文，不可直接顯示。 */
+  error?: string
+}
+
+export interface RemoteControlApi {
+  getState(): Promise<RemoteControlState>
+
+  listDisplays(): Promise<RemoteDisplay[]>
+  listWindows(): Promise<RemoteWindow[]>
+  captureDisplay(displayIndex: number, withCharacters: boolean): Promise<RemoteScreenshot>
+  captureWindow(win: { hwnd: number; title: string }): Promise<RemoteScreenshot>
+  /** Windows 是否在鎖定畫面（`mobile.html` 的鎖定提示橫幅，H11 一部分）。 */
+  isLocked(): Promise<boolean>
+
+  /**
+   * `confirmed` 由 UI 依 `RemoteControlState.requireConfirmation` 決定要不要先跳確認對話框，
+   * 再帶著 `confirmed: true` 重打一次——比照桌面設定面板「這個能力需要每次確認」的語意。
+   */
+  click(x: number, y: number, opts: { button: 'left' | 'right'; double: boolean; confirmed?: boolean }): Promise<RemoteActionResult>
+  scroll(x: number, y: number, deltaX: number, deltaY: number): Promise<RemoteActionResult>
+  typeText(text: string, opts: { pressEnter: boolean; confirmed?: boolean }): Promise<RemoteActionResult>
+  sendKey(keys: string, confirmed?: boolean): Promise<RemoteActionResult>
+
+  /** 讀桌面已設定好的程式白名單；手機端不做「新增白名單項目」的 UI。 */
+  listPrograms(): Promise<RemoteProgram[]>
+  launchProgram(id: string, confirmed?: boolean): Promise<RemoteActionResult>
+  closeProgram(id: string, confirmed?: boolean): Promise<RemoteActionResult>
+
+  /** 關機／重開機／關閉螢幕／喚醒螢幕。危險操作，UI 層要有二次確認。 */
+  systemAction(action: RemoteSystemAction, confirmed?: boolean): Promise<RemoteActionResult>
+
+  /** 遙控模式下暫時隱藏／恢復 DeST 自己的視窗，避免擋住截圖。 */
+  hideWindows(): Promise<void>
+  restoreWindows(): Promise<void>
+}
+
 export interface DataSource {
   readonly capabilities: Capabilities
 
@@ -498,6 +618,7 @@ export interface DataSource {
   readonly lorebooks: LorebooksApi
   readonly reminders: RemindersApi
   readonly news: NewsApi
+  readonly remoteControl: RemoteControlApi
 }
 
 /**

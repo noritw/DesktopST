@@ -258,6 +258,90 @@ let activePersonaId = 'p1'
 let activeWorldId = 'w1'
 let activeSceneId = 's1'
 
+// ── 遙控電腦（B6）───────────────────────────────────────────
+//
+// ⚠️ 拒絕條件照抄 `modules/remote-control/routes.ts`：
+//   · 模組整個關閉 → 403「Remote control module disabled」
+//   · 裝置不在允許清單 → 403「Device not allowed」
+//   · 能力不在 allowedCapabilities → 403「Capability disabled」
+//   · 該能力要求先確認、卻沒帶 X-Remote-Confirmed → 428「Confirmation required」
+// 用環境變數切換這幾條路徑，驗證手機端在每一種拒絕下都顯示看得懂的訊息，
+// 不是原始 stack 或英文代碼直接丟出來（scripts/README-mobile-stub.md 的鐵律）。
+const RC_ALL_CAPS = [
+  'remote.pointer.click', 'remote.pointer.scroll', 'remote.keyboard.type', 'remote.keyboard.hotkey',
+  'remote.program.launch', 'remote.program.close', 'remote.monitor.power',
+  'remote.system.shutdown', 'remote.system.restart'
+]
+// RC=0            → 整個遙控模組關閉（驗「入口按了但功能整段隱藏／顯示提示」那條路徑）
+// RCDEVICE=0      → 這台裝置被擋在允許清單外
+// RCCAPS=a,b,c    → 只開放列出的能力（不給就全開，方便平常測試）
+// RCCONFIRM=1     → 點擊／系統動作／程式類都要求先確認（驗 428 → 二次確認流程）
+const RC_ENABLED = process.env.RC !== '0'
+const RC_DEVICE_ALLOWED = process.env.RCDEVICE !== '0'
+const RC_ALLOWED_CAPS = process.env.RCCAPS ? process.env.RCCAPS.split(',') : RC_ALL_CAPS
+const RC_REQUIRE_CONFIRM = process.env.RCCONFIRM === '1'
+  ? ['remote.pointer.click', 'remote.program.launch', 'remote.program.close', 'remote.monitor.power', 'remote.system.shutdown', 'remote.system.restart']
+  : []
+
+const rcClientState = () => ({
+  enabled: RC_ENABLED,
+  allowedCapabilities: RC_ENABLED ? RC_ALLOWED_CAPS : [],
+  requireConfirmation: RC_REQUIRE_CONFIRM,
+  restrictToAllowedDevices: !RC_DEVICE_ALLOWED,
+  currentDeviceAllowed: RC_DEVICE_ALLOWED
+})
+
+const rcDisplays = [
+  { index: 0, label: '螢幕 1（主）', isPrimary: true, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, size: { width: 1920, height: 1080 } },
+  { index: 1, label: '螢幕 2', isPrimary: false, bounds: { x: 1920, y: 0, width: 1280, height: 800 }, size: { width: 1280, height: 800 } }
+]
+
+const rcWindows = [
+  { pid: 1001, hwnd: 66051, title: '記事本', proc: 'notepad', minimized: false, displayIndex: 0, x: 100, y: 100, w: 800, h: 600 },
+  { pid: 1002, hwnd: 66052, title: '小算盤', proc: 'calculator', minimized: true, displayIndex: 0, x: 200, y: 200, w: 400, h: 500 }
+]
+
+let rcPrograms = [
+  { id: 'prog-notepad', name: '記事本', running: false },
+  { id: 'prog-calc', name: '小算盤', running: true }
+]
+
+let rcLocked = false
+
+/** 假截圖：畫一塊色塊＋文字標出目前截的是誰，讓縮放/平移/座標換算看得出對不對。 */
+function rcFakeScreenshot(label, w, h) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">` +
+    `<rect width="${w}" height="${h}" fill="#CBFBC4"/>` +
+    `<rect x="4" y="4" width="${w - 8}" height="${h - 8}" fill="none" stroke="#3D5A52" stroke-width="4"/>` +
+    Array.from({ length: 6 }, (_, i) => `<circle cx="${(w / 7) * (i + 1)}" cy="${h / 2}" r="18" fill="#AAEEFF"/>`).join('') +
+    `<text x="${w / 2}" y="${h - 30}" font-size="28" text-anchor="middle" fill="#3D5A52">${label}</text></svg>`
+  return Buffer.from(svg, 'utf-8')
+}
+
+function rcDeviceAllowed(res) {
+  if (!RC_ENABLED) { json(res, { error: 'Remote control module disabled' }, 403); return false }
+  if (!RC_DEVICE_ALLOWED) { json(res, { error: 'Device not allowed' }, 403); return false }
+  return true
+}
+
+function rcCapabilityAllowed(res, capability) {
+  if (!rcDeviceAllowed(res)) return false
+  if (!RC_ALLOWED_CAPS.includes(capability)) { json(res, { error: 'Capability disabled' }, 403); return false }
+  return true
+}
+
+function rcConfirmed(req) {
+  const v = req.headers['x-remote-confirmed'] ?? req.headers['x-remote-confirmation']
+  return v === '1' || v === 'true'
+}
+
+function rcNeedsConfirmation(res, req, capability) {
+  if (!RC_REQUIRE_CONFIRM || !rcClientState().requireConfirmation.includes(capability)) return false
+  if (rcConfirmed(req)) return false
+  json(res, { error: 'Confirmation required' }, 428)
+  return true
+}
+
 let reminders = [
   {
     id: 'r1',
@@ -281,6 +365,7 @@ const state = () => ({
   randomToolsEnabled: process.env.NR !== '0',
   maxImages: Number(process.env.MAXIMG || 5)
   ,activeSceneId, activePersonaId, activeWorldId
+  ,remoteControl: rcClientState()
 })
 
 // ── 基礎設施 ────────────────────────────────────────────────
@@ -288,7 +373,11 @@ const state = () => ({
 const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': '*',
-  'Access-Control-Allow-Methods': '*'
+  'Access-Control-Allow-Methods': '*',
+  // ⚠️ 照抄真伺服器：`Allow-Headers` 管的是請求方向，回應標頭要瀏覽器讀得到
+  // 得靠這個。少了會讓截圖的 `X-Display-Bounds` 在跨來源時讀到 null，
+  // 點擊座標換算全部落空——而且不會報錯，只會安靜地「點了沒反應」。
+  'Access-Control-Expose-Headers': 'X-Display-Bounds, X-Window-Bounds, X-Scale-Factor'
 }
 
 const clients = new Set()
@@ -662,6 +751,114 @@ const server = http.createServer(async (req, res) => {
     activeConversationId = next.id
     messages = next.messages
     return json(res, { activeConversationId: next.id })
+  }
+
+  // ── 遙控電腦（B6）───────────────────────────────────────────
+
+  if (url === '/api/displays') return json(res, rcDisplays)
+  if (url === '/api/windows') return json(res, rcWindows)
+  if (url === '/api/system/lock-status') return json(res, { locked: rcLocked })
+
+  if (url.startsWith('/api/screenshot/clean') || url.startsWith('/api/screenshot/with-chars')) {
+    const withChars = url.startsWith('/api/screenshot/with-chars')
+    const idx = Number(new URL(url, 'http://x').searchParams.get('displayIndex')) || 0
+    const disp = rcDisplays[idx] ?? rcDisplays[0]
+    const buf = rcFakeScreenshot(`${disp.label}${withChars ? '（含角色）' : ''}`, 480, 300)
+    res.writeHead(200, {
+      ...cors,
+      'Content-Type': 'image/svg+xml',
+      'X-Display-Bounds': JSON.stringify({ x: disp.bounds.x, y: disp.bounds.y, w: disp.bounds.width, h: disp.bounds.height }),
+      'X-Scale-Factor': '1'
+    })
+    console.log(`[screenshot] display=${idx} withChars=${withChars}`)
+    return res.end(buf)
+  }
+
+  if (url === '/api/capture-window') {
+    const p = await readBody(req)
+    const w = rcWindows.find((x) => x.hwnd === p.hwnd) ?? { x: 0, y: 0, w: 640, h: 480 }
+    const buf = rcFakeScreenshot(p.title || '視窗', 480, 300)
+    res.writeHead(200, {
+      ...cors,
+      'Content-Type': 'image/svg+xml',
+      'X-Window-Bounds': JSON.stringify({ x: w.x, y: w.y, w: w.w, h: w.h })
+    })
+    console.log(`[capture-window] ${p.title}`)
+    return res.end(buf)
+  }
+
+  if (url === '/api/remote/click') {
+    if (!rcCapabilityAllowed(res, 'remote.pointer.click')) return
+    if (rcNeedsConfirmation(res, req, 'remote.pointer.click')) return
+    const p = await readBody(req)
+    console.log(`[remote] click (${p.x}, ${p.y}) button=${p.button ?? 'left'} double=${!!p.double}`)
+    return json(res, { ok: true })
+  }
+
+  if (url === '/api/remote/scroll') {
+    if (!rcCapabilityAllowed(res, 'remote.pointer.scroll')) return
+    const p = await readBody(req)
+    console.log(`[remote] scroll (${p.x}, ${p.y}) dx=${p.deltaX} dy=${p.deltaY}`)
+    return json(res, { ok: true })
+  }
+
+  if (url === '/api/remote/type') {
+    if (!rcCapabilityAllowed(res, 'remote.keyboard.type')) return
+    if (rcNeedsConfirmation(res, req, 'remote.keyboard.type')) return
+    const p = await readBody(req)
+    if (!p.text) return json(res, { error: 'text required' }, 400)
+    console.log(`[remote] type "${p.text}" pressEnter=${!!p.pressEnter}`)
+    return json(res, { ok: true })
+  }
+
+  if (url === '/api/remote/key') {
+    if (!rcCapabilityAllowed(res, 'remote.keyboard.hotkey')) return
+    if (rcNeedsConfirmation(res, req, 'remote.keyboard.hotkey')) return
+    const p = await readBody(req)
+    if (!p.keys) return json(res, { error: 'keys required' }, 400)
+    console.log(`[remote] key ${p.keys}`)
+    return json(res, { ok: true })
+  }
+
+  if (url === '/api/remote/programs') {
+    if (!rcDeviceAllowed(res)) return
+    return json(res, rcPrograms)
+  }
+
+  if (url === '/api/remote/programs/launch' || url === '/api/remote/programs/close') {
+    const launching = url.endsWith('launch')
+    const capability = launching ? 'remote.program.launch' : 'remote.program.close'
+    if (!rcCapabilityAllowed(res, capability)) return
+    if (rcNeedsConfirmation(res, req, capability)) return
+    const p = await readBody(req)
+    const prog = rcPrograms.find((x) => x.id === p.id)
+    if (!prog) return json(res, { error: 'Program not found' }, 404)
+    prog.running = launching
+    console.log(`[remote] program ${launching ? 'launch' : 'close'} ${prog.name}`)
+    return json(res, { ok: true })
+  }
+
+  if (url === '/api/remote/monitor-off' || url === '/api/remote/wake') {
+    if (!rcCapabilityAllowed(res, 'remote.monitor.power')) return
+    if (rcNeedsConfirmation(res, req, 'remote.monitor.power')) return
+    rcLocked = url.endsWith('monitor-off')
+    console.log(`[remote] ${url.endsWith('monitor-off') ? '關閉螢幕' : '喚醒螢幕'}`)
+    return json(res, { ok: true })
+  }
+
+  if (url === '/api/remote/system') {
+    const p = await readBody(req)
+    if (p.action !== 'shutdown' && p.action !== 'restart') return json(res, { error: 'action must be shutdown or restart' }, 400)
+    const capability = p.action === 'restart' ? 'remote.system.restart' : 'remote.system.shutdown'
+    if (!rcCapabilityAllowed(res, capability)) return
+    if (rcNeedsConfirmation(res, req, capability)) return
+    console.log(`[remote] system ${p.action}（假伺服器不會真的關機）`)
+    return json(res, { ok: true })
+  }
+
+  if (url === '/api/remote/hide-windows' || url === '/api/remote/restore-windows') {
+    console.log(`[remote] ${url.endsWith('hide-windows') ? 'hide' : 'restore'}-windows`)
+    return json(res, { ok: true })
   }
 
   if (url.startsWith('/api/reminders/create')) {
