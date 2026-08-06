@@ -104,7 +104,10 @@ const llmSettings = {
   provider: 'openai',
   models: { openai: 'gpt-5.4-mini', claude: 'claude-sonnet-5', gemini: 'gemini-3.5-flash', grok: 'grok-4.5' },
   endpoint: '',
-  apiKeys: { openai: '', claude: '', gemini: '', grok: '' }
+  apiKeys: { openai: '', claude: '', gemini: '', grok: '' },
+  maxResponseTokens: 400,
+  maxGroupRounds: 3,
+  maxImagesPerMessage: 5
 }
 const PROVIDERS = ['openai', 'claude', 'gemini', 'grok']
 
@@ -606,6 +609,27 @@ const server = http.createServer(async (req, res) => {
     return json(res, { ok: true })
   }
 
+  if (url.startsWith('/api/settings/llm-chat-limits')) {
+    const p = await readBody(req)
+    const maxResponseTokens = Math.round(Number(p.maxResponseTokens))
+    const maxGroupRounds = Math.round(Number(p.maxGroupRounds))
+    const maxImagesPerMessage = Math.round(Number(p.maxImagesPerMessage))
+    if (!Number.isFinite(maxResponseTokens) || maxResponseTokens < 100 || maxResponseTokens > 1000) {
+      return json(res, { error: '回應字數需在 100–1000' }, 400)
+    }
+    if (!Number.isFinite(maxGroupRounds) || maxGroupRounds < 1 || maxGroupRounds > 10) {
+      return json(res, { error: '群組回應數需在 1–10' }, 400)
+    }
+    if (!Number.isFinite(maxImagesPerMessage) || maxImagesPerMessage < 1 || maxImagesPerMessage > 10) {
+      return json(res, { error: '圖片上限需在 1–10' }, 400)
+    }
+    llmSettings.maxResponseTokens = maxResponseTokens
+    llmSettings.maxGroupRounds = maxGroupRounds
+    llmSettings.maxImagesPerMessage = maxImagesPerMessage
+    console.log('[settings] chat-limits ->', JSON.stringify({ maxResponseTokens, maxGroupRounds, maxImagesPerMessage }))
+    return json(res, { ok: true })
+  }
+
   if (url.startsWith('/api/settings/llm')) {
     const hasApiKey = {}
     for (const pr of PROVIDERS) hasApiKey[pr] = !!llmSettings.apiKeys[pr]?.trim()
@@ -615,7 +639,10 @@ const server = http.createServer(async (req, res) => {
         model: llmSettings.models[llmSettings.provider],
         models: llmSettings.models,
         endpoint: llmSettings.endpoint,
-        hasApiKey
+        hasApiKey,
+        maxResponseTokens: llmSettings.maxResponseTokens,
+        maxGroupRounds: llmSettings.maxGroupRounds,
+        maxImagesPerMessage: llmSettings.maxImagesPerMessage
       }
     })
   }

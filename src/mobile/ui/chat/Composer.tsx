@@ -40,9 +40,11 @@ export function Composer(): JSX.Element {
   const clearDraft = useComposerStore((s) => s.clear)
   const respond = useComposerStore((s) => s.respond)
   const pendingNewsLink = useComposerStore((s) => s.pendingNewsLink)
+  const setPendingNewsLink = useComposerStore((s) => s.setPendingNewsLink)
 
   const [images, setImages] = useState<string[]>([])
   const [picking, setPicking] = useState(false)
+  const [newsSheetOpen, setNewsSheetOpen] = useState(false)
   const areaRef = useRef<HTMLTextAreaElement>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -100,8 +102,8 @@ export function Composer(): JSX.Element {
 
   const submit = async (): Promise<void> => {
     const raw = text.trim()
-    // 只有圖片沒有文字也可以送 —— 「看這張」在聊天裡是很自然的用法。
-    if ((!raw && images.length === 0) || sending) return
+    // 只有圖片、或只掛了新聞標題泡泡，也可以送。
+    if ((!raw && images.length === 0 && !pendingNewsLink) || sending) return
 
     /**
      * 內嵌 token 在**送出的這一刻**才擲（清單 C3）。
@@ -119,12 +121,14 @@ export function Composer(): JSX.Element {
     }
 
     const sentImages = images
+    const sentNews = pendingNewsLink
     // 先清空再送：送出後畫面立刻回到空白才像即時通訊。
     // 失敗時不把文字放回去 —— 那則訊息會以系統錯誤留在串裡，
     // 內容看得到，使用者要重試可以複製。放回去反而會與錯誤訊息重複。
     clearDraft()
     typed.current = ''
     setImages([])
+    setNewsSheetOpen(false)
     requestAnimationFrame(grow)
     try {
       await send({
@@ -133,7 +137,7 @@ export function Composer(): JSX.Element {
         randomResults,
         // 清單 A7：勾選框問的是「要不要回應」，送出去的旗標是它的反面。
         skipLlm: respond ? undefined : true,
-        newsLink: pendingNewsLink ?? undefined
+        newsLink: sentNews ?? undefined
       })
     } catch {
       toast('訊息送出失敗', 'error')
@@ -141,14 +145,66 @@ export function Composer(): JSX.Element {
       // 圖要重新從相簿一張張找回來，而且未必記得選了哪幾張。
       // 只在使用者還沒選新的圖時放回，避免蓋掉他重選的內容。
       if (sentImages.length) setImages((prev) => (prev.length === 0 ? sentImages : prev))
+      if (sentNews) setPendingNewsLink(sentNews)
     }
   }
 
-  const canSend = (text.trim().length > 0 || images.length > 0) && !sending
+  const canSend = (text.trim().length > 0 || images.length > 0 || !!pendingNewsLink) && !sending
 
   return (
     <div className="border-t border-[var(--border)] bg-[var(--surface)]">
       <PersonaIdentity />
+      {pendingNewsLink && (
+        <div className="flex items-center gap-2 border-t border-[var(--border)] px-3 pt-2">
+          <button
+            type="button"
+            onClick={() => setNewsSheetOpen(true)}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-full bg-[var(--mint)]/50 px-3 py-1.5 text-left active:bg-[var(--mint)]"
+          >
+            <MonoIcon name="news" className="h-4 w-4 shrink-0 text-[var(--mint2)]" />
+            <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text)]">
+              {pendingNewsLink.title}
+            </span>
+          </button>
+          <button
+            type="button"
+            aria-label="取消這則新聞"
+            onClick={() => {
+              setPendingNewsLink(null)
+              setNewsSheetOpen(false)
+            }}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--text-sub)] active:bg-[var(--bg)]"
+          >
+            <MonoIcon name="close" className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+      {newsSheetOpen && pendingNewsLink && (
+        <div
+          className="fixed inset-0 z-[70] flex items-end bg-black/30"
+          onClick={() => setNewsSheetOpen(false)}
+        >
+          <div
+            className="max-h-[70vh] w-full overflow-y-auto rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm font-semibold text-[var(--text)]">{pendingNewsLink.title}</p>
+            <p className="mt-1 text-[12px] text-[var(--text-sub)]">
+              角色會看到這段背景；聊天泡泡只顯示標題。
+            </p>
+            <div className="mt-3 whitespace-pre-wrap rounded-[14px] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm leading-relaxed text-[var(--text)]">
+              {pendingNewsLink.promptContext || pendingNewsLink.summary || '（沒有摘要）'}
+            </div>
+            <button
+              type="button"
+              className="mt-3 w-full rounded-full border border-[var(--border)] py-2.5 text-sm"
+              onClick={() => setNewsSheetOpen(false)}
+            >
+              關閉
+            </button>
+          </div>
+        </div>
+      )}
       <AttachmentStrip
         images={images}
         onRemove={(i) => setImages((prev) => prev.filter((_, idx) => idx !== i))}

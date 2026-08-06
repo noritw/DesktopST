@@ -114,6 +114,7 @@ export class LocalDataSource implements DataSource {
     setLlmModel: () => Promise.reject(pending('settings.setLlmModel', 4)),
     setLlmEndpoint: () => Promise.reject(pending('settings.setLlmEndpoint', 4)),
     setLlmApiKey: () => Promise.reject(pending('settings.setLlmApiKey', 4)),
+    setLlmChatLimits: () => Promise.reject(pending('settings.setLlmChatLimits', 4)),
     getMemory: () => Promise.reject(pending('settings.getMemory', 4)),
     setMemory: () => Promise.reject(pending('settings.setMemory', 4)),
     listModules: () => Promise.reject(pending('settings.listModules', 4)),

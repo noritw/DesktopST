@@ -121,7 +121,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       imageCount: input.images?.length,
       // 擲出的結果要立刻看得到（清單 C5）。等伺服器回音才顯示的話，
       // 「按了送出但骰子沒有結果」的那一秒會讓人以為 token 沒被認出來。
-      randomResults: input.randomResults
+      randomResults: input.randomResults,
+      newsLink: input.newsLink ?? undefined
     }
     set((s) => ({
       messages: [...s.messages, optimistic],

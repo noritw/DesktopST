@@ -128,7 +128,6 @@ function NewsBody({ sections }: { sections: ReaderSection[] }): JSX.Element {
   const state = useNewsStore()
   const toast = useUiStore((s) => s.toast)
   const popAll = useUiStore((s) => s.popAll)
-  const insert = useComposerStore((s) => s.insert)
   const setPendingNewsLink = useComposerStore((s) => s.setPendingNewsLink)
   const pinnedIds = state.pinnedItems.map((p) => p.id)
   const [ctxItem, setCtxItem] = useState<NewsItem | null>(null)
@@ -161,11 +160,11 @@ function NewsBody({ sections }: { sections: ReaderSection[] }): JSX.Element {
       keyword: ctxItem.keyword,
       promptContext: ctxDraft.trim()
     }
+    // 標題不塞進輸入框：用輸入框上方的浮動泡泡掛著，點開可看摘要。
     setPendingNewsLink(link)
-    insert(`${ctxItem.title}\n`)
     setCtxItem(null)
     popAll()
-    toast('已放進輸入框（標題）')
+    toast('已掛上新聞標題，可直接送出或先打幾句')
   }
 
   // 模組沒開：說明怎麼開，不要只丟一句「未啟用」讓人不知道去哪找
@@ -251,7 +250,7 @@ function NewsBody({ sections }: { sections: ReaderSection[] }): JSX.Element {
                 className="flex-1 rounded-full bg-[var(--mint)] py-2.5 text-sm font-semibold text-[var(--text)] disabled:opacity-50"
                 onClick={confirmChatAbout}
               >
-                確認放入輸入框
+                確認帶去聊
               </button>
             </div>
           </div>

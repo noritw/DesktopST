@@ -894,7 +894,7 @@ export default function SettingsWindow() {
   }
 
   return (
-    <div className="w-full h-full flex flex-col bg-bg">
+    <div className="w-full h-full flex flex-col bg-bg overflow-x-hidden">
       {/* Title bar */}
       <div className="drag-region flex items-center justify-between px-4 py-3 border-b border-border">
         <span className="font-semibold text-primary no-drag"> 設定</span>
@@ -937,7 +937,7 @@ export default function SettingsWindow() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-border no-drag">
+      <div className="flex items-center gap-3 px-4 py-2 border-b border-border no-drag overflow-x-auto">
         {VISIBLE_TAB_GROUPS.map((group, groupIndex) => (
           <div key={group.join('|')} className="flex items-center gap-3">
             {groupIndex > 0 && <div className="h-6 w-px bg-border shrink-0" aria-hidden="true" />}
@@ -1002,7 +1002,7 @@ export default function SettingsWindow() {
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 no-drag space-y-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 no-drag space-y-4">
 
         {tab === 'LLM 設定' && (
           <>

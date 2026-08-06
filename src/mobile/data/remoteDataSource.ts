@@ -220,6 +220,7 @@ export class RemoteDataSource implements DataSource {
     setLlmModel: async (provider, model) => { await this.http.post('/api/settings/llm-model', { provider, model }) },
     setLlmEndpoint: async (endpoint) => { await this.http.post('/api/settings/llm-endpoint', { endpoint }) },
     setLlmApiKey: async (provider, apiKey) => { await this.http.post('/api/settings/llm-apikey', { provider, apiKey }) },
+    setLlmChatLimits: async (limits) => { await this.http.post('/api/settings/llm-chat-limits', limits) },
 
     getMemory: async () => (await this.http.get<{ memory: MemorySettingsSnapshot }>('/api/settings/memory')).memory,
     setMemory: async (m) => { await this.http.post('/api/settings/memory', m) },

@@ -301,6 +301,12 @@ export interface LlmSettingsSnapshot {
   models: Partial<Record<LlmProvider, string>>
   endpoint?: string
   hasApiKey: Record<LlmProvider, boolean>
+  /** 最大回應字數（token 上限，與桌面「最大回應字數」同一欄）。 */
+  maxResponseTokens: number
+  /** 群組對話每次送出後最多幾位角色回應。 */
+  maxGroupRounds: number
+  /** 單則訊息圖片上限。 */
+  maxImagesPerMessage: number
 }
 
 export interface MemorySettingsSnapshot {
@@ -359,6 +365,12 @@ export interface SettingsApi {
    * `Capabilities.apiKeyAccess` 隱藏欄位，不應該讓使用者走到這步。
    */
   setLlmApiKey(provider: LlmProvider, apiKey: string): Promise<void>
+  /** 回應字數／群組回應數／圖片上限（與桌面 LLM 設定同一欄）。 */
+  setLlmChatLimits(limits: {
+    maxResponseTokens: number
+    maxGroupRounds: number
+    maxImagesPerMessage: number
+  }): Promise<void>
 
   getMemory(): Promise<MemorySettingsSnapshot>
   setMemory(settings: MemorySettingsSnapshot): Promise<void>

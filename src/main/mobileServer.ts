@@ -102,11 +102,19 @@ export interface MobileBridge {
     models: Record<string, string | undefined>
     endpoint?: string
     hasApiKey: Record<string, boolean>
+    maxResponseTokens: number
+    maxGroupRounds: number
+    maxImagesPerMessage: number
   }
   setLlmProvider: (provider: string) => { ok: true } | { error: string }
   setLlmModel: (provider: string, model: string) => { ok: true } | { error: string }
   setLlmEndpoint: (endpoint: string) => { ok: true } | { error: string }
   setLlmApiKey: (provider: string, apiKey: string) => { ok: true } | { error: string }
+  setLlmChatLimits: (limits: {
+    maxResponseTokens: number
+    maxGroupRounds: number
+    maxImagesPerMessage: number
+  }) => { ok: true } | { error: string }
   getMemorySettings: () => { keepRecentN: number; autoSummarizeAfter: number; autoSummarizeEnabled: boolean }
   setMemorySettings: (m: { keepRecentN: number; autoSummarizeAfter: number; autoSummarizeEnabled: boolean }) => { ok: true } | { error: string }
   listModuleToggles: () => { id: string; label: string; enabled: boolean }[]
@@ -1263,6 +1271,24 @@ async function handleRequest(
     const payload = await readJson<{ provider?: string; apiKey?: string }>(req, res)
     if (!payload) return
     const r = bridge.setLlmApiKey(String(payload.provider ?? ''), String(payload.apiKey ?? ''))
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-chat-limits') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{
+      maxResponseTokens?: number
+      maxGroupRounds?: number
+      maxImagesPerMessage?: number
+    }>(req, res)
+    if (!payload) return
+    const r = bridge.setLlmChatLimits({
+      maxResponseTokens: Number(payload.maxResponseTokens),
+      maxGroupRounds: Number(payload.maxGroupRounds),
+      maxImagesPerMessage: Number(payload.maxImagesPerMessage)
+    })
     if ('error' in r) { jsonError(res, 400, r.error); return }
     jsonOk(res, { ok: true })
     return

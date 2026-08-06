@@ -765,6 +765,9 @@ export function getLlmSettingsSummaryDirect(): {
   models: Partial<Record<AppSettings['llm']['provider'], string>>
   endpoint?: string
   hasApiKey: Record<AppSettings['llm']['provider'], boolean>
+  maxResponseTokens: number
+  maxGroupRounds: number
+  maxImagesPerMessage: number
 } {
   const hasApiKey = {} as Record<AppSettings['llm']['provider'], boolean>
   for (const p of MOBILE_LLM_PROVIDERS) {
@@ -775,7 +778,10 @@ export function getLlmSettingsSummaryDirect(): {
     model: settings.llm.models?.[settings.llm.provider] ?? settings.llm.model,
     models: { ...settings.llm.models },
     endpoint: settings.llm.endpoint,
-    hasApiKey
+    hasApiKey,
+    maxResponseTokens: Math.max(100, Math.floor(Number(settings.llm.maxResponseTokens) || 400)),
+    maxGroupRounds: Math.max(1, Math.floor(Number(settings.llm.maxGroupRounds) || 1)),
+    maxImagesPerMessage: Math.max(1, Math.floor(Number(settings.llm.maxImagesPerMessage) || 5))
   }
 }
 
@@ -819,6 +825,33 @@ export function setLlmApiKeyDirect(provider: string, apiKey: string): { ok: true
   fileStore.encryptedApiKeyFallbacks.delete(provider)
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+export function setLlmChatLimitsDirect(limits: {
+  maxResponseTokens: number
+  maxGroupRounds: number
+  maxImagesPerMessage: number
+}): { ok: true } | { error: string } {
+  const maxResponseTokens = Math.round(Number(limits.maxResponseTokens))
+  const maxGroupRounds = Math.round(Number(limits.maxGroupRounds))
+  const maxImagesPerMessage = Math.round(Number(limits.maxImagesPerMessage))
+  if (!Number.isFinite(maxResponseTokens) || maxResponseTokens < 100 || maxResponseTokens > 1000) {
+    return { error: '回應字數需在 100–1000' }
+  }
+  if (!Number.isFinite(maxGroupRounds) || maxGroupRounds < 1 || maxGroupRounds > 10) {
+    return { error: '群組回應數需在 1–10' }
+  }
+  if (!Number.isFinite(maxImagesPerMessage) || maxImagesPerMessage < 1 || maxImagesPerMessage > 10) {
+    return { error: '圖片上限需在 1–10' }
+  }
+  settings.llm.maxResponseTokens = maxResponseTokens
+  settings.llm.maxGroupRounds = maxGroupRounds
+  settings.llm.maxImagesPerMessage = maxImagesPerMessage
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  // 圖片上限會影響手機 Composer；推一次狀態讓快照刷新
+  try { pushRemoteControlState() } catch { /* mobile server 可能未開 */ }
   return { ok: true }
 }
 

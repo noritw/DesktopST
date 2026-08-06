@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { LlmProvider, LlmSettingsSnapshot, MemorySettingsSnapshot, ModuleToggle, WeatherSettingsSnapshot } from '@core/data'
 import { MODEL_DATA_UPDATED } from '@core/llm/modelCatalog'
 import MonoIcon from '@shared/MonoIcon'
-import { getData } from '../stores/appStore'
+import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from './settingsErrors'
 import {
@@ -27,6 +27,7 @@ import { moduleDescription } from './moduleInfo'
  * 每一塊自己一個標題，點了才展開：
  *
  *   ┌ 連線（不可收合，這是唯一必填的東西）── 供應商／模型／API Key
+ *   ├ 對話            ← 回應字數／群組回應數／圖片上限
  *   ├ 天氣            ← 位置／開關／潤飾（手機可設；CWA 進階仍桌面）
  *   ├ 記憶
  *   ├ 模組開關         ← 天氣／新聞在前；Spotify／日曆只給開關
@@ -47,7 +48,7 @@ export function SettingsView(): JSX.Element {
   const [modules, setModules] = useState<ModuleToggle[] | null>(null)
   const [weather, setWeather] = useState<WeatherSettingsSnapshot | null>(null)
   const [failed, setFailed] = useState(false)
-  const [open, setOpen] = useState<'weather' | 'memory' | 'modules' | 'advanced' | null>(null)
+  const [open, setOpen] = useState<'chat' | 'weather' | 'memory' | 'modules' | 'advanced' | null>(null)
   const [apiKeyAccess, setApiKeyAccess] = useState(false)
   const [cityDraft, setCityDraft] = useState('')
   const [weatherBusy, setWeatherBusy] = useState(false)
@@ -65,7 +66,12 @@ export function SettingsView(): JSX.Element {
     try {
       setApiKeyAccess(getData().capabilities.apiKeyAccess)
       const [llmData, memoryData] = await Promise.all([getData().settings.getLlm(), getData().settings.getMemory()])
-      setLlm(llmData)
+      setLlm({
+        ...llmData,
+        maxResponseTokens: llmData.maxResponseTokens ?? 400,
+        maxGroupRounds: llmData.maxGroupRounds ?? 3,
+        maxImagesPerMessage: llmData.maxImagesPerMessage ?? 5
+      })
       setMemory(memoryData)
       setModelDraft(llmData.model)
       setEndpointDraft(llmData.endpoint ?? '')
@@ -170,6 +176,29 @@ export function SettingsView(): JSX.Element {
     } catch (e) {
       setMemory(previous)
       toast(describeSettingsError(e, '儲存記憶設定'), 'error')
+    }
+  }
+
+  const saveChatLimits = async (patch: Partial<{
+    maxResponseTokens: number
+    maxGroupRounds: number
+    maxImagesPerMessage: number
+  }>): Promise<void> => {
+    if (!llm) return
+    const previous = llm
+    const next = {
+      maxResponseTokens: patch.maxResponseTokens ?? llm.maxResponseTokens,
+      maxGroupRounds: patch.maxGroupRounds ?? llm.maxGroupRounds,
+      maxImagesPerMessage: patch.maxImagesPerMessage ?? llm.maxImagesPerMessage
+    }
+    setLlm({ ...llm, ...next })
+    try {
+      await getData().settings.setLlmChatLimits(next)
+      // 圖片上限會影響 Composer；重抓狀態快照
+      void useAppStore.getState().refresh()
+    } catch (e) {
+      setLlm(previous)
+      toast(describeSettingsError(e, '儲存對話設定'), 'error')
     }
   }
 
@@ -357,6 +386,39 @@ export function SettingsView(): JSX.Element {
           </div>
         )}
       </section>
+
+      {/* ── 對話限制（與桌面 LLM 設定同一欄）─────────────── */}
+      <Section
+        title="對話"
+        hint="回應長度、群組回應數、圖片上限"
+        expanded={open === 'chat'}
+        onToggle={() => setOpen(open === 'chat' ? null : 'chat')}
+      >
+        <NumberRow
+          label="最大回應字數"
+          value={llm.maxResponseTokens}
+          min={100}
+          max={1000}
+          onCommit={(v) => void saveChatLimits({ maxResponseTokens: v })}
+        />
+        <NumberRow
+          label="群組最多角色回應數"
+          value={llm.maxGroupRounds}
+          min={1}
+          max={10}
+          onCommit={(v) => void saveChatLimits({ maxGroupRounds: v })}
+        />
+        <p className="mb-2 text-[11px] leading-relaxed text-[var(--text-sub)]">
+          每次送出後群組裡最多幾位角色會回應；越大越熱鬧，也越耗 token。
+        </p>
+        <NumberRow
+          label="單則訊息圖片上限"
+          value={llm.maxImagesPerMessage}
+          min={1}
+          max={10}
+          onCommit={(v) => void saveChatLimits({ maxImagesPerMessage: v })}
+        />
+      </Section>
 
       {/* ── 天氣 ────────────────────────────────────────── */}
       <Section
