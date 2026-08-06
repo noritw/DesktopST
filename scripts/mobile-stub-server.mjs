@@ -117,6 +117,138 @@ const moduleToggles = [
   { id: 'desktopst.news', label: '新聞陪聊', enabled: true }
 ]
 
+// ── 個人新聞報（B3 階段 6）─────────────────────────────────────
+//
+// ⚠️ 拒絕條件照抄 `src/main/modules/news/{readerFetch,mobileRoutes}.ts`：
+//   · 模組沒開 → **HTTP 200 ＋ `{ ok:false, error }`**（不是錯誤狀態碼）
+//   · 熱門欄關閉、找不到關鍵字來源 → 同上
+//   · quota 少了 sectionGroupId、order 的清單對不起來 → 400
+// 只回成功的 stub 會讓「模組沒開」的提示與錯誤重試整條路徑驗不到。
+
+let newsSources = [
+  { id: 'kw-indie', type: 'keyword', label: '獨立遊戲', weight: 'often', enabled: true, origin: 'user', groupId: 'default' },
+  { id: 'kw-ai', type: 'keyword', label: 'AI', weight: 'normal', enabled: true, origin: 'user', groupId: 'default' },
+  { id: 'kw-cat', type: 'keyword', label: '貓咪', weight: 'normal', enabled: true, origin: 'user', groupId: 'g-life', readerQuota: 2 },
+  { id: 'rss-ithome', type: 'rss', label: 'iThome', url: 'https://example.com/ithome.xml', weight: 'normal', enabled: true, origin: 'user' },
+  { id: 'loc-台北市', type: 'keyword', label: '台北市', weight: 'normal', enabled: true, origin: 'location' }
+]
+let newsKeywordGroups = [
+  { id: 'default', name: '預設組' },
+  { id: 'g-life', name: '生活' }
+]
+let newsBlacklist = ['詐騙']
+let newsReaderGroupIds = []
+let newsPerKeyword = 3
+let newsBreakoutQuota = 3
+const newsBreakoutEnabled = true
+/** 釘選／不看了是**電腦端共用**的內容狀態（規劃書 §3 方案 B） */
+let newsPinned = []
+let newsDismissed = []
+let newsSchedule = { enabled: false }
+
+let newsSeq = 0
+const newsEnabled = () => moduleToggles.find((m) => m.id === 'desktopst.news')?.enabled !== false
+
+/** 產生一則假新聞。每次呼叫 id 都不同，「換一批」才看得出真的換了。 */
+const makeNewsItem = (src, breakout = false) => {
+  newsSeq += 1
+  const ageMinutes = Math.floor(Math.random() * 3000)
+  return {
+    id: `n${newsSeq}`,
+    title: breakout ? `熱門：大家都在看的第 ${newsSeq} 件事` : `${src.label}：假新聞標題 ${newsSeq}`,
+    summary: `這是「${src.label}」的假摘要，用來驗證顯示模式與版面。編號 ${newsSeq}。`,
+    source: breakout ? '熱門話題' : src.label + ' 日報',
+    tags: [],
+    url: `https://example.com/news/${newsSeq}`,
+    publishedAt: new Date(Date.now() - ageMinutes * 60000).toISOString(),
+    sourceId: breakout ? 'breakout' : src.id,
+    sourceType: src.type,
+    sourceWeight: src.weight,
+    ...(breakout ? { breakout: true } : {}),
+    ...(src.type === 'keyword' ? { keyword: src.label } : {})
+  }
+}
+
+const newsQuotaOf = (src) =>
+  typeof src.readerQuota === 'number' && src.readerQuota >= 1 ? src.readerQuota : newsPerKeyword
+
+/** 有在抓的關鍵字來源：跟著「要抓哪些組」走（與真伺服器的 readerSelectionContext 同義） */
+const newsActiveSources = () =>
+  newsSources.filter((s) => {
+    if (!s.enabled) return false
+    if (s.type !== 'keyword') return true
+    if (s.origin === 'location') return true
+    if (newsReaderGroupIds.length === 0) return true
+    return newsReaderGroupIds.includes(s.groupId || 'default')
+  })
+
+const newsBatchItems = (excludeIds) => {
+  const skip = new Set(excludeIds || [])
+  const out = []
+  if (newsBreakoutEnabled) {
+    for (let i = 0; i < newsBreakoutQuota; i++) {
+      out.push(makeNewsItem({ id: 'breakout', label: '熱門', type: 'keyword', weight: 'normal' }, true))
+    }
+  }
+  for (const src of newsActiveSources()) {
+    const n = src.type === 'keyword' ? newsQuotaOf(src) : newsPerKeyword
+    for (let i = 0; i < n; i++) out.push(makeNewsItem(src))
+  }
+  // 黑名單與 dismiss 在真伺服器是抓取端就濾掉的
+  return out.filter(
+    (it) => !skip.has(it.id) && !newsDismissed.includes(it.id) && !newsBlacklist.some((w) => it.title.includes(w))
+  )
+}
+
+const newsSnapshot = () => ({
+  sources: newsSources,
+  keywordGroups: newsKeywordGroups,
+  readerKeywordGroupIds: newsReaderGroupIds,
+  readerMaxItems: 30,
+  readerPerKeyword: newsPerKeyword,
+  readerBreakoutQuota: newsBreakoutQuota
+})
+
+/** 單欄重抓：照抄 readerFetch 的分支與錯誤訊息 */
+const newsSectionItems = (sectionGroupId) => {
+  if (sectionGroupId === '__breakout__') {
+    if (!newsBreakoutEnabled) return { ok: false, error: '熱門話題未啟用' }
+    const items = []
+    for (let i = 0; i < newsBreakoutQuota; i++) {
+      items.push(makeNewsItem({ id: 'breakout', label: '熱門', type: 'keyword', weight: 'normal' }, true))
+    }
+    return { ok: true, items }
+  }
+  if (sectionGroupId === '__local__') {
+    const locs = newsSources.filter((s) => s.origin === 'location' && s.enabled)
+    if (locs.length === 0) return { ok: false, error: '地方新聞未啟用' }
+    return { ok: true, items: locs.flatMap((src) => [makeNewsItem(src), makeNewsItem(src)]) }
+  }
+  if (sectionGroupId.startsWith('kw:')) {
+    const src = newsSources.find((s) => s.id === sectionGroupId.slice(3) && s.type === 'keyword')
+    if (!src || !src.enabled) return { ok: false, error: '找不到此關鍵字來源' }
+    return { ok: true, items: Array.from({ length: newsQuotaOf(src) }, () => makeNewsItem(src)) }
+  }
+  if (sectionGroupId.startsWith('feed:')) {
+    const src = newsSources.find((s) => s.id === sectionGroupId.slice(5) && (s.type === 'rss' || s.type === 'json'))
+    if (!src || !src.enabled) return { ok: false, error: '找不到此訂閱來源' }
+    return { ok: true, items: Array.from({ length: newsPerKeyword }, () => makeNewsItem(src)) }
+  }
+  return { ok: false, error: '不支援的欄位類型' }
+}
+
+/** 新增來源時 id 由伺服器產生（手機端非安全內容沒有 crypto.randomUUID） */
+const normalizeNewsSources = (raw) =>
+  (Array.isArray(raw) ? raw : [])
+    .filter((s) => s && typeof s.label === 'string' && s.label)
+    .map((s) => ({
+      ...s,
+      id: typeof s.id === 'string' && s.id ? s.id : 'src-' + Math.random().toString(36).slice(2, 10),
+      type: s.type === 'rss' || s.type === 'json' ? s.type : 'keyword',
+      weight: ['often', 'normal', 'rarely'].includes(s.weight) ? s.weight : 'normal',
+      enabled: s.enabled !== false
+    }))
+
 // ── 預設組（B3 階段 5）───────────────────────────────────────
 // 完整資料與清單摘要分開，照抄真 mobileServer 的界線。
 let personas = [{ id: 'p1', name: '預設使用者', displayName: '小諾', nickname: '諾諾', description: '喜歡和角色聊天。', createdAt: Date.now(), updatedAt: Date.now() }]
@@ -576,6 +708,163 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.startsWith('/api/reminders')) return json(res, { reminders })
+
+  // ── 個人新聞報（B3 階段 6）────────────────────────────────
+
+  if (url === '/api/news/reader/state') {
+    return json(res, {
+      enabled: newsEnabled(),
+      ...newsSnapshot(),
+      pinnedItems: newsPinned,
+      dismissedIds: newsDismissed
+    })
+  }
+
+  if (url === '/api/news/reader/batch') {
+    const p = await readBody(req)
+    if (!newsEnabled()) return json(res, { ok: false, error: '新聞模組尚未啟用' })
+    const items = newsBatchItems(p.excludeIds)
+    console.log(`[news] batch exclude=${(p.excludeIds || []).length} strict=${!!p.strictExclude} -> ${items.length} 則`)
+    return json(res, { ok: true, items, fetchedAt: Date.now(), ...newsSnapshot() })
+  }
+
+  if (url === '/api/news/reader/section') {
+    const p = await readBody(req)
+    if (!newsEnabled()) return json(res, { ok: false, error: '新聞模組尚未啟用' })
+    if (!p.sectionGroupId) return json(res, { ok: false, error: '缺少 sectionGroupId' })
+    const r = newsSectionItems(p.sectionGroupId)
+    console.log(`[news] section ${p.sectionGroupId} ->`, r.ok ? `${r.items.length} 則` : r.error)
+    if (!r.ok) return json(res, r)
+    const skip = new Set(p.excludeIds || [])
+    return json(res, {
+      ok: true,
+      sectionGroupId: p.sectionGroupId,
+      items: r.items.filter((i) => !skip.has(i.id) && !newsDismissed.includes(i.id)),
+      fetchedAt: Date.now(),
+      ...newsSnapshot()
+    })
+  }
+
+  if (url === '/api/news/reader/pinned') {
+    const p = await readBody(req)
+    newsPinned = Array.isArray(p.items) ? p.items : []
+    console.log(`[news] 釘選 ${newsPinned.length} 則`)
+    return json(res, { pinnedItems: newsPinned, dismissedIds: newsDismissed })
+  }
+
+  if (url === '/api/news/reader/dismissed') {
+    const p = await readBody(req)
+    // 上限 500，與 readerState.ts 一致
+    newsDismissed = (Array.isArray(p.ids) ? p.ids : []).filter((x) => typeof x === 'string').slice(-500)
+    console.log(`[news] 不看了 ${newsDismissed.length} 則`)
+    return json(res, { pinnedItems: newsPinned, dismissedIds: newsDismissed })
+  }
+
+  if (url === '/api/news/reader/quota') {
+    const p = await readBody(req)
+    if (!p.sectionGroupId) return json(res, { error: 'sectionGroupId required' }, 400)
+    const n = Math.max(0, Math.min(20, Math.floor(Number(p.quota))))
+    if (!Number.isFinite(n)) return json(res, { error: 'quota must be a number' }, 400)
+    if (p.sectionGroupId === '__breakout__') newsBreakoutQuota = n
+    else if (p.sectionGroupId.startsWith('kw:')) {
+      newsSources = newsSources.map((s) => {
+        if (s.id !== p.sectionGroupId.slice(3)) return s
+        if (n === newsPerKeyword || n < 1) {
+          const { readerQuota, ...rest } = s
+          return rest
+        }
+        return { ...s, readerQuota: Math.max(1, n) }
+      })
+    } else newsPerKeyword = Math.max(1, n)
+    console.log(`[news] quota ${p.sectionGroupId} -> ${n}`)
+    const r = newsSectionItems(p.sectionGroupId)
+    if (!r.ok) return json(res, r)
+    return json(res, { ok: true, sectionGroupId: p.sectionGroupId, items: r.items, fetchedAt: Date.now(), ...newsSnapshot() })
+  }
+
+  if (url === '/api/news/reader/groups') {
+    const p = await readBody(req)
+    newsReaderGroupIds = (Array.isArray(p.ids) ? p.ids : []).filter((x) => typeof x === 'string' && x)
+    console.log('[news] 關鍵字組 ->', newsReaderGroupIds.length ? newsReaderGroupIds.join(',') : '全部組')
+    return json(res, { ok: true, readerKeywordGroupIds: newsReaderGroupIds })
+  }
+
+  if (url === '/api/news/reader/order') {
+    const p = await readBody(req)
+    const ordered = (Array.isArray(p.orderedSourceIds) ? p.orderedSourceIds : []).filter((x) => typeof x === 'string' && x)
+    if (ordered.length === 0) return json(res, { error: 'orderedSourceIds required' }, 400)
+    const byId = new Map(newsSources.map((s) => [s.id, s]))
+    const seen = new Set()
+    const next = []
+    for (const id of ordered) {
+      const src = byId.get(id)
+      if (!src || seen.has(id)) continue
+      seen.add(id)
+      next.push(src)
+    }
+    for (const src of newsSources) if (!seen.has(src.id)) next.push(src)
+    // 真伺服器對數量對不起來的清單回 400（照抄，不要靜靜接受）
+    if (next.length !== newsSources.length) return json(res, { error: 'source list mismatch' }, 400)
+    newsSources = next
+    console.log('[news] 欄位順序 ->', newsSources.map((s) => s.label).join(' > '))
+    return json(res, { ok: true, sources: newsSources })
+  }
+
+  if (url === '/api/news/mark-opened') {
+    const p = await readBody(req)
+    console.log(`[news] 開原文加分：${p.sourceId}`)
+    return json(res, { ok: true })
+  }
+
+  if (url === '/api/news/settings' && req.method === 'GET') {
+    return json(res, {
+      enabled: newsEnabled(),
+      sources: newsSources,
+      keywordGroups: newsKeywordGroups,
+      blacklist: newsBlacklist
+    })
+  }
+
+  if (url === '/api/news/settings') {
+    const p = await readBody(req)
+    if (Array.isArray(p.sources)) newsSources = normalizeNewsSources(p.sources)
+    // 照抄 `main/modules/news/settings.ts` 的 normalizeKeywordGroups：沒帶 id 就生一個
+    // （不是丟掉那一筆）；帶了 id 但已經出現過（多半是陣列裡本來就有的
+    // `{id:'default',...}`）要跳過不重配，否則預設組會憑空多一份複本。
+    if (Array.isArray(p.keywordGroups)) {
+      const seen = new Set(['default'])
+      const rest = []
+      for (const g of p.keywordGroups) {
+        if (!g || typeof g.name !== 'string' || !g.name.trim()) continue
+        const hasId = typeof g.id === 'string' && g.id.length > 0
+        if (hasId && seen.has(g.id)) continue
+        let id = hasId ? g.id : 'grp-' + Math.random().toString(36).slice(2, 10)
+        while (seen.has(id)) id = 'grp-' + Math.random().toString(36).slice(2, 10)
+        seen.add(id)
+        rest.push({ id, name: g.name.trim() })
+      }
+      newsKeywordGroups = [{ id: 'default', name: '預設組' }, ...rest]
+    }
+    if (Array.isArray(p.blacklist)) newsBlacklist = p.blacklist.filter((w) => typeof w === 'string' && w)
+    console.log(`[news] 設定 -> 關鍵字 ${newsSources.filter((s) => s.type === 'keyword').length}、黑名單 ${newsBlacklist.length}`)
+    return json(res, {
+      enabled: newsEnabled(),
+      sources: newsSources,
+      keywordGroups: newsKeywordGroups,
+      blacklist: newsBlacklist
+    })
+  }
+
+  if (url === '/api/news/scheduler' && req.method === 'GET') return json(res, newsSchedule)
+
+  if (url === '/api/news/scheduler') {
+    const p = await readBody(req)
+    // 要開卻沒給排程＝設定不完整，真伺服器回 400
+    if (p.enabled && !p.schedule) return json(res, { error: 'schedule required' }, 400)
+    newsSchedule = p.enabled ? { enabled: true, schedule: p.schedule } : { enabled: false }
+    console.log('[news] 排程 ->', JSON.stringify(newsSchedule))
+    return json(res, newsSchedule)
+  }
 
   // ── 角色卡讀寫（階段 3）────────────────────────────────────
   //

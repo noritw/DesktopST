@@ -31,6 +31,7 @@ export type ViewKind =
   | 'reminders'
   | 'reminder-editor'
   | 'news'
+  | 'news-settings'
   | 'random-tools'
   | 'theme-picker'
   | 'lorebook-editor'

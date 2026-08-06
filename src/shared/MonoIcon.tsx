@@ -70,6 +70,13 @@ export type MonoIconName =
   | 'mute'
   | 'exit'
   | 'plug'
+  // ── B3 階段 6（個人新聞報）新增 ──
+  | 'refresh'
+  | 'external-link'
+  | 'arrow-up'
+  | 'arrow-down'
+  | 'sliders'
+  | 'more'
 
 export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIconName; className?: string }) {
   const common = {
@@ -386,6 +393,50 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <path {...common} d="M14.5 6V3" />
           <path {...common} d="M7 8h10v3a5 5 0 0 1-5 5" />
           <path {...common} d="M12 16v5" />
+        </>
+      )}
+      {name === 'refresh' && (
+        <>
+          <path {...common} d="M20 11a8 8 0 0 0-13.7-5.2L4 8" />
+          <path {...common} d="M4 4v4h4" />
+          <path {...common} d="M4 13a8 8 0 0 0 13.7 5.2L20 16" />
+          <path {...common} d="M20 20v-4h-4" />
+        </>
+      )}
+      {name === 'external-link' && (
+        <>
+          <path {...common} d="M14 4h6v6" />
+          <path {...common} d="M20 4l-8.5 8.5" />
+          <path {...common} d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+        </>
+      )}
+      {name === 'arrow-up' && (
+        <>
+          <path {...common} d="M12 20V5" />
+          <path {...common} d="M6 11l6-6 6 6" />
+        </>
+      )}
+      {name === 'arrow-down' && (
+        <>
+          <path {...common} d="M12 4v15" />
+          <path {...common} d="M6 13l6 6 6-6" />
+        </>
+      )}
+      {name === 'sliders' && (
+        <>
+          <path {...common} d="M4 7h10" />
+          <path {...common} d="M18 7h2" />
+          <circle {...common} cx="16" cy="7" r="2" />
+          <path {...common} d="M4 17h4" />
+          <path {...common} d="M12 17h8" />
+          <circle {...common} cx="10" cy="17" r="2" />
+        </>
+      )}
+      {name === 'more' && (
+        <>
+          <circle {...common} cx="5" cy="12" r="1.5" fill="currentColor" />
+          <circle {...common} cx="12" cy="12" r="1.5" fill="currentColor" />
+          <circle {...common} cx="19" cy="12" r="1.5" fill="currentColor" />
         </>
       )}
     </svg>

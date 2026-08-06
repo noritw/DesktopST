@@ -69,8 +69,8 @@ src/mobile/ 手機 UI
 |---|---|
 | 桌面版 | MVP～進階大致完成（新聞、情境覆蓋、reaction、記憶摘要、日曆、Lorebook 桌面…） |
 | B1／B2／B2.5–2.7 | 完成（`core/`、adapter、store、Lorebook） |
-| **B3 手機 UI** | 階段 0–5、8、9 ＋ 資訊架構／雙入口完成；**待真機確認**部份畫面 |
-| **下一步** | **階段 6 個人新聞報** → 7（收尾／APK） |
+| **B3 手機 UI** | 階段 0–6、8、9 ＋ 資訊架構／雙入口完成；**待真機確認**部份畫面 |
+| **下一步** | **階段 7（收尾／APK）** |
 | 延後 | 角色印象（B8）；系統通知（B5）；遙控 UI 搬新版（B6） |
 
 ⚠️ **`mobile.html` 不能在 B6 之前刪**——遙控面板（H1–H11）只有舊版有。
@@ -96,14 +96,14 @@ src/mobile/ 手機 UI
 | 你要做的事 | 讀這些 | 不要先讀 |
 |---|---|---|
 | 一般小修／問進度 | **本文件即可** | 一切長文 |
-| B3 手機 UI（階段 6 等） | `b3-mobile-ui-plan.md` **文首＋§4.9**；該階段正文；對應落地筆記（如新聞→階段 6） | 整份計畫、舊階段筆記 |
+| B3 手機 UI（階段 7 等） | `b3-mobile-ui-plan.md` **文首＋§4.9**；該階段正文；對應落地筆記（如新聞→§4.21） | 整份計畫、舊階段筆記 |
 | 改 QR／relay／手機建置 | 計畫書 **只讀 §4.20** | §4.10–4.18 |
 | 查「以前為什麼這樣做／已知坑」 | `progress-log.md` **Grep 關鍵字** | 整份 log |
 | 實作某桌面／資料規格 | `DesktopST-Spec.md` **對應章節** | 整本 Spec |
 | 提案跨平台／散布／同步架構 | roadmap **§2、§8**（必要時 §4.5–4.7） | 整份 roadmap、§10 舊順序敘事 |
 | 對照 mobile.html 還缺什麼 | `mobile-html-feature-inventory.md` **§6／§7** | 整份 inventory |
 | Lorebook 規格 | `future-lorebook.md` | — |
-| 新聞報（階段 6） | `news-reader-mobile-plan.md` ＋ b3 階段 6 | 所有 `news-future-*`（那是構想） |
+| 新聞報 | `news-reader-mobile-plan.md`（舊版規格／UX）＋ b3 **§4.21**（React 版落地） | 所有 `news-future-*`（那是構想） |
 | 假伺服器怎麼驗 | `scripts/README-mobile-stub.md` | — |
 
 文件夾總表與「必讀／選讀」標記：`docs/README.md`。

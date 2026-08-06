@@ -249,7 +249,8 @@ describe('兩個實作對 UI 是同一個形狀', () => {
     messages: Object.keys(ds.messages).sort(),
     characters: Object.keys(ds.characters).sort(),
     presets: Object.keys(ds.presets).sort(),
-    lorebooks: Object.keys(ds.lorebooks).sort()
+    lorebooks: Object.keys(ds.lorebooks).sort(),
+    news: Object.keys(ds.news).sort()
   })
 
   it('方法集合完全相同', () => {
@@ -314,6 +315,71 @@ describe('兩個實作對 UI 是同一個形狀', () => {
     expect((calls[3].body as { data: string }).data).toBe('AQID')
     expect(calls[6].body).toEqual({ preset: { id: 'w2', name: '新世界' } })
     expect(calls[7].body).toEqual({ id: 's1' })
+  })
+
+  /**
+   * 階段 6 的新聞報。端點打錯只會在 UI 上顯示「抓取失敗」，
+   * 從畫面完全推不回是哪一支錯了 —— 所以在這裡鎖住路徑與欄位名。
+   */
+  it('新聞報打對端點與欄位名', async () => {
+    const batch = { ok: true, items: [], fetchedAt: 1, sources: [], keywordGroups: [], readerKeywordGroupIds: [], readerMaxItems: 30, readerPerKeyword: 3, readerBreakoutQuota: 3 }
+    const { ds, calls } = makeRemote({
+      '/api/news/reader/state': { enabled: true, sources: [], keywordGroups: [], readerKeywordGroupIds: [], readerMaxItems: 30, readerPerKeyword: 3, readerBreakoutQuota: 3, pinnedItems: [], dismissedIds: [] },
+      '/api/news/reader/batch': batch,
+      '/api/news/reader/section': { ...batch, sectionGroupId: 'kw:a' },
+      '/api/news/reader/pinned': { pinnedItems: [], dismissedIds: [] },
+      '/api/news/reader/dismissed': { pinnedItems: [], dismissedIds: [] },
+      '/api/news/reader/quota': { ...batch, sectionGroupId: 'kw:a' },
+      '/api/news/reader/groups': { ok: true, readerKeywordGroupIds: ['g1'] },
+      '/api/news/reader/order': { ok: true, sources: [{ id: 'kw-a' }] },
+      '/api/news/mark-opened': { ok: true },
+      '/api/news/settings': { enabled: true, sources: [], keywordGroups: [], blacklist: ['詐騙'] },
+      '/api/news/scheduler': { enabled: true, schedule: { type: 'daily', hour: 9, minute: 0 } }
+    })
+
+    await expect(ds.news.getReaderState()).resolves.toMatchObject({ enabled: true })
+    await ds.news.fetchBatch({ excludeIds: ['n1'], strictExclude: true })
+    await ds.news.fetchSection({ sectionGroupId: 'kw:a' })
+    await ds.news.setPinned([])
+    await ds.news.setDismissed(['n1'])
+    await ds.news.setQuota('kw:a', 5)
+    await ds.news.setKeywordGroups(['g1'])
+    await expect(ds.news.setSourceOrder(['kw-a'])).resolves.toEqual([{ id: 'kw-a' }])
+    await ds.news.markOpened('kw-a')
+    await expect(ds.news.getSettings()).resolves.toMatchObject({ blacklist: ['詐騙'] })
+    await ds.news.saveSettings({ blacklist: ['詐騙'] })
+    await expect(ds.news.getSchedule()).resolves.toMatchObject({ enabled: true })
+    await ds.news.setSchedule({ enabled: false })
+
+    expect(calls.map((c) => c.url.split('?')[0].replace('http://pc:1234', ''))).toEqual([
+      '/api/news/reader/state',
+      '/api/news/reader/batch',
+      '/api/news/reader/section',
+      '/api/news/reader/pinned',
+      '/api/news/reader/dismissed',
+      '/api/news/reader/quota',
+      '/api/news/reader/groups',
+      '/api/news/reader/order',
+      '/api/news/mark-opened',
+      '/api/news/settings',
+      '/api/news/settings',
+      '/api/news/scheduler',
+      '/api/news/scheduler'
+    ])
+    expect(calls[1].body).toEqual({ excludeIds: ['n1'], strictExclude: true })
+    // 單欄重抓預設 strictExclude=true：不加的話重抓會抓回同一批，看起來像沒反應
+    expect(calls[2].body).toEqual({ sectionGroupId: 'kw:a', excludeIds: [], strictExclude: true })
+    expect(calls[5].body).toEqual({ sectionGroupId: 'kw:a', quota: 5 })
+    expect(calls[7].body).toEqual({ orderedSourceIds: ['kw-a'] })
+  })
+
+  /**
+   * 「新聞模組尚未啟用」是**正常的拒絕**（HTTP 200 ＋ ok:false），不是連線錯誤。
+   * 翻成例外的話 UI 會顯示「請再試一次」，但再試一百次也一樣。
+   */
+  it('模組沒開時回 ok:false 而不是丟例外', async () => {
+    const { ds } = makeRemote({ '/api/news/reader/batch': { ok: false, error: '新聞模組尚未啟用' } })
+    await expect(ds.news.fetchBatch()).resolves.toEqual({ ok: false, error: '新聞模組尚未啟用' })
   })
 
   it('匯出角色卡把 base64 解回位元組', async () => {

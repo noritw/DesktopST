@@ -1,4 +1,3 @@
-import MonoIcon from '@shared/MonoIcon'
 import { Sheet } from './Sheet'
 import { useUiStore } from '../stores/uiStore'
 import type { ViewEntry, ViewKind } from '../stores/uiStore'
@@ -17,6 +16,8 @@ import { PresetEditor } from '../presets/PresetEditor'
 import { ConversationsView } from '../conversations/ConversationsView'
 import { ConversationEditor } from '../conversations/ConversationEditor'
 import { LorebookEditor } from '../lorebooks/LorebookEditor'
+import { NewsView } from '../news/NewsView'
+import { NewsSettingsView } from '../news/NewsSettingsView'
 import { MainMenu } from './MainMenu'
 
 /**
@@ -40,6 +41,7 @@ const TITLES: Record<ViewKind, string> = {
   reminders: '提醒',
   'reminder-editor': '編輯提醒',
   news: '個人新聞報',
+  'news-settings': '新聞設定',
   'random-tools': '隨機工具',
   'theme-picker': '色彩主題',
   'lorebook-editor': '編輯用語解說',
@@ -56,7 +58,14 @@ export function ViewStack(): JSX.Element | null {
   if (!top) return null
 
   return (
-    <Sheet key={top.id} title={TITLES[top.kind]} onClose={requestPop}>
+    <Sheet
+      key={top.id}
+      title={TITLES[top.kind]}
+      onClose={requestPop}
+      // 新聞報自己有分頁列、內容區與底部的「換一批」三段式版面，
+      // 捲動要發生在中間那段；交給 Sheet 統一捲會讓底部按鈕跟著跑掉。
+      scrollable={top.kind !== 'news'}
+    >
       <ViewBody entry={top} />
     </Sheet>
   )
@@ -78,17 +87,18 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'reminders') return <RemindersView />
   if (entry.kind === 'reminder-editor' && entry.param) return <ReminderEditor reminderId={entry.param} />
   if (entry.kind === 'lorebook-editor' && entry.param) return <LorebookEditor bookId={entry.param} />
+  if (entry.kind === 'news') return <NewsView />
+  if (entry.kind === 'news-settings') return <NewsSettingsView />
   // param 是必要的：沒有它不知道在講哪個角色／哪則訊息。
   // 缺了就當成程式錯誤讓它顯示「尚未實作」，不要靜靜地畫一個空選單。
   if (entry.kind === 'character-menu' && entry.param) return <CharacterMenu characterId={entry.param} />
   if (entry.kind === 'message-menu' && entry.param) return <MessageMenu messageId={entry.param} />
 
-  // 目前只剩「個人新聞報」會走到這裡（階段 6）。
+  // 走到這裡就是 param 缺了（例如點角色選單卻沒帶角色 id）。
   // 刻意寫得很明顯，避免看到空白畫面時誤以為是壞掉。
   return (
-    <div className="flex flex-col items-center gap-3 py-10 text-center text-sm text-[var(--text-sub)]">
-      <MonoIcon name="news" className="h-8 w-8 opacity-60" />
-      <p>「{TITLES[entry.kind]}」還在開發中</p>
+    <div className="py-10 text-center text-sm text-[var(--text-sub)]">
+      <p>「{TITLES[entry.kind]}」開不起來（缺少參數）</p>
     </div>
   )
 }

@@ -10,8 +10,7 @@ import {
   hasNewsReaderState, loadNewsReaderState,
   saveNewsReaderDismissed, saveNewsReaderPinned, saveNewsReaderState
 } from './readerState'
-import { loadReminders, saveReminders } from '../../fileStore'
-import { reloadReminders } from '../../reminderScheduler'
+import { getNewsScheduler, syncNewsScheduler } from './scheduler'
 import {
   openSettingsWindow,
   createNewsReaderWindow,
@@ -20,33 +19,33 @@ import {
 import type { NewsModuleSettings } from './types'
 import type { ReminderSchedule } from '../../types'
 
-/** 新聞模組自動排程提醒的固定 ID，由模組設定驅動、不出現在「提醒管理員」 */
-const NEWS_SCHEDULER_REMINDER_ID = 'news-module-scheduler'
-
 export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): void {
   // 讀取目前模組設定（設定面板初始化用）
   registry.handle('news:get-settings', () => loadNewsModuleSettings())
 
   // 儲存設定（傳整份或部分；後端會正規化）
   //
-  // 一定要先跟磁碟上的現況合併：normalizeNewsModuleSettings() 是把收到的物件當「整份設定」
-  // 正規化，沒帶到的欄位一律回預設值。新聞報視窗的欄位排序 / 則數 / 關鍵字組多選都只送 partial，
-  // 不合併的話按一下就會把 enabled、關鍵字、黑名單、地方新聞、排程全部清成預設。
+  // ⚠️ **只把 partial 原樣傳給 `saveNewsModuleSettings`，不要自己先讀一次
+  // `loadNewsModuleSettings()` 再整包 spread 進去。** `saveNewsModuleSettings`
+  // 內部本來就會在寫入前重新讀一次磁碟現況、只疊上傳進去的欄位（沒帶到的欄位
+  // 一律沿用磁碟上現有值，不是回預設值——那是 `normalizeNewsModuleSettings`
+  // 直接收到「整份設定」時才會發生的事，`saveNewsModuleSettings` 不是那樣用）。
+  // 這裡以前是「先讀 current 再整包 spread」，等於把「這個請求進來那一刻」的
+  // 舊快照也一起送進去；桌面與手機現在會同時寫這份設定檔（B3 階段 6），
+  // 兩邊前後腳存檔時，晚執行的那個會用它手上的舊快照把剛存好的欄位蓋掉——
+  // 跟 owner 回報過的「頻率互相蓋掉」同一類問題，只是換一個觸發路徑。
   registry.handle('news:save-settings', (_, partial: Partial<NewsModuleSettings>) => {
-    const current = loadNewsModuleSettings()
-    return saveNewsModuleSettings({ ...current, ...(partial ?? {}) })
+    return saveNewsModuleSettings(partial ?? {})
   })
 
   // 只切換啟用 / 停用（擴充分頁的開關）
   registry.handle('news:set-enabled', (_, enabled: boolean) => {
-    const current = loadNewsModuleSettings()
-    return saveNewsModuleSettings({ ...current, enabled: !!enabled })
+    return saveNewsModuleSettings({ enabled: !!enabled })
   })
 
   // 一鍵重置學習權重（design §9）
   registry.handle('news:reset-feedback', () => {
-    const current = loadNewsModuleSettings()
-    return saveNewsModuleSettings({ ...current, feedback: { adjustments: {} } })
+    return saveNewsModuleSettings({ feedback: { adjustments: {} } })
   })
 
   // 「跟我無關」：略過該則（記弱負向），可選擇封鎖關鍵字 / 來源（design §9）
@@ -81,8 +80,9 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
     const seenIds = payload?.id && !current.seenIds.includes(payload.id)
       ? [...current.seenIds, payload.id].slice(-500)
       : current.seenIds
+    // 這裡讀 `current` 是為了算出上面五個欄位的新值，**不是要整包送出去**——
+    // 理由同 `news:save-settings` 上面的說明。
     return saveNewsModuleSettings({
-      ...current,
       feedback: { adjustments },
       blacklist,
       excludedSources,
@@ -114,32 +114,12 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
     }
   })
 
-  // 新聞定時排程：在 reminders 檔維護一條固定的特殊 Reminder（排程器自動吃到）
-  registry.handle('news:sync-scheduler', (_, payload: { enabled: boolean; schedule?: ReminderSchedule }) => {
-    const reminders = loadReminders().filter(r => r.id !== NEWS_SCHEDULER_REMINDER_ID)
-    if (payload?.enabled && payload.schedule) {
-      reminders.push({
-        id: NEWS_SCHEDULER_REMINDER_ID,
-        label: '新聞陪聊（自動）',
-        prompt: '',
-        schedule: payload.schedule,
-        enabled: true,
-        injectNews: true,
-        createdAt: Date.now()
-      })
-    }
-    saveReminders(reminders)
-    reloadReminders()
-    const s = loadNewsModuleSettings()
-    saveNewsModuleSettings({ ...s, reminder: { enabled: !!payload?.enabled, schedule: payload?.schedule } })
-    return { ok: true }
-  })
+  // 新聞定時排程：在 reminders 檔維護一條固定的特殊 Reminder（排程器自動吃到）。
+  // 本體在 `scheduler.ts`，手機的 `/api/news/scheduler` 呼叫同一支（B3 階段 6）。
+  registry.handle('news:sync-scheduler', (_, payload: { enabled: boolean; schedule?: ReminderSchedule }) =>
+    syncNewsScheduler(payload))
 
-  registry.handle('news:get-scheduler', () => {
-    const s = loadNewsModuleSettings()
-    const active = loadReminders().find(r => r.id === NEWS_SCHEDULER_REMINDER_ID)
-    return { enabled: !!active?.enabled, schedule: s.reminder.schedule }
-  })
+  registry.handle('news:get-scheduler', () => getNewsScheduler())
 
   // 開啟（或聚焦）設定視窗並導航至新聞模組設定分頁（REQ-10）
   registry.handle('news:open-settings-tab', () => {

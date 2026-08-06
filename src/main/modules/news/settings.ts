@@ -79,9 +79,21 @@ function normalizeKeywordGroups(value: unknown): NewsKeywordGroup[] {
     for (const raw of value) {
       if (!raw || typeof raw !== 'object') continue
       const g = raw as Partial<NewsKeywordGroup>
-      const id = typeof g.id === 'string' ? g.id : ''
       const name = typeof g.name === 'string' ? g.name.trim() : ''
-      if (!id || !name || seen.has(id)) continue
+      if (!name) continue
+      // 沒帶 id 就在這裡生一個——手機端新增組不帶 id 正是故意的
+      // （`core/news/keywordGroups.ts` 的 `withNewGroup`，同 `normalizeSource`
+      // 對關鍵字來源的做法）。舊版這裡是「沒 id 就整筆丟掉」，等於新增功能
+      // 在手機上點了等於沒點，靜靜地什麼都沒發生。
+      //
+      // ⚠️ **帶了 id 但那個 id 已經出現過（包含 'default'）要跳過，不是重新配一個**——
+      // 呼叫端多半是把收到的完整陣列原封不動送回來（例如只是新增了一組），
+      // 這時候陣列裡本來就會有一筆 `{id:'default', name:'預設組'}`；當成「id 撞到
+      // 已存在的」硬是配一個新 id，會讓預設組憑空多出一份同名複本。
+      const hasId = typeof g.id === 'string' && g.id.length > 0
+      if (hasId && seen.has(g.id as string)) continue
+      let id = hasId ? (g.id as string) : `grp-${Math.random().toString(36).slice(2, 10)}`
+      while (seen.has(id)) id = `grp-${Math.random().toString(36).slice(2, 10)}`
       seen.add(id)
       out.push({ id, name })
     }

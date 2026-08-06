@@ -94,9 +94,16 @@ owner 實測回報「按了只有刪掉後面」，追下去才發現。
 | `GET/POST /api/settings/llm`、`llm-provider`、`llm-model`、`llm-endpoint` | 供應商／模型／端點；`hasApiKey` 只回布林，不回明文 |
 | `POST /api/settings/llm-apikey` | **`LANDIRECT=0` 時回 409**（照抄真伺服器的區網直連限制） |
 | `GET/POST /api/settings/memory` | 數值超出範圍回 400（1–200 / 1–500，照抄 `setMemorySettingsDirect`） |
-| `GET /api/settings/modules`、`POST .../toggle` | 天氣／Spotify／日曆／新聞四個開關；未知 id 回 400 |
+| `GET /api/settings/modules`、`POST .../toggle` | 天氣／Spotify／日曆／新聞四個開關；未知 id 回 400。**把新聞關掉就能驗新聞報的「模組尚未啟用」提示** |
 | `GET /api/reminders`、`POST .../{create,save,delete,toggle}` | `save` 缺 `reminder.id` 回 400（照抄 `mobileServer.ts`） |
 | `GET /api/presets`、`/api/scenes`、`GET/POST /api/presets/{persona,world,scene}/*` | 預設組完整讀寫；不存在回 404，Persona／World 最後一組刪除回 409 |
+| `GET /api/news/reader/state` | 五個關鍵字來源（含一個 `readerQuota` 覆寫、一個地方新聞、一個 RSS）、兩個關鍵字組、共用的釘選／不看了 |
+| `POST /api/news/reader/{batch,section}` | 每次都生新的假新聞（換一批看得出真的換了）；**模組關掉時回 200 ＋ `{ok:false, error}`**，熱門／地方／找不到來源同樣走 `ok:false` |
+| `POST /api/news/reader/{pinned,dismissed}` | 共用內容狀態；dismissed 上限 500（照抄 `readerState.ts`） |
+| `POST /api/news/reader/quota` | 缺 `sectionGroupId` 回 **400**；成功時順便回該欄重抓後的內容 |
+| `POST /api/news/reader/{groups,order}` | order 的清單數量對不上回 **400**（不要靜靜接受） |
+| `GET/POST /api/news/settings` | 關鍵字／黑名單／訂閱來源；**新來源的 id 由伺服器產生**（手機端沒有 `crypto.randomUUID`） |
+| `GET/POST /api/news/scheduler` | 定時陪聊；`enabled` 卻沒給 `schedule` 回 **400** |
 | `GET /api/conversations`、`POST .../{load,new,rename,delete}` | 對話清單完整讀寫（B3 階段 8）；`messages` 一律指向使用中對話的訊息陣列，切換會連帶影響 `/api/state` 與後續送訊息；刪光最後一個會自動生一個新的空對話（照抄桌面端沒有「至少留一個」限制的行為） |
 
 沒實作的端點一律回 404 並印在終端，「這支還沒模擬」一眼看得出來。

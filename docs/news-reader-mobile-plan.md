@@ -3,6 +3,12 @@
 > 狀態：**已實作完成**（階段 1–3；階段 4 匯出／匯入依 owner 決定不做）
 > 基準版本：v0.3.8（`040b23c`）
 > 相關：`docs/news-module-design.md`、`docs/remote-control-plan.md`
+>
+> ⚠️ **本檔描述的是舊版 `assets/mobile.html` 的新聞報**（規格與 UX 仍有效，
+> React 版逐項沿用）。**React 版（`/?ui=app`）的落地說明在
+> `docs/b3-mobile-ui-plan.md` §4.21**（B3 階段 6，2026-08-06）——
+> 分欄／相對時間／併回釘選等規則已搬進 `src/core/news/reader.ts`，
+> 而且 React 版**有**手機端的新聞設定（本檔 §6「刻意不做」那條已被推翻）。
 
 ## Owner 審閱決議
 
@@ -250,6 +256,18 @@ export async function fetchReaderSection(settings, req): Promise<ReaderResult>
 
 修法：handler 先 `loadNewsModuleSettings()` 再淺層合併。
 設定面板送整份的行為不受影響（每個 key 都有帶，合併等同覆寫）。
+
+> ⚠️ **2026-08-06 更正**：上面「handler 先讀一次再合併」的修法本身沒錯，
+> 但**做在了錯的層級**。`saveNewsModuleSettings()` 內部本來就會在寫入前
+> 重新讀一次磁碟現況、跟傳進去的 partial 合併——handler 再自己讀一次
+> `current` 並整包 spread 進去是多做的，而且會重新引入一個新問題：
+> handler 讀到的 `current` 是「這個請求進來那一刻」的快照，若這段時間內
+> 有另一個請求（B3 階段 6 之後，桌面與手機可能同時寫這份檔）搶先存檔，
+> 這個請求事後才執行 `saveNewsModuleSettings` 時，會把它手上那份舊快照
+> （包含沒被這次請求碰到的欄位）一起蓋回去，抵銷掉那個搶先寫入的請求。
+> 已把 `ipc.ts` 與 `mobileRoutes.ts` 裡所有「先讀 current 再整包 spread」
+> 的呼叫點改成只送真正改到的欄位，讓 `saveNewsModuleSettings` 自己的
+> 那次讀取（緊貼在寫入之前）成為唯一權威來源。細節見 b3 計畫書 §4.21.2。
 
 ---
 

@@ -13,7 +13,9 @@ import type * as http from 'http'
 import { loadNewsModuleSettings, saveNewsModuleSettings, applyNewsFeedbackDelta } from './settings'
 import { fetchReaderBatch, fetchReaderSection } from './readerFetch'
 import { loadNewsReaderState, saveNewsReaderDismissed, saveNewsReaderPinned } from './readerState'
-import type { NewsSource } from './types'
+import { getNewsScheduler, syncNewsScheduler } from './scheduler'
+import type { NewsModuleSettings, NewsSource } from './types'
+import type { ReminderSchedule } from '../../types'
 import type { MobileRouteRegistrar, MobileRouteContext } from '../../mobileServer'
 
 export function registerNewsMobileRoutes(registerRoute: MobileRouteRegistrar): void {
@@ -76,9 +78,15 @@ export function registerNewsMobileRoutes(registerRoute: MobileRouteRegistrar): v
     const n = Math.max(0, Math.min(20, Math.floor(Number(payload.quota))))
     if (!Number.isFinite(n)) { jsonError(res, 400, 'quota must be a number'); return }
 
+    // ⚠️ 這裡讀 `s`只是為了算出新值（例如下面的 `nextSources`），
+    // **存檔時只送真的改到的那個欄位** —— 把整個 `s` spread 進 `saveNewsModuleSettings`
+    // 等於連同沒改到的欄位一起送出去，若同時間有別的請求（例如「管理關鍵字」面板
+    // 才剛存好一個新分組）搶先寫入，這裡事後才存檔就會用手上這份舊的 `keywordGroups`
+    // 把剛存好的蓋掉。`saveNewsModuleSettings` 內部本來就會在寫入前重新讀一次磁碟，
+    // 只疊上真的傳進去的欄位即可，其餘欄位交給它自己去讀最新的。
     const s = loadNewsModuleSettings()
     if (sectionGroupId === '__breakout__') {
-      saveNewsModuleSettings({ ...s, readerBreakoutQuota: n })
+      saveNewsModuleSettings({ readerBreakoutQuota: n })
     } else if (sectionGroupId.startsWith('kw:')) {
       const sourceId = sectionGroupId.slice(3)
       const perKeyword = s.readerPerKeyword ?? 3
@@ -92,10 +100,10 @@ export function registerNewsMobileRoutes(registerRoute: MobileRouteRegistrar): v
         }
         return { ...src, readerQuota: Math.max(1, n) }
       })
-      saveNewsModuleSettings({ ...s, sources: nextSources })
+      saveNewsModuleSettings({ sources: nextSources })
     } else {
       // 地方／RSS 等沒有單獨配額，改的是全域每關鍵字預設
-      saveNewsModuleSettings({ ...s, readerPerKeyword: Math.max(1, n) })
+      saveNewsModuleSettings({ readerPerKeyword: Math.max(1, n) })
     }
     // 只回該欄的新內容，手機端就地換掉，不必整頁重整
     jsonOk(res, await fetchReaderSection({ sectionGroupId }))
@@ -107,8 +115,7 @@ export function registerNewsMobileRoutes(registerRoute: MobileRouteRegistrar): v
     const ids = Array.isArray(payload.ids)
       ? payload.ids.filter((id): id is string => typeof id === 'string' && id.length > 0)
       : []
-    const s = loadNewsModuleSettings()
-    saveNewsModuleSettings({ ...s, readerKeywordGroupIds: ids })
+    saveNewsModuleSettings({ readerKeywordGroupIds: ids })
     jsonOk(res, { ok: true, readerKeywordGroupIds: ids })
   })
 
@@ -136,8 +143,70 @@ export function registerNewsMobileRoutes(registerRoute: MobileRouteRegistrar): v
     }
     if (reordered.length !== s.sources.length) { jsonError(res, 400, 'source list mismatch'); return }
 
-    saveNewsModuleSettings({ ...s, sources: reordered })
+    saveNewsModuleSettings({ sources: reordered })
     jsonOk(res, { ok: true, sources: reordered })
+  })
+
+  // ── 新聞設定（B3 階段 6：關鍵字／黑名單／來源／排程）──────────
+  //
+  // 手機只給這四樣，不是整份 `NewsModuleSettings`：語言處理、破圈、學習權重
+  // 屬於桌面設定面板的深水區（roadmap §2 目標 4：進階的不要擠進第一層）。
+  get('/api/news/settings', ({ res }) => {
+    const s = loadNewsModuleSettings()
+    jsonOk(res, {
+      enabled: s.enabled,
+      sources: s.sources,
+      keywordGroups: s.keywordGroups,
+      blacklist: s.blacklist
+    })
+  })
+
+  post('/api/news/settings', async ({ req, res }) => {
+    const payload = await readJsonBody<{
+      sources?: unknown
+      keywordGroups?: unknown
+      blacklist?: unknown
+    }>(req, res)
+    if (!payload) return
+
+    // ⚠️ **只放進「這次真的送了什麼」，不要自己先 `loadNewsModuleSettings()`
+    // 再把整包 spread 進去。** `saveNewsModuleSettings` 內部本來就會在寫入前
+    // 重新讀一次磁碟現況、只疊上傳進去的 patch —— 這裡才是唯一該讀「現況」的地方。
+    // 之前這裡多讀了一次 `current` 並整包塞進 patch，等於把「這個請求進來那一刻」
+    // 的舊快照連同沒被改到的欄位（例如 `keywordGroups`）一起送進去；如果同時間
+    // 有另一個請求（例如管理關鍵字面板連著送「改關鍵字」再送「新增組」）搶先
+    // 存檔，這個請求的 `saveNewsModuleSettings` 事後才執行，就會用它手上那份
+    // 舊的 `keywordGroups` 把剛存好的新組蓋掉——跟 owner 之前回報「頻率互相蓋掉」
+    // 同一類問題，只是這次會發生在「不同欄位」之間，光靠前端排隊擋不住。
+    const patch: Partial<NewsModuleSettings> = {}
+    if (Array.isArray(payload.sources)) patch.sources = payload.sources as NewsSource[]
+    if (Array.isArray(payload.keywordGroups)) {
+      patch.keywordGroups = payload.keywordGroups as { id: string; name: string }[]
+    }
+    if (Array.isArray(payload.blacklist)) {
+      patch.blacklist = payload.blacklist.filter((k): k is string => typeof k === 'string' && k.length > 0)
+    }
+    const next = saveNewsModuleSettings(patch)
+    jsonOk(res, {
+      enabled: next.enabled,
+      sources: next.sources,
+      keywordGroups: next.keywordGroups,
+      blacklist: next.blacklist
+    })
+  })
+
+  // ── 定時新聞陪聊（與桌面設定面板同一份資料，共用 scheduler.ts）──
+  get('/api/news/scheduler', ({ res }) => {
+    jsonOk(res, getNewsScheduler())
+  })
+
+  post('/api/news/scheduler', async ({ req, res }) => {
+    const payload = await readJsonBody<{ enabled?: boolean; schedule?: ReminderSchedule }>(req, res)
+    if (!payload) return
+    // 要開啟卻沒給排程＝設定不完整；照收會變成「開關是開的但永遠不會觸發」
+    if (payload.enabled && !payload.schedule) { jsonError(res, 400, 'schedule required'); return }
+    syncNewsScheduler({ enabled: payload.enabled === true, schedule: payload.schedule })
+    jsonOk(res, getNewsScheduler())
   })
 
   // ── 開原文加分（與陪聊共用同一套學習回饋）──

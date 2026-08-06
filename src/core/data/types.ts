@@ -7,10 +7,12 @@ import type {
   PersonaPreset,
   RandomResult,
   Reminder,
+  ReminderSchedule,
   ScenePreset,
   WorldPreset
 } from '../types'
 import type { Lorebook } from '../lore'
+import type { NewsItem, NewsKeywordGroup, NewsSource } from '../news/types'
 
 /**
  * 資料來源（B3 階段 0-③）。
@@ -375,6 +377,108 @@ export interface LorebooksApi {
   create(name?: string): Promise<Lorebook>
 }
 
+/**
+ * 個人新聞報（清單 F1–F13，B3 階段 6）。
+ *
+ * ## 為什麼欄位設定也在這裡
+ *
+ * 每欄則數／關鍵字組／欄位順序寫回去之後，畫面上的新聞就得跟著換 ——
+ * 端點本來就設計成「改設定順便回該欄的新內容」（`mobileRoutes.ts`），
+ * 拆成 settings 與 news 兩支反而要 UI 自己再抓一次。
+ *
+ * ## 抓取失敗不丟例外
+ *
+ * 「新聞模組尚未啟用」「熱門話題未啟用」這類是**正常的拒絕**不是錯誤，
+ * 而且訊息由電腦端產生（模組自己最清楚為什麼拒絕）。
+ * 所以走 `{ ok: false, error }` 而不是 `DataError` ——
+ * ⚠️ `error` 是電腦端給的字串，UI 直接顯示；連線層面的失敗仍照常丟 `DataError`。
+ */
+export interface NewsReaderSnapshot {
+  enabled: boolean
+  sources: NewsSource[]
+  keywordGroups: NewsKeywordGroup[]
+  readerKeywordGroupIds: string[]
+  readerMaxItems: number
+  readerPerKeyword: number
+  readerBreakoutQuota: number
+  /** 釘選與「不看了」是**內容狀態**，桌機與手機共用同一份（規劃書 §3 方案 B）。 */
+  pinnedItems: NewsItem[]
+  dismissedIds: string[]
+}
+
+/** 抓取回應：成功時順便帶回設定快照，UI 一次拿齊欄位資訊。 */
+export type NewsFetchResult =
+  | {
+      ok: true
+      items: NewsItem[]
+      fetchedAt: number
+      sectionGroupId?: string
+      sources: NewsSource[]
+      keywordGroups: NewsKeywordGroup[]
+      readerKeywordGroupIds: string[]
+      readerMaxItems: number
+      readerPerKeyword: number
+      readerBreakoutQuota: number
+    }
+  | { ok: false; error: string }
+
+export interface NewsBatchRequest {
+  excludeIds?: string[]
+  /** true＝絕不回填已排除的 id（「換一批」用）。 */
+  strictExclude?: boolean
+}
+
+export interface NewsSectionRequest extends NewsBatchRequest {
+  sectionGroupId: string
+}
+
+/**
+ * 手機能改的新聞設定（清單 6.1 最後一項）。
+ *
+ * 刻意**不是整份 `NewsModuleSettings`**：語言處理、破圈、學習權重那些屬於
+ * 桌面設定面板的深水區，手機上要的是「加個關鍵字、封鎖一個詞、加個 RSS」。
+ * 總開關（`enabled`）已在設定的模組開關那裡，這裡只讀不寫。
+ */
+export interface NewsEditableSettings {
+  enabled: boolean
+  sources: NewsSource[]
+  keywordGroups: NewsKeywordGroup[]
+  blacklist: string[]
+}
+
+/** 定時新聞陪聊。與桌面 `news:get-scheduler`／`news:sync-scheduler` 同一份資料。 */
+export interface NewsScheduleSnapshot {
+  enabled: boolean
+  schedule?: ReminderSchedule
+}
+
+export interface NewsApi {
+  /** 開啟新聞報時的一次性狀態（含共用的釘選／不看了）。 */
+  getReaderState(): Promise<NewsReaderSnapshot>
+
+  fetchBatch(req?: NewsBatchRequest): Promise<NewsFetchResult>
+  fetchSection(req: NewsSectionRequest): Promise<NewsFetchResult>
+
+  setPinned(items: NewsItem[]): Promise<void>
+  setDismissed(ids: string[]): Promise<void>
+
+  /** 改配額；回傳該欄重抓後的內容，UI 就地換掉那一欄。 */
+  setQuota(sectionGroupId: string, quota: number): Promise<NewsFetchResult>
+  /** 空陣列＝全部組。 */
+  setKeywordGroups(ids: string[]): Promise<void>
+  /** 欄位上移／下移。傳完整順序，回傳電腦端排定後的結果。 */
+  setSourceOrder(orderedSourceIds: string[]): Promise<NewsSource[]>
+
+  /** 開原文的隱性回饋加分（清單 F9）。 */
+  markOpened(sourceId: string): Promise<void>
+
+  getSettings(): Promise<NewsEditableSettings>
+  saveSettings(patch: Partial<Omit<NewsEditableSettings, 'enabled'>>): Promise<NewsEditableSettings>
+
+  getSchedule(): Promise<NewsScheduleSnapshot>
+  setSchedule(next: NewsScheduleSnapshot): Promise<void>
+}
+
 export interface DataSource {
   readonly capabilities: Capabilities
 
@@ -393,6 +497,7 @@ export interface DataSource {
   readonly settings: SettingsApi
   readonly lorebooks: LorebooksApi
   readonly reminders: RemindersApi
+  readonly news: NewsApi
 }
 
 /**

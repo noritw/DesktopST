@@ -6,6 +6,7 @@ import type {
   ConversationsApi,
   DataSource,
   MessagesApi,
+  NewsApi,
   LorebooksApi,
   PresetsApi,
   RemindersApi,
@@ -124,6 +125,24 @@ export class LocalDataSource implements DataSource {
     save: () => Promise.reject(pending('lorebooks.save', 9)),
     remove: () => Promise.reject(pending('lorebooks.remove', 9)),
     create: () => Promise.reject(pending('lorebooks.create', 9))
+  }
+
+  // 獨立模式的新聞抓取要在手機上自己連 Google News／RSS（B3 之後的事），
+  // 端點層的 `readerFetch.ts` 目前綁在 main。介面形狀已固定，填的時候只換實作。
+  readonly news: NewsApi = {
+    getReaderState: () => Promise.reject(pending('news.getReaderState', 6)),
+    fetchBatch: () => Promise.reject(pending('news.fetchBatch', 6)),
+    fetchSection: () => Promise.reject(pending('news.fetchSection', 6)),
+    setPinned: () => Promise.reject(pending('news.setPinned', 6)),
+    setDismissed: () => Promise.reject(pending('news.setDismissed', 6)),
+    setQuota: () => Promise.reject(pending('news.setQuota', 6)),
+    setKeywordGroups: () => Promise.reject(pending('news.setKeywordGroups', 6)),
+    setSourceOrder: () => Promise.reject(pending('news.setSourceOrder', 6)),
+    markOpened: () => Promise.reject(pending('news.markOpened', 6)),
+    getSettings: () => Promise.reject(pending('news.getSettings', 6)),
+    saveSettings: () => Promise.reject(pending('news.saveSettings', 6)),
+    getSchedule: () => Promise.reject(pending('news.getSchedule', 6)),
+    setSchedule: () => Promise.reject(pending('news.setSchedule', 6))
   }
 
   readonly reminders: RemindersApi = {

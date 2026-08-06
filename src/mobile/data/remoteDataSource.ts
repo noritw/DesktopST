@@ -13,6 +13,11 @@ import type {
   ConversationsApi,
   DataSource,
   MessagesApi,
+  NewsApi,
+  NewsEditableSettings,
+  NewsFetchResult,
+  NewsReaderSnapshot,
+  NewsScheduleSnapshot,
   PresetListItem,
   PresetsApi,
   RemindersApi,
@@ -20,6 +25,7 @@ import type {
   SettingsApi
 } from '@core/data'
 import type { Character, PersonaPreset, Reminder, ScenePreset, WorldPreset } from '@core/types'
+import type { NewsSource } from '@core/news/types'
 import type { Lorebook } from '@core/lore'
 import { base64ToBytes, bytesToBase64 } from '@core/util/base64'
 import { HttpClient } from './httpClient'
@@ -217,6 +223,41 @@ export class RemoteDataSource implements DataSource {
     save: async (book) => (await this.http.post<{ book: Lorebook }>('/api/lorebooks/save', { book })).book,
     remove: async (id) => { await this.http.post('/api/lorebooks/delete', { id }) },
     create: async (name) => (await this.http.post<{ book: Lorebook }>('/api/lorebooks/create', { name })).book
+  }
+
+  /**
+   * 個人新聞報（清單 F1–F13）。端點在 `src/main/modules/news/mobileRoutes.ts`，
+   * 抓取邏輯與桌面共用 `readerFetch.ts` —— **手機端一行抓取邏輯都沒有**。
+   */
+  readonly news: NewsApi = {
+    getReaderState: async () => this.http.get<NewsReaderSnapshot>('/api/news/reader/state'),
+
+    fetchBatch: async (req) => this.http.post<NewsFetchResult>('/api/news/reader/batch', {
+      excludeIds: req?.excludeIds ?? [],
+      strictExclude: req?.strictExclude === true
+    }),
+    fetchSection: async (req) => this.http.post<NewsFetchResult>('/api/news/reader/section', {
+      sectionGroupId: req.sectionGroupId,
+      excludeIds: req.excludeIds ?? [],
+      strictExclude: req.strictExclude !== false
+    }),
+
+    setPinned: async (items) => { await this.http.post('/api/news/reader/pinned', { items }) },
+    setDismissed: async (ids) => { await this.http.post('/api/news/reader/dismissed', { ids }) },
+
+    setQuota: async (sectionGroupId, quota) =>
+      this.http.post<NewsFetchResult>('/api/news/reader/quota', { sectionGroupId, quota }),
+    setKeywordGroups: async (ids) => { await this.http.post('/api/news/reader/groups', { ids }) },
+    setSourceOrder: async (orderedSourceIds) =>
+      (await this.http.post<{ sources: NewsSource[] }>('/api/news/reader/order', { orderedSourceIds })).sources,
+
+    markOpened: async (sourceId) => { await this.http.post('/api/news/mark-opened', { sourceId }) },
+
+    getSettings: async () => this.http.get<NewsEditableSettings>('/api/news/settings'),
+    saveSettings: async (patch) => this.http.post<NewsEditableSettings>('/api/news/settings', patch),
+
+    getSchedule: async () => this.http.get<NewsScheduleSnapshot>('/api/news/scheduler'),
+    setSchedule: async (next) => { await this.http.post('/api/news/scheduler', next) }
   }
 
   readonly reminders: RemindersApi = {

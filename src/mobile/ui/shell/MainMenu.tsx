@@ -23,9 +23,7 @@ const ITEMS: MenuItemDef[] = [
   { kind: 'conversations', icon: 'chat', label: '對話', hint: '切換、新增或重新命名對話' },
   { kind: 'characters', icon: 'users', label: '角色庫', hint: '管理角色卡，加入或移出這次對話' },
   { kind: 'presets', icon: 'folder', label: '情境與設定組', hint: '情境、使用者設定、世界觀、用語解說' },
-  // ⚠️ 階段 6 才實作，點進去目前是「還在開發中」。說明不可寫成好像已經能用，
-  // 否則使用者會以為是壞掉而不是還沒做。
-  { kind: 'news', icon: 'news', label: '個人新聞報', hint: '還在開發中' },
+  { kind: 'news', icon: 'news', label: '個人新聞報', hint: '批次看新聞、釘選，挑一則跟角色聊' },
   { kind: 'reminders', icon: 'alarm', label: '提醒', hint: '設定時間，讓角色主動開口提醒你' },
   { kind: 'theme-picker', icon: 'palette', label: '色彩主題', hint: '換一組配色，會同步到所有裝置' },
   { kind: 'settings', icon: 'settings', label: '設定', hint: 'API Key、模型、記憶與模組開關' }
