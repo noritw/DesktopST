@@ -213,19 +213,11 @@ function sanitizeMessage(msg: Message): Partial<Message> & { imageCount?: number
 
 // ── 靜態資源路徑 ──────────────────────────────────────────
 
-function getMobileHtmlPath(): string {
-  if (app.isPackaged) {
-    return path.join(path.dirname(app.getPath('exe')), 'assets', 'mobile.html')
-  }
-  return path.join(app.getAppPath(), 'assets', 'mobile.html')
-}
-
 /**
- * 新版手機 UI（B3 React）的建置產物目錄。
+ * 手機 UI（B3 React）的建置產物目錄。
  *
  * `out/**` 已在 `electron-builder.yml` 的 `files` 裡，打包後在 asar 內，
- * 而 `fs` 讀得到 asar，所以 dev 與打包都能用 `app.getAppPath()` 解析 ——
- * 不必像 `mobile.html` 那樣分兩種路徑（那是因為 assets 走 extraFiles 在 asar 外）。
+ * 而 `fs` 讀得到 asar，所以 dev 與打包都能用 `app.getAppPath()` 解析。
  */
 function getMobileAppDir(): string {
   return path.join(app.getAppPath(), 'out', 'mobile')
@@ -401,10 +393,9 @@ async function handleRequest(
     return
   }
 
-  // ── 新版手機 UI 的靜態 bundle：**刻意不要求 token** ────────
+  // ── 手機 UI 的靜態 bundle：**刻意不要求 token** ────────
   //
-  // `mobile.html` 是單一自足檔案（CSS/JS 全內嵌），進入網址帶了 `?token=` 就結束了。
-  // React 版不同：index.html 會再去要 `./assets/index-xxx.js`，
+  // React 版的 index.html 會再去要 `./assets/index-xxx.js`，
   // 而那些請求是**瀏覽器自己發的，不會帶 query string** —— 照 token 擋就是 401、
   // 畫面全白且看不出原因。
   //
@@ -414,6 +405,9 @@ async function handleRequest(
   // 最後選擇：**只放行這批帶雜湊檔名的靜態產物**。它們是開源程式碼的建置結果，
   // 不含任何使用者資料與金鑰（API Key 從來不下發到手機，見 `LlmSettingsSnapshot`）。
   // 入口頁本身與所有 `/api/*` 資料端點，一律仍需 token。
+  //
+  // （打包後產物會再經 `inline-mobile-build.mjs` 內嵌成單一 HTML，relay 路徑
+  // 實際上不太會再打到 `/assets/*`；這條仍保留給開發／未 inline 的建置。）
   if (method === 'GET' && url.startsWith('/assets/')) {
     if (!isMobileAppBuilt()) {
       res.writeHead(404, { 'Content-Type': 'text/plain' })
@@ -429,44 +423,19 @@ async function handleRequest(
     return
   }
 
-  // ── GET /app/* → 新版手機 UI（B3 React，過渡期與 mobile.html 並存）──
+  // ── GET / → 手機 UI（B3 React，單一入口）──
   //
-  // ⚠️ **`/app` 一定要重導到 `/app/`。**
-  // 建置用 `base: './'`（APK 走 file:// 必須相對路徑），產出的 index.html 引用
-  // `./assets/index-xxx.js`。瀏覽器在 `/app`（無結尾斜線）下會把它解析成
-  // `/assets/index-xxx.js` → 404，畫面全白且沒有明顯錯誤；
-  // 在 `/app/` 下才會解析成 `/app/assets/index-xxx.js`。
-  // 重導時**必須帶著 query string**，否則 `?token=` 掉了會變成未授權。
-  // ── GET / → 新版（`?ui=app`）或舊版 mobile.html ──
+  // 入口停在 `/`（不是 `/app` 路徑）：relay 對路徑前綴的轉發行為不可靠
+  // （實測掃了全白，見 `b3-mobile-ui-plan.md` §4.20），query 參數則已知會被保留。
+  // `./assets/x.js` 在 `/` 下剛好解析成 `/assets/x.js`，區網／tunnel／relay 行為一致。
+  // 舊的 `?ui=app` 旗標已廢棄；帶了也不影響，一律送同一份 UI。
   if (method === 'GET' && requestUrl.pathname === '/') {
-    // 新版走 **query 參數而不是 `/app` 路徑**，這是被實機打臉後改的（owner 2026-08-06）：
-    //
-    // relay 不是路徑前綴代理，而是「查表後轉址到當下的 tunnel」
-    // （`relayService.ts` 的 `postToRelay` 存的是 deviceId → tunnelUrl）。
-    // `https://relay/<deviceId>/app?token=X` 的 `/app` 那段能不能被轉發，
-    // 取決於一個我們無法驗證也改不了的外部服務 —— 實測結果是**掃了全白**。
-    //
-    // query 參數則是**已知會被保留**的：`?token=` 今天就靠它在 relay 上運作。
-    // 而且入口停在 `/`，`./assets/x.js` 剛好解析成 `/assets/x.js`，
-    // 區網、tunnel、relay 三條路徑的行為完全一致。
-    if (requestUrl.searchParams.get('ui') === 'app') {
-      if (!isMobileAppBuilt()) {
-        res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' })
-        res.end('新版手機 UI 尚未建置。請先執行：npm run build:mobile')
-        return
-      }
-      serveMobileAppFile(res, 'index.html')
+    if (!isMobileAppBuilt()) {
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' })
+      res.end('手機 UI 尚未建置。請先執行：npm run build:mobile')
       return
     }
-
-    const htmlPath = getMobileHtmlPath()
-    if (!fs.existsSync(htmlPath)) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' })
-      res.end('Mobile UI not found. (assets/mobile.html missing)')
-      return
-    }
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-    res.end(fs.readFileSync(htmlPath))
+    serveMobileAppFile(res, 'index.html')
     return
   }
 

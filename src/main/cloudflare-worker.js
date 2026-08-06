@@ -1,7 +1,7 @@
 /**
  * DesktopST Relay Worker
  * - POST /register       DeST 啟動時登記 tunnel URL
- * - GET  /{deviceId}     代理 mobile.html，注入 relay/tunnel 資訊
+ * - GET  /{deviceId}     代理手機 UI，注入 relay/tunnel 資訊
  * - ANY  /{deviceId}/... 代理 API 請求到 tunnel
  * WebSocket 直連 tunnel，不走這裡代理（避免連線堆積）
  */

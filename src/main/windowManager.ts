@@ -3169,11 +3169,9 @@ export function openQRCodeWindow(): BrowserWindow {
   }
 
   const wa = screen.getPrimaryDisplay().workArea
-  // 過渡期要放兩組 QR（新版 ＋ 舊版遙控），440 高會把第二張切掉
-  // （owner 2026-08-06 回報）。**同時**把內容改成可捲動（見 QRCodeWindow.tsx），
-  // 因為視窗高度再怎麼調都可能遇到更矮的螢幕 —— 兩邊都要處理才不會再切一次。
+  // 內容可捲動（見 QRCodeWindow.tsx）；視窗高度再怎麼調都可能遇到更矮的螢幕。
   const w = 340
-  const h = Math.min(700, Math.max(420, wa.height - 60))
+  const h = Math.min(520, Math.max(420, wa.height - 60))
   qrCodeWindow = new BrowserWindow({
     x: Math.round(wa.x + (wa.width - w) / 2),
     y: Math.round(wa.y + (wa.height - h) / 2),

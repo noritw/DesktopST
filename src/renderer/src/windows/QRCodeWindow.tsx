@@ -7,10 +7,6 @@ interface MobileStatus {
   url: string | null
   localUrl: string
   relayUrl: string
-  /** 新版手機 UI（B3 React）的對應網址（`?ui=app`）。 */
-  appUrl: string | null
-  localAppUrl: string
-  relayAppUrl: string
   /** 沒跑過 `npm run build:mobile` 時為 false。 */
   appAvailable: boolean
   connectedCount: number
@@ -19,32 +15,24 @@ interface MobileStatus {
 
 /**
  * 挑一個最穩的網址：relay（最穩，換網路也不用重掃）→ tunnel → 區網。
- * 兩組 QR 共用同一套優先順序，只是各自吃不同欄位。
  */
-function pickUrl(s: MobileStatus, kind: 'legacy' | 'app'): string | null {
-  if (kind === 'app') {
-    return s.relayAppUrl || (s.tunnelReady && s.appUrl ? s.appUrl : s.running ? s.localAppUrl : null)
-  }
+function pickUrl(s: MobileStatus): string | null {
   return s.relayUrl || (s.tunnelReady && s.url ? s.url : s.running ? s.localUrl : null)
 }
 
 export default function QRCodeWindow() {
   const [status, setStatus] = useState<MobileStatus | null>(null)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
-  const [appQrDataUrl, setAppQrDataUrl] = useState<string | null>(null)
-  const [copied, setCopied] = useState<'app' | 'legacy' | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     const refresh = async () => {
       const s = await window.api.invoke('mobile:get-status') as MobileStatus
       setStatus(s)
 
-      const legacy = pickUrl(s, 'legacy')
-      setQrDataUrl(legacy ? (await window.api.invoke('mobile:generate-qr', legacy) as string | null) : null)
-
       // 沒建置就不產碼——給一個掃了會 503 的 QR 比不給更難懂
-      const appUrl = s.appAvailable ? pickUrl(s, 'app') : null
-      setAppQrDataUrl(appUrl ? (await window.api.invoke('mobile:generate-qr', appUrl) as string | null) : null)
+      const url = s.appAvailable ? pickUrl(s) : null
+      setQrDataUrl(url ? (await window.api.invoke('mobile:generate-qr', url) as string | null) : null)
     }
 
     refresh()
@@ -58,15 +46,13 @@ export default function QRCodeWindow() {
     }
   }, [])
 
-  const displayUrl = status ? pickUrl(status, 'legacy') : null
-  const displayAppUrl = status ? pickUrl(status, 'app') : null
+  const displayUrl = status ? pickUrl(status) : null
 
-  const handleCopy = (which: 'app' | 'legacy') => {
-    const url = which === 'app' ? displayAppUrl : displayUrl
-    if (!url) return
-    navigator.clipboard.writeText(url).then(() => {
-      setCopied(which)
-      setTimeout(() => setCopied(null), 2000)
+  const handleCopy = () => {
+    if (!displayUrl) return
+    navigator.clipboard.writeText(displayUrl).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
     })
   }
 
@@ -114,33 +100,29 @@ export default function QRCodeWindow() {
           {statusLabel}
         </div>
 
-        {/*
-          過渡期兩個入口並存（owner 2026-08-06）：
-          新版是日常聊天用的 B3 React UI，舊版 `mobile.html` 留著是因為
-          **遙控面板（截圖／點擊／鍵盤／關機）還沒搬過去**，那排在 B6。
-          等 B6 做完才會只剩一個。
-        */}
-        <QrBlock
-          title="新版（日常使用）"
-          hint="聊天、角色、設定、用語解說"
-          qr={appQrDataUrl}
-          url={displayAppUrl}
-          copied={copied === 'app'}
-          onCopy={() => handleCopy('app')}
-          missing={status.appAvailable ? null : '尚未建置：請執行 npm run build:mobile'}
-        />
-
-        <div style={styles.divider} />
-
-        <QrBlock
-          title="舊版（遙控用）"
-          hint="截圖、遙控滑鼠鍵盤、關機"
-          qr={qrDataUrl}
-          url={displayUrl}
-          copied={copied === 'legacy'}
-          onCopy={() => handleCopy('legacy')}
-          missing={null}
-        />
+        <div style={styles.qrBlock}>
+          <div style={styles.blockTitle}>手機遠端</div>
+          <div style={styles.blockHint}>聊天、角色、設定、遙控</div>
+          {status.appAvailable ? (
+            qrDataUrl ? (
+              <img src={qrDataUrl} alt="手機遠端 QR Code" style={styles.qrImg} />
+            ) : (
+              <div style={styles.qrPlaceholder}>
+                <div style={styles.spinner}>⏳</div>
+                <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 8 }}>等待 Tunnel 就緒…</div>
+              </div>
+            )
+          ) : (
+            <div style={styles.qrPlaceholder}>
+              <div style={styles.missingText}>尚未建置：請執行 npm run build:mobile</div>
+            </div>
+          )}
+          {status.appAvailable && displayUrl && (
+            <button style={{ ...styles.copyBtn, ...noDrag }} onClick={handleCopy}>
+              {copied ? '✓ 已複製' : '複製網址'}
+            </button>
+          )}
+        </div>
 
         {firewallBlocked && (
           <div style={styles.warnBox}>
@@ -172,58 +154,12 @@ export default function QRCodeWindow() {
   )
 }
 
-/** 一組 QR：標題 ＋ 碼 ＋ 網址 ＋ 複製鈕。兩個入口共用同一個版型。 */
-function QrBlock({
-  title,
-  hint,
-  qr,
-  url,
-  copied,
-  onCopy,
-  missing
-}: {
-  title: string
-  hint: string
-  qr: string | null
-  url: string | null
-  copied: boolean
-  onCopy: () => void
-  missing: string | null
-}) {
-  return (
-    <div style={styles.qrBlock}>
-      <div style={styles.blockTitle}>{title}</div>
-      <div style={styles.blockHint}>{hint}</div>
-      {missing ? (
-        <div style={styles.qrPlaceholder}>
-          <div style={styles.missingText}>{missing}</div>
-        </div>
-      ) : qr ? (
-        <img src={qr} alt={`${title} QR Code`} style={styles.qrImg} />
-      ) : (
-        <div style={styles.qrPlaceholder}>
-          <div style={styles.spinner}>⏳</div>
-          <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 8 }}>等待 Tunnel 就緒…</div>
-        </div>
-      )}
-      {!missing && url && (
-        <button style={{ ...styles.copyBtn, ...noDrag }} onClick={onCopy}>
-          {copied ? '✓ 已複製' : '複製網址'}
-        </button>
-      )}
-    </div>
-  )
-}
-
 const drag = { WebkitAppRegion: 'drag' } as React.CSSProperties
 const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
 
 const styles: Record<string, React.CSSProperties> = {
   root: {
-    // ⚠️ **不要改回 `alignItems:'center'` ＋ 不給 overflow。**
-    // 那是 owner 2026-08-06 回報「視窗被切掉」的成因：flex 置中在內容高於容器時
-    // 會把**上下兩端同時裁掉**，而且沒有捲軸可以救 —— 第二張 QR 完全拿不到。
-    // 改成由上往下堆疊 ＋ 自己可捲，視窗再矮都掃得到兩張。
+    // 內容可捲：視窗再矮都掃得到碼（不同螢幕比例差異很大）。
     display: 'flex',
     flexDirection: 'column' as const,
     alignItems: 'center',
@@ -275,12 +211,6 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--color-text-secondary)',
     textAlign: 'center' as const,
   },
-  divider: {
-    width: '100%',
-    height: 1,
-    background: 'var(--color-border-60)',
-    margin: '4px 0',
-  },
   missingText: {
     fontSize: 12,
     color: 'var(--color-text-secondary)',
@@ -308,18 +238,6 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     background: 'var(--color-bg)',
-  },
-  urlBox: {
-    background: 'var(--color-bg)',
-    borderRadius: 10,
-    padding: '8px 12px',
-    width: '100%',
-    textAlign: 'center',
-  },
-  urlText: {
-    fontSize: 12,
-    color: 'var(--color-text-primary)',
-    wordBreak: 'break-all',
   },
   copyBtn: {
     padding: '8px 24px',

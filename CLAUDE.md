@@ -28,7 +28,7 @@ Windows 桌面 AI 角色扮演寵物（Electron）＋ 進行中的手機 UI（B3
 | 資料 | 本地 JSON（`%APPDATA%\DesktopST\`），API Key 走 `safeStorage` |
 | 邏輯 | `src/core/` 純 TS（**禁** import electron／fs／path；**禁**被 `main/` 反向污染） |
 | 共用 UI | `src/shared/`（目前只有 `MonoIcon`） |
-| 手機 | `src/mobile/`（B3 React）；舊遙控頁仍是 `assets/mobile.html` |
+| 手機 | `src/mobile/`（B3 React；單一入口 `/`） |
 
 ```
 src/core/   純邏輯
@@ -69,13 +69,11 @@ src/mobile/ 手機 UI
 |---|---|
 | 桌面版 | MVP～進階大致完成（新聞、情境覆蓋、reaction、記憶摘要、日曆、Lorebook 桌面…） |
 | B1／B2／B2.5–2.7 | 完成（`core/`、adapter、store、Lorebook） |
-| **B3 手機 UI** | 階段 0–6、8、9 ＋ 資訊架構／雙入口完成；**待真機確認**部份畫面 |
-| **B6 遙控 UI 搬新版** | H1–H11 程式與 stub 驗證完成（`src/mobile/ui/remote/`），含準心/滾動方向提示/手勢說明；**待真機確認**（含真的點擊/鍵盤/程式白名單/關機） |
-| **下一步** | owner 對 B6 的真機驗證 → 通過後執行「移除 mobile.html＋舊版 QR」（工作項目見 `b3-mobile-ui-plan.md` §4.23）→ B3 階段 7（APK） |
+| **B3 手機 UI** | 階段 0–6、8、9 ＋ 資訊架構完成；**待真機確認**部份畫面；`mobile.html` 已移除（單一入口 `/`） |
+| **B6 遙控 UI 搬新版** | 已完成（真機驗證通過）；`mobile.html` 與舊版 QR 已移除 |
+| **下一步** | B3 階段 7（APK） |
 | 延後 | 角色印象（B8）；系統通知（B5） |
 
-⚠️ **`mobile.html` 不能在 B6 真機驗證通過之前刪**——遙控面板（H1–H11）只有舊版有。
-真機驗證通過後的移除步驟已規劃好，見 `docs/b3-mobile-ui-plan.md` §4.23。
 分支：`feat/mobile-ui`。
 
 ---
@@ -87,7 +85,7 @@ src/mobile/ 手機 UI
 - relay 三約束（改連線／建置／QR 必守；細節 §4.20）：
   ①產物＝**單一自足 HTML**（`build:mobile` 含 inline）②`baseUrl` 相對路徑
   ③WebSocket 用注入的 `__tunnelWsUrl`
-- 入口：`/?ui=app` 新版、`/` 舊版；`DesktopST-dev.bat` 先建置手機（**無 HMR**）；
+- 入口：`/` 一律走 B3 React；`DesktopST-dev.bat` 先建置手機（**無 HMR**）；
   邊改邊看用 `MobileST-test.bat`
 - 業務邏輯寫在 `core/` 或既有 `*Direct`；手機／`mobileServer` 只做薄轉呼叫
 
@@ -103,7 +101,7 @@ src/mobile/ 手機 UI
 | 查「以前為什麼這樣做／已知坑」 | `progress-log.md` **Grep 關鍵字** | 整份 log |
 | 實作某桌面／資料規格 | `DesktopST-Spec.md` **對應章節** | 整本 Spec |
 | 提案跨平台／散布／同步架構 | roadmap **§2、§8**（必要時 §4.5–4.7） | 整份 roadmap、§10 舊順序敘事 |
-| 對照 mobile.html 還缺什麼 | `mobile-html-feature-inventory.md` **§6／§7** | 整份 inventory |
+| 對照舊 mobile.html 功能清單（歷史） | `mobile-html-feature-inventory.md` **§6／§7** | 整份 inventory |
 | Lorebook 規格 | `future-lorebook.md` | — |
 | 新聞報 | `news-reader-mobile-plan.md`（舊版規格／UX）＋ b3 **§4.21**（React 版落地） | 所有 `news-future-*`（那是構想） |
 | 假伺服器怎麼驗 | `scripts/README-mobile-stub.md` | — |

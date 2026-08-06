@@ -7,21 +7,21 @@
 > ### 📖 閱讀方式（省 Token）——**不要整份讀**
 > - 查進度／下一步 → **本文首** ＋ **§4.9**
 > - 做某階段 → 只開該階段正文 ＋ 對應落地筆記（§4.1x）
-> - 改 QR／relay／建置／連線 → **只開 §4.20**
+> - 改 QR／relay／手機建置 → **只開 §4.20**（relay 硬約束仍有效；雙入口已結束）
 > - 懷疑踩已知坑 → Grep §4.10–§4.16；資訊架構 → §4.19
 > - 新對話預設讀 [`CLAUDE.md`](../CLAUDE.md)，本檔屬選讀（見 [`docs/README.md`](README.md)）
 >
 > **狀態：階段 0–6、8、9 程式與契約測試完成（0-③／1／2a–2d／3a／3b／4／5／6／8／9）；
-> 另含資訊架構重整（§4.19）與雙入口／relay（§4.20）。**
-> 階段 5／6／8／9 與 §4.19／§4.20 畫面尚待 owner 真機確認。
+> 另含資訊架構重整（§4.19）與 relay 硬約束（§4.20）。**
+> 階段 5／6／8／9 與 §4.19 畫面尚待 owner 真機確認。
 >
 > **下一步：階段 7（收尾／APK）。**
 > 執行順序曾改為 8 → 9 → 6 → 7（2026-08-05），現在只剩 7。
-> ⚠️ **`mobile.html` 不能在 B6 之前刪掉**——遙控面板（H1–H11）只有舊版有（見 §4.20）。
+> `mobile.html` 與舊版 QR 已於 2026-08-07（B6 真機驗證通過後）依 §4.23 移除；
+> 手機遠端為**單一入口 `/`**。
 > 沒開 DeST 時的驗證方式見 §4.9 與 `scripts/README-mobile-stub.md`。
 >
-> **B6（遙控 UI 搬新版，B3 之後的里程碑，非 B3 內部階段）程式與 stub 驗證完成，
-> 待 owner 真機驗證** —— 落地筆記見 §4.22。
+> **B6（遙控 UI 搬新版）已完成**：程式／stub／真機驗證均通過 —— 落地筆記見 §4.22。
 
 ---
 
@@ -243,58 +243,30 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 - ✅ 一併補上 §6.1 的最後一項「設定：新聞關鍵字、黑名單、來源、排程」。
   落地筆記見 **§4.21**。
 
-### 階段 7 ── 收尾：網頁版切換 ＋ APK 打包
+### 階段 7 ── 收尾：APK 打包
 
-- `mobileServer` 改提供 `out/mobile/`；`mobile.html` **保留一個版本週期**再刪（§4.5）
+- ~~`mobileServer` 改提供 `out/mobile/`；`mobile.html` 保留一個版本週期再刪~~
+  → **網頁版切換已於 2026-08-07 完成**（§4.23；單一入口 `/`）
 - `npx cap add android`（此時 `webDir` 才真的存在）→ 實機驗證
 - keystore **不做**（owner 未決定）
 
-#### 4.23 移除 `mobile.html` ＋ 舊版 QR 的工作項目盤點（2026-08-07）
+#### 4.23 移除 `mobile.html` ＋ 舊版 QR —— ✅ **已完成，2026-08-07**
 
-> **前提（硬性 gate）**：owner 完成 B6 真機驗證清單（§4.9「真機檢查清單」同等級：
-> 真的點擊/拖曳有作用到滑鼠、打字真的打進電腦、程式白名單開/關真的生效、
-> 系統動作（關機/重開機/關螢幕）真的執行、多螢幕/多視窗切換截圖正確）。
-> **驗證通過前不要動這節列的任何一項**——CLAUDE.md 的警語因此保留到那之後。
+> **前提（硬性 gate）**：owner 完成 B6 真機驗證（真的點擊/拖曳有作用到滑鼠、
+> 打字真的打進電腦、程式白名單開/關真的生效、系統動作真的執行、多螢幕/多視窗
+> 切換截圖正確）。**已通過**，以下清單全部執行完畢。
 
-實際盤點過的改動點（`grep -rl "mobile.html"` 逐一過濾出真正需要動的，
-其餘只是原始碼註解裡提到檔名，不用動）：
-
-1. **`src/main/mobileServer.ts`**：`GET /` 目前依 `?ui=app` 分流新舊版
-   （440–470 行附近）。拿掉分流，`/` 一律 `serveMobileAppFile('index.html')`；
-   移除 `getMobileHtmlPath()` 與存在性檢查那段。
-2. **刪除 `assets/mobile.html`**。`electron-builder.yml` 的 `extraFiles` 是整個
-   `assets/` 資料夾複製，不用改設定，資料夾裡其他檔案（icon、預設角色卡⋯）留著。
-3. **`src/renderer/src/windows/QRCodeWindow.tsx`**：拿掉「舊版（遙控用）」那個
-   `QrBlock`、`legacy` 相關的 state（`qrDataUrl`／`copied==='legacy'`）、
-   `pickUrl()` 的 `kind: 'legacy'|'app'` 分支（收斂成只有一種）、兩碼之間的
-   `divider`。只剩一組 QR，文案也不用再寫「新版／舊版」。
-4. **`src/main/index.ts`** 的 `mobile:get-status`：`MobileStatus` 拿掉
-   `url`／`localUrl`／`relayUrl`（legacy 專用），`appUrl`／`localAppUrl`／
-   `relayAppUrl`／`appAvailable` 這組改名回代表唯一入口即可（或直接留著命名，
-   看當時改動量決定要不要順手重新命名——不強制）。
-5. **`src/main/cloudflare-worker.js`**：檔頭註解「代理 mobile.html」改成
-   「代理手機 UI」（worker 本身是路徑轉發＋保留 query string，不用改邏輯，
-   `?ui=app` 分流拿掉後這裡自然只會代理新版）。
-6. **`.bat` 腳本**：`MobileST-test.bat`／`MobileST-real-test.bat` 檢查是否有
-   任何步驟仍預期舊版 QR 或指向 `mobile.html` 的訊息文字；`DesktopST-dev.bat`
-   的 `build:mobile` 流程本身不受影響。
-7. **文件收尾**：
-   - `CLAUDE.md`：拿掉「`mobile.html` 不能在 B6 之前刪」那條警語，milestone
-     表格的 B6 狀態改成「已完成，`mobile.html` 已移除」。
-   - `docs/mobile-html-feature-inventory.md`：§7 的「H 區塊是不能刪掉
-     mobile.html 的真正原因」整節可以收尾成歷史記錄（已完成，不用再提「不能刪」）。
-   - `docs/README.md` 若有連到 `mobile.html` 相關敘述的索引一併檢查。
-   - 本檔（`b3-mobile-ui-plan.md`）§0 的「兩種散布」與其他提及「並存」的地方
-     改成「單一入口」。
-8. **回歸驗證**：
-   - `npm run typecheck`、`npm test`
-   - `npm run build:mobile` 後啟動桌面版，開 QR 視窗確認只剩一組碼、能正常掃描連線
-   - 瀏覽器直接打 `http://<IP>:<port>/`（不帶 `?ui=app`）現在也要能進新版
-     （因為分流拿掉了，這是驗證分流真的移除的最直接方式）
-   - relay／tunnel 路徑也走一次（`MobileST-real-test.bat` 或桌面內建 QR），
-     確認 `cloudflare-worker.js` 代理到的還是正確頁面
-   - `git grep -n "mobile.html"` 掃過一輪，確認只剩下歷史記錄性質的註解
-     （例如「這段邏輯以前是為了跟 mobile.html 對齊」這類，沒有任何功能性依賴）
+1. ✅ `src/main/mobileServer.ts`：`GET /` 一律 `serveMobileAppFile('index.html')`；
+   移除 `getMobileHtmlPath()` 與 `?ui=app` 分流。
+2. ✅ 刪除 `assets/mobile.html`。
+3. ✅ `QRCodeWindow.tsx`：只留一組 QR，文案不再寫新版／舊版。
+4. ✅ `mobile:get-status`：拿掉 `appUrl`／`localAppUrl`／`relayAppUrl`／`withAppFlag`，
+   以 `url`／`localUrl`／`relayUrl` 作為唯一入口。
+5. ✅ `cloudflare-worker.js`：檔頭註解改為「代理手機 UI」。
+6. ✅ `.bat` 腳本：`DesktopST-dev.bat` 文案去掉「新版」；其餘 bat 無舊版殘留。
+7. ✅ 文件收尾：`CLAUDE.md`／`AGENTS.md`／inventory §7／本檔文首與 §4.20。
+8. ✅ 回歸驗證：見本次 commit 的 typecheck／test／`build:mobile` 結果；
+   直打 `/`（不帶 `?ui=app`）應進 React UI。
 
 ### 階段 8 ── 對話清單與切換（E1–E2）✅ **已完成，2026-08-05**
 
@@ -360,7 +332,7 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 | Capacitor SecretAdapter 選外掛 | 階段 4 才需要；在那之前 API Key 不落地，避免先挑錯外掛 |
 | `mobileServer` 要補一批寫入端點 | 已分散進階段 3／4／5，不集中成一大塊。端點命名與 IPC 對齊，避免第三套語彙 |
 | API Key 在非區網下的入口 | **隱藏而非 disabled** —— disabled 按鈕會讓使用者以為壞了；旁邊說明「改用區網連線可編輯」 |
-| `mobile.html` 的機率表 | B3 期間仍需與 core 同步（已加註解），階段 7 後消失 |
+| `mobile.html` 的機率表 | 已隨 §4.23 移除；機率統一走 `core/random` |
 | 測試邊界 | 新寫的 UI 不進 vitest（`tests/README.md` 只測 `core/`）；能測的是搬進 core 的純函式與 DataSource 契約 |
 
 ---
@@ -421,9 +393,10 @@ node scripts/mobile-stub-server.mjs
 - UI 顯示名稱而非內部 ID：Scene／World 以角色列上方的緊湊 chip 顯示目前使用中項目；Persona 移到輸入框上方，顯示「目前以誰發言」，點名稱可切換。
 - Scene 套用後會 refresh；桌面既有的「每個情境記住最後對話」邏輯仍由共用 handler 負責。這部分尚未由 owner 完成真機端到端確認。
 - `MobileST-test.bat` 只驗 React UI 與拒絕條件 stub，資料不會持久化；`MobileST-real-test.bat` 才是接真 DeST 的入口，DeST 必須先啟動並開啟 mobileServer。
-- ~~DeST 內建 QR 在階段 7 前仍指向舊的 `assets/mobile.html`~~ → **已過時（2026-08-06）**：
-  現在 QR 視窗出兩組碼（新版 `/?ui=app` ＋ 舊版 `/`），見 §4.20。
-  `DesktopST-dev.bat` 會先 `build:mobile`，日常不必再開 `MobileST-*.bat`。
+- ~~DeST 內建 QR 在階段 7 前仍指向舊的 `assets/mobile.html`~~ →
+  ~~**已過時（2026-08-06）**：QR 視窗出兩組碼~~ →
+  **已收尾（2026-08-07）**：B6 真機驗證通過後依 §4.23 移除 `mobile.html` 與舊版 QR，
+  現為單一入口 `/`。`DesktopST-dev.bat` 會先 `build:mobile`，日常不必再開 `MobileST-*.bat`。
 - 寫入驗證終點是 `%APPDATA%\desktop-st\Data\`（依實際資料根目錄）內對應的 `card.json`、`settings.json` 與 preset 檔案最終內容，不是 HTTP 200；測試選檔時 `accept` 只用 `image/*`。
 
 #### 真機檢查清單
@@ -1034,23 +1007,24 @@ Anthropic／OpenAI／Google 的 SDK，透過它取用會把整包 SDK 拖進手�
 
 ---
 
-## 4.20 兩個入口並存：`/?ui=app` 新版 ＋ `/` 舊版（owner 2026-08-06）
+## 4.20 手機遠端入口與 relay 硬約束（歷史：曾雙入口並存）
 
-### 為什麼是並存而不是切換
+> **2026-08-07 起為單一入口 `/`（B3 React）。** 下方「為什麼並存」「路由表」是過渡期
+> 紀錄；**①②③ 三條硬約束仍完全有效**——改 QR／relay／建置／連線時只看那三段。
+
+### 為什麼曾並存（已結束）
 
 階段 7 原本寫「`mobileServer` 改提供 `out/mobile/`，`mobile.html` 保留一個版本週期再刪」。
 盤點後發現這個講法低估了：**遙控面板（H1–H11）排在 B6**，比整個 B3 還晚，
-而那是 `mobile.html` 獨有的功能。所以就算階段 6 新聞報做完，舊版仍然刪不掉。
+而那是 `mobile.html` 獨有的功能。所以過渡期曾**兩個 QR 同時出**
+（`/?ui=app` 新版日常聊天、`/` 舊版遙控）。B6 真機驗證通過後已依 §4.23 移除舊版。
 
-→ owner 決定過渡期**兩個 QR 同時出**：新版日常聊天用，舊版留著出外遙控用。
-
-### 路由
+### 路由（現行）
 
 | 路徑 | 內容 |
 |---|---|
-| `/` | `assets/mobile.html`（舊版，含遙控） |
-| `/?ui=app` | `out/mobile/index.html`（新版 B3 React） |
-| `/assets/*` | 建置產物，**不需 token**（見下） |
+| `/` | `out/mobile/index.html`（B3 React，含遙控） |
+| `/assets/*` | 建置產物，**不需 token**（開發／未 inline 時；打包後多半已內嵌） |
 
 #### ⚠️⚠️ relay 的真實行為（2026-08-06 對實機實測，不要再靠推測）
 
@@ -1437,9 +1411,12 @@ owner 看過捲動修好之後又提三件事：①「關鍵字組」旁邊要�
 `npm test`（333 個測試，新增遙控相關契約測試於 `tests/data/dataSource.test.ts`）
 全過。
 
-**尚未驗證**：真的點擊/鍵盤有沒有作用到電腦、程式白名單開關是否真的
+**尚未驗證（寫落地筆記時）**：真的點擊/鍵盤有沒有作用到電腦、程式白名單開關是否真的
 啟動/關閉程式、系統動作是否真的關機——這些只能接真的 `mobileServer` 才驗
-得到，stub 只能驗 UI 流程與型別契約。owner 真機驗證前不刪 `mobile.html`。
+得到，stub 只能驗 UI 流程與型別契約。
+
+> **後續（2026-08-07）**：owner 真機驗證通過（點擊／拖曳／打字／程式白名單／
+> 系統動作／多螢幕截圖），並依 §4.23 移除 `mobile.html` 與舊版 QR。
 
 ---
 
@@ -1473,6 +1450,6 @@ owner 看過捲動修好之後又提三件事：①「關鍵字組」旁邊要�
 ## 6. 明確不做（本階段）
 
 - 角色印象（B8）、Android keystore、劇本匯入器
-- 遙控 H1–H11 的 UI（B6，僅預留 `Capabilities.remoteControl`）
+- 遙控 H1–H11 的 UI（~~B6~~ → **B6 已完成**，見 §4.22／§4.23）
 - 資料同步 S1/S2（B5 之後）
 - PWA 離線／瀏覽器內跑 LLM（§8 已否決）

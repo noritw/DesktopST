@@ -2,13 +2,13 @@
 title DesktopST — npm run dev
 cd /d "%~dp0"
 
-REM 先建置新版手機 UI（約 6 秒），mobileServer 才有 out/mobile 可供應。
-REM 這樣 QR 視窗「新版」那組掃到的就是最新程式碼，不必再另外開 MobileST-*.bat。
-echo [1/2] 建置手機 UI（新版）...
+REM 先建置手機 UI（約 6 秒），mobileServer 才有 out/mobile 可供應。
+REM 這樣 QR 掃到的就是最新程式碼，不必再另外開 MobileST-*.bat。
+echo [1/2] 建置手機 UI...
 call npm run build:mobile
 if errorlevel 1 (
   echo.
-  echo 手機 UI 建置失敗。DeST 仍會啟動，但 QR 的「新版」會是上一次的建置。
+  echo 手機 UI 建置失敗。DeST 仍會啟動，但 QR 會是上一次的建置。
   echo.
 )
 

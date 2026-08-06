@@ -448,33 +448,15 @@ export function getMobileStatus() {
     enabled: s.mobile?.enabled ?? false,
     running: isServerRunning(),
     tunnelReady: !!tunnelUrl,
+    // 單一入口：`/` 一律送 B3 React UI（不再有 `?ui=app`／舊版 mobile.html 分流）。
     url: tunnelUrl ? `${tunnelUrl}?token=${token}` : null,
     localUrl: `http://${networkIp}:${port}?token=${token}`,
     relayUrl,
-    // ── 新版手機 UI（B3 React）的對應網址（過渡期與 mobile.html 並存）──
-    // 用 **query 參數 `ui=app`**，不是 `/app` 路徑 —— 路徑版實測掃了全白，
-    // 原因見 `mobileServer.ts` 的 `GET /` 說明（relay 是轉址服務不是路徑代理）。
-    appUrl: tunnelUrl ? `${tunnelUrl}?ui=app&token=${token}` : null,
-    localAppUrl: `http://${networkIp}:${port}?ui=app&token=${token}`,
-    relayAppUrl: withAppFlag(relayUrl),
     /** 沒跑過 `npm run build:mobile` 時為 false，QR 視窗要顯示提示而不是壞掉的碼。 */
     appAvailable: isMobileAppBuilt(),
     connectedCount: getConnectedCount(),
     cloudflaredAvailable: isCloudflaredAvailable()
   }
-}
-
-/**
- * 加上 `ui=app` 旗標，讓入口頁改送新版手機 UI。
- *
- * ⚠️ **不要改回插入 `/app` 路徑。** relay 是「查表轉址到當下 tunnel」的服務
- * （見 `relayService.ts`），不是路徑前綴代理，多一段路徑會不會被轉發完全取決於
- * 那個外部服務 —— 實測是掃了全白（owner 2026-08-06）。
- * query 參數則已知會被保留：`?token=` 今天就靠它在 relay 上運作。
- */
-function withAppFlag(url: string): string {
-  if (!url) return ''
-  return url.includes('?') ? `${url}&ui=app` : `${url}?ui=app`
 }
 
 function getLocalIp(): string {

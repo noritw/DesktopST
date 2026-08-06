@@ -11,8 +11,8 @@ import { resolve } from 'path'
  * **同一份輸出有兩個去處**（roadmap §4.5）：
  *
  *   1. APK：`npx cap sync` 把它包進去
- *   2. 網頁版：`mobileServer` 提供給掃 QR 的裝置（階段 7 才切換，
- *      在那之前 `assets/mobile.html` 繼續服役）
+ *   2. 網頁版：`mobileServer` 的 `/` 提供給掃 QR 的裝置（單一入口；
+ *      舊 `assets/mobile.html` 已於 B6 真機驗證後移除）
  *
  * 與 `electron.vite.config.ts` 完全分離：桌面版的建置與產物不受這裡影響。
  */

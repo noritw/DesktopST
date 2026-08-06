@@ -35,10 +35,10 @@ Windows 也可以直接雙擊專案根目錄的 `MobileST-test.bat`：它會啟�
 手機 UI、產生 `mobile-test-qr.png` 並開啟 QR Code。手機與電腦必須在同一個 Wi‑Fi；
 測試完成後關閉批次檔開出的兩個命令視窗即可。
 
-要用**真實 DeST 資料＋新的 React 手機 UI**，請先開啟 DeST 並啟用 mobileServer，
+要用**真實 DeST 資料＋ React 手機 UI**，請先開啟 DeST 並啟用 mobileServer，
 再雙擊根目錄的 `MobileST-real-test.bat`。它會自動偵測區網 IP、讀取 access token、
-確認 `http://電腦IP:3721` 的 mobileServer 可連，並自動選擇未被占用的 Vite 埠、產生正確的 QR Code。DeST 內建 QR 視窗在階段 7 前仍指向舊的
-`assets/mobile.html`，不適合用來驗證這批新 UI。
+確認 `http://電腦IP:3721` 的 mobileServer 可連，並自動選擇未被占用的 Vite 埠、產生正確的 QR Code。
+日常也可直接掃 DeST 內建 QR（單一入口 `/`，已無舊版 `mobile.html`）。
 
 桌機瀏覽器用 `localhost` 也可以。`token` 隨便填，這支不驗。
 
