@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { RemoteScreenshot } from '@core/data'
 
 /**
@@ -15,15 +15,37 @@ import type { RemoteScreenshot } from '@core/data'
 
 export interface ScreenshotStageProps {
   shot: RemoteScreenshot | null
+  /**
+   * 縮放/平移只在這個值改變時重置（比照 `mobile.html` 的 `takeScreenshot()`
+   * vs `applySsBlob()` 之分：前者是「換了目標」才重置，後者是手動重整/遙控
+   * 動作後的自動重抓，**不重置**）。呼叫端傳「目標＋含角色」的組合字串。
+   *
+   * ⚠️ 不能用 `shot?.url` 當重置依據——每次抓截圖都是新的 object URL，
+   * 若照那個重置，遙控時「放大找位置 → 點擊 → 自動重抓」會把畫面縮回去，
+   * 使用者根本點不準（owner 2026-08-07 實機回報）。
+   */
+  resetKey: string
   remoteMode: boolean
   rightClickMode: boolean
   onTap: (x: number, y: number, double: boolean) => void
   onScroll: (x: number, y: number, deltaX: number, deltaY: number) => void
 }
 
-export function ScreenshotStage({ shot, remoteMode, rightClickMode, onTap, onScroll }: ScreenshotStageProps): JSX.Element {
+/** 準心與座標徽章的位置（viewport 像素座標）＋ 標到的實際螢幕座標。 */
+interface ClickMarker {
+  vx: number
+  vy: number
+  x: number
+  y: number
+}
+
+export function ScreenshotStage({ shot, resetKey, remoteMode, rightClickMode, onTap, onScroll }: ScreenshotStageProps): JSX.Element {
   const viewportRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
+  const [marker, setMarker] = useState<ClickMarker | null>(null)
+  /** 雙指滾動方向提示（H7）：不然使用者滑了不知道有沒有真的送出去。 */
+  const [scrollArrow, setScrollArrow] = useState<string | null>(null)
+  const scrollArrowTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // 手勢狀態，刻意用 ref 不用 state：見上方檔頭說明。
   const scale = useRef(1)
@@ -45,14 +67,39 @@ export function ScreenshotStage({ shot, remoteMode, rightClickMode, onTap, onScr
   const scrollLastTime = useRef(0)
   const scrollTarget = useRef<{ x: number; y: number } | null>(null)
 
-  // 換截圖後舊的縮放/平移已經對不上新畫面，重置。
+  // 換了目標（螢幕/視窗/含角色）才重置縮放/平移；單純重抓同一個目標（手動整理／
+  // 遙控動作後的自動重抓）保留使用者當下的縮放，見上方 `resetKey` 的說明。
   useEffect(() => {
     scale.current = 1
     tx.current = 0
     ty.current = 0
     applyTransform(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey])
+
+  // 舊的準心對不上新畫面了，換截圖（含自動重抓）就藏起來——比照 `mobile.html`
+  // 的 `applySsBlob()` 在收到新截圖時呼叫 `hideClickMarker()`。
+  useEffect(() => {
+    setMarker(null)
   }, [shot?.url])
+
+  // 關掉遙控模式時準心也該一起消失，免得切回檢視模式還留著一顆紅點。
+  useEffect(() => {
+    if (!remoteMode) setMarker(null)
+  }, [remoteMode])
+
+  /** 比照 `mobile.html` 的 `showScrollIndicator()`：取位移量較大的軸，顯示一個箭頭，600ms 後自動收回。 */
+  function showScrollIndicator(dy: number, dx: number): void {
+    setScrollArrow(Math.abs(dy) >= Math.abs(dx) ? (dy < 0 ? '↑' : '↓') : dx < 0 ? '←' : '→')
+    if (scrollArrowTimer.current) clearTimeout(scrollArrowTimer.current)
+    scrollArrowTimer.current = setTimeout(() => setScrollArrow(null), 600)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (scrollArrowTimer.current) clearTimeout(scrollArrowTimer.current)
+    }
+  }, [])
 
   function applyTransform(animate: boolean): void {
     const el = imgRef.current
@@ -120,6 +167,7 @@ export function ScreenshotStage({ shot, remoteMode, rightClickMode, onTap, onScr
         const dy = midY - scrollMidY.current
         scrollMidX.current = midX
         scrollMidY.current = midY
+        if (Math.abs(dy) > 0.3 || Math.abs(dx) > 0.3) showScrollIndicator(dy, dx)
         const vp = viewportRef.current
         const vpH = vp?.offsetHeight || 400
         const vpW = vp?.offsetWidth || 400
@@ -167,6 +215,8 @@ export function ScreenshotStage({ shot, remoteMode, rightClickMode, onTap, onScr
       scrollAccX.current = 0
       scrollAccY.current = 0
       scrollTarget.current = null
+      if (scrollArrowTimer.current) clearTimeout(scrollArrowTimer.current)
+      setScrollArrow(null)
       return
     }
 
@@ -181,9 +231,12 @@ export function ScreenshotStage({ shot, remoteMode, rightClickMode, onTap, onScr
       const touch = e.changedTouches[0]
       if (touch && viewportRef.current) {
         const rect = viewportRef.current.getBoundingClientRect()
-        const coords = toScreenCoords(touch.clientX - rect.left, touch.clientY - rect.top)
+        const vx = touch.clientX - rect.left
+        const vy = touch.clientY - rect.top
+        const coords = toScreenCoords(vx, vy)
         if (coords) {
           const isDouble = now - lastTap.current < 300
+          setMarker({ vx, vy, x: coords.x, y: coords.y })
           onTap(coords.x, coords.y, isDouble && !rightClickMode)
           lastTap.current = isDouble ? 0 : now
         }
@@ -221,6 +274,53 @@ export function ScreenshotStage({ shot, remoteMode, rightClickMode, onTap, onScr
         />
       ) : (
         <p className="px-6 text-center text-sm text-[var(--text-sub)]">還沒有截圖，點上方按鈕截一張</p>
+      )}
+
+      {/* 點擊準心 ＋ 座標徽章（H6）：定在點下去那一刻的 viewport 像素位置，
+          不隨後續縮放/平移跟著移動——比照 `mobile.html` 的 `showClickMarker()`，
+          只是「剛剛點在這裡」的視覺回饋，不是即時游標。 */}
+      {marker && (
+        <>
+          <div
+            className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-1/2"
+            style={{ left: marker.vx, top: marker.vy }}
+          >
+            <div
+              className="h-6 w-6 rounded-full border-2"
+              style={{ borderColor: rightClickMode ? 'rgba(80,160,255,0.9)' : 'rgba(255,60,60,0.9)' }}
+            />
+            <div
+              className="absolute left-1/2 top-1/2 h-4 w-px -translate-x-1/2 -translate-y-1/2"
+              style={{ backgroundColor: rightClickMode ? 'rgba(80,160,255,0.9)' : 'rgba(255,60,60,0.9)' }}
+            />
+            <div
+              className="absolute left-1/2 top-1/2 h-px w-4 -translate-x-1/2 -translate-y-1/2"
+              style={{ backgroundColor: rightClickMode ? 'rgba(80,160,255,0.9)' : 'rgba(255,60,60,0.9)' }}
+            />
+          </div>
+          <div
+            className="pointer-events-none absolute z-10 -translate-x-1/2 rounded-full bg-black/70 px-2 py-0.5 text-[11px] text-white"
+            style={{ left: marker.vx, top: marker.vy + 16 }}
+          >
+            ({marker.x}, {marker.y})
+          </div>
+        </>
+      )}
+
+      {/* 雙指滾動方向提示（H7）：滑了要有反應，不然使用者不知道有沒有送出去。 */}
+      {scrollArrow && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black/50 text-3xl text-white">
+            {scrollArrow}
+          </span>
+        </div>
+      )}
+
+      {/* 手勢說明：只在遙控模式顯示，放在角落用小字，不擋操作區域。 */}
+      {remoteMode && (
+        <p className="pointer-events-none absolute left-2 top-2 z-10 max-w-[70%] rounded-md bg-black/45 px-2 py-1 text-[10px] leading-snug text-white/90">
+          單指點一下＝{rightClickMode ? '右鍵' : '點擊'}．快速點兩下＝雙擊．雙指滑動＝捲動
+        </p>
       )}
     </div>
   )

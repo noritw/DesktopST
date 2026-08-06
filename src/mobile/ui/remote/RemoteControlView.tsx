@@ -310,7 +310,14 @@ export function RemoteControlView(): JSX.Element {
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden rounded-[16px] border border-[var(--border)]">
-        <ScreenshotStage shot={shot} remoteMode={remoteMode} rightClickMode={rightClickMode} onTap={(x, y, d) => void doTap(x, y, d)} onScroll={(x, y, dx, dy) => void doScroll(x, y, dx, dy)} />
+        <ScreenshotStage
+          shot={shot}
+          resetKey={`${target.kind}:${target.kind === 'display' ? target.index : target.hwnd}:${withChars}`}
+          remoteMode={remoteMode}
+          rightClickMode={rightClickMode}
+          onTap={(x, y, d) => void doTap(x, y, d)}
+          onScroll={(x, y, dx, dy) => void doScroll(x, y, dx, dy)}
+        />
       </div>
 
       {/* 遙控模式切換列 */}
