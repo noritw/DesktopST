@@ -146,11 +146,24 @@ function NewsHeadlineCell({
   const [panelOpen, setPanelOpen] = useState(false)
   const [enriching, setEnriching] = useState(false)
   const [promptContext, setPromptContext] = useState('')
+  const [enrichHint, setEnrichHint] = useState('')
 
   const openOriginal = () => {
     if (!item.url) return
     void window.api.invoke('shell:open-external', item.url)
     if (item.sourceId) void window.api.invoke('news:mark-opened', item.sourceId)
+  }
+
+  const hintFromWarning = (warning?: string, source?: string): string => {
+    if (source === 'article-excerpt' || source === 'utility-summary' || source === 'rss-adequate') return ''
+    if (!warning) return ''
+    if (warning.startsWith('google-news') || warning.includes('interstitial')) {
+      return '無法解析 Google 新聞原文連結，目前先用 RSS 摘要（可能只是相關標題串）。可手動改，或按重新整理再試。'
+    }
+    if (warning.startsWith('fetch-failed') || warning === 'empty-article') {
+      return '抓原文失敗，目前先用 RSS 摘要。可手動改，或按重新整理再試。'
+    }
+    return '自動整理未完成，目前先用 RSS 摘要。可手動改正。'
   }
 
   const runEnrich = async (forceRefresh = false) => {
@@ -162,14 +175,19 @@ function NewsHeadlineCell({
       }) as {
         ok: boolean
         promptContext?: string
+        warning?: string
+        source?: string
       }
       if (r.ok && typeof r.promptContext === 'string') {
         setPromptContext(r.promptContext)
+        setEnrichHint(hintFromWarning(r.warning, r.source))
       } else {
         setPromptContext(item.summary || '')
+        setEnrichHint('自動整理失敗，目前先用 RSS 摘要。')
       }
     } catch {
       setPromptContext(item.summary || '')
+      setEnrichHint('自動整理失敗，目前先用 RSS 摘要。')
     } finally {
       setEnriching(false)
     }
@@ -276,6 +294,7 @@ function NewsHeadlineCell({
         url={item.url}
         source={item.source}
         promptContext={promptContext}
+        hint={enrichHint}
         loading={enriching}
         mode="confirm"
         onClose={() => setPanelOpen(false)}

@@ -14,11 +14,16 @@ import { loadNewsModuleSettings } from './settings'
 /**
  * 新聞進 Prompt 的 enrichment（平台層）：
  * 抓原文 → 抽正文 → 短文直塞／長文輔助模型摘要；失敗退回 RSS。
+ *
+ * ⚠️ Google 新聞 RSS 的 link 是 `news.google.com/rss/articles/CBMi…`，
+ * **不會 HTTP 轉址到原文**（回的是 Google 中間頁）。必須先解碼才抓得到正文。
  */
 
 const FETCH_TIMEOUT_MS = 8000
 const CACHE_TTL_MS = 4 * 60 * 60 * 1000
-const USER_AGENT = 'DesktopST-News/1.0 (+https://nori.tw/DeST)'
+/** 用一般瀏覽器 UA；自訂爬蟲 UA 容易被擋或只拿到中間頁 */
+const USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
 const SUMMARY_INSTRUCTIONS =
   'You summarize a news article for a role-play chat bot\'s background knowledge.\n' +
@@ -40,7 +45,6 @@ export interface EnrichNewsResult {
 interface CacheEntry {
   result: EnrichNewsResult
   at: number
-  /** 使用者手動改過則重抓前需確認；這裡標記來源 */
   manual?: boolean
 }
 
@@ -65,13 +69,21 @@ function putCache(id: string, result: EnrichNewsResult, manual = false): void {
   cache.set(id, { result, at: Date.now(), manual })
 }
 
-/** 供面板「儲存」後寫入 cache，避免立刻重抓蓋掉手動版 */
 export function cacheManualPromptContext(newsId: string, promptContext: string): void {
   putCache(newsId, {
     promptContext: clipPromptContext(promptContext),
     source: 'manual',
     usedUtility: false
   }, true)
+}
+
+export function isGoogleNewsArticleUrl(url: string): boolean {
+  try {
+    const u = new URL(url)
+    return /(^|\.)news\.google\.com$/i.test(u.hostname) && /\/articles\//i.test(u.pathname)
+  } catch {
+    return false
+  }
 }
 
 function stripTags(html: string): string {
@@ -103,10 +115,8 @@ export function extractArticleText(html: string): string {
   if (fromArticle.length >= 80) return fromArticle
   const fromMain = pick(/<main\b[^>]*>([\s\S]*?)<\/main>/i)
   if (fromMain.length >= 80) return fromMain
-  // 常見 CMS 內容區
   const fromEntry = pick(/<(?:div|section)\b[^>]*(?:class|id)=["'][^"']*(?:article-body|post-content|entry-content|story-body)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|section)>/i)
   if (fromEntry.length >= 80) return fromEntry
-  // 去掉 head 後整頁
   const body = html.replace(/<head[\s\S]*?<\/head>/i, ' ')
   return stripTags(body)
 }
@@ -120,7 +130,8 @@ async function fetchHtml(url: string): Promise<string> {
       redirect: 'follow',
       headers: {
         'User-Agent': USER_AGENT,
-        Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8'
+        Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8'
       }
     })
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -136,6 +147,82 @@ async function fetchHtml(url: string): Promise<string> {
   }
 }
 
+/**
+ * 把 Google 新聞 `rss/articles/CBMi…` 解成出版社原文 URL。
+ * 2024 後不再把原文嵌在 base64 裡，要打 batchexecute。
+ */
+export async function resolveGoogleNewsArticleUrl(articleUrl: string): Promise<string | null> {
+  if (!isGoogleNewsArticleUrl(articleUrl)) return null
+  const articleId = articleUrl.replace(/\/$/, '').split('/').pop()?.split('?')[0]
+  if (!articleId) return null
+
+  const pageHtml = await fetchHtml(articleUrl)
+  const sg = pageHtml.match(/data-n-a-sg="([^"]+)"/)
+  const ts = pageHtml.match(/data-n-a-ts="([^"]+)"/)
+  if (!sg?.[1] || !ts?.[1]) return null
+
+  const rpcInner = JSON.stringify([
+    'garturlreq',
+    [
+      ['X', 'X', ['X', 'X'], null, null, 1, 1, 'TW:zh-Hant', null, 1, null, null, null, null, null, 0, 1],
+      'X', 'X', 1, [1, 1, 1], 1, 1, null, 0, 0, null, 0
+    ],
+    articleId,
+    Number(ts[1]),
+    sg[1]
+  ])
+  const fReq = JSON.stringify([[['Fbv4je', rpcInner, null, 'generic']]])
+
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)
+  try {
+    const post = await fetch('https://news.google.com/_/DotsSplashUi/data/batchexecute', {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'User-Agent': USER_AGENT,
+        Referer: 'https://news.google.com/',
+        'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8'
+      },
+      body: new URLSearchParams({ 'f.req': fReq })
+    })
+    if (!post.ok) throw new Error(`batchexecute HTTP ${post.status}`)
+    let body = await post.text()
+    if (body.startsWith(")]}'")) {
+      const nl = body.indexOf('\n')
+      body = nl >= 0 ? body.slice(nl + 1) : body.slice(4)
+    }
+    body = body.trim()
+    if (/^\d+\n/.test(body)) body = body.replace(/^\d+\n/, '')
+    const envelopes = JSON.parse(body) as unknown
+    if (!Array.isArray(envelopes)) return null
+    for (const env of envelopes) {
+      if (!Array.isArray(env) || env[0] !== 'wrb.fr' || env[1] !== 'Fbv4je') continue
+      if (typeof env[2] !== 'string') continue
+      const payload = JSON.parse(env[2]) as unknown
+      if (Array.isArray(payload) && payload[0] === 'garturlres' && typeof payload[1] === 'string') {
+        return payload[1]
+      }
+    }
+    return null
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** 取得實際要抓正文的 URL（Google 新聞先解碼） */
+export async function resolveFetchUrl(url: string): Promise<{ url: string; viaGoogleNews: boolean }> {
+  if (!isGoogleNewsArticleUrl(url)) return { url, viaGoogleNews: false }
+  try {
+    const resolved = await resolveGoogleNewsArticleUrl(url)
+    if (resolved) return { url: resolved, viaGoogleNews: true }
+  } catch (e) {
+    console.warn('[news enrich] google-news resolve failed', e instanceof Error ? e.message : e)
+  }
+  return { url, viaGoogleNews: true }
+}
+
 async function summarizeWithUtility(
   title: string,
   articleText: string,
@@ -143,8 +230,7 @@ async function summarizeWithUtility(
 ): Promise<string | null> {
   const utilitySettings = applyUtilitySettings(appSettings)
   const clipped = articleText.slice(0, 12000)
-  const userContent =
-    `Title: ${title}\n\nArticle text:\n${clipped}`
+  const userContent = `Title: ${title}\n\nArticle text:\n${clipped}`
 
   const work = chatWithLLM({
     settings: utilitySettings,
@@ -183,18 +269,11 @@ function rssFallback(item: NewsItem, warning?: string): EnrichNewsResult {
 }
 
 export interface EnrichNewsOptions {
-  /** 忽略 cache 強制重抓（面板「重新整理」） */
   forceRefresh?: boolean
-  /** 覆寫設定（測試／呼叫端已 load） */
   settings?: NewsModuleSettings
-  /** 輔助模型需要 AppSettings；未傳則長文只節錄不打模型 */
   appSettings?: AppSettings
 }
 
-/**
- * 對一則 NewsItem 產出可編輯的 promptContext。
- * enrichForChat === false 時行為＝今日現況（不抓原文、不打模型）。
- */
 export async function enrichNewsForChat(
   item: NewsItem,
   options: EnrichNewsOptions = {}
@@ -209,7 +288,6 @@ export async function enrichNewsForChat(
     if (hit) return hit
   }
 
-  // 夠用 → 不抓
   if (isSummaryAdequate(item.title, item.summary)) {
     const result: EnrichNewsResult = {
       promptContext: clipPromptContext(item.summary.trim()),
@@ -226,12 +304,30 @@ export async function enrichNewsForChat(
     return result
   }
 
-  let html: string | null = null
+  let fetchUrl = item.url
   let lastErr = ''
-  // 失敗不重試超過 1 次 → 最多 2 次嘗試
+  try {
+    const resolved = await resolveFetchUrl(item.url)
+    fetchUrl = resolved.url
+    // 解碼失敗仍停在 Google 中間頁 → 幾乎抽不到正文，直接退回
+    if (resolved.viaGoogleNews && isGoogleNewsArticleUrl(fetchUrl)) {
+      const result = rssFallback(item, 'google-news-resolve-failed')
+      putCache(item.id, result)
+      return result
+    }
+  } catch (e) {
+    lastErr = e instanceof Error ? e.message : String(e)
+    if (isGoogleNewsArticleUrl(item.url)) {
+      const result = rssFallback(item, `google-news-resolve-failed: ${lastErr}`)
+      putCache(item.id, result)
+      return result
+    }
+  }
+
+  let html: string | null = null
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      html = await fetchHtml(item.url)
+      html = await fetchHtml(fetchUrl)
       break
     } catch (e) {
       lastErr = e instanceof Error ? e.message : String(e)
@@ -240,6 +336,13 @@ export async function enrichNewsForChat(
   }
   if (!html) {
     const result = rssFallback(item, `fetch-failed: ${lastErr}`)
+    putCache(item.id, result)
+    return result
+  }
+
+  // Google 中間頁誤抓時通常 title 還是「Google 新聞」
+  if (/<title[^>]*>\s*Google\s*新聞/i.test(html) || /<title[^>]*>\s*Google\s*News/i.test(html)) {
+    const result = rssFallback(item, 'fetched-google-interstitial')
     putCache(item.id, result)
     return result
   }
@@ -288,7 +391,6 @@ export async function enrichNewsForChat(
     lastErr = e instanceof Error ? e.message : String(e)
   }
 
-  // 長文摘要失敗：退回節錄前段，仍比 RSS 標題串好
   const result: EnrichNewsResult = {
     promptContext: clipPromptContext(article.slice(0, ARTICLE_DIRECT_MAX_LEN)),
     source: 'article-excerpt',
@@ -299,7 +401,6 @@ export async function enrichNewsForChat(
   return result
 }
 
-/** 把 enrich 結果寫回 item（不改 RSS summary） */
 export function applyEnrichToItem(item: NewsItem, enrich: EnrichNewsResult): NewsItem {
   return { ...item, promptContext: enrich.promptContext }
 }

@@ -10,6 +10,8 @@ export interface NewsContextPanelProps {
   url?: string
   source?: string
   promptContext: string
+  /** enrich 失敗／退回時的提示（給使用者看的短句） */
+  hint?: string
   /** 整理中（enrich 進行中） */
   loading?: boolean
   loadingLabel?: string
@@ -27,6 +29,7 @@ export default function NewsContextPanel({
   url,
   source,
   promptContext,
+  hint,
   loading,
   loadingLabel = '整理中…',
   mode,
@@ -98,6 +101,11 @@ export default function NewsContextPanel({
           <p className="text-xs leading-relaxed text-secondary">
             這段會寫進角色看到的背景，不會整段出現在聊天泡泡裡。
           </p>
+          {hint && !loading && (
+            <p className="rounded-xl bg-butter/50 px-2.5 py-1.5 text-[11px] leading-relaxed text-secondary">
+              {hint}
+            </p>
+          )}
           {loading ? (
             <div className="flex flex-1 items-center justify-center py-10 text-sm text-secondary">
               {loadingLabel}
