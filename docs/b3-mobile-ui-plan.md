@@ -249,6 +249,53 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 - `npx cap add android`（此時 `webDir` 才真的存在）→ 實機驗證
 - keystore **不做**（owner 未決定）
 
+#### 4.23 移除 `mobile.html` ＋ 舊版 QR 的工作項目盤點（2026-08-07）
+
+> **前提（硬性 gate）**：owner 完成 B6 真機驗證清單（§4.9「真機檢查清單」同等級：
+> 真的點擊/拖曳有作用到滑鼠、打字真的打進電腦、程式白名單開/關真的生效、
+> 系統動作（關機/重開機/關螢幕）真的執行、多螢幕/多視窗切換截圖正確）。
+> **驗證通過前不要動這節列的任何一項**——CLAUDE.md 的警語因此保留到那之後。
+
+實際盤點過的改動點（`grep -rl "mobile.html"` 逐一過濾出真正需要動的，
+其餘只是原始碼註解裡提到檔名，不用動）：
+
+1. **`src/main/mobileServer.ts`**：`GET /` 目前依 `?ui=app` 分流新舊版
+   （440–470 行附近）。拿掉分流，`/` 一律 `serveMobileAppFile('index.html')`；
+   移除 `getMobileHtmlPath()` 與存在性檢查那段。
+2. **刪除 `assets/mobile.html`**。`electron-builder.yml` 的 `extraFiles` 是整個
+   `assets/` 資料夾複製，不用改設定，資料夾裡其他檔案（icon、預設角色卡⋯）留著。
+3. **`src/renderer/src/windows/QRCodeWindow.tsx`**：拿掉「舊版（遙控用）」那個
+   `QrBlock`、`legacy` 相關的 state（`qrDataUrl`／`copied==='legacy'`）、
+   `pickUrl()` 的 `kind: 'legacy'|'app'` 分支（收斂成只有一種）、兩碼之間的
+   `divider`。只剩一組 QR，文案也不用再寫「新版／舊版」。
+4. **`src/main/index.ts`** 的 `mobile:get-status`：`MobileStatus` 拿掉
+   `url`／`localUrl`／`relayUrl`（legacy 專用），`appUrl`／`localAppUrl`／
+   `relayAppUrl`／`appAvailable` 這組改名回代表唯一入口即可（或直接留著命名，
+   看當時改動量決定要不要順手重新命名——不強制）。
+5. **`src/main/cloudflare-worker.js`**：檔頭註解「代理 mobile.html」改成
+   「代理手機 UI」（worker 本身是路徑轉發＋保留 query string，不用改邏輯，
+   `?ui=app` 分流拿掉後這裡自然只會代理新版）。
+6. **`.bat` 腳本**：`MobileST-test.bat`／`MobileST-real-test.bat` 檢查是否有
+   任何步驟仍預期舊版 QR 或指向 `mobile.html` 的訊息文字；`DesktopST-dev.bat`
+   的 `build:mobile` 流程本身不受影響。
+7. **文件收尾**：
+   - `CLAUDE.md`：拿掉「`mobile.html` 不能在 B6 之前刪」那條警語，milestone
+     表格的 B6 狀態改成「已完成，`mobile.html` 已移除」。
+   - `docs/mobile-html-feature-inventory.md`：§7 的「H 區塊是不能刪掉
+     mobile.html 的真正原因」整節可以收尾成歷史記錄（已完成，不用再提「不能刪」）。
+   - `docs/README.md` 若有連到 `mobile.html` 相關敘述的索引一併檢查。
+   - 本檔（`b3-mobile-ui-plan.md`）§0 的「兩種散布」與其他提及「並存」的地方
+     改成「單一入口」。
+8. **回歸驗證**：
+   - `npm run typecheck`、`npm test`
+   - `npm run build:mobile` 後啟動桌面版，開 QR 視窗確認只剩一組碼、能正常掃描連線
+   - 瀏覽器直接打 `http://<IP>:<port>/`（不帶 `?ui=app`）現在也要能進新版
+     （因為分流拿掉了，這是驗證分流真的移除的最直接方式）
+   - relay／tunnel 路徑也走一次（`MobileST-real-test.bat` 或桌面內建 QR），
+     確認 `cloudflare-worker.js` 代理到的還是正確頁面
+   - `git grep -n "mobile.html"` 掃過一輪，確認只剩下歷史記錄性質的註解
+     （例如「這段邏輯以前是為了跟 mobile.html 對齊」這類，沒有任何功能性依賴）
+
 ### 階段 8 ── 對話清單與切換（E1–E2）✅ **已完成，2026-08-05**
 
 - 原始現況（已解決）：`ConversationsApi`／`mobileServer` 的 `/api/conversations*` 端點其實

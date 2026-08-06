@@ -70,11 +70,12 @@ src/mobile/ 手機 UI
 | 桌面版 | MVP～進階大致完成（新聞、情境覆蓋、reaction、記憶摘要、日曆、Lorebook 桌面…） |
 | B1／B2／B2.5–2.7 | 完成（`core/`、adapter、store、Lorebook） |
 | **B3 手機 UI** | 階段 0–6、8、9 ＋ 資訊架構／雙入口完成；**待真機確認**部份畫面 |
-| **B6 遙控 UI 搬新版** | H1–H11 程式與 stub 驗證完成（`src/mobile/ui/remote/`）；**待真機確認**（含真的點擊/鍵盤/程式白名單/關機） |
-| **下一步** | B3 階段 7（收尾／APK）；owner 對 B6 的真機驗證 |
+| **B6 遙控 UI 搬新版** | H1–H11 程式與 stub 驗證完成（`src/mobile/ui/remote/`），含準心/滾動方向提示/手勢說明；**待真機確認**（含真的點擊/鍵盤/程式白名單/關機） |
+| **下一步** | owner 對 B6 的真機驗證 → 通過後執行「移除 mobile.html＋舊版 QR」（工作項目見 `b3-mobile-ui-plan.md` §4.23）→ B3 階段 7（APK） |
 | 延後 | 角色印象（B8）；系統通知（B5） |
 
-⚠️ **`mobile.html` 不能在 B6 之前刪**——遙控面板（H1–H11）只有舊版有。
+⚠️ **`mobile.html` 不能在 B6 真機驗證通過之前刪**——遙控面板（H1–H11）只有舊版有。
+真機驗證通過後的移除步驟已規劃好，見 `docs/b3-mobile-ui-plan.md` §4.23。
 分支：`feat/mobile-ui`。
 
 ---
