@@ -15,8 +15,8 @@
 > 另含資訊架構重整（§4.19）與 relay 硬約束（§4.20）。**
 > 階段 5／6／8／9 與 §4.19 畫面尚待 owner 真機確認。
 >
-> **下一步：階段 7（收尾／APK）。**
-> 執行順序曾改為 8 → 9 → 6 → 7（2026-08-05），現在只剩 7。
+> **下一步：** 手機可設定天氣／新聞陪聊（Spotify／日曆授權仍桌面）→ 階段 7（APK）。
+> 新聞進 prompt 斷章問題的設計見 [`news-article-context-design.md`](news-article-context-design.md)（待實作）。
 > `mobile.html` 與舊版 QR 已於 2026-08-07（B6 真機驗證通過後）依 §4.23 移除；
 > 手機遠端為**單一入口 `/`**。
 > 沒開 DeST 時的驗證方式見 §4.9 與 `scripts/README-mobile-stub.md`。

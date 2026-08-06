@@ -9,6 +9,8 @@ import type {
   LorebooksApi,
   MemorySettingsSnapshot,
   ModuleToggle,
+  WeatherNowSnapshot,
+  WeatherSettingsSnapshot,
   ConversationListItem,
   ConversationsApi,
   DataSource,
@@ -222,7 +224,16 @@ export class RemoteDataSource implements DataSource {
     setMemory: async (m) => { await this.http.post('/api/settings/memory', m) },
 
     listModules: async () => (await this.http.get<{ modules: ModuleToggle[] }>('/api/settings/modules')).modules,
-    setModuleEnabled: async (id, enabled) => { await this.http.post('/api/settings/modules/toggle', { id, enabled }) }
+    setModuleEnabled: async (id, enabled) => { await this.http.post('/api/settings/modules/toggle', { id, enabled }) },
+
+    getWeather: async () => (await this.http.get<{ weather: WeatherSettingsSnapshot }>('/api/settings/weather')).weather,
+    setWeather: async (patch) => (await this.http.post<{ weather: WeatherSettingsSnapshot }>('/api/settings/weather', patch)).weather,
+    detectWeatherLocation: async () => (await this.http.post<{ weather: WeatherSettingsSnapshot }>('/api/settings/weather/detect-ip', {})).weather,
+    geocodeWeatherLocation: async (name) => (await this.http.post<{ weather: WeatherSettingsSnapshot }>('/api/settings/weather/geocode', { name })).weather,
+    fetchWeatherNow: async () => {
+      const r = await this.http.post<WeatherNowSnapshot & { ok?: true }>('/api/settings/weather/fetch-now', {})
+      return { description: r.description, temperatureC: r.temperatureC, humidity: r.humidity, windSpeed: r.windSpeed }
+    }
   }
 
   readonly lorebooks: LorebooksApi = {

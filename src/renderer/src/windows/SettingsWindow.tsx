@@ -113,8 +113,8 @@ const PROVIDER_KEY_PLACEHOLDER: Record<string, string> = {
 
 /** 情境模組開關的固定項目（外部模組另外動態附加）；id 需與主程序一致 */
 const SCENE_MODULE_ROWS_BASE: Array<{ id: string; label: string }> = [
-  { id: 'desktopst.news', label: '新聞陪聊' },
   { id: 'desktopst.weather', label: '天氣' },
+  { id: 'desktopst.news', label: '新聞陪聊' },
   { id: 'desktopst.spotify', label: 'Spotify 音樂' },
   { id: 'desktopst.calendar', label: 'Google 日曆' },
   { id: 'desktopst.systemTime', label: '系統時間' },
@@ -2439,41 +2439,6 @@ export default function SettingsWindow() {
               onSettings={() => changeTab('遙控')}
             />
             <ExtensionRow
-              title="Spotify 資訊"
-              description="讓角色感知目前播放中的音樂與帳號狀態。"
-              enabled={!!draft.spotify?.enabled}
-              onToggle={enabled => set('spotify.enabled', enabled)}
-              disabled={!draft.spotify?.displayName}
-              statusText={draft.spotify?.enabled ? '已啟用' : draft.spotify?.displayName ? '已停用' : '尚未連結'}
-              settingsLabel="設定"
-              onSettings={() => window.api.invoke('spotify:open-settings')}
-            />
-            <SceneOverrideHint moduleId="desktopst.spotify" />
-            <ExtensionRow
-              title="Google 日曆"
-              description="讓角色知道你接下來的行程，聊天時能主動提起（唯讀，不會更動你的日曆）。"
-              enabled={!!draft.calendar?.enabled}
-              onToggle={enabled => set('calendar.enabled', enabled)}
-              disabled={!draft.calendar?.displayName}
-              statusText={draft.calendar?.enabled ? '已啟用' : draft.calendar?.displayName ? '已停用' : '尚未連結'}
-              settingsLabel="設定"
-              onSettings={() => window.api.invoke('calendar:open-settings')}
-            />
-            <SceneOverrideHint moduleId="desktopst.calendar" />
-            <ExtensionRow
-              title="新聞陪聊"
-              description="讓角色像朋友一樣，按「說點什麼」時偶爾抽一則新聞跟你聊聊（不照念、不簡報）。"
-              enabled={newsEnabled}
-              onToggle={async enabled => {
-                setNewsEnabled(enabled)
-                await window.api.invoke('news:set-enabled', enabled)
-              }}
-              statusText={newsEnabled ? '已啟用' : '已停用'}
-              settingsLabel="設定"
-              onSettings={newsEnabled ? () => changeTab('新聞') : undefined}
-            />
-            <SceneOverrideHint moduleId="desktopst.news" />
-            <ExtensionRow
               title="天氣資訊"
               description="讓角色取得所在地天氣、氣溫與濕度。"
               enabled={!!draft.weather?.enabled}
@@ -2716,6 +2681,41 @@ export default function SettingsWindow() {
                 )}
               </div>
             </div>
+            <ExtensionRow
+              title="新聞陪聊"
+              description="讓角色像朋友一樣，按「說點什麼」時偶爾抽一則新聞跟你聊聊（不照念、不簡報）。"
+              enabled={newsEnabled}
+              onToggle={async enabled => {
+                setNewsEnabled(enabled)
+                await window.api.invoke('news:set-enabled', enabled)
+              }}
+              statusText={newsEnabled ? '已啟用' : '已停用'}
+              settingsLabel="設定"
+              onSettings={newsEnabled ? () => changeTab('新聞') : undefined}
+            />
+            <SceneOverrideHint moduleId="desktopst.news" />
+            <ExtensionRow
+              title="Spotify 資訊"
+              description="讓角色感知目前播放中的音樂與帳號狀態。"
+              enabled={!!draft.spotify?.enabled}
+              onToggle={enabled => set('spotify.enabled', enabled)}
+              disabled={!draft.spotify?.displayName}
+              statusText={draft.spotify?.enabled ? '已啟用' : draft.spotify?.displayName ? '已停用' : '尚未連結'}
+              settingsLabel="設定"
+              onSettings={() => window.api.invoke('spotify:open-settings')}
+            />
+            <SceneOverrideHint moduleId="desktopst.spotify" />
+            <ExtensionRow
+              title="Google 日曆"
+              description="讓角色知道你接下來的行程，聊天時能主動提起（唯讀，不會更動你的日曆）。"
+              enabled={!!draft.calendar?.enabled}
+              onToggle={enabled => set('calendar.enabled', enabled)}
+              disabled={!draft.calendar?.displayName}
+              statusText={draft.calendar?.enabled ? '已啟用' : draft.calendar?.displayName ? '已停用' : '尚未連結'}
+              settingsLabel="設定"
+              onSettings={() => window.api.invoke('calendar:open-settings')}
+            />
+            <SceneOverrideHint moduleId="desktopst.calendar" />
           </div>
         )}
 

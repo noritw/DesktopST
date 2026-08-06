@@ -103,6 +103,28 @@ export interface MobileBridge {
   setMemorySettings: (m: { keepRecentN: number; autoSummarizeAfter: number; autoSummarizeEnabled: boolean }) => { ok: true } | { error: string }
   listModuleToggles: () => { id: string; label: string; enabled: boolean }[]
   setModuleToggle: (id: string, enabled: boolean) => { ok: true } | { error: string }
+  getWeatherSettings: () => {
+    enabled: boolean
+    polish: boolean
+    locationName: string
+    latitude: number
+    longitude: number
+    locationSource: 'ip' | 'manual' | ''
+    utilityEnabled: boolean
+  }
+  setWeatherSettings: (patch: {
+    enabled?: boolean
+    polish?: boolean
+    locationName?: string
+    latitude?: number
+    longitude?: number
+    locationSource?: 'ip' | 'manual' | ''
+  }) => { ok: true; weather: ReturnType<MobileBridge['getWeatherSettings']> } | { error: string }
+  detectWeatherLocation: () => Promise<{ ok: true; weather: ReturnType<MobileBridge['getWeatherSettings']> } | { error: string }>
+  geocodeWeatherLocation: (name: string) => Promise<{ ok: true; weather: ReturnType<MobileBridge['getWeatherSettings']> } | { error: string }>
+  fetchWeatherNow: () => Promise<
+    { ok: true; description: string; temperatureC: number; humidity: number; windSpeed: number } | { error: string }
+  >
   // ── 提醒 CRUD（B3 階段 4；排程本身是 B5）──
   listReminders: () => import('./types').Reminder[]
   createReminder: () => import('./types').Reminder
@@ -1256,6 +1278,56 @@ async function handleRequest(
     const r = bridge.setModuleToggle(String(payload.id ?? ''), !!payload.enabled)
     if ('error' in r) { jsonError(res, 400, r.error); return }
     jsonOk(res, { ok: true })
+    return
+  }
+
+  // ── 天氣基本設定（位置／開關／潤飾；CWA 進階仍桌面）──
+  if (method === 'GET' && url === '/api/settings/weather') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, { weather: bridge.getWeatherSettings() })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/weather') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{
+      enabled?: boolean
+      polish?: boolean
+      locationName?: string
+      latitude?: number
+      longitude?: number
+      locationSource?: 'ip' | 'manual' | ''
+    }>(req, res)
+    if (!payload) return
+    const r = bridge.setWeatherSettings(payload)
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { weather: r.weather })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/weather/detect-ip') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const r = await bridge.detectWeatherLocation()
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { weather: r.weather })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/weather/geocode') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ name?: string }>(req, res)
+    if (!payload) return
+    const r = await bridge.geocodeWeatherLocation(String(payload.name ?? ''))
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { weather: r.weather })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/weather/fetch-now') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const r = await bridge.fetchWeatherNow()
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, r)
     return
   }
 

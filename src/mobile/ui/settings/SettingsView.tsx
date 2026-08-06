@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { LlmProvider, LlmSettingsSnapshot, MemorySettingsSnapshot, ModuleToggle } from '@core/data'
+import type { LlmProvider, LlmSettingsSnapshot, MemorySettingsSnapshot, ModuleToggle, WeatherSettingsSnapshot } from '@core/data'
 import { MODEL_DATA_UPDATED } from '@core/llm/modelCatalog'
 import MonoIcon from '@shared/MonoIcon'
 import { getData } from '../stores/appStore'
@@ -27,9 +27,10 @@ import { moduleDescription } from './moduleInfo'
  * 每一塊自己一個標題，點了才展開：
  *
  *   ┌ 連線（不可收合，這是唯一必填的東西）── 供應商／模型／API Key
- *   ├ 記憶            ← 從「進階」獨立出來
- *   ├ 模組開關         ← 從「進階」獨立出來，而且每個模組都有一句說明
- *   └ 進階            ← 只剩自訂端點這一項
+ *   ├ 天氣            ← 位置／開關／潤飾（手機可設；CWA 進階仍桌面）
+ *   ├ 記憶
+ *   ├ 模組開關         ← 天氣／新聞在前；Spotify／日曆只給開關
+ *   └ 進階            ← 只剩自訂端點
  *
  * 「提醒」已搬到頂部 ☰ 主選單（owner 決定：它是會固定使用的功能，不是設定項）。
  *
@@ -44,9 +45,13 @@ export function SettingsView(): JSX.Element {
   const [llm, setLlm] = useState<LlmSettingsSnapshot | null>(null)
   const [memory, setMemory] = useState<MemorySettingsSnapshot | null>(null)
   const [modules, setModules] = useState<ModuleToggle[] | null>(null)
+  const [weather, setWeather] = useState<WeatherSettingsSnapshot | null>(null)
   const [failed, setFailed] = useState(false)
-  const [open, setOpen] = useState<'memory' | 'modules' | 'advanced' | null>(null)
+  const [open, setOpen] = useState<'weather' | 'memory' | 'modules' | 'advanced' | null>(null)
   const [apiKeyAccess, setApiKeyAccess] = useState(false)
+  const [cityDraft, setCityDraft] = useState('')
+  const [weatherBusy, setWeatherBusy] = useState(false)
+  const [weatherMsg, setWeatherMsg] = useState<string | null>(null)
 
   const [modelDraft, setModelDraft] = useState('')
   const [apiKeyDraft, setApiKeyDraft] = useState('')
@@ -78,6 +83,14 @@ export function SettingsView(): JSX.Element {
     }
   }, [])
 
+  const loadWeather = useCallback(async (): Promise<void> => {
+    try {
+      setWeather(await getData().settings.getWeather())
+    } catch {
+      setWeather(null)
+    }
+  }, [])
+
   useEffect(() => {
     void load()
   }, [load])
@@ -85,6 +98,10 @@ export function SettingsView(): JSX.Element {
   useEffect(() => {
     if (open === 'modules' && modules === null) void loadModules()
   }, [open, modules, loadModules])
+
+  useEffect(() => {
+    if (open === 'weather' && weather === null) void loadWeather()
+  }, [open, weather, loadWeather])
 
   const changeProvider = async (provider: LlmProvider): Promise<void> => {
     if (!llm) return
@@ -162,9 +179,79 @@ export function SettingsView(): JSX.Element {
     setModules(next)
     try {
       await getData().settings.setModuleEnabled(m.id, !m.enabled)
+      if (m.id === 'desktopst.weather') void loadWeather()
     } catch (e) {
       setModules(modules)
       toast(describeSettingsError(e, `切換「${m.label}」`), 'error')
+    }
+  }
+
+  const applyWeather = async (next: WeatherSettingsSnapshot): Promise<void> => {
+    setWeather(next)
+    setModules((prev) =>
+      prev
+        ? prev.map((x) => (x.id === 'desktopst.weather' ? { ...x, enabled: next.enabled } : x))
+        : prev
+    )
+  }
+
+  const patchWeather = async (
+    patch: Partial<Omit<WeatherSettingsSnapshot, 'utilityEnabled'>>,
+    action: string
+  ): Promise<void> => {
+    setWeatherBusy(true)
+    setWeatherMsg(null)
+    try {
+      await applyWeather(await getData().settings.setWeather(patch))
+    } catch (e) {
+      toast(describeSettingsError(e, action), 'error')
+      void loadWeather()
+    } finally {
+      setWeatherBusy(false)
+    }
+  }
+
+  const detectWeather = async (): Promise<void> => {
+    setWeatherBusy(true)
+    setWeatherMsg(null)
+    try {
+      const next = await getData().settings.detectWeatherLocation()
+      await applyWeather(next)
+      setWeatherMsg(`已偵測到：${next.locationName}`)
+    } catch (e) {
+      toast(describeSettingsError(e, '偵測位置'), 'error')
+    } finally {
+      setWeatherBusy(false)
+    }
+  }
+
+  const geocodeWeather = async (): Promise<void> => {
+    const name = cityDraft.trim()
+    if (!name) return
+    setWeatherBusy(true)
+    setWeatherMsg(null)
+    try {
+      const next = await getData().settings.geocodeWeatherLocation(name)
+      await applyWeather(next)
+      setCityDraft('')
+      setWeatherMsg(`已設定：${next.locationName}`)
+    } catch (e) {
+      toast(describeSettingsError(e, '查詢城市'), 'error')
+    } finally {
+      setWeatherBusy(false)
+    }
+  }
+
+  const refreshWeatherNow = async (): Promise<void> => {
+    setWeatherBusy(true)
+    setWeatherMsg(null)
+    try {
+      const data = await getData().settings.fetchWeatherNow()
+      setWeatherMsg(`${data.description} ${data.temperatureC}°C 濕度 ${data.humidity}%`)
+    } catch (e) {
+      toast(describeSettingsError(e, '更新天氣'), 'error')
+    } finally {
+      setWeatherBusy(false)
     }
   }
 
@@ -270,6 +357,89 @@ export function SettingsView(): JSX.Element {
           </div>
         )}
       </section>
+
+      {/* ── 天氣 ────────────────────────────────────────── */}
+      <Section
+        title="天氣"
+        hint="所在地與是否帶進對話"
+        expanded={open === 'weather'}
+        onToggle={() => setOpen(open === 'weather' ? null : 'weather')}
+      >
+        {weather === null ? (
+          <p className="text-[11px] text-[var(--text-sub)]">載入中⋯⋯</p>
+        ) : (
+          <div className="space-y-2">
+            <ToggleRow
+              label="對話中帶入天氣"
+              checked={weather.enabled}
+              onChange={(v) => void patchWeather({ enabled: v }, '切換天氣')}
+            />
+            <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
+              即時氣象署查詢（CWA API Key）仍請在電腦版「設定 → 擴充」設定。
+            </p>
+            <button
+              type="button"
+              disabled={weatherBusy}
+              onClick={() => void detectWeather()}
+              className="min-h-[40px] w-full rounded-full bg-[var(--mint)] px-4 text-sm text-[var(--text)] disabled:opacity-50"
+            >
+              {weatherBusy ? '處理中…' : '自動偵測位置（IP）'}
+            </button>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                className="field flex-1"
+                placeholder="城市名稱，例如 Taipei"
+                value={cityDraft}
+                onChange={(e) => setCityDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void geocodeWeather()
+                }}
+              />
+              <button
+                type="button"
+                disabled={weatherBusy || !cityDraft.trim()}
+                onClick={() => void geocodeWeather()}
+                className="shrink-0 rounded-full border border-[var(--border)] px-4 text-sm text-[var(--text)] disabled:opacity-50"
+              >
+                查詢
+              </button>
+            </div>
+            {weather.locationName ? (
+              <p className="text-[12px] text-[var(--text-sub)]">
+                目前位置：
+                <span className="font-medium text-[var(--text)]">{weather.locationName}</span>
+                {weather.locationSource === 'ip' ? '（自動偵測）' : weather.locationSource === 'manual' ? '（手動）' : ''}
+                {' '}
+                <button
+                  type="button"
+                  disabled={weatherBusy}
+                  onClick={() => void refreshWeatherNow()}
+                  className="text-[var(--mint2)] underline disabled:opacity-50"
+                >
+                  立即更新
+                </button>
+              </p>
+            ) : (
+              <p className="text-[11px] text-[var(--text-sub)]">尚未設定位置；設定後才能開啟天氣模組。</p>
+            )}
+            {weatherMsg && <p className="text-[12px] text-[var(--mint2)]">{weatherMsg}</p>}
+            <label className={`flex items-center gap-2 text-sm text-[var(--text)] ${!weather.utilityEnabled ? 'opacity-40' : ''}`}>
+              <input
+                type="checkbox"
+                checked={weather.polish}
+                disabled={!weather.utilityEnabled || weatherBusy}
+                onChange={(e) => void patchWeather({ polish: e.target.checked }, '切換天氣潤飾')}
+                className="h-4 w-4 accent-[var(--mint2)]"
+              />
+              用輔助模型潤飾天氣描述
+              {!weather.utilityEnabled && (
+                <span className="text-[11px] text-[var(--text-sub)]">（需先在電腦啟用輔助模型）</span>
+              )}
+            </label>
+          </div>
+        )}
+      </Section>
 
       {/* ── 記憶 ────────────────────────────────────────── */}
       <Section

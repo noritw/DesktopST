@@ -12,7 +12,7 @@ import type {
   WorldPreset
 } from '../types'
 import type { Lorebook } from '../lore'
-import type { NewsItem, NewsKeywordGroup, NewsSource } from '../news/types'
+import type { NewsItem, NewsKeywordGroup, NewsSource, SpeakMode } from '../news/types'
 
 /**
  * 資料來源（B3 階段 0-③）。
@@ -313,6 +313,25 @@ export interface ModuleToggle {
   enabled: boolean
 }
 
+/** 手機可編輯的天氣基本設定（不含 CWA API Key）。 */
+export interface WeatherSettingsSnapshot {
+  enabled: boolean
+  polish: boolean
+  locationName: string
+  latitude: number
+  longitude: number
+  locationSource: 'ip' | 'manual' | ''
+  /** 輔助模型是否啟用；潤飾勾選要靠它，只讀。 */
+  utilityEnabled: boolean
+}
+
+export interface WeatherNowSnapshot {
+  description: string
+  temperatureC: number
+  humidity: number
+  windSpeed: number
+}
+
 /**
  * 設定。
  *
@@ -344,6 +363,16 @@ export interface SettingsApi {
   /** 只涵蓋有簡單全域開關的模組（天氣／Spotify／日曆／新聞）。遙控（B6）不在其中。 */
   listModules(): Promise<ModuleToggle[]>
   setModuleEnabled(id: string, enabled: boolean): Promise<void>
+
+  /**
+   * 天氣基本設定（位置／開關／潤飾）。
+   * CWA API Key 等進階仍只在桌面；Spotify／日曆授權同樣不走這支。
+   */
+  getWeather(): Promise<WeatherSettingsSnapshot>
+  setWeather(patch: Partial<Omit<WeatherSettingsSnapshot, 'utilityEnabled'>>): Promise<WeatherSettingsSnapshot>
+  detectWeatherLocation(): Promise<WeatherSettingsSnapshot>
+  geocodeWeatherLocation(name: string): Promise<WeatherSettingsSnapshot>
+  fetchWeatherNow(): Promise<WeatherNowSnapshot>
 }
 
 /**
@@ -444,6 +473,8 @@ export interface NewsEditableSettings {
   sources: NewsSource[]
   keywordGroups: NewsKeywordGroup[]
   blacklist: string[]
+  /** 「說點什麼」抓新聞頻率（關／偶爾／每次）。 */
+  speakButton: SpeakMode
 }
 
 /** 定時新聞陪聊。與桌面 `news:get-scheduler`／`news:sync-scheduler` 同一份資料。 */

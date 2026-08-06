@@ -112,10 +112,22 @@ const memorySettings = { keepRecentN: 20, autoSummarizeAfter: 50, autoSummarizeE
 
 const moduleToggles = [
   { id: 'desktopst.weather', label: '天氣', enabled: false },
+  { id: 'desktopst.news', label: '新聞陪聊', enabled: true },
   { id: 'desktopst.spotify', label: 'Spotify 音樂偵測', enabled: false },
-  { id: 'desktopst.calendar', label: 'Google 日曆', enabled: false },
-  { id: 'desktopst.news', label: '新聞陪聊', enabled: true }
+  { id: 'desktopst.calendar', label: 'Google 日曆', enabled: false }
 ]
+
+let weatherSettings = {
+  enabled: false,
+  polish: false,
+  locationName: '',
+  latitude: 0,
+  longitude: 0,
+  locationSource: '',
+  utilityEnabled: true
+}
+
+let newsSpeakButton = 'sometimes'
 
 // ── 個人新聞報（B3 階段 6）─────────────────────────────────────
 //
@@ -636,6 +648,65 @@ const server = http.createServer(async (req, res) => {
 
   if (url.startsWith('/api/settings/modules')) return json(res, { modules: moduleToggles })
 
+  if (url === '/api/settings/weather' && req.method === 'GET') {
+    return json(res, { weather: weatherSettings })
+  }
+  if (url === '/api/settings/weather/detect-ip') {
+    weatherSettings = {
+      ...weatherSettings,
+      locationName: 'Taipei',
+      latitude: 25.03,
+      longitude: 121.56,
+      locationSource: 'ip',
+      enabled: true
+    }
+    const m = moduleToggles.find((x) => x.id === 'desktopst.weather')
+    if (m) m.enabled = true
+    console.log('[settings] weather detect-ip -> Taipei')
+    return json(res, { weather: weatherSettings })
+  }
+  if (url === '/api/settings/weather/geocode') {
+    const p = await readBody(req)
+    const name = String(p.name ?? '').trim() || 'Unknown'
+    weatherSettings = {
+      ...weatherSettings,
+      locationName: name,
+      latitude: 25.0,
+      longitude: 121.0,
+      locationSource: 'manual',
+      enabled: true
+    }
+    const m = moduleToggles.find((x) => x.id === 'desktopst.weather')
+    if (m) m.enabled = true
+    console.log(`[settings] weather geocode -> ${name}`)
+    return json(res, { weather: weatherSettings })
+  }
+  if (url === '/api/settings/weather/fetch-now') {
+    if (!weatherSettings.locationName) return json(res, { error: '尚未設定位置' }, 400)
+    return json(res, { ok: true, description: '多雲', temperatureC: 28, humidity: 70, windSpeed: 3 })
+  }
+  if (url === '/api/settings/weather') {
+    const p = await readBody(req)
+    if (p.enabled === true && !weatherSettings.locationName && !(p.locationName && String(p.locationName).trim())) {
+      return json(res, { error: '請先設定所在地點' }, 400)
+    }
+    weatherSettings = {
+      ...weatherSettings,
+      ...(typeof p.enabled === 'boolean' ? { enabled: p.enabled } : {}),
+      ...(typeof p.polish === 'boolean' ? { polish: p.polish } : {}),
+      ...(typeof p.locationName === 'string' ? { locationName: p.locationName } : {}),
+      ...(typeof p.latitude === 'number' ? { latitude: p.latitude } : {}),
+      ...(typeof p.longitude === 'number' ? { longitude: p.longitude } : {}),
+      ...(p.locationSource === 'ip' || p.locationSource === 'manual' || p.locationSource === ''
+        ? { locationSource: p.locationSource }
+        : {})
+    }
+    const m = moduleToggles.find((x) => x.id === 'desktopst.weather')
+    if (m) m.enabled = weatherSettings.enabled
+    console.log('[settings] weather ->', JSON.stringify(weatherSettings))
+    return json(res, { weather: weatherSettings })
+  }
+
   if (url === '/api/presets' && req.method === 'GET') return json(res, {
     personas: personas.map(({ id, name, displayName, nickname }) => ({ id, name, displayName, nickname })),
     worlds: worlds.map(({ id, name, worldSetting }) => ({ id, name, worldSetting: worldSetting.slice(0, 100) })),
@@ -1018,7 +1089,8 @@ const server = http.createServer(async (req, res) => {
       enabled: newsEnabled(),
       sources: newsSources,
       keywordGroups: newsKeywordGroups,
-      blacklist: newsBlacklist
+      blacklist: newsBlacklist,
+      speakButton: newsSpeakButton
     })
   }
 
@@ -1043,12 +1115,16 @@ const server = http.createServer(async (req, res) => {
       newsKeywordGroups = [{ id: 'default', name: '預設組' }, ...rest]
     }
     if (Array.isArray(p.blacklist)) newsBlacklist = p.blacklist.filter((w) => typeof w === 'string' && w)
-    console.log(`[news] 設定 -> 關鍵字 ${newsSources.filter((s) => s.type === 'keyword').length}、黑名單 ${newsBlacklist.length}`)
+    if (p.speakButton === 'off' || p.speakButton === 'sometimes' || p.speakButton === 'always') {
+      newsSpeakButton = p.speakButton
+    }
+    console.log(`[news] 設定 -> 關鍵字 ${newsSources.filter((s) => s.type === 'keyword').length}、黑名單 ${newsBlacklist.length}、speakButton ${newsSpeakButton}`)
     return json(res, {
       enabled: newsEnabled(),
       sources: newsSources,
       keywordGroups: newsKeywordGroups,
-      blacklist: newsBlacklist
+      blacklist: newsBlacklist,
+      speakButton: newsSpeakButton
     })
   }
 

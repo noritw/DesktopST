@@ -69,9 +69,9 @@ src/mobile/ 手機 UI
 |---|---|
 | 桌面版 | MVP～進階大致完成（新聞、情境覆蓋、reaction、記憶摘要、日曆、Lorebook 桌面…） |
 | B1／B2／B2.5–2.7 | 完成（`core/`、adapter、store、Lorebook） |
-| **B3 手機 UI** | 階段 0–6、8、9 ＋ 資訊架構完成；**待真機確認**部份畫面；`mobile.html` 已移除（單一入口 `/`） |
-| **B6 遙控 UI 搬新版** | 已完成（真機驗證通過）；`mobile.html` 與舊版 QR 已移除 |
-| **下一步** | B3 階段 7（APK） |
+| **B3 手機 UI** | 階段 0–6、8、9 ＋ 資訊架構完成；`mobile.html` 已移除（單一入口 `/`）；部分畫面待真機再瞄 |
+| **B6 遙控 UI** | 已完成（真機驗證通過） |
+| **下一步** | ①手機可設天氣／新聞陪聊（Spotify／日曆授權仍只在桌面）②B3 階段 7 APK；新聞進 prompt 上下文補強見 `docs/news-article-context-design.md`（設計待實作） |
 | 延後 | 角色印象（B8）；系統通知（B5） |
 
 分支：`feat/mobile-ui`。
@@ -104,6 +104,7 @@ src/mobile/ 手機 UI
 | 對照舊 mobile.html 功能清單（歷史） | `mobile-html-feature-inventory.md` **§6／§7** | 整份 inventory |
 | Lorebook 規格 | `future-lorebook.md` | — |
 | 新聞報 | `news-reader-mobile-plan.md`（舊版規格／UX）＋ b3 **§4.21**（React 版落地） | 所有 `news-future-*`（那是構想） |
+| 新聞進 prompt 斷章／摘要設計 | `news-article-context-design.md` | — |
 | 假伺服器怎麼驗 | `scripts/README-mobile-stub.md` | — |
 
 文件夾總表與「必讀／選讀」標記：`docs/README.md`。

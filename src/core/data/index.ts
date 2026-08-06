@@ -40,6 +40,8 @@ export type {
   RemoteSystemAction,
   RemoteWindow,
   SendMessageInput,
-  SettingsApi
+  SettingsApi,
+  WeatherNowSnapshot,
+  WeatherSettingsSnapshot
 } from './types'
 export { DataError } from './types'

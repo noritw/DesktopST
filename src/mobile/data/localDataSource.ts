@@ -117,7 +117,12 @@ export class LocalDataSource implements DataSource {
     getMemory: () => Promise.reject(pending('settings.getMemory', 4)),
     setMemory: () => Promise.reject(pending('settings.setMemory', 4)),
     listModules: () => Promise.reject(pending('settings.listModules', 4)),
-    setModuleEnabled: () => Promise.reject(pending('settings.setModuleEnabled', 4))
+    setModuleEnabled: () => Promise.reject(pending('settings.setModuleEnabled', 4)),
+    getWeather: () => Promise.reject(pending('settings.getWeather', 4)),
+    setWeather: () => Promise.reject(pending('settings.setWeather', 4)),
+    detectWeatherLocation: () => Promise.reject(pending('settings.detectWeatherLocation', 4)),
+    geocodeWeatherLocation: () => Promise.reject(pending('settings.geocodeWeatherLocation', 4)),
+    fetchWeatherNow: () => Promise.reject(pending('settings.fetchWeatherNow', 4))
   }
 
   readonly lorebooks: LorebooksApi = {

@@ -157,7 +157,8 @@ export function registerNewsMobileRoutes(registerRoute: MobileRouteRegistrar): v
       enabled: s.enabled,
       sources: s.sources,
       keywordGroups: s.keywordGroups,
-      blacklist: s.blacklist
+      blacklist: s.blacklist,
+      speakButton: s.speakButton
     })
   })
 
@@ -166,6 +167,7 @@ export function registerNewsMobileRoutes(registerRoute: MobileRouteRegistrar): v
       sources?: unknown
       keywordGroups?: unknown
       blacklist?: unknown
+      speakButton?: unknown
     }>(req, res)
     if (!payload) return
 
@@ -186,12 +188,16 @@ export function registerNewsMobileRoutes(registerRoute: MobileRouteRegistrar): v
     if (Array.isArray(payload.blacklist)) {
       patch.blacklist = payload.blacklist.filter((k): k is string => typeof k === 'string' && k.length > 0)
     }
+    if (payload.speakButton === 'off' || payload.speakButton === 'sometimes' || payload.speakButton === 'always') {
+      patch.speakButton = payload.speakButton
+    }
     const next = saveNewsModuleSettings(patch)
     jsonOk(res, {
       enabled: next.enabled,
       sources: next.sources,
       keywordGroups: next.keywordGroups,
-      blacklist: next.blacklist
+      blacklist: next.blacklist,
+      speakButton: next.speakButton
     })
   })
 

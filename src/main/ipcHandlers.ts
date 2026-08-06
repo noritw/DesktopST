@@ -854,9 +854,9 @@ export function setMemorySettingsDirect(m: {
 function mobileModuleToggleDefs(): { id: string; label: string }[] {
   return [
     { id: WEATHER_MODULE_ID, label: '天氣' },
+    { id: NEWS_MODULE_ID, label: '新聞陪聊' },
     { id: SPOTIFY_MODULE_ID, label: 'Spotify 音樂偵測' },
-    { id: CALENDAR_MODULE_ID, label: 'Google 日曆' },
-    { id: NEWS_MODULE_ID, label: '新聞陪聊' }
+    { id: CALENDAR_MODULE_ID, label: 'Google 日曆' }
   ]
 }
 
@@ -901,6 +901,124 @@ export function setMobileModuleEnabledDirect(id: string, enabled: boolean): { ok
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return { ok: true }
+}
+
+/** 手機可讀寫的天氣設定快照（不含 CWA API Key 等進階欄位）。 */
+export function getWeatherSettingsDirect(): {
+  enabled: boolean
+  polish: boolean
+  locationName: string
+  latitude: number
+  longitude: number
+  locationSource: 'ip' | 'manual' | ''
+  utilityEnabled: boolean
+} {
+  const w = settings.weather
+  return {
+    enabled: !!w?.enabled,
+    polish: !!w?.polish,
+    locationName: w?.locationName ?? '',
+    latitude: w?.latitude ?? 0,
+    longitude: w?.longitude ?? 0,
+    locationSource: w?.locationSource ?? '',
+    utilityEnabled: !!settings.llm?.utilityEnabled
+  }
+}
+
+function ensureWeatherSettings(): NonNullable<typeof settings.weather> {
+  if (!settings.weather) {
+    settings.weather = {
+      enabled: false,
+      polish: false,
+      locationName: '',
+      latitude: 0,
+      longitude: 0,
+      locationSource: ''
+    }
+  }
+  return settings.weather
+}
+
+/**
+ * 手機寫入天氣基本設定（位置／開關／潤飾）。
+ * CWA 即時查詢與 API Key 仍只在桌面設定（與 Spotify／日曆授權同層級的進階）。
+ */
+export function setWeatherSettingsDirect(patch: {
+  enabled?: boolean
+  polish?: boolean
+  locationName?: string
+  latitude?: number
+  longitude?: number
+  locationSource?: 'ip' | 'manual' | ''
+}): { ok: true; weather: ReturnType<typeof getWeatherSettingsDirect> } | { error: string } {
+  const w = ensureWeatherSettings()
+  if (typeof patch.enabled === 'boolean') {
+    if (patch.enabled && !w.locationName && !(patch.locationName && patch.locationName.trim())) {
+      return { error: '請先設定所在地點' }
+    }
+    w.enabled = patch.enabled
+  }
+  if (typeof patch.polish === 'boolean') w.polish = patch.polish
+  if (typeof patch.locationName === 'string') w.locationName = patch.locationName.trim().slice(0, 120)
+  if (typeof patch.latitude === 'number' && Number.isFinite(patch.latitude)) w.latitude = patch.latitude
+  if (typeof patch.longitude === 'number' && Number.isFinite(patch.longitude)) w.longitude = patch.longitude
+  if (patch.locationSource === 'ip' || patch.locationSource === 'manual' || patch.locationSource === '') {
+    w.locationSource = patch.locationSource
+  }
+  settings.weather = w
+  invalidateWeatherCache()
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true, weather: getWeatherSettingsDirect() }
+}
+
+export async function detectWeatherLocationDirect(): Promise<
+  { ok: true; weather: ReturnType<typeof getWeatherSettingsDirect> } | { error: string }
+> {
+  const result = await detectLocationByIP()
+  if (!result) return { error: '偵測失敗，請手動輸入城市名稱' }
+  const w = ensureWeatherSettings()
+  w.locationName = result.city
+  w.latitude = result.lat
+  w.longitude = result.lon
+  w.locationSource = 'ip'
+  if (!w.enabled) w.enabled = true
+  settings.weather = w
+  invalidateWeatherCache()
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true, weather: getWeatherSettingsDirect() }
+}
+
+export async function geocodeWeatherLocationDirect(name: string): Promise<
+  { ok: true; weather: ReturnType<typeof getWeatherSettingsDirect> } | { error: string }
+> {
+  const q = name.trim()
+  if (!q) return { error: '請輸入城市名稱' }
+  const result = await geocodeCity(q)
+  if (!result) return { error: '找不到城市，請換個關鍵字' }
+  const w = ensureWeatherSettings()
+  w.locationName = result.name
+  w.latitude = result.lat
+  w.longitude = result.lon
+  w.locationSource = 'manual'
+  if (!w.enabled) w.enabled = true
+  settings.weather = w
+  invalidateWeatherCache()
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true, weather: getWeatherSettingsDirect() }
+}
+
+export async function fetchWeatherNowDirect(): Promise<
+  { ok: true; description: string; temperatureC: number; humidity: number; windSpeed: number } | { error: string }
+> {
+  const w = settings.weather
+  if (!w?.locationName || !w.latitude || !w.longitude) return { error: '尚未設定位置' }
+  invalidateWeatherCache()
+  const data = await fetchWeather(w.latitude, w.longitude, w.locationName)
+  if (!data) return { error: '天氣更新失敗' }
+  return { ok: true, ...data }
 }
 
 // ── 提醒 CRUD（B3 階段 4 資料面；排程本身是 B5）───────────

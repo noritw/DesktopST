@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import MonoIcon from '@shared/MonoIcon'
 import type { NewsEditableSettings, NewsScheduleSnapshot } from '@core/data'
-import type { NewsSource } from '@core/news/types'
+import type { NewsSource, SpeakMode } from '@core/news/types'
 import type { ReminderSchedule } from '@core/types'
 import { getData } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
@@ -14,8 +14,8 @@ import { describeNewsError } from './newsStore'
  * ## 範圍刻意小
  *
  * 語言處理、破圈、地方新聞、學習權重那些留在桌面設定面板 ——
- * 手機上要的是「這個詞我不想再看到」「加一個 RSS」這種站在路口就會想做的事
- * （roadmap §2 目標 4：進階的不要擠進第一層）。
+ * 手機上要的是「這個詞我不想再看到」「加一個 RSS」「說點什麼要不要抓新聞」
+ * 這種站在路口就會想做的事（roadmap §2 目標 4：進階的不要擠進第一層）。
  * 模組總開關在「設定 → 模組開關」，這裡只顯示狀態不重複放一顆。
  *
  * ⚠️ **興趣關鍵字的新增／刪除／排序／分組已搬到「個人新聞報 → 管理關鍵字」**
@@ -29,6 +29,12 @@ import { describeNewsError } from './newsStore'
  * 每次改動都直接送出（沒有「儲存」按鈕），失敗就退回原狀並 toast ——
  * 與角色卡編輯器那種「有草稿要存」的畫面不同，這裡每一項都是獨立的小開關。
  */
+
+const SPEAK_OPTIONS: { value: SpeakMode; label: string; hint: string }[] = [
+  { value: 'off', label: '不抓新聞', hint: '只會閒聊，不帶新聞話題' },
+  { value: 'sometimes', label: '偶爾（推薦）', hint: '有時閒聊、有時帶一則新聞' },
+  { value: 'always', label: '每次', hint: '每次都會挑一則新聞來聊' }
+]
 
 export function NewsSettingsView(): JSX.Element {
   const toast = useUiStore((s) => s.toast)
@@ -100,6 +106,28 @@ export function NewsSettingsView(): JSX.Element {
           新聞模組目前是關閉的，這裡改的設定會在打開之後生效。開關在「設定 → 模組開關」。
         </p>
       )}
+
+      {/* ── 說點什麼／陪聊頻率 ───────────────────────────── */}
+      <Section title="說點什麼時抓新聞" hint="按桌面「說點什麼」或手機叫角色發言時">
+        <div className="space-y-1.5">
+          {SPEAK_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              disabled={busy}
+              onClick={() => void save({ speakButton: opt.value }, '設定陪聊頻率')}
+              className={`flex w-full flex-col rounded-[14px] border px-3 py-2 text-left disabled:opacity-50 ${
+                settings.speakButton === opt.value
+                  ? 'border-[var(--mint2)] bg-[var(--mint)]'
+                  : 'border-[var(--border)] bg-[var(--bg)]'
+              }`}
+            >
+              <span className="text-sm text-[var(--text)]">{opt.label}</span>
+              <span className="text-[11px] text-[var(--text-sub)]">{opt.hint}</span>
+            </button>
+          ))}
+        </div>
+      </Section>
 
       <p className="rounded-[14px] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[12px] leading-relaxed text-[var(--text-sub)]">
         興趣關鍵字（新增、排序、分組、頻率）改到上一頁「管理關鍵字」。
