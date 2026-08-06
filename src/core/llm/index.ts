@@ -3,7 +3,7 @@ import { chatWithClaude } from './claude'
 import { chatWithGemini } from './gemini'
 import {
   buildEmotionClassifierSystemPrompt, buildEmotionIdList, buildNewsSubjectivityClassifierSystemPrompt, applyUtilitySettings,
-  expandReactionAnnotations, annotateTimeGaps,
+  expandReactionAnnotations, expandNewsLinkForPrompt, annotateTimeGaps,
   type ChatLLMParams, type ChatLLMResult, type PromptCharacter
 } from '../prompt/promptUtils'
 import type { AppSettings } from '../types'
@@ -37,7 +37,7 @@ export async function chatWithLLM(rawParams: ChatLLMParams, deps: LLMDeps): Prom
   const memorySummaryBlock = rawParams.memorySummary?.trim()
     ? '[Memory Summary]\nCondensed record of earlier conversation (these events happened before the recent messages below). Treat as established shared memory:\n' + rawParams.memorySummary.trim()
     : null
-  const expandedMessages = expandReactionAnnotations(rawParams.messages)
+  const expandedMessages = expandNewsLinkForPrompt(expandReactionAnnotations(rawParams.messages))
   const params: ChatLLMParams = {
     ...rawParams,
     messages: rawParams.settings.injectSystemTime ? annotateTimeGaps(expandedMessages) : expandedMessages,

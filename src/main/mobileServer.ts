@@ -20,7 +20,15 @@ export interface MobileBridge {
   getDesktopCharacterIds: () => string[]
   getDesktopCharacters: () => { id: string; name: string; muted: boolean }[]
   getActiveConversation: () => { id: string; title: string; participantIds: string[]; messages: Message[] } | null
-  sendMessage: (payload: { content: string; images?: string[]; randomResult?: RandomResult; randomResults?: RandomResult[]; skipLlm?: boolean; sourceDeviceName?: string }) => Promise<void>
+  sendMessage: (payload: {
+    content: string
+    images?: string[]
+    randomResult?: RandomResult
+    randomResults?: RandomResult[]
+    skipLlm?: boolean
+    sourceDeviceName?: string
+    newsLink?: import('./types').NewsLinkInfo | null
+  }) => Promise<void>
   addDesktopCharacter: (characterId: string) => Promise<boolean>
   removeDesktopCharacter: (characterId: string) => boolean
   captureScreenshot: (withChars: boolean, displayIndex?: number) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
@@ -530,7 +538,14 @@ async function handleRequest(
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
     const body = await readBody(req, SEND_MAX_BODY)
     if (body === BODY_TOO_LARGE) { jsonError(res, 413, '圖片太大，請減少張數或降低畫質'); return }
-    let payload: { content?: string; images?: unknown; randomResult?: RandomResult; randomResults?: RandomResult[]; skipLlm?: boolean }
+    let payload: {
+      content?: string
+      images?: unknown
+      randomResult?: RandomResult
+      randomResults?: RandomResult[]
+      skipLlm?: boolean
+      newsLink?: import('./types').NewsLinkInfo | null
+    }
     try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
     const content = String(payload.content ?? '').trim()
     const images = sanitizeIncomingImages(payload.images, bridge.getMaxImagesPerMessage())
@@ -539,7 +554,15 @@ async function handleRequest(
       const sourceDeviceName = bridge.shouldIncludeDeviceNameInPrompt()
         ? getDeviceDisplayNameFromRequest(req)
         : undefined
-      await bridge.sendMessage({ content, images: images.length ? images : undefined, randomResult: payload.randomResult, randomResults: payload.randomResults, skipLlm: payload.skipLlm, sourceDeviceName })
+      await bridge.sendMessage({
+        content,
+        images: images.length ? images : undefined,
+        randomResult: payload.randomResult,
+        randomResults: payload.randomResults,
+        skipLlm: payload.skipLlm,
+        sourceDeviceName,
+        newsLink: payload.newsLink ?? undefined
+      })
       jsonOk(res, { ok: true })
     } catch (e) {
       jsonError(res, 500, String(e))

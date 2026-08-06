@@ -1,7 +1,7 @@
 # 新聞進 Prompt 的上下文補強（設計稿）
 
-> 日期：2026-08-07｜狀態：**設計定案待實作**（owner 提出，尚未排程開工）
-> 相關：`src/core/news/trigger.ts`、`docs/news-module-design.md`、`docs/news-reader-mobile-plan.md`
+> 日期：2026-08-07｜狀態：**已實作**（桌面 enrich＋標題連結編輯；手機遙控版同契約）
+> 相關：`src/core/news/trigger.ts`、`src/core/news/enrich.ts`、`src/main/modules/news/enrich.ts`、`docs/news-module-design.md`、`docs/news-reader-mobile-plan.md`
 > 觸發原因：用新聞找角色聊天時，角色常只拿到標題（或 Google 新聞的「相關標題串」），容易斷章取義。
 
 ---

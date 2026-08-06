@@ -57,6 +57,11 @@ export interface NewsLinkInfo {
   summary: string
   source: string
   keyword?: string
+  /**
+   * 實際進 Prompt 的上下文（全文節錄／輔助模型大意／使用者改過的版本）。
+   * UI 聊天泡泡只顯示 title；點標題可開面板編輯此欄。
+   */
+  promptContext?: string
 }
 
 export interface Message {

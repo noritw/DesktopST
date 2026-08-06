@@ -175,6 +175,31 @@ export function expandReactionAnnotations(messages: Message[]): Message[] {
   return result
 }
 
+/**
+ * 使用者訊息若掛了 newsLink：聊天 UI 只存標題，Prompt 需補上 promptContext。
+ * 角色訊息的新聞背景在發話當下已由 system context 注入，這裡不重寫角色 content。
+ */
+export function expandNewsLinkForPrompt(messages: Message[]): Message[] {
+  if (!messages.some(m => m.role === 'user' && m.newsLink)) return messages
+  return messages.map(m => {
+    if (m.role !== 'user' || !m.newsLink) return m
+    const link = m.newsLink
+    const pc = (link.promptContext ?? link.summary ?? '').trim()
+    const title = (link.title || m.content).trim()
+    if (!title && !pc) return m
+    const lines = ['[Sharing a news item with you]']
+    if (title) lines.push(`Title: ${title}`)
+    if (pc && pc !== title) lines.push(`Details: ${pc}`)
+    if (link.source) lines.push(`Source: ${link.source}`)
+    lines.push('')
+    lines.push('(The chat bubble only shows the title; use the Details above as background. Reply in character.)')
+    // 若使用者在標題外還打了別的字，保留在後面
+    const extra = m.content.trim()
+    const body = extra && extra !== title ? `${lines.join('\n')}\n\n${extra}` : lines.join('\n')
+    return { ...m, content: body }
+  })
+}
+
 /** 間隔超過這個值才標註時間斷層（訊息之間、以及最後一則到現在） */
 const TIME_GAP_ANNOTATE_MS = 60 * 60 * 1000
 

@@ -105,7 +105,8 @@ export class RemoteDataSource implements DataSource {
       content: input.content,
       images: input.images,
       randomResults: input.randomResults,
-      skipLlm: input.skipLlm
+      skipLlm: input.skipLlm,
+      newsLink: input.newsLink ?? undefined
     })
   }
 
@@ -271,6 +272,12 @@ export class RemoteDataSource implements DataSource {
       (await this.http.post<{ sources: NewsSource[] }>('/api/news/reader/order', { orderedSourceIds })).sources,
 
     markOpened: async (sourceId) => { await this.http.post('/api/news/mark-opened', { sourceId }) },
+
+    enrichForChat: async (item, forceRefresh) =>
+      this.http.post('/api/news/enrich', { item, forceRefresh: !!forceRefresh }),
+
+    updatePromptContext: async (messageId, promptContext) =>
+      this.http.post('/api/news/update-prompt-context', { messageId, promptContext }),
 
     getSettings: async () => this.http.get<NewsEditableSettings>('/api/news/settings'),
     saveSettings: async (patch) => this.http.post<NewsEditableSettings>('/api/news/settings', patch),

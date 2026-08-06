@@ -71,7 +71,7 @@ src/mobile/ 手機 UI
 | B1／B2／B2.5–2.7 | 完成（`core/`、adapter、store、Lorebook） |
 | **B3 手機 UI** | 階段 0–6、8、9 ＋ 資訊架構完成；`mobile.html` 已移除（單一入口 `/`）；部分畫面待真機再瞄 |
 | **B6 遙控 UI** | 已完成（真機驗證通過） |
-| **下一步** | ①手機可設天氣／新聞陪聊（Spotify／日曆授權仍只在桌面）②B3 階段 7 APK；新聞進 prompt 上下文補強見 `docs/news-article-context-design.md`（設計待實作） |
+| **下一步** | ①B3 階段 7 APK；Spotify／日曆授權仍只在桌面。新聞進 prompt 上下文補強已實作（見 `docs/news-article-context-design.md`） |
 | 延後 | 角色印象（B8）；系統通知（B5） |
 
 分支：`feat/mobile-ui`。

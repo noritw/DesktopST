@@ -4,7 +4,7 @@
 > 文件總索引（必讀／選讀拆分）：**`docs/README.md`**。
 
 - 專案：Windows 桌面 AI 角色寵物（Electron）＋ 手機 UI（B3 進行中）
-- 下一步：手機天氣／新聞陪聊可設 → B3 **階段 7（APK）**；`mobile.html` 已移除
+- 下一步：B3 **階段 7（APK）**；新聞進 prompt 上下文補強已實作；`mobile.html` 已移除
 - 硬規則、選讀表、進行中的坑：全部在 `CLAUDE.md`
 - 長文件（Spec／roadmap／progress-log／b3 計畫）**不要預設整份讀**
 

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore, selectMessages } from '../stores/useAppStore'
-import type { Message, NewsDebugInfo } from '../types'
+import type { Message, NewsDebugInfo, NewsLinkInfo } from '../types'
 import { MESSAGE_REACTION_EMOJIS } from '../types'
 import MessageText from '../components/MessageText'
+import NewsContextPanel from '../components/NewsContextPanel'
 import MonoIcon, { type MonoIconName } from '../components/MonoIcon'
 import { buildSpriteEntries, EMOTION_OPTIONS, stemFromFilename } from '../utils/emotionUtils'
 import { formatLlmHoverTitle, llmBadgeGlyph, messageLlmMeta } from '../utils/llmMeta'
@@ -250,6 +251,9 @@ export default function LogWindow() {
   const [summaryDirty, setSummaryDirty] = useState(false)
   const [summarizing, setSummarizing] = useState(false)
   const [summaryNotice, setSummaryNotice] = useState<string | null>(null)
+  const [newsCtxMsg, setNewsCtxMsg] = useState<Message | null>(null)
+  const [newsCtxDraft, setNewsCtxDraft] = useState('')
+  const [newsCtxLoading, setNewsCtxLoading] = useState(false)
 
   const focusTitleInputTimer = useRef<number>(0)
   const focusTitleInput = () => {
@@ -737,6 +741,21 @@ export default function LogWindow() {
           ) : (
             <>
               <MessageText text={displayContent} />
+              {msg.newsLink?.title && (
+                <button
+                  type="button"
+                  className="mt-1 block max-w-full truncate text-left text-[11px] text-teal underline decoration-dotted underline-offset-2"
+                  title="檢視／編輯寫進 Prompt 的新聞上下文"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    const link = msg.newsLink as NewsLinkInfo
+                    setNewsCtxMsg(msg)
+                    setNewsCtxDraft(link.promptContext || link.summary || '')
+                  }}
+                >
+                  📰 {msg.newsLink.title}
+                </button>
+              )}
               {msg.images && msg.images.length > 0 && (
                 <div className="flex gap-1 mt-1 flex-wrap">
                   {msg.images.map((img, i) => (
@@ -1069,6 +1088,53 @@ export default function LogWindow() {
             )}
           </div>
         </div>
+      )}
+
+      {newsCtxMsg?.newsLink && (
+        <NewsContextPanel
+          open={!!newsCtxMsg}
+          title={newsCtxMsg.newsLink.title}
+          url={newsCtxMsg.newsLink.url}
+          source={newsCtxMsg.newsLink.source}
+          promptContext={newsCtxDraft}
+          loading={newsCtxLoading}
+          mode="edit"
+          onClose={() => setNewsCtxMsg(null)}
+          onSave={async (pc) => {
+            await window.api.invoke('news:update-prompt-context', {
+              messageId: newsCtxMsg.id,
+              promptContext: pc
+            })
+            setNewsCtxMsg(null)
+          }}
+          onRefresh={async () => {
+            const link = newsCtxMsg.newsLink!
+            setNewsCtxLoading(true)
+            try {
+              const r = await window.api.invoke('news:enrich-for-chat', {
+                item: {
+                  id: link.id,
+                  title: link.title,
+                  summary: link.summary,
+                  url: link.url,
+                  source: link.source,
+                  sourceId: link.sourceId,
+                  keyword: link.keyword
+                },
+                forceRefresh: true
+              }) as { ok: boolean; promptContext?: string }
+              if (r.ok && typeof r.promptContext === 'string') setNewsCtxDraft(r.promptContext)
+            } finally {
+              setNewsCtxLoading(false)
+            }
+          }}
+          onOpenOriginal={newsCtxMsg.newsLink.url ? () => {
+            void window.api.invoke('shell:open-external', newsCtxMsg.newsLink!.url)
+            if (newsCtxMsg.newsLink!.sourceId) {
+              void window.api.invoke('news:mark-opened', newsCtxMsg.newsLink!.sourceId)
+            }
+          } : undefined}
+        />
       )}
 
       {previewImage && (

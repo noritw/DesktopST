@@ -39,6 +39,7 @@ export function Composer(): JSX.Element {
   const setCaret = useComposerStore((s) => s.setCaret)
   const clearDraft = useComposerStore((s) => s.clear)
   const respond = useComposerStore((s) => s.respond)
+  const pendingNewsLink = useComposerStore((s) => s.pendingNewsLink)
 
   const [images, setImages] = useState<string[]>([])
   const [picking, setPicking] = useState(false)
@@ -131,7 +132,8 @@ export function Composer(): JSX.Element {
         images: sentImages.length ? sentImages : undefined,
         randomResults,
         // 清單 A7：勾選框問的是「要不要回應」，送出去的旗標是它的反面。
-        skipLlm: respond ? undefined : true
+        skipLlm: respond ? undefined : true,
+        newsLink: pendingNewsLink ?? undefined
       })
     } catch {
       toast('訊息送出失敗', 'error')

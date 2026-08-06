@@ -3,7 +3,7 @@ import { checkForUpdates } from './updateChecker'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AppSettings, Character, ColorTheme, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo } from './types'
+import type { AppSettings, Character, ColorTheme, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo, NewsLinkInfo } from './types'
 import { MESSAGE_REACTION_EMOJIS } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM, generateLoreEntryForCharacter } from './llm/index'
@@ -61,8 +61,9 @@ import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
 import {
   getNewsInjectionForSpeak, getActiveNewsTopic, setActiveNewsTopic,
   setPendingNewsCredit, consumePendingNewsCredit, applyNewsFeedbackDelta,
+  consumePendingUserNewsLink,
   buildSurveyDirective, buildNotesDirective, loadNewsModuleSettings, saveNewsModuleSettings,
-  collectInterestTerms, fetchAllSources, NEWS_MODULE_ID,
+  collectInterestTerms, fetchAllSources, NEWS_MODULE_ID, cacheManualPromptContext,
   type NewsTopic, type NewsSelectionContext, type NewsModuleSettings
 } from './modules/news'
 import { getConversationSearchContext } from './modules/news/conversationSearch'
@@ -1100,9 +1101,25 @@ export function setApplyMobileRuntimeSettingsFn(fn: (previous: AppSettings, next
 }
 
 /** mobile server 透過這個呼叫 send message（在 registerIpcHandlers 之後才可用）*/
-let _mobileSendImpl: ((payload: { content: string; images?: string[]; randomResult?: RandomResult; randomResults?: RandomResult[]; sourceDeviceName?: string }) => Promise<{ ok: boolean } | { error: string }>) | null = null
+let _mobileSendImpl: ((payload: {
+  content: string
+  images?: string[]
+  randomResult?: RandomResult
+  randomResults?: RandomResult[]
+  sourceDeviceName?: string
+  newsLink?: NewsLinkInfo | null
+  skipLlm?: boolean
+}) => Promise<{ ok: boolean } | { error: string }>) | null = null
 
-export function handleSendMessageFromMobile(payload: { content: string; images?: string[]; randomResult?: RandomResult; randomResults?: RandomResult[]; skipLlm?: boolean; sourceDeviceName?: string }): Promise<{ ok: boolean } | { error: string }> {
+export function handleSendMessageFromMobile(payload: {
+  content: string
+  images?: string[]
+  randomResult?: RandomResult
+  randomResults?: RandomResult[]
+  skipLlm?: boolean
+  sourceDeviceName?: string
+  newsLink?: NewsLinkInfo | null
+}): Promise<{ ok: boolean } | { error: string }> {
   if (!_mobileSendImpl) return Promise.resolve({ error: 'IPC handlers not registered yet' })
   return _mobileSendImpl(payload)
 }
@@ -1131,6 +1148,36 @@ export function editMessageDirect(id: string, content: string): boolean {
   fileStore.saveConversation(conv)
   broadcastConversationUpdate(conv)
   return true
+}
+
+/** 覆寫訊息上的新聞 promptContext；可選同步釘住話題（供後續延續） */
+export function updateNewsPromptContextDirect(payload?: {
+  messageId?: string
+  promptContext?: string
+  syncTopic?: boolean
+}): { ok: true } | { ok: false; error: string } {
+  const pc = typeof payload?.promptContext === 'string' ? payload.promptContext.trim() : ''
+  if (!payload?.messageId) return { ok: false, error: 'missing-id' }
+  if (!activeConversationId) return { ok: false, error: 'no-conversation' }
+  const conv = getOrLoadConversation(activeConversationId)
+  if (!conv) return { ok: false, error: 'no-conversation' }
+  const msg = conv.messages.find(m => m.id === payload.messageId)
+  if (!msg?.newsLink) return { ok: false, error: 'no-news-link' }
+
+  msg.newsLink = { ...msg.newsLink, promptContext: pc }
+  conv.updatedAt = Date.now()
+  fileStore.saveConversation(conv)
+  broadcastConversationUpdate(conv)
+
+  if (msg.newsLink.id) cacheManualPromptContext(msg.newsLink.id, pc)
+
+  if (payload.syncTopic !== false) {
+    const topic = getActiveNewsTopic()
+    if (topic && (topic.id === msg.newsLink.id || topic.title === msg.newsLink.title)) {
+      setActiveNewsTopic({ ...topic, promptContext: pc })
+    }
+  }
+  return { ok: true }
 }
 
 export async function resendMessageDirect(id: string): Promise<{ ok: boolean } | { error: string }> {
@@ -2058,7 +2105,8 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
       const inj = await getNewsInjectionForSpeak({
         force: true,
         ctx: reminderNewsCtx,
-        enabledOverride: isModuleEffectivelyEnabled(NEWS_MODULE_ID, loadNewsModuleSettings().enabled)
+        enabledOverride: isModuleEffectivelyEnabled(NEWS_MODULE_ID, loadNewsModuleSettings().enabled),
+        appSettings: settings
       })
       if (inj) {
         ctxParts.push(inj.text)
@@ -2068,7 +2116,8 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
           reminderNewsDirective = inj.directive
           reminderNewsMeta = {
             id: it.id, sourceId: it.sourceId, title: it.title,
-            url: it.url, summary: it.summary, source: it.source, keyword: it.keyword
+            url: it.url, summary: it.summary, source: it.source, keyword: it.keyword,
+            promptContext: it.promptContext
           }
           reminderNewsSubjectItem = { title: it.title, summary: it.summary }
         } else if (inj.fromTopic) {
@@ -2082,7 +2131,8 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
               title: topic.title,
               url: topic.url,
               summary: topic.summary,
-              source: topic.source
+              source: topic.source,
+              promptContext: topic.promptContext
             }
           }
         }
@@ -2649,7 +2699,11 @@ export async function forceSpeakDirect(
     const newsEffEnabled = isModuleEffectivelyEnabled(NEWS_MODULE_ID, loadNewsModuleSettings().enabled)
     try {
       const newsCtx = resolveNewsSelectionContext(char)
-      const newsInjection = await getNewsInjectionForSpeak({ ctx: newsCtx, enabledOverride: newsEffEnabled })
+      const newsInjection = await getNewsInjectionForSpeak({
+        ctx: newsCtx,
+        enabledOverride: newsEffEnabled,
+        appSettings: settings
+      })
       const noteBlock = settings.ui.speakUsePinnedNotes ? buildVisiblePinnedNotesContext() : null
 
       // 先算發話模式（供 debug 用，邏輯和下方 branch 一致）
@@ -2682,7 +2736,8 @@ export async function forceSpeakDirect(
           if (it) {
             newsBubbleMeta = {
               id: it.id, sourceId: it.sourceId, title: it.title,
-              url: it.url, summary: it.summary, source: it.source, keyword: it.keyword
+              url: it.url, summary: it.summary, source: it.source, keyword: it.keyword,
+              promptContext: it.promptContext
             }
           }
           setPendingNewsCredit(null)
@@ -2694,7 +2749,8 @@ export async function forceSpeakDirect(
           if (it) {
             newsBubbleMeta = {
               id: it.id, sourceId: it.sourceId, title: it.title,
-              url: it.url, summary: it.summary, source: it.source, keyword: it.keyword
+              url: it.url, summary: it.summary, source: it.source, keyword: it.keyword,
+              promptContext: it.promptContext
             }
             setPendingNewsCredit(it.sourceId)
           } else {
@@ -3520,14 +3576,15 @@ export function registerIpcHandlers() {
   })
 
   // 後續聊天主題：釘住一則新聞，桌面浮出主題泡泡；主動發話圍繞它聊
-  ipcMain.handle('news:set-topic', (_, topic: NewsTopic & { sourceId?: string }) => {
+  ipcMain.handle('news:set-topic', (_, topic: NewsTopic & { sourceId?: string; promptContext?: string }) => {
     if (!topic || typeof topic.title !== 'string' || !topic.title) return { ok: false }
     setActiveNewsTopic({
       id: String(topic.id ?? ''),
       title: topic.title,
       summary: typeof topic.summary === 'string' ? topic.summary : '',
       url: typeof topic.url === 'string' ? topic.url : '',
-      source: typeof topic.source === 'string' ? topic.source : ''
+      source: typeof topic.source === 'string' ? topic.source : '',
+      promptContext: typeof topic.promptContext === 'string' ? topic.promptContext : undefined
     })
     // 設為聊天主題＝有興趣，加一點分（比回話少）；並清掉待結算避免重複計分
     consumePendingNewsCredit()
@@ -3543,6 +3600,13 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('news:get-topic', () => getActiveNewsTopic())
+
+  /** 覆寫訊息（或主題）上的 promptContext；不回溯已產生的回覆 */
+  ipcMain.handle('news:update-prompt-context', (_, payload?: {
+    messageId?: string
+    promptContext?: string
+    syncTopic?: boolean
+  }) => updateNewsPromptContextDirect(payload))
 
   ipcMain.handle('bubble:debug-show', (_, payload: { characterId: string; speakerName: string; text: string; emotion?: string; newsLink?: BubbleNewsMeta | null; messageId?: string; reaction?: string | null }) => {
     const { characterId, speakerName, text, emotion, newsLink, messageId, reaction } = payload ?? { characterId: '', speakerName: '', text: '' }
@@ -3889,7 +3953,15 @@ export function registerIpcHandlers() {
   })
 
   // Messaging
-  const sendMsgBody = async (payload: { content: string; images?: string[]; randomResult?: RandomResult; randomResults?: RandomResult[]; skipLlm?: boolean; sourceDeviceName?: string }): Promise<{ ok: boolean } | { error: string }> => {
+  const sendMsgBody = async (payload: {
+    content: string
+    images?: string[]
+    randomResult?: RandomResult
+    randomResults?: RandomResult[]
+    skipLlm?: boolean
+    sourceDeviceName?: string
+    newsLink?: NewsLinkInfo | null
+  }): Promise<{ ok: boolean } | { error: string }> => {
     const conv = getActiveConversation()
     if (!conv) return { error: 'No active conversation' }
 
@@ -3918,6 +3990,12 @@ export function registerIpcHandlers() {
       userContentForPrompt = `${userContentForPrompt}${userContentForPrompt ? '\n' : ''}（${label}）`
     }
 
+    // 新聞「聊這個」：payload 優先，否則吃暫存的 pending link
+    const attachedNewsLink: NewsLinkInfo | undefined =
+      (payload.newsLink && payload.newsLink.title
+        ? payload.newsLink
+        : consumePendingUserNewsLink() ?? undefined) || undefined
+
     // Add user message
     const userMsg: Message = {
       id: uuidv4(),
@@ -3926,6 +4004,7 @@ export function registerIpcHandlers() {
       images: payload.images,
       randomResult: payload.randomResult,
       randomResults: payload.randomResults,
+      newsLink: attachedNewsLink,
       timestamp: Date.now()
     }
     conv.messages.push(userMsg)

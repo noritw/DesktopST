@@ -142,7 +142,8 @@ export function defaultNewsModuleSettings(): NewsModuleSettings {
         '知道', '有人說', '網路上說'
       ],
       maxAgeHours: 48
-    }
+    },
+    enrichForChat: true
   }
 }
 
@@ -225,7 +226,9 @@ export function normalizeNewsModuleSettings(raw: Partial<NewsModuleSettings> | u
         if (cs.filterOldArticles === false) return 0
         return 48
       })()
-    }
+    },
+    // 未設視為 true（舊設定也預設開 enrichment）
+    enrichForChat: raw.enrichForChat !== false
   }
 }
 

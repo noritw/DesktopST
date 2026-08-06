@@ -46,6 +46,8 @@ export interface NewsLinkInfo {
   summary: string
   source: string
   keyword?: string
+  /** 實際進 Prompt 的上下文；UI 只顯示 title */
+  promptContext?: string
 }
 
 export interface Message {

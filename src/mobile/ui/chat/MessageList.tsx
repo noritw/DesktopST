@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { MessageSnapshot } from '@core/data'
-import { isOptimistic, useAppStore } from '../stores/appStore'
+import { isOptimistic, useAppStore, getData } from '../stores/appStore'
 import { MessageImages } from './MessageImages'
 import { formatRandomBadge } from './randomLabels'
 import { Avatar } from '../characters/Avatar'
@@ -107,6 +107,33 @@ function MessageRow({ message, characterName }: { message: MessageSnapshot; char
               )
             )}
             {message.content}
+            {message.newsLink?.title && (
+              <button
+                type="button"
+                className="mt-1 block max-w-full truncate text-left text-[12px] text-[var(--mint2)] underline decoration-dotted"
+                onClick={() => {
+                  void (async () => {
+                    const link = message.newsLink!
+                    const next = await useUiStore.getState().prompt({
+                      title: '新聞上下文',
+                      message: '這段會寫進角色看到的背景，不會整段出現在聊天泡泡裡。',
+                      defaultValue: link.promptContext || link.summary || '',
+                      multiline: true,
+                      confirmLabel: '儲存'
+                    })
+                    if (next == null) return
+                    try {
+                      await getData().news.updatePromptContext(message.id, next)
+                      useUiStore.getState().toast('已儲存')
+                    } catch {
+                      useUiStore.getState().toast('儲存失敗', 'error')
+                    }
+                  })()
+                }}
+              >
+                📰 {message.newsLink.title}
+              </button>
+            )}
             {message.imageCount ? (
               <MessageImages messageId={message.id} count={message.imageCount} />
             ) : null}

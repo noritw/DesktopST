@@ -1,3 +1,4 @@
+import { resolvePromptContext } from './enrich'
 import { isForeignLanguage } from './filter'
 import type { NewsTopic } from './topicState'
 import type { NewsItem, NewsModuleSettings, SpeakMode } from './types'
@@ -41,9 +42,10 @@ export function buildNewsContextString(item: NewsItem, settings: NewsModuleSetti
   // 不假設角色有手機/裝置（有些世界觀沒有），用中性的「剛得知一則消息」。
   lines.push('[A piece of news you just came across]')
   lines.push(`Title: ${item.title}`)
-  // 摘要與標題重複時不重覆顯示（Google News 常見）
-  if (item.summary && item.summary !== item.title && !item.title.includes(item.summary)) {
-    lines.push(`Summary: ${item.summary}`)
+  // 優先用 enrich／使用者改過的 promptContext；無則退回 RSS summary
+  const details = resolvePromptContext(item)
+  if (details) {
+    lines.push(`Summary: ${details}`)
   }
   if (item.source) lines.push(`Source: ${item.source}`)
   lines.push('')
@@ -68,8 +70,11 @@ export function buildNewsContextString(item: NewsItem, settings: NewsModuleSetti
 
 /** 放在 trigger message（對話最末、緊鄰生成）的主動指令；帶上實際標題以強制 grounding、避免腦補。 */
 export function buildNewsDirective(item: NewsItem): string {
-  const headline = item.summary && item.summary !== item.title
-    ? `"${item.title}" (${item.summary})`
+  const details = resolvePromptContext(item)
+  // directive 只帶短節錄，避免把整篇塞進 trigger；長文靠 context 的 Summary
+  const brief = details && details.length > 120 ? `${details.slice(0, 117)}…` : details
+  const headline = brief && brief !== item.title
+    ? `"${item.title}" (${brief})`
     : `"${item.title}"`
   const lead = item.breakout
     ? `Bring up this widely-discussed news on your own this time: ${headline}`
@@ -87,8 +92,9 @@ export function buildNewsDirective(item: NewsItem): string {
 export function buildTopicContextString(topic: NewsTopic): string {
   const lines: string[] = ['[The topic you are currently chatting about]']
   lines.push(`Title: ${topic.title}`)
-  if (topic.summary && topic.summary !== topic.title && !topic.title.includes(topic.summary)) {
-    lines.push(`Details: ${topic.summary}`)
+  const details = resolvePromptContext(topic)
+  if (details) {
+    lines.push(`Details: ${details}`)
   }
   if (topic.source) lines.push(`Source: ${topic.source}`)
   return lines.join('\n')

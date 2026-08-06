@@ -11,13 +11,16 @@ import {
   saveNewsReaderDismissed, saveNewsReaderPinned, saveNewsReaderState
 } from './readerState'
 import { getNewsScheduler, syncNewsScheduler } from './scheduler'
+import { enrichNewsForChat, applyEnrichToItem, cacheManualPromptContext } from './enrich'
+import { setPendingUserNewsLink } from './trigger'
 import {
   openSettingsWindow,
   createNewsReaderWindow,
   createInputWindow
 } from '../../windowManager'
-import type { NewsModuleSettings } from './types'
+import type { NewsItem, NewsModuleSettings } from './types'
 import type { ReminderSchedule } from '../../types'
+import type { NewsLinkInfo } from '../../../core/types'
 
 export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): void {
   // 讀取目前模組設定（設定面板初始化用）
@@ -236,17 +239,99 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
     return { ok: true as const }
   })
 
-  // 新聞報：把標題／摘要插入發話視窗
+  /** 整理一則新聞的 promptContext（抓原文／摘要）；供「聊這個」與面板重抓 */
+  registry.handle('news:enrich-for-chat', async (_, payload?: {
+    item?: Partial<NewsItem> & { title?: string; url?: string; id?: string }
+    forceRefresh?: boolean
+  }) => {
+    const raw = payload?.item
+    if (!raw || typeof raw.title !== 'string' || !raw.title.trim()) {
+      return { ok: false as const, error: 'empty' as const }
+    }
+    const item: NewsItem = {
+      id: String(raw.id ?? ''),
+      title: raw.title.trim(),
+      summary: typeof raw.summary === 'string' ? raw.summary : '',
+      source: typeof raw.source === 'string' ? raw.source : '',
+      tags: Array.isArray(raw.tags) ? raw.tags : [],
+      url: typeof raw.url === 'string' ? raw.url : '',
+      publishedAt: typeof raw.publishedAt === 'string' ? raw.publishedAt : '',
+      sourceId: typeof raw.sourceId === 'string' ? raw.sourceId : '',
+      sourceType: (raw.sourceType as NewsItem['sourceType']) || 'keyword',
+      sourceWeight: (raw.sourceWeight as NewsItem['sourceWeight']) || 'normal',
+      keyword: raw.keyword,
+      breakout: raw.breakout,
+      category: raw.category,
+      image: raw.image,
+      lang: raw.lang
+    }
+    let appSettings: import('../../types').AppSettings | undefined
+    try {
+      const mod = await import('../../ipcHandlers')
+      appSettings = mod.getSettings()
+    } catch {
+      appSettings = undefined
+    }
+    try {
+      const enrich = await enrichNewsForChat(item, {
+        forceRefresh: !!payload?.forceRefresh,
+        appSettings
+      })
+      if (enrich.warning) console.warn('[news enrich]', item.id || item.title, enrich.warning)
+      return {
+        ok: true as const,
+        promptContext: enrich.promptContext,
+        source: enrich.source,
+        usedUtility: enrich.usedUtility,
+        warning: enrich.warning,
+        item: applyEnrichToItem(item, enrich)
+      }
+    } catch (e) {
+      console.warn('[news enrich] ipc failed', e)
+      return {
+        ok: true as const,
+        promptContext: typeof raw.summary === 'string' ? raw.summary : '',
+        source: 'rss-fallback' as const,
+        usedUtility: false,
+        warning: e instanceof Error ? e.message : String(e),
+        item
+      }
+    }
+  })
+
+  /**
+   * 新聞報「聊這個」確認後：只把標題塞進輸入框，並暫存 newsLink（含 promptContext）。
+   * 下一次送出訊息時掛到使用者訊息上。
+   */
   registry.handle('news:insert-to-input', (_, payload?: {
     title?: string
     summary?: string
+    promptContext?: string
     newsId?: string
     sourceId?: string
+    url?: string
+    source?: string
+    keyword?: string
   }) => {
-    const title = typeof payload?.title === 'string' ? payload.title : ''
-    const summary = typeof payload?.summary === 'string' ? payload.summary.trim() : ''
-    const text = summary ? `${title}\n${summary}` : title
-    if (!text) return { ok: false as const, error: 'empty' }
+    const title = typeof payload?.title === 'string' ? payload.title.trim() : ''
+    if (!title) return { ok: false as const, error: 'empty' }
+
+    const promptContext = typeof payload?.promptContext === 'string'
+      ? payload.promptContext.trim()
+      : (typeof payload?.summary === 'string' ? payload.summary.trim() : '')
+
+    const link: NewsLinkInfo = {
+      id: typeof payload?.newsId === 'string' ? payload.newsId : '',
+      sourceId: typeof payload?.sourceId === 'string' ? payload.sourceId : '',
+      title,
+      url: typeof payload?.url === 'string' ? payload.url : '',
+      summary: typeof payload?.summary === 'string' ? payload.summary : '',
+      source: typeof payload?.source === 'string' ? payload.source : '',
+      keyword: typeof payload?.keyword === 'string' ? payload.keyword : undefined,
+      promptContext
+    }
+    setPendingUserNewsLink(link)
+    if (link.id) cacheManualPromptContext(link.id, promptContext)
 
     const fallback = screen.getPrimaryDisplay().workArea
     const win = createInputWindow({
@@ -254,14 +339,18 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
       y: fallback.y + fallback.height - 200
     })
 
-    const meta = {
-      newsId: typeof payload?.newsId === 'string' ? payload.newsId : '',
-      sourceId: typeof payload?.sourceId === 'string' ? payload.sourceId : '',
-      title
-    }
+    // UI 只塞標題；promptContext 走 pending newsLink
     const send = () => {
       if (win.isDestroyed()) return
-      win.webContents.send('input:insert-news-topic', { text, meta })
+      win.webContents.send('input:insert-news-topic', {
+        text: title,
+        meta: {
+          newsId: link.id,
+          sourceId: link.sourceId,
+          title,
+          promptContext
+        }
+      })
     }
     if (win.webContents.isLoadingMainFrame()) {
       win.webContents.once('did-finish-load', send)

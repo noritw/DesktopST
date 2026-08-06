@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { NewsLinkInfo } from '@core/types'
 
 /**
  * 輸入框的草稿狀態。
@@ -32,9 +33,13 @@ interface ComposerState {
    */
   respond: boolean
 
+  /** 「聊這個」確認後暫存；送出時掛到訊息上並清空 */
+  pendingNewsLink: NewsLinkInfo | null
+
   setText: (text: string, caret?: number | null) => void
   setCaret: (caret: number | null) => void
   setRespond: (respond: boolean) => void
+  setPendingNewsLink: (link: NewsLinkInfo | null) => void
   /** 在游標處插入一段文字，並把游標移到插入內容之後。 */
   insert: (snippet: string) => void
   /** 送出後清空（`respond` 保留 —— 那是使用者的習慣，不該每次重設）。 */
@@ -45,10 +50,12 @@ export const useComposerStore = create<ComposerState>((set) => ({
   text: '',
   caret: null,
   respond: true,
+  pendingNewsLink: null,
 
   setText: (text, caret) => set((s) => ({ text, caret: caret === undefined ? s.caret : caret })),
   setCaret: (caret) => set({ caret }),
   setRespond: (respond) => set({ respond }),
+  setPendingNewsLink: (pendingNewsLink) => set({ pendingNewsLink }),
 
   insert: (snippet) =>
     set((s) => {
@@ -60,5 +67,5 @@ export const useComposerStore = create<ComposerState>((set) => ({
       }
     }),
 
-  clear: () => set({ text: '', caret: null })
+  clear: () => set({ text: '', caret: null, pendingNewsLink: null })
 }))

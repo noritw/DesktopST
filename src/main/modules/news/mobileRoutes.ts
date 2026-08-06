@@ -14,7 +14,7 @@ import { loadNewsModuleSettings, saveNewsModuleSettings, applyNewsFeedbackDelta 
 import { fetchReaderBatch, fetchReaderSection } from './readerFetch'
 import { loadNewsReaderState, saveNewsReaderDismissed, saveNewsReaderPinned } from './readerState'
 import { getNewsScheduler, syncNewsScheduler } from './scheduler'
-import type { NewsModuleSettings, NewsSource } from './types'
+import type { NewsItem, NewsModuleSettings, NewsSource } from './types'
 import type { ReminderSchedule } from '../../types'
 import type { MobileRouteRegistrar, MobileRouteContext } from '../../mobileServer'
 
@@ -221,6 +221,74 @@ export function registerNewsMobileRoutes(registerRoute: MobileRouteRegistrar): v
     if (!payload) return
     if (payload.sourceId) applyNewsFeedbackDelta(payload.sourceId, 0.1)
     jsonOk(res, { ok: true })
+  })
+
+  // ── 新聞進 Prompt 上下文補強（遙控版走電腦端 enrich）──
+  post('/api/news/enrich', async ({ req, res }) => {
+    const payload = await readJsonBody<{
+      item?: Partial<NewsItem> & { title?: string }
+      forceRefresh?: boolean
+    }>(req, res)
+    if (!payload?.item || typeof payload.item.title !== 'string' || !payload.item.title.trim()) {
+      jsonError(res, 400, 'item.title required')
+      return
+    }
+    const { enrichNewsForChat, applyEnrichToItem } = await import('./enrich')
+    let appSettings: import('../../types').AppSettings | undefined
+    try {
+      const mod = await import('../../ipcHandlers')
+      appSettings = mod.getSettings()
+    } catch {
+      appSettings = undefined
+    }
+    const raw = payload.item
+    const item: NewsItem = {
+      id: String(raw.id ?? ''),
+      title: raw.title!.trim(),
+      summary: typeof raw.summary === 'string' ? raw.summary : '',
+      source: typeof raw.source === 'string' ? raw.source : '',
+      tags: Array.isArray(raw.tags) ? raw.tags : [],
+      url: typeof raw.url === 'string' ? raw.url : '',
+      publishedAt: typeof raw.publishedAt === 'string' ? raw.publishedAt : '',
+      sourceId: typeof raw.sourceId === 'string' ? raw.sourceId : '',
+      sourceType: raw.sourceType || 'keyword',
+      sourceWeight: raw.sourceWeight || 'normal',
+      keyword: typeof raw.keyword === 'string' ? raw.keyword : undefined,
+      breakout: raw.breakout,
+      category: typeof raw.category === 'string' ? raw.category : undefined
+    }
+    try {
+      const enrich = await enrichNewsForChat(item, {
+        forceRefresh: !!payload.forceRefresh,
+        appSettings
+      })
+      jsonOk(res, {
+        ok: true,
+        promptContext: enrich.promptContext,
+        source: enrich.source,
+        usedUtility: enrich.usedUtility,
+        warning: enrich.warning,
+        item: applyEnrichToItem(item, enrich)
+      })
+    } catch (e) {
+      jsonError(res, 500, String(e))
+    }
+  })
+
+  post('/api/news/update-prompt-context', async ({ req, res }) => {
+    const payload = await readJsonBody<{ messageId?: string; promptContext?: string }>(req, res)
+    if (!payload?.messageId) { jsonError(res, 400, 'messageId required'); return }
+    try {
+      const { updateNewsPromptContextDirect } = await import('../../ipcHandlers')
+      const out = updateNewsPromptContextDirect({
+        messageId: payload.messageId,
+        promptContext: typeof payload.promptContext === 'string' ? payload.promptContext : ''
+      })
+      if (!out.ok) { jsonError(res, 400, out.error || 'failed'); return }
+      jsonOk(res, out)
+    } catch (e) {
+      jsonError(res, 500, String(e))
+    }
   })
 }
 

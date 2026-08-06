@@ -798,6 +798,24 @@ export function NewsSettingsPanel() {
         </div>
       </section>
 
+      {/* 上下文補強 */}
+      <section className="space-y-2">
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            className="accent-teal w-4 h-4 mt-0.5"
+            checked={settings.enrichForChat !== false}
+            onChange={e => update(prev => ({ ...prev, enrichForChat: e.target.checked }))}
+          />
+          <span>
+            <span className="block text-sm font-semibold text-primary">聊新聞時補強上下文（推薦）</span>
+            <span className="block text-xs text-secondary">
+              summary 不夠用時抓原文；短文直塞、長文用輔助模型濃縮。關閉則維持舊行為（標題＋RSS 摘要）。
+            </span>
+          </span>
+        </label>
+      </section>
+
       {/* 地方新聞 */}
       <section className="space-y-2">
         <label className="flex items-center gap-2 cursor-pointer">

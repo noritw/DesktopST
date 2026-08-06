@@ -7,6 +7,7 @@ export * from './topicState'
 export * from './readerPack'
 export * from './readerFetch'
 export * from './readerState'
+export * from './enrich'
 export * from './ipc'
 
 import type { DesktopSTModule } from '../moduleTypes'

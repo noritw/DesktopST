@@ -145,6 +145,8 @@ export class LocalDataSource implements DataSource {
     setKeywordGroups: () => Promise.reject(pending('news.setKeywordGroups', 6)),
     setSourceOrder: () => Promise.reject(pending('news.setSourceOrder', 6)),
     markOpened: () => Promise.reject(pending('news.markOpened', 6)),
+    enrichForChat: () => Promise.reject(pending('news.enrichForChat', 6)),
+    updatePromptContext: () => Promise.reject(pending('news.updatePromptContext', 6)),
     getSettings: () => Promise.reject(pending('news.getSettings', 6)),
     saveSettings: () => Promise.reject(pending('news.saveSettings', 6)),
     getSchedule: () => Promise.reject(pending('news.getSchedule', 6)),

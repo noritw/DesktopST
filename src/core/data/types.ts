@@ -3,6 +3,7 @@ import type {
   ColorTheme,
   Conversation,
   Message,
+  NewsLinkInfo,
   PendingRandomTool,
   PersonaPreset,
   RandomResult,
@@ -152,6 +153,8 @@ export interface SendMessageInput {
   pendingRandomTools?: PendingRandomTool[]
   /** 不呼叫 LLM，只把訊息放進對話（清單 A7）。 */
   skipLlm?: boolean
+  /** 「聊這個」確認後掛上的新聞連結（含 promptContext） */
+  newsLink?: NewsLinkInfo | null
 }
 
 // ── 分組介面 ────────────────────────────────────────────────
@@ -502,6 +505,21 @@ export interface NewsApi {
 
   /** 開原文的隱性回饋加分（清單 F9）。 */
   markOpened(sourceId: string): Promise<void>
+
+  /**
+   * 整理一則新聞的 promptContext（抓原文／摘要）。
+   * 遙控版走電腦端；獨立模式之後再說。
+   */
+  enrichForChat(item: NewsItem, forceRefresh?: boolean): Promise<{
+    ok: boolean
+    promptContext: string
+    source?: string
+    usedUtility?: boolean
+    warning?: string
+  }>
+
+  /** 覆寫已送出訊息上的 promptContext（只影響後續延續話題）。 */
+  updatePromptContext(messageId: string, promptContext: string): Promise<{ ok: boolean; error?: string }>
 
   getSettings(): Promise<NewsEditableSettings>
   saveSettings(patch: Partial<Omit<NewsEditableSettings, 'enabled'>>): Promise<NewsEditableSettings>

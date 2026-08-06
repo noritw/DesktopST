@@ -1415,6 +1415,7 @@ export interface BubbleNewsMeta {
   summary: string
   source: string
   keyword?: string
+  promptContext?: string
 }
 
 export function showSpeechBubble(

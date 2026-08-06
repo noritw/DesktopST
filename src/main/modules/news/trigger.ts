@@ -2,11 +2,14 @@ import { fetchAllSources } from './sources'
 import { filterAndPick } from './filter'
 import { loadNewsModuleSettings, saveNewsModuleSettings } from './settings'
 import { getActiveNewsTopic } from './topicState'
+import { applyEnrichToItem, enrichNewsForChat } from './enrich'
 import {
   buildNewsContextString, buildNewsDirective, buildTopicContextString, buildTopicDirective,
   shouldGrabNews, markNewsSeen as markNewsSeenPure
 } from '../../../core/news/trigger'
 import type { NewsModuleSettings, NewsSelectionContext } from './types'
+import type { AppSettings } from '../../types'
+import type { NewsLinkInfo } from '../../../core/types'
 
 /**
  * 新聞發話的桌面端外殼。
@@ -58,10 +61,16 @@ export function markNewsSeen(settings: NewsModuleSettings, id: string): NewsModu
 /**
  * 為「說點什麼」取得一則新聞素材。
  * 回傳 null 代表：模組停用 / 這次不抓 / 沒有可用候選。
- * 會把抽中的新聞記入 seenIds。
+ * 會把抽中的新聞記入 seenIds；必要時 enrich 後再組字串。
  */
 export async function getNewsInjectionForSpeak(
-  options: { force?: boolean; rng?: () => number; ctx?: NewsSelectionContext; enabledOverride?: boolean } = {}
+  options: {
+    force?: boolean
+    rng?: () => number
+    ctx?: NewsSelectionContext
+    enabledOverride?: boolean
+    appSettings?: AppSettings
+  } = {}
 ): Promise<import('../../../core/news/trigger').NewsInjection | null> {
   const settings = loadNewsModuleSettings()
   // enabledOverride：呼叫端算好的有效開關（情境覆蓋優先），未傳時用全域設定
@@ -86,10 +95,45 @@ export async function getNewsInjectionForSpeak(
   if (!picked) return null
 
   markNewsSeen(settings, picked.id)
+
+  let item = picked
+  try {
+    const enrich = await enrichNewsForChat(picked, {
+      settings,
+      appSettings: options.appSettings
+    })
+    item = applyEnrichToItem(picked, enrich)
+    if (enrich.warning) {
+      console.warn('[news enrich]', picked.id, enrich.warning)
+    }
+  } catch (e) {
+    console.warn('[news enrich] failed, using RSS fallback', e)
+  }
+
   return {
-    text: buildNewsContextString(picked, settings),
-    directive: buildNewsDirective(picked),
-    item: picked,
+    text: buildNewsContextString(item, settings),
+    directive: buildNewsDirective(item),
+    item,
     fromTopic: false
   }
+}
+
+/**
+ * 「聊這個」確認後、送出前暫存的 newsLink。
+ * 下一次 message:send 會掛到使用者訊息上並清空。
+ */
+let pendingUserNewsLink: NewsLinkInfo | null = null
+
+export function setPendingUserNewsLink(link: NewsLinkInfo | null): void {
+  pendingUserNewsLink = link
+}
+
+export function peekPendingUserNewsLink(): NewsLinkInfo | null {
+  return pendingUserNewsLink
+}
+
+export function consumePendingUserNewsLink(): NewsLinkInfo | null {
+  const v = pendingUserNewsLink
+  pendingUserNewsLink = null
+  return v
 }

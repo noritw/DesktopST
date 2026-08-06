@@ -14,6 +14,8 @@ export interface NewsTopic {
   summary: string
   url: string
   source: string
+  /** 實際進 Prompt 的上下文（enrich／手動改正）；無則退回 summary */
+  promptContext?: string
 }
 
 let activeTopic: NewsTopic | null = null

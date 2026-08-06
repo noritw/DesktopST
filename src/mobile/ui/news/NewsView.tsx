@@ -1,9 +1,11 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import MonoIcon from '@shared/MonoIcon'
 import { sectionQuota, sortPinnedFirst } from '@core/news/reader'
 import type { ReaderSection } from '@core/news/reader'
 import type { NewsItem } from '@core/news/types'
+import type { NewsLinkInfo } from '@core/types'
+import { getData } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { useComposerStore } from '../stores/composerStore'
 import { useNewsStore, selectSections } from './newsStore'
@@ -127,7 +129,44 @@ function NewsBody({ sections }: { sections: ReaderSection[] }): JSX.Element {
   const toast = useUiStore((s) => s.toast)
   const popAll = useUiStore((s) => s.popAll)
   const insert = useComposerStore((s) => s.insert)
+  const setPendingNewsLink = useComposerStore((s) => s.setPendingNewsLink)
   const pinnedIds = state.pinnedItems.map((p) => p.id)
+  const [ctxItem, setCtxItem] = useState<NewsItem | null>(null)
+  const [ctxDraft, setCtxDraft] = useState('')
+  const [ctxLoading, setCtxLoading] = useState(false)
+
+  const chatAbout = (item: NewsItem): void => {
+    setCtxItem(item)
+    setCtxDraft(item.summary || '')
+    setCtxLoading(true)
+    void getData().news.enrichForChat(item)
+      .then((r) => {
+        if (r.ok) setCtxDraft(r.promptContext || item.summary || '')
+      })
+      .catch(() => {
+        setCtxDraft(item.summary || '')
+      })
+      .finally(() => setCtxLoading(false))
+  }
+
+  const confirmChatAbout = (): void => {
+    if (!ctxItem) return
+    const link: NewsLinkInfo = {
+      id: ctxItem.id,
+      sourceId: ctxItem.sourceId,
+      title: ctxItem.title,
+      url: ctxItem.url,
+      summary: ctxItem.summary,
+      source: ctxItem.source,
+      keyword: ctxItem.keyword,
+      promptContext: ctxDraft.trim()
+    }
+    setPendingNewsLink(link)
+    insert(`${ctxItem.title}\n`)
+    setCtxItem(null)
+    popAll()
+    toast('已放進輸入框（標題）')
+  }
 
   // 模組沒開：說明怎麼開，不要只丟一句「未啟用」讓人不知道去哪找
   if (!state.enabled) {
@@ -177,15 +216,47 @@ function NewsBody({ sections }: { sections: ReaderSection[] }): JSX.Element {
     )
   }
 
-  /** 💬 聊這個：丟進**手機自己的**輸入框（規劃書 §4.5），不動桌面。 */
-  const chatAbout = (item: NewsItem): void => {
-    insert(`${item.title}${item.summary ? `\n${item.summary}` : ''}\n`)
-    popAll()
-    toast('已放進輸入框')
-  }
-
   return (
     <div className="space-y-4 py-1">
+      {ctxItem && (
+        <div className="fixed inset-0 z-[70] flex items-end bg-black/30" onClick={() => setCtxItem(null)}>
+          <div
+            className="max-h-[80vh] w-full overflow-y-auto rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm font-semibold text-[var(--text)]">{ctxItem.title}</p>
+            <p className="mt-1 text-[12px] text-[var(--text-sub)]">
+              這段會寫進角色看到的背景，不會整段出現在聊天泡泡裡。
+            </p>
+            {ctxLoading ? (
+              <p className="py-8 text-center text-sm text-[var(--text-sub)]">整理中…</p>
+            ) : (
+              <textarea
+                className="mt-2 min-h-[140px] w-full rounded-[14px] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--text)]"
+                value={ctxDraft}
+                onChange={(e) => setCtxDraft(e.target.value)}
+              />
+            )}
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                className="flex-1 rounded-full border border-[var(--border)] py-2.5 text-sm"
+                onClick={() => setCtxItem(null)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={ctxLoading}
+                className="flex-1 rounded-full bg-[var(--mint)] py-2.5 text-sm font-semibold text-[var(--text)] disabled:opacity-50"
+                onClick={confirmChatAbout}
+              >
+                確認放入輸入框
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {sections.map((sec) => (
         <div key={sec.groupId} className="space-y-2">
           <div className="flex items-center gap-2">

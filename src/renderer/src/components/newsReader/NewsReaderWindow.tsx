@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import MonoIcon from '../MonoIcon'
+import NewsContextPanel from '../NewsContextPanel'
 import { groupNewsItems, groupNewsItemsByKeyword } from './groupNewsItems'
 import { useNewsReaderStore } from './useNewsReaderStore'
 import type { NewsItem } from '../../modules/news/types'
@@ -138,11 +139,13 @@ function NewsHeadlineCell({
   item: NewsItem
   showSummary: boolean
 }) {
-  const insertToInput = useNewsReaderStore(s => s.insertToInput)
   const togglePin = useNewsReaderStore(s => s.togglePin)
   const dismissItem = useNewsReaderStore(s => s.dismissItem)
   const pinned = useNewsReaderStore(s => s.pinnedItems.some(p => p.id === item.id))
   const [inserted, setInserted] = useState(false)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [enriching, setEnriching] = useState(false)
+  const [promptContext, setPromptContext] = useState('')
 
   const openOriginal = () => {
     if (!item.url) return
@@ -150,11 +153,33 @@ function NewsHeadlineCell({
     if (item.sourceId) void window.api.invoke('news:mark-opened', item.sourceId)
   }
 
+  const runEnrich = async (forceRefresh = false) => {
+    setEnriching(true)
+    try {
+      const r = await window.api.invoke('news:enrich-for-chat', {
+        item,
+        forceRefresh
+      }) as {
+        ok: boolean
+        promptContext?: string
+      }
+      if (r.ok && typeof r.promptContext === 'string') {
+        setPromptContext(r.promptContext)
+      } else {
+        setPromptContext(item.summary || '')
+      }
+    } catch {
+      setPromptContext(item.summary || '')
+    } finally {
+      setEnriching(false)
+    }
+  }
+
   const handleInsert = (e: MouseEvent) => {
     e.stopPropagation()
-    insertToInput(item)
-    setInserted(true)
-    window.setTimeout(() => setInserted(false), 1500)
+    setPromptContext(item.summary || '')
+    setPanelOpen(true)
+    void runEnrich(false)
   }
 
   const handlePin = (e: MouseEvent) => {
@@ -165,6 +190,22 @@ function NewsHeadlineCell({
   const handleDismiss = (e: MouseEvent) => {
     e.stopPropagation()
     dismissItem(item.id)
+  }
+
+  const confirmToInput = async (pc: string) => {
+    await window.api.invoke('news:insert-to-input', {
+      title: item.title,
+      summary: item.summary,
+      promptContext: pc,
+      newsId: item.id,
+      sourceId: item.sourceId,
+      url: item.url,
+      source: item.source,
+      keyword: item.keyword
+    })
+    setPanelOpen(false)
+    setInserted(true)
+    window.setTimeout(() => setInserted(false), 1500)
   }
 
   return (
@@ -223,11 +264,25 @@ function NewsHeadlineCell({
           type="button"
           className="ml-auto shrink-0 rounded-full border border-border bg-surface px-1.5 py-0.5 text-[10px] font-semibold text-primary opacity-70 group-hover/cell:opacity-100 hover:bg-mint transition-all"
           onClick={handleInsert}
-          title="把這則新聞放進輸入框當話題"
+          title="整理後放入輸入框當話題"
         >
-          {inserted ? '✓' : '聊這個'}
+          {inserted ? '✓' : enriching ? '…' : '聊這個'}
         </button>
       </div>
+
+      <NewsContextPanel
+        open={panelOpen}
+        title={item.title}
+        url={item.url}
+        source={item.source}
+        promptContext={promptContext}
+        loading={enriching}
+        mode="confirm"
+        onClose={() => setPanelOpen(false)}
+        onSave={confirmToInput}
+        onRefresh={() => runEnrich(true)}
+        onOpenOriginal={openOriginal}
+      />
     </article>
   )
 }

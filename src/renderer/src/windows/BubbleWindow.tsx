@@ -16,6 +16,7 @@ interface BubbleNewsMeta {
   summary: string
   source: string
   keyword?: string
+  promptContext?: string
 }
 
 interface BubbleSourceRect {
@@ -51,6 +52,9 @@ export default function BubbleWindow({ characterId }: Props) {
   const [isLatestSpeaker, setIsLatestSpeaker] = useState(false)
   const [news, setNews] = useState<BubbleNewsMeta | null>(null)
   const [showNewsCard, setShowNewsCard] = useState(false)
+  const [editingContext, setEditingContext] = useState(false)
+  const [contextDraft, setContextDraft] = useState('')
+  const [contextSaving, setContextSaving] = useState(false)
   const [messageId, setMessageId] = useState<string | null>(null)
   const [reaction, setReaction] = useState<string | null>(null)
   const [showReactionPicker, setShowReactionPicker] = useState(false)
@@ -209,6 +213,7 @@ export default function BubbleWindow({ characterId }: Props) {
       setConfirmPin(false)
       setShowNewsCard(false)
       setDontWantMenu(false)
+      setEditingContext(false)
       setSpeakerName(p.speakerName ?? '')
       setText(p.text ?? '')
       setNews(p.news ?? null)
@@ -487,27 +492,80 @@ export default function BubbleWindow({ characterId }: Props) {
             )}
           </div>
         )}
-        {/* 新聞小卡：點「↗ 新聞」後展開，含標題、摘要、行動按鈕 */}
+        {/* 新聞小卡：點「↗ 新聞」後展開；標題可點開 Prompt 上下文編輯 */}
         {news && showNewsCard && (
           <div className="no-drag mx-3 mb-2 mt-0.5 rounded-xl border border-border bg-surface px-3 py-2 text-xs text-primary space-y-2">
             {/* 標題列 */}
             <div className="flex items-start gap-2">
               <div className="flex-1 min-w-0">
-                <p className="font-semibold leading-snug break-words">{news.title}</p>
-                {news.summary && news.summary !== news.title && (
-                  <p className="mt-0.5 text-secondary leading-snug break-words line-clamp-3">{news.summary}</p>
-                )}
+                <button
+                  type="button"
+                  className="text-left font-semibold leading-snug break-words underline decoration-dotted underline-offset-2 hover:text-teal"
+                  title="檢視／編輯寫進 Prompt 的上下文"
+                  onClick={() => {
+                    setContextDraft(news.promptContext || news.summary || '')
+                    setEditingContext(true)
+                  }}
+                >
+                  {news.title}
+                </button>
                 {news.source && <p className="mt-0.5 text-secondary opacity-70">來源：{news.source}</p>}
               </div>
               <button
                 type="button"
                 className="shrink-0 mt-0.5 text-secondary opacity-60 hover:opacity-100 transition-opacity"
                 title="收起"
-                onClick={() => { setShowNewsCard(false); setDontWantMenu(false) }}
+                onClick={() => { setShowNewsCard(false); setDontWantMenu(false); setEditingContext(false) }}
               >
                 ✕
               </button>
             </div>
+            {editingContext && (
+              <div className="space-y-1.5">
+                <p className="text-[10px] leading-relaxed text-secondary">
+                  這段會寫進角色看到的背景，不會整段出現在聊天泡泡裡。
+                </p>
+                <textarea
+                  className="w-full min-h-[72px] rounded-xl border border-border bg-surface-85 px-2 py-1.5 text-[11px] leading-relaxed text-primary"
+                  value={contextDraft}
+                  onChange={e => setContextDraft(e.target.value)}
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    disabled={contextSaving}
+                    className="rounded-full bg-mint px-2.5 py-0.5 font-semibold disabled:opacity-50"
+                    onClick={() => {
+                      void (async () => {
+                        setContextSaving(true)
+                        try {
+                          const pc = contextDraft.trim()
+                          setNews(prev => prev ? { ...prev, promptContext: pc } : prev)
+                          if (messageId) {
+                            await window.api.invoke('news:update-prompt-context', {
+                              messageId,
+                              promptContext: pc
+                            })
+                          }
+                          setEditingContext(false)
+                        } finally {
+                          setContextSaving(false)
+                        }
+                      })()
+                    }}
+                  >
+                    {contextSaving ? '儲存中…' : '儲存'}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-full border border-border px-2.5 py-0.5 text-secondary"
+                    onClick={() => setEditingContext(false)}
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            )}
             {/* 沒興趣選單（展開後）*/}
             {dontWantMenu ? (
               <div className="space-y-1.5">

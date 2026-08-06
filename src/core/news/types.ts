@@ -135,6 +135,11 @@ export interface NewsModuleSettings {
     /** 只收幾小時內的文章；0 = 不限制 */
     maxAgeHours: number
   }
+  /**
+   * 聊新聞時是否補強上下文（抓原文／輔助模型大意）。
+   * 預設 true；關閉＝舊行為（標題＋RSS summary）。
+   */
+  enrichForChat?: boolean
 }
 
 /** 偵測到的文字主要語言（輕量字元判斷，非完整語言庫） */
@@ -167,6 +172,11 @@ export interface NewsItem {
   keyword?: string
   /** 偵測語言（filter 階段填入） */
   lang?: DetectedLang
+  /**
+   * 這次聊天實際進 Prompt 的上下文（節錄／摘要／使用者改過的版本）。
+   * 不寫回 RSS；只掛在執行期／訊息 newsLink 上。
+   */
+  promptContext?: string
 }
 
 /** json 來源的最外層契約（news-feed-spec.md §3.1） */
