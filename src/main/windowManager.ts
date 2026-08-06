@@ -3169,9 +3169,9 @@ export function openQRCodeWindow(): BrowserWindow {
   }
 
   const wa = screen.getPrimaryDisplay().workArea
-  // 內容可捲動（見 QRCodeWindow.tsx）；視窗高度再怎麼調都可能遇到更矮的螢幕。
+  // 單組 QR：回到偏緊的固定高度；內容在 QRCodeWindow 裡垂直置中。
   const w = 340
-  const h = Math.min(520, Math.max(420, wa.height - 60))
+  const h = 440
   qrCodeWindow = new BrowserWindow({
     x: Math.round(wa.x + (wa.width - w) / 2),
     y: Math.round(wa.y + (wa.height - h) / 2),
@@ -3182,7 +3182,6 @@ export function openQRCodeWindow(): BrowserWindow {
     backgroundColor: '#F7FFFC',
     alwaysOnTop: true,
     skipTaskbar: true,
-    // 螢幕比例千奇百怪，留給使用者自己調
     resizable: true,
     minWidth: 300,
     minHeight: 360,

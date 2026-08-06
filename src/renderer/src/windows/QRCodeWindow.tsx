@@ -159,10 +159,11 @@ const noDrag = { WebkitAppRegion: 'no-drag' } as React.CSSProperties
 
 const styles: Record<string, React.CSSProperties> = {
   root: {
-    // 內容可捲：視窗再矮都掃得到碼（不同螢幕比例差異很大）。
+    // 單組 QR：置中即可。矮螢幕仍可捲，避免內容被裁。
     display: 'flex',
     flexDirection: 'column' as const,
     alignItems: 'center',
+    justifyContent: 'center',
     minHeight: '100vh',
     maxHeight: '100vh',
     overflowY: 'auto' as const,
@@ -182,8 +183,6 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: 'var(--shadow-soft)',
     width: '100%',
     maxWidth: 280,
-    // 不准被壓縮：在 column flex 裡預設會 shrink，一壓縮就又變成內容被切掉。
-    // 要溢出的話交給 root 捲動。
     flexShrink: 0,
   },
   statusBadge: {
