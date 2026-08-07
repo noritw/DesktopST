@@ -816,3 +816,45 @@
 - `cyber`：**不用純黑＋霓虹**；底 `#0F1518`、冷白字、深綠／深藍當區塊底，明顯彩度留給使用者語氣色（護眼優先）。
 - 信任邊界：`mobileServer.ts` 的 `MOBILE_COLOR_THEMES` 白名單必須同步，否則手機選新主題會 400、桌面卻正常。
 - Spec §介面配色段落已改「共 12 種」；Release 草稿：`docs/release-notes-0.4.0-draft.md`。
+
+## 2026-08-08 W3 debug APK 上機 ＋ 首輪真機修正
+
+**APK 出來了**（Pixel 10a 實測通過）。建置流程與兩個環境陷阱寫在 `src/mobile/README.md`，
+`android/` 是 gitignored 所以那份 README 是唯一的紀錄來源。
+
+- ⚠️ **Capacitor 外掛必須放 `dependencies`。** `cap sync` 只掃 dependencies，
+  放 devDependencies 會靜默不註冊 Filesystem／SecureStorage 的原生實作 ——
+  **APK 裝得起來、沒有任何編譯錯誤，但儲存與金鑰全滅**。
+  正常時 sync 會印 `Found 2 Capacitor plugins for android`。
+- ⚠️ **`JAVA_HOME` 不能指向 Android Studio 的 jbr**（本機那顆是 JDK 25，
+  Gradle 8.14 只到 Java 24）→ `Unsupported class file major version 69`。
+- `httpAdapter` 不可在模組載入時 bind `globalThis.fetch`：CapacitorHttp 是 plugin
+  初始化才 patch，先 bind 會抓到未 patch 的 WebView fetch，**只在真機上炸**。
+
+**真機驗過**：預設角色包解開、settings／對話落地、API Key 以 `enc:v1:` 密文存入
+（Android Keystore 正常），force-stop 重開資料都在。
+
+### 這輪修掉的 LLM 問題（都是真機才發現的）
+
+- **Claude 完全不能用**：`@anthropic-ai/sdk` 偵測到 `window` 就拒跑。已加
+  `dangerouslyAllowBrowser`（OpenAI 那支本來就有，Claude 是漏掉）。
+  WebView 只跑我們這份 bundle、金鑰在本機 Keystore，該防護在此無意義。
+- **Gemini 2.5 三個型號下架**（新帳戶 404），已從清單移除，價格表保留。
+- **預設模型不可以拿清單第一個**：清單照新舊排，Claude 第一個是 `claude-fable-5`
+  （$10／$50）。改用 `DEFAULT_MODEL_BY_PROVIDER`，一律挑該家最便宜且非高單價的。
+- **`llm.model` 是早期單一供應商時代的欄位**，`resolveModel()` 仍會拿它墊底。
+  跨供應商墊會把 gpt 型號真的送去 Anthropic（畫面上則卡在 Claude 清單頂端）。
+  切換供應商時要同步它，且只在型號屬於本家時才採用。
+- Grok 借用 OpenAI 相容那支實作，該處把 `debugPrompt.provider` 寫死成 `openai`，
+  導致 Grok 回覆被標成 OpenAI（桌面同樣中獎）。
+
+### 其他
+
+- **訊息模型小圖示**：角色名右邊 14px 小圓，點一下展開型號（桌面是 hover）。
+  開關 `settings.ui.showLlmBadge`（預設開，設定 → 對話），電腦與手機共用同一個值，
+  桌面 Log 視窗也跟著關。字母對照表在 `src/shared/llmBadge.ts`，桌面 re-export。
+- **獨立模式改資料後一定要 `events.push({ kind: 'state-invalidated' })`**。
+  「重新發送」漏推 → 截斷後畫面不更新，要重開 app 才正確。新增／刪除／編輯都有推，就它漏了。
+- 獨立模式 LLM 失敗**不要往上拋**：使用者訊息早已落地，往上拋會讓 `Composer`
+  誤報「送出失敗」並把圖片倒回附件列，照提示重送就產生重複訊息。
+- `tests/mobile/standaloneSession.test.ts` —— 獨立模式 runtime 的第一組測試。
