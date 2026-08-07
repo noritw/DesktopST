@@ -1,8 +1,8 @@
-# DesktopST v0.4.0 — 更新說明（草稿）
+# DesktopST v0.4.0 — 更新說明
 
-> 狀態：**草稿，供審稿**。尚未改 `package.json` 版號、尚未打 tag／建 GitHub Release。  
-> 基準：`v0.3.11` → 目前 `feat/mobile-ui` 先端。  
-> 日期：2026-08-07
+> 狀態：**已發佈**（2026-08-07）。  
+> Tag／Release：https://github.com/noritw/DesktopST/releases/tag/v0.4.0  
+> 基準：`v0.3.11` → `v0.4.0`（`main`）。
 
 ---
 

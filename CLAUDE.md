@@ -73,7 +73,7 @@ src/mobile/ 手機 UI
 | B1／B2／B2.5–2.7 | 完成（`core/`、adapter、store、Lorebook） |
 | **B3 手機 UI** | 階段 0–6、8、9 ＋ 資訊架構完成；`mobile.html` 已移除（單一入口 `/`）；部分畫面待真機再瞄 |
 | **B6 遙控 UI** | 已完成（真機驗證通過） |
-| **下一步** | ①B3 階段 7 APK；Spotify／日曆授權仍只在桌面。新聞進 prompt 上下文補強已實作（見 `docs/news-article-context-design.md`） |
+| **下一步** | ①B3 階段 7 APK；②v0.4.0 真機煙測（配色／新聞泡泡／遙控）。Spotify／日曆授權仍只在桌面 |
 | 延後／已排程 | 角色印象（B8）；系統通知（B5）；**飲食熱量模組（B9）** → `docs/future-nutrition-module.md`（owner 自用優先；含換機搬家包） |
 
 分支：`feat/mobile-ui`。
