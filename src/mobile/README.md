@@ -55,6 +55,10 @@ npm run dev:mobile
 
 確認 header 左側是 **「本機」**（不是「電腦」）。
 
+> ⚠️ **瀏覽器煙測時請用測試用 API Key。** 沒有 Android Keystore，
+> `initCapacitorSecrets()` 會退回 `unavailableSecrets`，金鑰以**明文**落在
+> Filesystem 的 web 後備（IndexedDB）。設定頁的 API Key 欄位底下會出現提示。
+
 ### 怎麼有角色可聊
 
 1. **匯入**（已接通）：☰ → 角色庫 → 匯入  
@@ -67,9 +71,30 @@ npm run dev:mobile
 
 掃 QR／一般 `?server=` 仍是遙控（看的是電腦那份資料）。
 
-## 尚未做
+## W3：打 debug APK
 
-- **W3**：`npx cap add android` → sync → Gradle debug（`JAVA_HOME`＝JDK 21）
+```bash
+npm run build:mobile          # 一定要先建置，cap 同步的是 out/mobile
+npx cap sync android
+cd android && ./gradlew.bat assembleDebug
+```
+
+產物：`android/app/build/outputs/apk/debug/app-debug.apk`（約 19 MB）。
+
+**兩個一定會踩的坑**
+
+1. **`JAVA_HOME` 不能指向 Android Studio 的 jbr。** 本機那顆是 **JDK 25**，
+   Gradle 8.14 只支援到 Java 24，會炸 `Unsupported class file major version 69`。
+   跑之前先在該次 shell 覆蓋成 JDK 21：
+   ```powershell
+   $env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-21.0.12.8-hotspot"
+   ```
+2. **Capacitor 外掛必須放 `dependencies`，不能放 `devDependencies`。**
+   `cap sync` 只掃 `dependencies`；放錯的話 `capacitor.settings.gradle` 不會註冊
+   Filesystem／SecureStorage，APK 裝起來但**儲存與金鑰全滅**，而且不會有編譯錯誤。
+   正確時 sync 會印 `Found 2 Capacitor plugins for android`。
+
+## 尚未做
 - 新聞／提醒完整本機實作、角色卡 import／export、情境 apply
 - S1／S2 與電腦同步
 - 簽章 keystore（不要自行產生）

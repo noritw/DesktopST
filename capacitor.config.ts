@@ -6,8 +6,8 @@ import type { CapacitorConfig } from '@capacitor/cli'
  * ⚠️ `appId` 一旦發布不可更改——改了 Android 視為不同 app，
  * 使用者會裝成兩個、資料不互通。
  *
- * `webDir` 指向手機 UI 的 web build 輸出。該 UI 是 B3 的工作，
- * **目前尚未存在**，因此現在還不能跑 `npx cap sync`。
+ * `webDir` 指向手機 UI 的 web build 輸出（`npm run build:mobile`）。
+ * 跑 `npx cap sync` 前一定要先建置，否則同步的是舊產物。
  * 同一份輸出也會給桌面版的 mobileServer 提供（掃 QR 開網頁那條路，
  * roadmap §4.5：APK 與網頁版是同一份原始碼）。
  */
