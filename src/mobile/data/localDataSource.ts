@@ -99,6 +99,7 @@ export class LocalDataSource implements DataSource {
     activatePersona: () => Promise.reject(pending('presets.activatePersona', 2)),
     activateWorld: () => Promise.reject(pending('presets.activateWorld', 2)),
     applyScene: () => Promise.reject(pending('presets.applyScene', 2)),
+    captureScene: () => Promise.reject(pending('presets.captureScene', 5)),
     savePersona: () => Promise.reject(pending('presets.savePersona', 5)),
     saveWorld: () => Promise.reject(pending('presets.saveWorld', 5)),
     saveScene: () => Promise.reject(pending('presets.saveScene', 5)),

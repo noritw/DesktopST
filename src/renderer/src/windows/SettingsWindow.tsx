@@ -17,6 +17,7 @@ import {
   modelPriceText,
   splitModelsByPrice
 } from '@core/llm/modelCatalog'
+import { isActiveSceneDirty } from '@core/scene/dirty'
 import { useAppStore } from '../stores/useAppStore'
 import type { AppSettings, PersonaPreset, RemoteCapability, ScenePreset, WorldPreset } from '../types'
 import MonoIcon from '../components/MonoIcon'
@@ -1466,6 +1467,14 @@ export default function SettingsWindow() {
                     const charNames = scene.desktopCharacters
                       .map(d => characters.find(c => c.id === d.characterId)?.name)
                       .filter(Boolean) as string[]
+                    // 使用中情境與 draft（目前設定）比對；改配色／Persona／世界觀等會亮星號
+                    const sceneDirty = isActive && !!draft && isActiveSceneDirty(scene, {
+                      activePersonaId: draft.activePersonaId,
+                      activeWorldId: draft.activeWorldId,
+                      colorTheme: draft.ui.colorTheme,
+                      lastActiveConversationId: draft.ui.lastActiveConversationId,
+                      desktopCharacterIds: draft.ui.desktopCharacters.map(d => d.characterId)
+                    })
                     return (
                       <div
                         key={scene.id}
@@ -1480,7 +1489,9 @@ export default function SettingsWindow() {
                           {/* Name row */}
                           <div className="flex items-center gap-2 min-w-0">
                             {isActive && (
-                              <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal text-primary">使用中</span>
+                              <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal text-primary">
+                                使用中{sceneDirty ? ' *' : ''}
+                              </span>
                             )}
                             {isRenaming ? (
                               <input
@@ -1496,7 +1507,9 @@ export default function SettingsWindow() {
                                 autoFocus
                               />
                             ) : (
-                              <span className="text-sm font-semibold text-primary flex-1 min-w-0 truncate">{scene.name}</span>
+                              <span className="text-sm font-semibold text-primary flex-1 min-w-0 truncate">
+                                {scene.name}{sceneDirty ? ' *' : ''}
+                              </span>
                             )}
                           </div>
 
@@ -1624,11 +1637,15 @@ export default function SettingsWindow() {
                             )}
                             <button
                               type="button"
-                              title="把目前桌面的角色位置、世界觀、對話等狀態覆寫進這個情境"
-                              className="text-xs px-2.5 py-1 rounded-full border border-border text-primary hover:bg-mint-40 transition-all"
+                              title="把目前桌面的角色、世界觀、對話、配色等狀態覆寫進這個情境"
+                              className={`text-xs px-2.5 py-1 rounded-full font-semibold transition-all ${
+                                sceneDirty
+                                  ? 'bg-teal text-primary hover:bg-mint'
+                                  : 'border border-border text-primary hover:bg-mint-40'
+                              }`}
                               onClick={() => void handleUpdateScene(scene)}
                             >
-                              覆寫為目前狀態
+                              {sceneDirty ? '覆寫為目前狀態 *' : '覆寫為目前狀態'}
                             </button>
                             {!isRenaming && (
                               <button

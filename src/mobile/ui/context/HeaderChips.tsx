@@ -38,12 +38,23 @@ export function HeaderChips(): JSX.Element | null {
   const conversationTitle = snapshot?.conversation?.title?.trim()
   if (!conversationTitle && !labels.scene && !labels.world) return null
 
+  const sceneLabel = labels.scene
+    ? `${labels.scene}${snapshot?.activeSceneDirty ? ' *' : ''}`
+    : ''
+
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
       {conversationTitle && (
         <Chip prefix="對話" value={conversationTitle} onClick={() => push('conversations')} />
       )}
-      {labels.scene && <Chip prefix="情境" value={labels.scene} onClick={() => push('presets', 'scene')} />}
+      {labels.scene && (
+        <Chip
+          prefix="情境"
+          value={sceneLabel}
+          title={snapshot?.activeSceneDirty ? '目前狀態與情境不一致，可到情境頁覆寫存回' : undefined}
+          onClick={() => push('presets', 'scene')}
+        />
+      )}
       {labels.world && <Chip prefix="世界" value={labels.world} onClick={() => push('presets', 'world')} />}
     </div>
   )
@@ -53,11 +64,22 @@ export function HeaderChips(): JSX.Element | null {
  * 前綴用淡色小字、值用正常色 —— 三個抽象概念用圖示表達只會變成另一輪「這是什麼意思」，
  * 直接寫字最清楚（正是這次要解決的問題）。
  */
-function Chip({ prefix, value, onClick }: { prefix: string; value: string; onClick: () => void }): JSX.Element {
+function Chip({
+  prefix,
+  value,
+  onClick,
+  title
+}: {
+  prefix: string
+  value: string
+  onClick: () => void
+  title?: string
+}): JSX.Element {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       aria-label={`${prefix}：${value}，點此更換`}
       className="flex max-w-[11rem] shrink-0 items-center gap-1 rounded-full bg-[var(--surface)]/70 px-2.5 py-1 text-[11px] active:bg-[var(--surface)]"
     >

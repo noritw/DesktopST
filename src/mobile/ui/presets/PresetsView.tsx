@@ -43,6 +43,7 @@ export function PresetsView({ openParam }: { openParam?: string }): JSX.Element 
   const push = useUiStore((s) => s.push)
   const toast = useUiStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
+  const activeSceneDirty = useAppStore((s) => s.snapshot?.activeSceneDirty === true)
 
   const [lists, setLists] = useState<Record<Kind, PresetListItem[]> | null>(null)
   const [active, setActive] = useState({ persona: '', world: '' })
@@ -89,6 +90,18 @@ export function PresetsView({ openParam }: { openParam?: string }): JSX.Element 
     }
   }
 
+  /** 把目前配色／Persona／世界觀等覆寫回使用中的情境（對應桌面「覆寫為目前狀態」）。 */
+  const captureActive = async (id: string): Promise<void> => {
+    try {
+      await getData().presets.captureScene(id)
+      await refresh()
+      await load()
+      toast('已把目前狀態存回情境')
+    } catch (e) {
+      toast(describeSettingsError(e, '覆寫情境'), 'error')
+    }
+  }
+
   /** 用語解說沒有「套用」，新增後直接進編輯器；其餘三種是新增空白預設組。 */
   const add = async (kind: Kind): Promise<void> => {
     if (kind !== 'lore') {
@@ -129,33 +142,43 @@ export function PresetsView({ openParam }: { openParam?: string }): JSX.Element 
             {expanded && (
               <div className="space-y-2 border-t border-[var(--border)] bg-[var(--surface)]/30 px-3 py-3">
                 <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">{HINTS[kind]}</p>
+                {kind === 'scene' && activeSceneDirty && (
+                  <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
+                    ＊ 目前狀態與使用中的情境不一致（例如改過配色）。可按「存回目前狀態」寫進情境。
+                  </p>
+                )}
 
                 {items.length === 0 && (
                   <p className="py-2 text-center text-xs text-[var(--text-sub)]">還沒有任何{LABELS[kind]}。</p>
                 )}
 
-                {items.map((item) => (
-                  <Row
-                    key={item.id}
-                    kind={kind}
-                    item={item}
-                    isActive={
-                      kind === 'scene'
-                        ? activeScene === item.id
-                        : kind === 'lore'
-                          ? false
-                          : active[kind as 'persona' | 'world'] === item.id
-                    }
-                    onPrimary={() =>
-                      kind === 'lore' ? push('lorebook-editor', item.id) : void apply(kind, item.id)
-                    }
-                    onEdit={() =>
-                      kind === 'lore'
-                        ? push('lorebook-editor', item.id)
-                        : push('preset-editor', `${kind}:${item.id}`)
-                    }
-                  />
-                ))}
+                {items.map((item) => {
+                  const isActive =
+                    kind === 'scene'
+                      ? activeScene === item.id
+                      : kind === 'lore'
+                        ? false
+                        : active[kind as 'persona' | 'world'] === item.id
+                  const dirty = kind === 'scene' && isActive && activeSceneDirty
+                  return (
+                    <Row
+                      key={item.id}
+                      kind={kind}
+                      item={item}
+                      isActive={isActive}
+                      dirty={dirty}
+                      onPrimary={() =>
+                        kind === 'lore' ? push('lorebook-editor', item.id) : void apply(kind, item.id)
+                      }
+                      onEdit={() =>
+                        kind === 'lore'
+                          ? push('lorebook-editor', item.id)
+                          : push('preset-editor', `${kind}:${item.id}`)
+                      }
+                      onCapture={dirty ? () => void captureActive(item.id) : undefined}
+                    />
+                  )
+                })}
 
                 <button
                   type="button"
@@ -187,35 +210,55 @@ function Row({
   kind,
   item,
   isActive,
+  dirty,
   onPrimary,
-  onEdit
+  onEdit,
+  onCapture
 }: {
   kind: Kind
   item: PresetListItem
   isActive: boolean
+  dirty?: boolean
   onPrimary: () => void
   onEdit: () => void
+  onCapture?: () => void
 }): JSX.Element {
   return (
     <div
-      className={`flex items-center gap-2 rounded-[14px] border px-3 py-2.5 ${
+      className={`rounded-[14px] border px-3 py-2.5 ${
         isActive ? 'border-[var(--mint)] bg-[var(--mint)]/25' : 'border-[var(--border)] bg-[var(--bg)]'
       }`}
     >
-      <button type="button" className="min-w-0 flex-1 text-left" onClick={onPrimary}>
-        <p className="truncate text-sm text-[var(--text)]">{item.name}</p>
-        {kind !== 'lore' && (
-          <StatusChip active={isActive}>{isActive ? '目前使用中' : '點此套用'}</StatusChip>
-        )}
-      </button>
-      <button
-        type="button"
-        aria-label={`編輯${item.name}`}
-        onClick={onEdit}
-        className="rounded-full p-2 text-[var(--text-sub)] active:bg-[var(--border)]"
-      >
-        <MonoIcon name="edit" className="h-4 w-4" />
-      </button>
+      <div className="flex items-center gap-2">
+        <button type="button" className="min-w-0 flex-1 text-left" onClick={onPrimary}>
+          <p className="truncate text-sm text-[var(--text)]">
+            {item.name}
+            {dirty ? ' *' : ''}
+          </p>
+          {kind !== 'lore' && (
+            <StatusChip active={isActive}>
+              {isActive ? (dirty ? '目前使用中（有未存回的變更）' : '目前使用中') : '點此套用'}
+            </StatusChip>
+          )}
+        </button>
+        <button
+          type="button"
+          aria-label={`編輯${item.name}`}
+          onClick={onEdit}
+          className="rounded-full p-2 text-[var(--text-sub)] active:bg-[var(--border)]"
+        >
+          <MonoIcon name="edit" className="h-4 w-4" />
+        </button>
+      </div>
+      {onCapture && (
+        <button
+          type="button"
+          onClick={onCapture}
+          className="mt-2 w-full rounded-full border border-[var(--border)] py-1.5 text-[11px] text-[var(--text)] active:bg-[var(--surface)]"
+        >
+          存回目前狀態
+        </button>
+      )}
     </div>
   )
 }

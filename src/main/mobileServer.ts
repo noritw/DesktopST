@@ -54,6 +54,12 @@ export interface MobileBridge {
   savePersonaPreset: (preset: import('./types').PersonaPreset) => import('./types').PersonaPreset
   saveWorldPreset: (preset: import('./types').WorldPreset) => import('./types').WorldPreset
   saveScenePreset: (preset: import('./types').ScenePreset) => import('./types').ScenePreset
+  /**
+   * 把目前桌面／設定狀態覆寫進情境（含 colorTheme）。
+   * `id` 為 null 時新建；既有 id 則覆寫並保留新聞關鍵字組／用語解說／模組覆蓋。
+   */
+  captureScene: (id: string | null, name: string) => import('./types').ScenePreset
+  getActiveSceneDirty: () => boolean
   removePersonaPreset: (id: string) => { ok: true } | { error: string }
   removeWorldPreset: (id: string) => { ok: true } | { error: string }
   removeScenePreset: (id: string) => { ok: true } | { error: string }
@@ -496,6 +502,7 @@ async function handleRequest(
       activeSceneId: bridge.getActiveSceneId(),
       activePersonaId: bridge.getActivePersonaId(),
       activeWorldId: bridge.getActiveWorldId(),
+      activeSceneDirty: bridge.getActiveSceneDirty(),
       remoteControl: getRemoteControlClientStateForDevice(bridge.getRemoteControlSettings(), getDeviceIdFromRequest(req))
     })
     return
@@ -735,6 +742,22 @@ async function handleRequest(
     // After scene, push updated desktop
     pushDesktopUpdate(bridge.getDesktopCharacterIds())
     jsonOk(res, { ok: true })
+    return
+  }
+
+  // ── POST /api/scenes/capture ──
+  // 對應桌面「覆寫為目前狀態」：把目前配色／Persona／世界觀／對話／在場角色寫回情境。
+  if (method === 'POST' && url === '/api/scenes/capture') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ id?: string; name?: string }>(req, res)
+    if (!payload) return
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const existing = bridge.getScenePreset(payload.id)
+    if (!existing) { jsonError(res, 404, 'Scene not found'); return }
+    const name = (payload.name?.trim() || existing.name)
+    const scene = bridge.captureScene(payload.id, name)
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, { scene })
     return
   }
 

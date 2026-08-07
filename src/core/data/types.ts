@@ -143,6 +143,11 @@ export interface AppStateSnapshot {
   activeSceneId?: string
   activePersonaId?: string
   activeWorldId?: string
+  /**
+   * 使用中情境與目前狀態（配色／Persona／世界觀／對話／在場角色）是否不一致。
+   * UI 在情境名稱旁加星號，提示可「覆寫為目前狀態」存回情境。
+   */
+  activeSceneDirty?: boolean
 }
 
 export interface SendMessageInput {
@@ -274,6 +279,11 @@ export interface PresetsApi {
   activatePersona(id: string): Promise<void>
   activateWorld(id: string): Promise<void>
   applyScene(id: string): Promise<void>
+  /**
+   * 把目前桌面／設定狀態覆寫進既有情境（含配色）。
+   * 對應桌面「覆寫為目前狀態」；名稱沿用情境既有名稱。
+   */
+  captureScene(id: string): Promise<void>
 
   savePersona(preset: PersonaPreset): Promise<void>
   saveWorld(preset: WorldPreset): Promise<void>

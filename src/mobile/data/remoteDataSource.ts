@@ -84,6 +84,7 @@ export class RemoteDataSource implements DataSource {
       activeSceneId?: string
       activePersonaId?: string
       activeWorldId?: string
+      activeSceneDirty?: boolean
     }>('/api/state')
 
     return {
@@ -96,7 +97,8 @@ export class RemoteDataSource implements DataSource {
       maxImagesPerMessage: d.maxImages,
       activeSceneId: d.activeSceneId,
       activePersonaId: d.activePersonaId,
-      activeWorldId: d.activeWorldId
+      activeWorldId: d.activeWorldId,
+      activeSceneDirty: d.activeSceneDirty === true
     }
   }
 
@@ -203,6 +205,7 @@ export class RemoteDataSource implements DataSource {
     activatePersona: async (id) => { await this.http.post('/api/presets/activate-persona', { id }) },
     activateWorld: async (id) => { await this.http.post('/api/presets/activate-world', { id }) },
     applyScene: async (id) => { await this.http.post('/api/scenes/apply', { id }) },
+    captureScene: async (id) => { await this.http.post('/api/scenes/capture', { id }) },
 
     savePersona: async (preset): Promise<void> => { await this.http.post('/api/presets/persona/save', { preset }) },
     saveWorld: async (preset): Promise<void> => { await this.http.post('/api/presets/world/save', { preset }) },

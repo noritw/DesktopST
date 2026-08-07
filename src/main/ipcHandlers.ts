@@ -10,6 +10,7 @@ import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, c
 import { summarizeConversation, countUncoveredMessages, listSummarizableMessages } from './llm/summarizer'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
 import { formatSystemTimeStamp } from '../core/prompt/systemTime'
+import { isActiveSceneDirty } from '../core/scene/dirty'
 import { normalizeForCompare, escapeRegExp } from '../core/util/text'
 import { safeJsonParse } from '../core/util/json'
 import { characterAliases } from '../core/character'
@@ -668,11 +669,57 @@ export function saveScenePresetDirect(incoming: ScenePreset): ScenePreset {
     activeWorldId: incoming.activeWorldId || base.activeWorldId,
     lorebookIds: incoming.lorebookIds,
     moduleOverrides: incoming.moduleOverrides,
+    // 編輯器若有帶 colorTheme（或桌面覆寫路徑寫入）要能存回；未帶則沿用既有／新建時的快照
+    colorTheme: incoming.colorTheme ?? base.colorTheme,
     updatedAt: now
   }
   fileStore.saveScenePreset(preset)
   broadcastToAll('scenes:updated', null)
   return preset
+}
+
+/**
+ * 把目前桌面／設定狀態擷取為情境快照（新建或覆寫既有）。
+ * 桌面 IPC `scene:capture` 與手機「覆寫為目前狀態」共用。
+ */
+export function captureSceneDirect(id: string | null, name: string): ScenePreset {
+  const now = Date.now()
+  const existing = id ? fileStore.loadScenePreset(id) : null
+  const scene: ScenePreset = {
+    id: id ?? uuidv4(),
+    name,
+    activePersonaId: settings.activePersonaId,
+    activeWorldId: settings.activeWorldId,
+    desktopCharacters: JSON.parse(JSON.stringify(settings.ui.desktopCharacters)) as typeof settings.ui.desktopCharacters,
+    lastActiveConversationId: settings.ui.lastActiveConversationId,
+    colorTheme: settings.ui.colorTheme,
+    inputWindowBounds: settings.ui.inputWindowBounds,
+    logWindowBounds: settings.ui.logWindowBounds,
+    // 覆寫狀態時保留既有的新聞關鍵字組綁定、用語解說綁定與模組開關覆蓋（它們不是桌面快照的一部分）
+    newsKeywordGroupId: existing?.newsKeywordGroupId,
+    lorebookIds: existing?.lorebookIds,
+    moduleOverrides: existing?.moduleOverrides,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now
+  }
+  fileStore.saveScenePreset(scene)
+  broadcastToAll('scenes:updated', null)
+  return scene
+}
+
+/** 使用中情境是否與目前狀態不一致（給 /api/state 與桌面 UI 共用判定邏輯）。 */
+export function getActiveSceneDirtyDirect(): boolean {
+  const id = settings.activeSceneId
+  if (!id) return false
+  const scene = fileStore.loadScenePreset(id)
+  if (!scene) return false
+  return isActiveSceneDirty(scene, {
+    activePersonaId: settings.activePersonaId,
+    activeWorldId: settings.activeWorldId,
+    colorTheme: settings.ui.colorTheme,
+    lastActiveConversationId: settings.ui.lastActiveConversationId,
+    desktopCharacterIds: settings.ui.desktopCharacters.map(d => d.characterId)
+  })
 }
 
 export function removeScenePresetDirect(id: string): { ok: true } | { error: 'not-found' } {
@@ -4749,30 +4796,7 @@ export function registerIpcHandlers() {
   ipcMain.handle('scene:delete', (_, id: string) => removeScenePresetDirect(id))
 
   // Capture current app state as a scene snapshot (create new or update existing)
-  ipcMain.handle('scene:capture', (_, id: string | null, name: string) => {
-    const now = Date.now()
-    const existing = id ? fileStore.loadScenePreset(id) : null
-    const scene: ScenePreset = {
-      id: id ?? uuidv4(),
-      name,
-      activePersonaId: settings.activePersonaId,
-      activeWorldId: settings.activeWorldId,
-      desktopCharacters: JSON.parse(JSON.stringify(settings.ui.desktopCharacters)) as typeof settings.ui.desktopCharacters,
-      lastActiveConversationId: settings.ui.lastActiveConversationId,
-      colorTheme: settings.ui.colorTheme,
-      inputWindowBounds: settings.ui.inputWindowBounds,
-      logWindowBounds: settings.ui.logWindowBounds,
-      // 覆寫狀態時保留既有的新聞關鍵字組綁定、用語解說綁定與模組開關覆蓋（它們不是桌面快照的一部分）
-      newsKeywordGroupId: existing?.newsKeywordGroupId,
-      lorebookIds: existing?.lorebookIds,
-      moduleOverrides: existing?.moduleOverrides,
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now
-    }
-    fileStore.saveScenePreset(scene)
-    broadcastToAll('scenes:updated', null)
-    return scene
-  })
+  ipcMain.handle('scene:capture', (_, id: string | null, name: string) => captureSceneDirect(id, name))
 
   ipcMain.handle('scene:load', (_, id: string) => applySceneById(id))
 
