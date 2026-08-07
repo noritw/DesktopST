@@ -44,7 +44,19 @@ export async function chatWithClaude(params: ChatLLMParams, deps: LLMDeps): Prom
   const { settings, character, messages, images, speakerNameById, persona, world } = params
   const model = resolveModel(settings)
 
-  const client = new Anthropic({ apiKey: resolveApiKey(settings), fetch: deps.http.fetch })
+  /*
+   * `dangerouslyAllowBrowser` 是手機獨立版的必要條件，不是偷懶。
+   *
+   * SDK 偵測到 `window` 就拒跑，防的是「網站把金鑰發給瀏覽器、被同頁面的第三方
+   * 腳本偷走」。APK 裡的 WebView 只跑我們自己這一份 bundle，沒有第三方腳本，
+   * 金鑰是使用者自己的、加密存在本機 Keystore，從不離開裝置（roadmap §2 目標③）。
+   * 桌面走主行程沒有 `window`，這個旗標對桌面不生效。
+   */
+  const client = new Anthropic({
+    apiKey: resolveApiKey(settings),
+    fetch: deps.http.fetch,
+    dangerouslyAllowBrowser: true
+  })
   const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion, minimal: params.minimal, omitSystemTime: !params.isReminder, loreBlock: params.loreBlock })
 
   type ClaudeMessage = { role: 'user' | 'assistant'; content: string | ClaudeContentBlock[] }

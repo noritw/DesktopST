@@ -10,6 +10,7 @@ import type {
   ScenePreset
 } from '@core/types'
 import { DEFAULT_SETTINGS } from '@core/types'
+import { DEFAULT_MODEL_BY_PROVIDER, MODELS_BY_PROVIDER } from '@core/llm/modelCatalog'
 import { DataError } from '@core/data'
 import type {
   AppStateSnapshot,
@@ -129,6 +130,26 @@ export class StandaloneSession {
     }
   }
 
+  /**
+   * 把目前供應商的模型補進 `models[provider]`。
+   *
+   * 首次啟動時 `models` 是空的、只有早期的 `llm.model` 有值，設定頁會顯示
+   * 「（尚未選擇）」。這裡把它攤平成新結構，順便讓沒有預設值的供應商
+   * 拿到目錄第一個型號，避免送出空模型。
+   */
+  private seedActiveModel(): void {
+    const llm = this.settings.llm
+    const p = llm.provider
+    if (llm.models?.[p]) return
+    // `llm.model` 有可能是別家的型號（就是這個 bug 的成因），不屬於本家就不採用
+    const catalog = MODELS_BY_PROVIDER[p] ?? []
+    const fallback = DEFAULT_MODEL_BY_PROVIDER[p] || catalog[0]
+    const model = (llm.model && catalog.includes(llm.model) ? llm.model : fallback) || ''
+    if (!model) return
+    llm.models = { ...llm.models, [p]: model }
+    llm.model = model
+  }
+
   private async loadSettings(): Promise<void> {
     const raw = await this.adapters.storage.readJson<Record<string, unknown>>(keys.SETTINGS_KEY)
     const pinned =
@@ -237,6 +258,7 @@ export class StandaloneSession {
       conversation: toConversationSnapshot(this.activeConversation),
       colorTheme: this.settings.ui.colorTheme ?? 'mint',
       randomToolsEnabled: this.settings.ui.randomToolsEnabled !== false,
+      showLlmBadge: this.settings.ui.showLlmBadge !== false,
       maxImagesPerMessage: this.settings.llm.maxImagesPerMessage ?? 3,
       activeSceneId: this.settings.activeSceneId || undefined,
       activePersonaId: this.settings.activePersonaId || undefined,
@@ -436,6 +458,15 @@ export class StandaloneSession {
     conv.messages = conv.messages.slice(0, userIdx)
     conv.updatedAt = Date.now()
     await this.saveConversation(conv)
+    /*
+     * **截斷後一定要先通知 UI。** `sendMessage` 之後只會 push 新增的那幾則，
+     * 沒有任何事件代表「這些舊訊息被砍了」——少了這行，畫面會停在舊清單，
+     * 新回覆接在後面，要重開 app 才看得到正確結果（owner 2026-08-08 回報）。
+     *
+     * 順序安全：`getState()` 是記憶體快照，會在 `sendMessage` 開始寫檔前就解析完，
+     * 不會反過來蓋掉接著送出的新訊息。
+     */
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     await this.sendMessage({
       content: userMsg.content,
       images: userMsg.images,

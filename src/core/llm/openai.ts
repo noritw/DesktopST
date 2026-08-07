@@ -117,7 +117,8 @@ export async function chatWithOpenAI(params: ChatLLMParams, deps: LLMDeps): Prom
   const outputTokens = (resp as any).usage?.output_tokens as number | undefined
 
   const debugPrompt = JSON.stringify({
-    provider: 'openai',
+    // Grok 借用這支（OpenAI 相容），寫死 'openai' 會讓 Grok 的回覆被標成 OpenAI
+    provider: settings.llm.provider === 'grok' ? 'grok' : 'openai',
     model,
     endpoint: settings.llm.endpoint || 'default',
     max_output_tokens: body.max_output_tokens,

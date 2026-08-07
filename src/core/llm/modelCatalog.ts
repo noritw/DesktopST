@@ -50,15 +50,17 @@ export const CLAUDE_MODELS = [
   'claude-haiku-4-5'
 ]
 
+/*
+ * 2.5 系列已從清單移除：Google 對新帳戶關閉了這批模型，實測回
+ * `404 This model models/gemini-2.5-flash-lite is no longer available to new users`。
+ * 價格表仍保留它們，讓舊訊息與手打的自訂 ID 還能顯示價格。
+ */
 export const GEMINI_MODELS = [
   'gemini-3.6-flash',
   'gemini-3.5-flash',
   'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
-  'gemini-3.1-pro-preview',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-pro'
+  'gemini-3.1-pro-preview'
 ]
 
 export const GROK_MODELS = [
@@ -74,6 +76,20 @@ export const MODELS_BY_PROVIDER: Record<LlmProvider, string[]> = {
   claude: CLAUDE_MODELS,
   gemini: GEMINI_MODELS,
   grok: GROK_MODELS
+}
+
+/**
+ * 每家的預設模型（切換供應商時自動選這個）。
+ *
+ * **一律挑該家最便宜、且非高單價區的**。不要拿清單第一個當預設——
+ * 清單是照新舊排的，Claude 的第一個是 `claude-fable-5`（$10/$50），
+ * 使用者切過去隨手聊兩句就會很痛。
+ */
+export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProvider, string> = {
+  openai: 'gpt-5.6-luna',
+  claude: 'claude-haiku-4-5',
+  gemini: 'gemini-3.1-flash-lite',
+  grok: 'grok-4.3'
 }
 
 /** 每百萬 tokens 美金價（輸入, 輸出）；未列出的模型（如官方快照 ID、自訂 ID）不顯示價格 */
