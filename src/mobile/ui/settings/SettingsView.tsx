@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import type { LlmProvider, LlmSettingsSnapshot, MemorySettingsSnapshot, ModuleToggle, WeatherSettingsSnapshot } from '@core/data'
 import { MODEL_DATA_UPDATED } from '@core/llm/modelCatalog'
 import MonoIcon from '@shared/MonoIcon'
+import { capacitorSecrets } from '../../adapters'
+import { resolveConnection } from '../connection'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from './settingsErrors'
@@ -60,6 +62,14 @@ export function SettingsView(): JSX.Element {
   const [savingModel, setSavingModel] = useState(false)
   const [savingKey, setSavingKey] = useState(false)
   const [savingEndpoint, setSavingEndpoint] = useState(false)
+
+  /*
+   * 獨立模式但金鑰保險箱沒解封（＝瀏覽器煙測，沒有 Android Keystore）：
+   * API Key 會以明文落地。這種情況要當面講，不能只寫在 console。
+   */
+  const [plaintextKey] = useState(
+    () => resolveConnection().mode === 'standalone' && !capacitorSecrets.isAvailable()
+  )
 
   const load = useCallback(async (): Promise<void> => {
     setFailed(false)
@@ -379,6 +389,11 @@ export function SettingsView(): JSX.Element {
                 儲存
               </button>
             </div>
+            {plaintextKey && (
+              <p className="mt-2 rounded-[14px] bg-[var(--bg)] p-3 text-[11px] leading-relaxed text-[var(--text-sub)]">
+                這台裝置沒有可用的金鑰保險箱，API Key 會以明文存在本機資料裡。測試用的金鑰沒問題，正式金鑰請改用 App 版。
+              </p>
+            )}
           </Field>
         ) : (
           <div className="rounded-[14px] bg-[var(--bg)] p-3 text-[11px] leading-relaxed text-[var(--text-sub)]">

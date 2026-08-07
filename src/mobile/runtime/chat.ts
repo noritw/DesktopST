@@ -242,6 +242,14 @@ export async function sendStandaloneMessage(opts: {
     conv.updatedAt = Date.now()
     await opts.saveConversation(conv)
     opts.events.push({ kind: 'message', message: errMsg })
-    throw e
+    /*
+     * **這裡刻意不 rethrow。**
+     * 使用者那則訊息在呼叫 LLM 之前就已經寫檔並上畫面了 —— 獨立模式沒有
+     * 「伺服器沒收到」這種狀態。若往上拋，`appStore.send` 會當成送出失敗，
+     * `Composer` 跟著跳「訊息送出失敗」並把圖片倒回附件列，使用者照提示重送
+     * 就會產生重複訊息＋重複圖片。回應失敗已經以系統泡泡呈現在對話裡了。
+     *
+     * 使用者訊息**寫檔之前**的錯誤仍會自然往上拋（不在這個 try 裡）。
+     */
   }
 }

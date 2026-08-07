@@ -39,6 +39,8 @@ const MODULE_DEFS: ModuleToggle[] = [
   { id: 'desktopst.calendar', label: 'Google 日曆', enabled: false }
 ]
 
+const ALLOWED_AVATAR_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp']
+
 export interface BootStandaloneOptions {
   /** 測試用：直接注入 dstpack bytes，略過 fetch */
   packBytes?: Uint8Array | null
@@ -634,7 +636,9 @@ export class StandaloneSession {
 
   async saveAvatar(id: string, image: { bytes: Uint8Array; ext: string }): Promise<string> {
     if (!this.characters.some((c) => c.id === id)) throw new DataError('not-found', id)
-    const ext = image.ext.startsWith('.') ? image.ext : `.${image.ext}`
+    // 副檔名來自呼叫端，只收白名單（storage key 檢查擋得掉 `..`，但別讓怪東西落地）
+    const raw = (image.ext.startsWith('.') ? image.ext : `.${image.ext}`).toLowerCase()
+    const ext = ALLOWED_AVATAR_EXT.includes(raw) ? raw : '.png'
     const path = `${keys.characterDirKey(id)}/avatar-${Date.now()}${ext}`
     await this.adapters.storage.writeBinary(path, image.bytes)
     const char = this.characters.find((c) => c.id === id)!
