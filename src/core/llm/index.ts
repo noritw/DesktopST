@@ -150,7 +150,7 @@ export async function classifyEmotionWithLLM(params: {
     // OpenAI / Grok
     const { default: OpenAI } = await import('openai')
     const baseURL = endpointForProvider(provider, utilitySettings.llm.endpoint)
-    const client = new OpenAI({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey, baseURL, fetch: deps.http.fetch })
+    const client = new OpenAI({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey, baseURL, fetch: deps.http.fetch, dangerouslyAllowBrowser: true })
     const model = utilitySettings.llm.models?.[provider] || utilitySettings.llm.model
     const resp = await client.responses.create({
       model,
@@ -257,7 +257,7 @@ export async function classifyNewsSubjectivityWithLLM(params: {
     // OpenAI / Grok
     const { default: OpenAI } = await import('openai')
     const baseURL = endpointForProvider(provider, utilitySettings.llm.endpoint)
-    const client = new OpenAI({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey, baseURL, fetch: deps.http.fetch })
+    const client = new OpenAI({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey, baseURL, fetch: deps.http.fetch, dangerouslyAllowBrowser: true })
     const model = utilitySettings.llm.models?.[provider] || utilitySettings.llm.model
     const resp = await client.responses.create({
       model,
@@ -320,7 +320,7 @@ export async function testLLMConnection(params: {
     // OpenAI / Grok: list models
     const { default: OpenAI } = await import('openai')
     const baseURL = endpointForProvider(provider, endpoint)
-    const client = new OpenAI({ apiKey, baseURL, fetch: deps.http.fetch })
+    const client = new OpenAI({ apiKey, baseURL, fetch: deps.http.fetch, dangerouslyAllowBrowser: true })
     const resp = await client.models.list()
     const models: string[] = []
     for await (const m of resp) {
@@ -371,7 +371,7 @@ export async function testLLMMessage(params: {
     // OpenAI / Grok: use Responses API
     const { default: OpenAI } = await import('openai')
     const baseURL = endpointForProvider(provider, endpoint)
-    const client = new OpenAI({ apiKey, baseURL, fetch: deps.http.fetch })
+    const client = new OpenAI({ apiKey, baseURL, fetch: deps.http.fetch, dangerouslyAllowBrowser: true })
     const resp = await client.responses.create({
       model,
       input: 'Say "Hello!" in one word.',

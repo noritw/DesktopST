@@ -58,7 +58,9 @@ export async function chatWithOpenAI(params: ChatLLMParams, deps: LLMDeps): Prom
   const client = new OpenAI({
     apiKey: resolveApiKey(settings),
     baseURL: settings.llm.endpoint || undefined,
-    fetch: deps.http.fetch
+    fetch: deps.http.fetch,
+    // Capacitor WebView／瀏覽器煙測都會被 SDK 判成 browser；金鑰只在使用者本機 App，不是公開網站。
+    dangerouslyAllowBrowser: true
   })
 
   const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion, minimal: params.minimal, omitSystemTime: !params.isReminder, loreBlock: params.loreBlock })

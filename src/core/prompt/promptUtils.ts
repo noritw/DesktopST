@@ -296,8 +296,8 @@ export function buildTimeMoodGuideline(hours: number): string {
   return 'Late evening (around 10–11 PM) — tone may relax slightly, but keep it natural.'
 }
 
-// Matches ASCII word chars or CJK unified ideographs — used for custom emotion IDs
-const EMOTION_TOKEN = /[a-z_一-鿿㐀-䶿]+/i
+// 自訂 sprite id 常含時間戳數字（如 1779213835889_KT_rpg_default）；不可只吃字母。
+const EMOTION_TOKEN = /[a-z0-9_一-鿿㐀-䶿]+/i
 
 /** Returns the flat list of effective emotion IDs for a character (used to parse bare CJK tags). */
 export function buildEmotionIdList(char: PromptCharacter): string[] {

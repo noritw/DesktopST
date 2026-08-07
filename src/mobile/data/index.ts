@@ -7,24 +7,37 @@ export { getDeviceIdentity, setDeviceNickname } from './deviceIdentity'
 export type { DeviceIdentity } from './deviceIdentity'
 
 import type { DataSource } from '@core/data'
+import type { PlatformAdapters } from '@core/adapters'
 import { LocalDataSource } from './localDataSource'
 import { RemoteDataSource } from './remoteDataSource'
 import type { RemoteDataSourceOptions } from './remoteDataSource'
+import { bootStandaloneSession } from '../runtime/session'
+import type { BootStandaloneOptions } from '../runtime/session'
 
 export type AppMode = 'standalone' | 'remote'
 
 /**
- * 依模式挑一個資料來源。**UI 只呼叫這支一次，之後拿到的東西沒有模式之分。**
+ * 依模式挑一個資料來源。
  *
- * 網頁版（掃 QR）永遠只能是 `'remote'` —— 網頁由電腦提供，電腦沒開就連不上。
- * 這是拓樸限制不是取捨（roadmap §4.5），所以那條路徑不需要也不該給選擇。
+ * 獨立模式是 async（要解封金鑰、讀沙箱、種預設）；遙控仍同步建構。
  */
-export function createDataSource(mode: 'standalone'): DataSource
-export function createDataSource(mode: 'remote', opts: RemoteDataSourceOptions): DataSource
-export function createDataSource(mode: AppMode, opts?: RemoteDataSourceOptions): DataSource {
+export async function createDataSource(
+  mode: 'standalone',
+  adapters: PlatformAdapters,
+  bootOpts?: BootStandaloneOptions
+): Promise<DataSource>
+export async function createDataSource(
+  mode: 'remote',
+  opts: RemoteDataSourceOptions
+): Promise<DataSource>
+export async function createDataSource(
+  mode: AppMode,
+  adaptersOrOpts: PlatformAdapters | RemoteDataSourceOptions,
+  bootOpts?: BootStandaloneOptions
+): Promise<DataSource> {
   if (mode === 'remote') {
-    if (!opts) throw new Error('remote mode requires connection options')
-    return new RemoteDataSource(opts)
+    return new RemoteDataSource(adaptersOrOpts as RemoteDataSourceOptions)
   }
-  return new LocalDataSource()
+  const session = await bootStandaloneSession(adaptersOrOpts as PlatformAdapters, bootOpts)
+  return new LocalDataSource(session)
 }

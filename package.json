@@ -34,9 +34,12 @@
     "zustand": "^5.0.4"
   },
   "devDependencies": {
+    "@aparajita/capacitor-secure-storage": "^8.0.0",
     "@capacitor/android": "^8.5.0",
     "@capacitor/cli": "^8.5.0",
     "@capacitor/core": "^8.5.0",
+    "@capacitor/filesystem": "^8.1.2",
+    "@noble/ciphers": "^2.2.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.20",
     "@types/react-dom": "^18.3.5",

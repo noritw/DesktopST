@@ -231,6 +231,15 @@ describe('normalizeEmotion / parseEmotion', () => {
     expect(r.content).toBe('今天天氣真好')
   })
 
+  it('帶數字的自訂 sprite id（檔名 stem）也要從內容剝掉', () => {
+    const r = parseEmotion(
+      '[1779213835889_KT_rpg_default]\n隨便妳。',
+      ['1779213835889_KT_rpg_default', '1780897146106_YT_rpg_surprise']
+    )
+    expect(r.emotion).toBe('1779213835889_KT_rpg_default')
+    expect(r.content).toBe('隨便妳。')
+  })
+
   it('emotion: xxx 格式也吃', () => {
     expect(parseEmotion('emotion: amused\n哈哈')).toEqual({ emotion: 'amusement', content: '哈哈' })
   })

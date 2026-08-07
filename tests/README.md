@@ -33,8 +33,9 @@ npm run test:watch
 | 骰子、角色卡、base64、提醒時刻 | 「用起來順不順」 |
 
 **測試對象是 `src/core/`** —— B1／B2／B2.7 抽出來的純函式層，不碰網路、檔案、視窗。
-**例外：`src/mobile/events/`**（B3 階段 0-②）也測 —— 它的 WebSocket 與計時器都是
-建構子注入的，所以一樣可決定性。`src/main/`（Electron）與 `src/renderer/`（React）不在範圍：
+**例外：** `src/mobile/events/`（WS／計時器可注入）、`src/mobile/adapters/` 契約
+（記憶體 storage／AES secrets，不碰真機 Capacitor）。
+`src/main/`（Electron）與 `src/renderer/`（React）不在範圍：
 前者要真的 Electron 環境，後者要真的畫面，兩者都在
 `pre-b3-work-assessment.md` §6.4「只能靠人」那一側。
 
