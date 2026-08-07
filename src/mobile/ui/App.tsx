@@ -19,6 +19,7 @@ import { RemoteEventSource } from '../events/remoteEventSource'
 import { HeaderChips } from './context/HeaderChips'
 import { initCapacitorSecrets, capacitorAdapters } from '../adapters'
 import { bootStandaloneSession } from '../runtime/session'
+import { setStandaloneSession } from '../runtime/sessionHolder'
 
 /**
  * 手機 UI 的根元件。
@@ -76,6 +77,8 @@ export function App(): JSX.Element {
         if (cancelled) return
         const session = await bootStandaloneSession(capacitorAdapters)
         if (cancelled) return
+        // S1 匯入要直接對 session 動手（不經 DataSource，見 sessionHolder 檔頭）
+        setStandaloneSession(session)
         setLanDirect(null)
         detach = attach({
           data: new LocalDataSource(session),
@@ -104,6 +107,7 @@ export function App(): JSX.Element {
     return () => {
       cancelled = true
       detach?.()
+      setStandaloneSession(null)
     }
   }, [conn, attach])
 

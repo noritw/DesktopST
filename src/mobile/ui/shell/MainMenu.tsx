@@ -1,6 +1,7 @@
 import MonoIcon, { type MonoIconName } from '@shared/MonoIcon'
 import { useUiStore, type ViewKind } from '../stores/uiStore'
 import { getData } from '../stores/appStore'
+import { getStandaloneSession } from '../../runtime/sessionHolder'
 
 /**
  * 主選單（owner 2026-08-06）。
@@ -28,6 +29,9 @@ const ITEMS: MenuItemDef[] = [
   { kind: 'reminders', icon: 'alarm', label: '提醒', hint: '設定時間，讓角色主動開口提醒你' },
   { kind: 'theme-picker', icon: 'palette', label: '色彩主題', hint: '換一組配色，會同步到所有裝置' },
   { kind: 'settings', icon: 'settings', label: '設定', hint: 'API Key、模型、記憶與模組開關' },
+  // 從電腦匯入（S1）：只有獨立模式看得到 —— 遙控模式讀的本來就是電腦那份資料，
+  // 「匯入」在那裡沒有意義。下面用 `.filter()` 整個拿掉，不是 disabled。
+  { kind: 'sync-import', icon: 'qr', label: '從電腦匯入', hint: '掃 QR，把電腦上的角色與設定拉過來' },
   // 遙控電腦（清單 H1–H11，B6）：只在遙控模式（`RemoteDataSource`）才有意義，
   // 獨立模式的 `capabilities.remoteControl` 恆為 false，下面用 `.filter()` 整個拿掉這一項——
   // 不是渲染出來再 disabled，是「這台裝置根本沒有電腦可控」這件事在 UI 上不存在。
@@ -36,7 +40,12 @@ const ITEMS: MenuItemDef[] = [
 
 export function MainMenu(): JSX.Element {
   const replace = useUiStore((s) => s.replace)
-  const items = ITEMS.filter((item) => item.kind !== 'remote' || getData().capabilities.remoteControl)
+  const standalone = getStandaloneSession() !== null
+  const items = ITEMS.filter((item) => {
+    if (item.kind === 'remote') return getData().capabilities.remoteControl
+    if (item.kind === 'sync-import') return standalone
+    return true
+  })
 
   return (
     <div className="space-y-1.5 pb-2">

@@ -20,6 +20,7 @@ import { NewsView } from '../news/NewsView'
 import { NewsSettingsView } from '../news/NewsSettingsView'
 import { RemoteControlView } from '../remote/RemoteControlView'
 import { MainMenu } from './MainMenu'
+import { SyncImportView } from '../sync/SyncImportView'
 
 /**
  * 畫面堆疊的渲染端（清單 G3）。
@@ -46,6 +47,7 @@ const TITLES: Record<ViewKind, string> = {
   'random-tools': '隨機工具',
   'theme-picker': '色彩主題',
   'lorebook-editor': '編輯用語解說',
+  'sync-import': '從電腦匯入',
   remote: '遙控電腦',
   menu: '選單'
 }
@@ -92,6 +94,7 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'lorebook-editor' && entry.param) return <LorebookEditor bookId={entry.param} />
   if (entry.kind === 'news') return <NewsView />
   if (entry.kind === 'news-settings') return <NewsSettingsView />
+  if (entry.kind === 'sync-import') return <SyncImportView />
   if (entry.kind === 'remote') return <RemoteControlView />
   // param 是必要的：沒有它不知道在講哪個角色／哪則訊息。
   // 缺了就當成程式錯誤讓它顯示「尚未實作」，不要靜靜地畫一個空選單。

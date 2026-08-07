@@ -814,6 +814,23 @@ function isMobileLlmProvider(v: unknown): v is AppSettings['llm']['provider'] {
  * 送到手機顯示——換一把新的不需要先看到舊的。`hasApiKey` 只回答「有沒有設定」，
  * 涵蓋解密失敗時留在 `encryptedApiKeyFallbacks` 的情況（此時 `apiKeys[p]` 是空字串）。
  */
+/**
+ * S1 初始化匯入用：明文 API Key。
+ *
+ * ⚠️ **呼叫端必須先確認是區網直連**（`mobileServer` 的 `isLanDirectRequest`）。
+ * 這是唯一會把金鑰送出電腦的路徑，且僅限 S1、僅限私有位址；
+ * S2 雙向同步永不同步金鑰，DST Pack 匯出也一律排除（roadmap §4.7）。
+ * 解密失敗而落在 `encryptedApiKeyFallbacks` 的供應商會被跳過（送密文過去沒有意義）。
+ */
+export function getApiKeysForSyncDirect(): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const p of MOBILE_LLM_PROVIDERS) {
+    const key = (settings.llm.apiKeys?.[p] ?? '').trim()
+    if (key) out[p] = key
+  }
+  return out
+}
+
 export function getLlmSettingsSummaryDirect(): {
   provider: AppSettings['llm']['provider']
   model: string

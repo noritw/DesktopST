@@ -37,6 +37,8 @@ export type ViewKind =
   | 'lorebook-editor'
   /** 遙控電腦（清單 H1–H11，B6）。只有 `capabilities.remoteControl` 為真時入口才會出現。 */
   | 'remote'
+  /** 從電腦匯入（S1，roadmap §4.7）。只有獨立模式才有入口。 */
+  | 'sync-import'
   /** 頂部那顆 ☰ 展開的主選單（B3 2026-08-06 資訊架構重整）。 */
   | 'menu'
 

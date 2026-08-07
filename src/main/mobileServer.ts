@@ -65,6 +65,11 @@ export interface MobileBridge {
   removeScenePreset: (id: string) => { ok: true } | { error: string }
   getColorTheme: () => string
   getRandomToolsEnabled: () => boolean
+  /**
+   * S1 初始化匯入用的明文金鑰。
+   * **只能在 `isLanDirectRequest()` 為真的分支呼叫**（roadmap §4.7）。
+   */
+  getApiKeysForSync: () => Record<string, string>
   getShowLlmBadge: () => boolean
   setShowLlmBadge: (show: boolean) => boolean
   getMaxImagesPerMessage: () => number
@@ -1256,6 +1261,74 @@ async function handleRequest(
     bridge.removeLorebook(payload.id)
     pushDesktopUpdate(bridge.getDesktopCharacterIds())
     jsonOk(res, { ok: true })
+    return
+  }
+
+  /*
+   * ── GET /api/sync-init ── S1 初始化匯入：設定與預設組（roadmap §4.7）
+   *
+   * 角色不走這裡 —— 角色帶圖檔，改用 `/api/sync-pack` 的 .dstpack（見下）。
+   *
+   * ⚠️ **API Key 的判定必須在這一端做，不可信任手機端自稱。**
+   * 私有位址直連才給金鑰；經 relay／tunnel 一律剝除並標明原因，
+   * 手機端只負責顯示狀態、不提供「我知道風險仍要傳」的覆寫（§2 目標④）。
+   */
+  if (method === 'GET' && url === '/api/sync-init') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const lanDirect = isLanDirectRequest(req)
+    const llm = bridge.getLlmSettings()
+    jsonOk(res, {
+      lanDirect,
+      colorTheme: bridge.getColorTheme(),
+      showLlmBadge: bridge.getShowLlmBadge(),
+      randomToolsEnabled: bridge.getRandomToolsEnabled(),
+      maxImagesPerMessage: bridge.getMaxImagesPerMessage(),
+      llm: {
+        provider: llm.provider,
+        model: llm.model,
+        models: llm.models,
+        endpoint: llm.endpoint,
+        maxResponseTokens: llm.maxResponseTokens,
+        maxGroupRounds: llm.maxGroupRounds,
+        maxImagesPerMessage: llm.maxImagesPerMessage,
+        // 只有區網直連才附金鑰；否則連欄位都不出現（不是空字串，避免手機誤判成「已清空」）
+        ...(lanDirect ? { apiKeys: bridge.getApiKeysForSync() } : {})
+      },
+      memory: bridge.getMemorySettings(),
+      modules: bridge.listModuleToggles(),
+      personas: bridge.getPersonaPresets(),
+      worlds: bridge.getWorldPresets(),
+      scenes: bridge.getScenes(),
+      activePersonaId: bridge.getActivePersonaId(),
+      activeWorldId: bridge.getActiveWorldId(),
+      characters: bridge.getCharacters().map((c) => ({ id: c.id, name: c.name }))
+    })
+    return
+  }
+
+  /*
+   * ── GET /api/sync-pack ── S1 的角色本體（.dstpack）
+   *
+   * 沿用桌面匯出的同一份打包程式，手機端也已經有解包邏輯 ——
+   * 不要為了同步另發明一種傳輸格式，圖檔與 Lorebook 都在裡面。
+   * `includeGlobalSettings` 固定 false：設定走 `/api/sync-init`，那邊才有金鑰判定。
+   */
+  if (method === 'GET' && url === '/api/sync-pack') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const ids = bridge.getCharacters().map((c) => c.id)
+    if (ids.length === 0) { jsonError(res, 404, 'No characters'); return }
+    const r = await bridge.buildDstPack({
+      characterIds: ids,
+      includeGlobalSettings: false,
+      includeLorebooks: true
+    })
+    if ('error' in r) { jsonError(res, 500, r.error); return }
+    const buf = Buffer.from(r.buffer)
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(buf.length)
+    })
+    res.end(buf)
     return
   }
 
