@@ -50,10 +50,12 @@ src/mobile/ 手機 UI
 - 解除安裝不刪使用者資料
 
 **視覺（只改這些檔，勿動邏輯）**
-- 扁平、圓潤、春夏粉彩；主色薄荷／天藍；背景 `#F7FFFC`；文字 `#3D5A52`
-- 禁止：厚重陰影、毛玻璃、純黑字、尖角
-- 檔案：`src/styles/theme.css`、`tailwind.config.ts`、`src/styles/global.css`、`src/shared/MonoIcon.tsx`
+- 扁平、圓潤；預設仍是春夏粉彩（主色薄荷／天藍；背景 `#F7FFFC`；文字 `#3D5A52`）
+- 另有多組可選主題（含無彩度純白／黑白灰，以及森林、復古、賽博）；細節見 `docs/progress-log.md`「介面配色擴充」
+- 禁止：厚重陰影、毛玻璃、純黑字、尖角；賽博主題亦避免霓虹 glow
+- 檔案：`src/renderer/src/styles/theme.css`、`src/mobile/ui/theme.ts`、`tailwind.config.ts`、`src/renderer/src/styles/global.css`、`src/shared/MonoIcon.tsx`
 - 加圖示只改 `src/shared/MonoIcon.tsx`，不要在桌面／手機各抄一份
+- 新增／改主題時：`ColorTheme` union、桌面選色器、情境 `THEME_META`、手機 ThemePicker、**以及** `mobileServer` 的 `MOBILE_COLOR_THEMES` 白名單要一起改
 
 **架構（手機／跨平台提案必過）**——濃縮自 roadmap §2／§8，細節選讀原文
 - 四大目標：①裝置上可單機聊自己的角色 ②不另付費給作者（無須營運後端）
@@ -72,7 +74,7 @@ src/mobile/ 手機 UI
 | **B3 手機 UI** | 階段 0–6、8、9 ＋ 資訊架構完成；`mobile.html` 已移除（單一入口 `/`）；部分畫面待真機再瞄 |
 | **B6 遙控 UI** | 已完成（真機驗證通過） |
 | **下一步** | ①B3 階段 7 APK；Spotify／日曆授權仍只在桌面。新聞進 prompt 上下文補強已實作（見 `docs/news-article-context-design.md`） |
-| 延後 | 角色印象（B8）；系統通知（B5） |
+| 延後／已排程 | 角色印象（B8）；系統通知（B5）；**飲食熱量模組（B9）** → `docs/future-nutrition-module.md`（owner 自用優先；含換機搬家包） |
 
 分支：`feat/mobile-ui`。
 
@@ -103,6 +105,7 @@ src/mobile/ 手機 UI
 | 提案跨平台／散布／同步架構 | roadmap **§2、§8**（必要時 §4.5–4.7） | 整份 roadmap、§10 舊順序敘事 |
 | 對照舊 mobile.html 功能清單（歷史） | `mobile-html-feature-inventory.md` **§6／§7** | 整份 inventory |
 | Lorebook 規格 | `future-lorebook.md` | — |
+| 飲食熱量模組（B9） | `future-nutrition-module.md` | — |
 | 新聞報 | `news-reader-mobile-plan.md`（舊版規格／UX）＋ b3 **§4.21**（React 版落地） | 所有 `news-future-*`（那是構想） |
 | 新聞進 prompt 斷章／摘要設計 | `news-article-context-design.md` | — |
 | 假伺服器怎麼驗 | `scripts/README-mobile-stub.md` | — |

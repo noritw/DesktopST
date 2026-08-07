@@ -1,15 +1,14 @@
 import type { ColorTheme } from '@core/types'
 
 /**
- * 9 種色彩主題（清單 G1）。
+ * 12 種色彩主題（清單 G1）。
  *
- * **色值逐字沿用 `assets/mobile.html` 817–840 行**，不重新設計 ——
- * 兩份 UI 在過渡期會並存（roadmap §4.5：新 UI 完成前舊的繼續服役），
- * 顏色不一致會讓使用者以為切換模式時跑錯地方。
+ * 變數命名沿用 `--mint` 系列，**刻意不與桌面的 `--color-mint` 系列統一**：
+ * 桌面那套是 `src/renderer/src/styles/theme.css` 的資產，
+ * CLAUDE.md 明訂視覺修改只動那幾個檔。兩套各自獨立，不互相牽動，
+ * 但**色值要對齊**——同一個主題在電腦與手機上看起來必須是同一個主題。
  *
- * 變數命名也沿用 mobile.html 的 `--mint` 系列，**刻意不與桌面的
- * `--color-mint` 系列統一**：桌面那套是 `src/styles/theme.css` 的資產，
- * CLAUDE.md 明訂視覺修改只動那幾個檔。兩套各自獨立，不互相牽動。
+ * 深色三組（dark／sepia／cyber）的 `surface` 比桌面再亮一階，理由見 `dark` 的註解。
  */
 
 export interface ThemeVars {
@@ -43,7 +42,12 @@ export const THEMES: Record<ColorTheme, ThemeVars> = {
   sky:      { mint: '#AAEEFF', mint2: '#88CCEE', bg: '#F0FAFF', surface: '#ffffff', userBubble: '#CCF0FF', text: '#2A4A6A', sub: '#6A8AAA', border: 'rgba(0,0,0,0.08)', ...LIGHT_DANGER },
   blush:    { mint: '#FFBBBB', mint2: '#F0A0B0', bg: '#FFF5F5', surface: '#ffffff', userBubble: '#FFD8E0', text: '#5A2A3A', sub: '#9A7A88', border: 'rgba(0,0,0,0.08)', ...LIGHT_DANGER },
   lavender: { mint: '#F0BBFF', mint2: '#DDA0EE', bg: '#FDF5FF', surface: '#ffffff', userBubble: '#E8D0FF', text: '#4A2A5A', sub: '#8A6A9A', border: 'rgba(0,0,0,0.08)', ...LIGHT_DANGER },
-  white:    { mint: '#E8E8E8', mint2: '#CCCCCC', bg: '#FFFFFF', surface: '#F8F8F8', userBubble: '#DDDDDD', text: '#3D5A52', sub: '#7BA898', border: 'rgba(0,0,0,0.12)', ...LIGHT_DANGER },
+
+  /** 森林：葉綠＋嫩芽黃。底色帶暖黃，與 `mint` 那組偏藍綠的冷白刻意分開。 */
+  forest:   { mint: '#CBE8A6', mint2: '#A6D179', bg: '#F5FAEE', surface: '#ffffff', userBubble: '#E6F3CC', text: '#2F4A26', sub: '#6B8A57', border: 'rgba(0,0,0,0.08)', ...LIGHT_DANGER },
+
+  /** 純白：無彩度。原本 text／sub 還是薄荷綠系，切過來看得出殘留的綠。 */
+  white:    { mint: '#E8E8E8', mint2: '#CFCFCF', bg: '#FFFFFF', surface: '#F7F7F7', userBubble: '#E4E4E4', text: '#2B2B2B', sub: '#767676', border: 'rgba(0,0,0,0.12)', ...LIGHT_DANGER },
 
   /**
    * ⚠️ **深色主題的值與 `mobile.html` 不同**（其餘八種仍逐字相同）。
@@ -57,11 +61,19 @@ export const THEMES: Record<ColorTheme, ThemeVars> = {
    *
    * 危險色改暗紅：淺色那組粉紅 `#FFBBBB` 在深色底上會過亮而刺眼。
    *
-   * 📌 這一行已同步到 `assets/mobile.html`（危險色沒有同步，因為那邊用的是
-   * 瀏覽器內建 `confirm`，沒有自家的危險色 UI）。**改這行要記得改那邊**，
-   * 理由同隨機工具機率表：那份是純 vanilla、無建置步驟，無法 import TS。
+   * 使用者泡泡原本是 `#24443F`（帶綠），與「無彩度」的定位不合，已改中性灰。
    */
-  dark:     { mint: '#2E2E2E', mint2: '#3A3A3A', bg: '#121212', surface: '#242424', userBubble: '#24443F', text: '#EEEEEE', sub: '#9A9A9A', border: 'rgba(255,255,255,0.14)', danger: '#8A3A3A', dangerText: '#FFDCDC' }
+  dark:     { mint: '#2E2E2E', mint2: '#3A3A3A', bg: '#121212', surface: '#242424', userBubble: '#2C2C2C', text: '#EEEEEE', sub: '#9A9A9A', border: 'rgba(255,255,255,0.14)', danger: '#8A3A3A', dangerText: '#FFDCDC' },
+
+  /** 復古：舊紙、紅茶、木質。暖色低飽和，主文字用米紙白而不是純白。 */
+  sepia:    { mint: '#3A2C22', mint2: '#56402F', bg: '#1A1512', surface: '#2A231D', userBubble: '#33281F', text: '#ECE0CC', sub: '#A99479', border: 'rgba(255,255,255,0.12)', danger: '#B05744', dangerText: '#FFDCD2' },
+
+  /**
+   * 賽博：深綠＋深藍。**刻意不用純黑配霓虹字** —— 手機在暗處看那個組合，
+   * 高飽和亮字的邊緣會發散、久看很累。所以底色抬到 `#0F1518`、
+   * 主文字用帶灰的冷白，深綠深藍只當區塊底，明顯的彩度只出現在使用者泡泡。
+   */
+  cyber:    { mint: '#143A33', mint2: '#1B3A52', bg: '#0F1518', surface: '#1B242B', userBubble: '#143A33', text: '#DCE6E9', sub: '#8AA0AA', border: 'rgba(255,255,255,0.12)', danger: '#C2605E', dangerText: '#FFE2E0' }
 }
 
 export const THEME_IDS = Object.keys(THEMES) as ColorTheme[]

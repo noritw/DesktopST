@@ -281,7 +281,9 @@ export interface WorldPreset {
   updatedAt: number
 }
 
-export type ColorTheme = 'mint' | 'butter' | 'peach' | 'aqua' | 'sky' | 'blush' | 'lavender' | 'white' | 'dark'
+export type ColorTheme =
+  | 'mint' | 'butter' | 'peach' | 'aqua' | 'sky' | 'blush' | 'lavender' | 'forest' | 'white'
+  | 'dark' | 'sepia' | 'cyber'
 
 export interface ScenePreset {
   id: string

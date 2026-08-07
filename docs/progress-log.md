@@ -43,7 +43,7 @@
   - Tray 加入「開啟便利貼管理」選項
   - 資料存於 `%APPDATA%\DesktopST\pinned-notes.json`
 - [x] 色彩主題系統
-  - 介面設定分頁加入色彩主題選擇器（9 種：mint / butter / peach / aqua / sky / blush / lavender / white / dark）
+  - 介面設定分頁加入色彩主題選擇器（初版 9 種；**2026-08-07 起為 12 種**，見文末「介面配色擴充」）
   - 儲存於 `AppSettings.ui.colorTheme`
 - [x] Emoji 選擇器
   - 輸入視窗加入 Emoji 按鈕，點擊彈出獨立 EmojiPickerWindow
@@ -803,3 +803,16 @@
 - `DesktopST-dev.bat` 先 `build:mobile`；新版無 HMR，邊改邊看仍用 `MobileST-test.bat`。
 - **`mobile.html` 不能在 B6 之前刪掉**（H1–H11 只有舊版有）。
 - 下一步：**階段 6 個人新聞報** → 7（收尾／APK）。
+
+## 2026-08-07 介面配色擴充（v0.4.0）
+
+- 主題由 9 → **12** 組。`ColorTheme`：`forest`／`sepia`／`cyber` 新增；`white`／`dark` **改寫為無彩度**。
+- **給人看的標籤**（設定／手機 ThemePicker／情境色條）：森林、復古、賽博、黑白灰、純白……；**給機器的 key** 維持英文。
+- 色值對齊兩份資產（名稱刻意不統一，見既有註解）：
+  - 桌面：`src/renderer/src/styles/theme.css`（`--color-*`）
+  - 手機：`src/mobile/ui/theme.ts`（`--mint`／`--mint2` 等）
+- 深色組另覆寫 `--shadow-soft`／`--shadow-panel`，避免預設偏綠陰影透出來。
+- 手機深色 `surface` 仍比桌面再亮一階（自動調光下卡片才分得出來；沿用 2026-08-04 實機結論）。
+- `cyber`：**不用純黑＋霓虹**；底 `#0F1518`、冷白字、深綠／深藍當區塊底，明顯彩度留給使用者語氣色（護眼優先）。
+- 信任邊界：`mobileServer.ts` 的 `MOBILE_COLOR_THEMES` 白名單必須同步，否則手機選新主題會 400、桌面卻正常。
+- Spec §介面配色段落已改「共 12 種」；Release 草稿：`docs/release-notes-0.4.0-draft.md`。

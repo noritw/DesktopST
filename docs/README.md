@@ -24,6 +24,7 @@
 | [`DesktopST-Spec.md`](../DesktopST-Spec.md) | 實作某規格功能 | **對應章節**，勿整本 |
 | [`progress-log.md`](progress-log.md) | 查舊決策／已知坑 | **Grep 關鍵字**，勿整份 |
 | [`future-lorebook.md`](future-lorebook.md) | Lorebook 規格細節 | 整份可讀（不長） |
+| [`future-nutrition-module.md`](future-nutrition-module.md) | 飲食熱量模組 B9（含換機搬家包） | 開工該模組時整份讀 |
 | [`news-reader-mobile-plan.md`](news-reader-mobile-plan.md) | B3 階段 6 個人新聞報 | 開工階段 6 時 |
 | [`news-article-context-design.md`](news-article-context-design.md) | 新聞進 prompt 上下文補強（摘要／全文） | 實作該功能前 |
 | [`../scripts/README-mobile-stub.md`](../scripts/README-mobile-stub.md) | 假 mobileServer 驗證 | 驗手機 API 時 |
@@ -42,6 +43,7 @@
 | [`news-module-*.md`](news-module-design.md)、[`news-feed-spec.md`](news-feed-spec.md)、[`news-conversation-search-spec.md`](news-conversation-search-spec.md)、[`weather-realtime-query-spec.md`](weather-realtime-query-spec.md) | 新聞／天氣已實作規格；改行為時對照 |
 | [`news-future-*.md`](news-future-keyword-groups.md) | **構想／未定案**，勿當待辦強制實作 |
 | [`future-character-impression.md`](future-character-impression.md) | B8，完全延後 |
+| [`future-nutrition-module.md`](future-nutrition-module.md) | **B9 飲食熱量模組（已定案待辦）**；換機匯出匯入見該檔 §5。開工前讀；勿與 B3 搶主線 |
 | [`bubble-layer-state-machine.md`](bubble-layer-state-machine.md) | 桌面泡泡層 |
 | [`performance-optimization-review-2026-05-30.md`](performance-optimization-review-2026-05-30.md) | 舊效能筆記 |
 | `*-setup.html`／`license.html`／`api-key-guide.html` | 給使用者的教學頁，不是 AI 開工讀物 |

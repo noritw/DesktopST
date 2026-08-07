@@ -402,7 +402,10 @@ function decodeBase64Payload(data: unknown): ArrayBuffer | null {
 }
 
 /** 允許的主題值。信任邊界上要夾，不能讓任意字串寫進設定。 */
-const MOBILE_COLOR_THEMES: string[] = ['mint', 'butter', 'peach', 'aqua', 'sky', 'blush', 'lavender', 'white', 'dark']
+const MOBILE_COLOR_THEMES: string[] = [
+  'mint', 'butter', 'peach', 'aqua', 'sky', 'blush', 'lavender', 'forest', 'white',
+  'dark', 'sepia', 'cyber'
+]
 
 // ── HTTP 路由 ─────────────────────────────────────────────
 

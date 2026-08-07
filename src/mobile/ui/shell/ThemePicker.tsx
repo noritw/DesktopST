@@ -11,8 +11,11 @@ const THEME_LABELS: Record<string, string> = {
   sky: '天空',
   blush: '腮紅',
   lavender: '薰衣草',
+  forest: '森林',
   white: '純白',
-  dark: '暗色'
+  dark: '黑白灰',
+  sepia: '復古',
+  cyber: '賽博'
 }
 
 export function ThemePicker(): JSX.Element {

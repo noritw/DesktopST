@@ -619,6 +619,7 @@ UI 上必須是**明確的模式切換**，不是自動判斷——使用者要�
 | reaction / `excludeFromContext` | 以 message id 為鍵合併 | 低 |
 | **API Key** | **永不同步**（見下） | — |
 | 模組狀態（seenIds、readerState） | 聯集 | 低 |
+| **飲食模組**（B9，`FoodItem`／`MealLog`／`BodyProfile`） | 見 `future-nutrition-module.md` §5.4；MVP 另有搬家包不依賴本表 | 中 |
 
 **S3 暫不做的理由**：自動背景合併一旦出錯是**靜默的**——使用者不會收到錯誤訊息，
 只會發現對話少了幾則。S2 的差異預覽讓錯誤在發生前就能被看見。
@@ -954,6 +955,7 @@ WoL 跳板同理：可以是 NAS、路由器、樹莓派、另一台常開電腦
 | B4 | 模組移植（新聞、天氣、Calendar） | 2–4 週 |
 | B5 | 條件式主動提醒（含 Kotlin plugin） | 1–2 週 |
 | B8 | **角色對使用者／角色對角色的印象** — 見 `future-character-impression.md`。**刻意排在 B3 之後**：它是 LLM 自動寫入、驗收靠手感、會持續花 token，不宜與 B3 同時點火（理由見 `pre-b3-work-assessment.md` §4） | 1–2 週 |
+| B9 | **飲食熱量模組** — 見 `future-nutrition-module.md`。可選模組（熱量＋蛋白、食物庫、關鍵字免 LLM、快覽／Widget）；Health 選配；**MVP 含換機搬家包匯出／匯入**。B3 APK 穩定後開工；owner 自用可插隊但勿打斷 B3 | 約 3–6 週（分 B9a／b／c） |
 
 **合計約 3–4 個月**（單人 + AI 協作）。
 

@@ -1415,8 +1415,11 @@ export default function SettingsWindow() {
             sky:      { label: '天藍',   color: '#AAEEFF' },
             blush:    { label: '粉紅',   color: '#FFBBBB' },
             lavender: { label: '薰衣草', color: '#F0BBFF' },
+            forest:   { label: '森林',   color: '#CBE8A6' },
             white:    { label: '純白',   color: '#E8E8E8' },
-            dark:     { label: '黑底白字', color: '#252525', dark: true },
+            dark:     { label: '黑白灰', color: '#2A2A2A', dark: true },
+            sepia:    { label: '復古',   color: '#56402F', dark: true },
+            cyber:    { label: '賽博',   color: '#1B3A52', dark: true },
           }
           return (
             <>
@@ -2100,8 +2103,11 @@ export default function SettingsWindow() {
                 { key: 'sky',      label: '天藍',   bg: '#AAEEFF', border: '#88CCEE', text: '#2A4A6A' },
                 { key: 'blush',    label: '粉紅',   bg: '#FFBBBB', border: '#E898A8', text: '#5A2A3A' },
                 { key: 'lavender', label: '薰衣草', bg: '#F0BBFF', border: '#D088E8', text: '#4A2A5A' },
-                { key: 'white',    label: '純白',   bg: '#FFFFFF', border: '#CCCCCC', text: '#3D5A52' },
-                { key: 'dark',     label: '黑底白字', bg: '#1F2423', border: '#445A52', text: '#F7FFFC' },
+                { key: 'forest',   label: '森林',   bg: '#CBE8A6', border: '#B7D293', text: '#2F4A26' },
+                { key: 'white',    label: '純白',   bg: '#FFFFFF', border: '#D4D4D4', text: '#2B2B2B' },
+                { key: 'dark',     label: '黑白灰', bg: '#1E1E1E', border: '#4A4A4A', text: '#EEEEEE' },
+                { key: 'sepia',    label: '復古',   bg: '#241E19', border: '#56402F', text: '#ECE0CC' },
+                { key: 'cyber',    label: '賽博',   bg: '#182026', border: '#2E4A56', text: '#DCE6E9' },
               ] as const).map(opt => {
                 const active = (draft.ui.colorTheme ?? 'mint') === opt.key
                 return (
