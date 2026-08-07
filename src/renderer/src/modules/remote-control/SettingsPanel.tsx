@@ -260,7 +260,7 @@ export default function SettingsPanel({ draft, set, setDraft, setDirty }: Settin
                 max={65535}
                 value={draft.mobile?.port ?? 3721}
                 onChange={e => set('mobile', { ...(draft.mobile ?? { enabled: true, useTunnel: true }), port: Number(e.target.value) })}
-                className="w-24 px-2 py-1 text-sm border border-border rounded-lg bg-base text-primary"
+                className="input-field w-24 px-2 py-1"
               />
             </div>
             <button
@@ -380,7 +380,7 @@ export default function SettingsPanel({ draft, set, setDraft, setDirty }: Settin
           <div className="space-y-2">
             <p className="text-[11px] text-secondary">可從近期記錄加入白名單</p>
             {deviceCandidates.map(device => (
-              <div key={device.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-base border border-border">
+              <div key={device.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-surface border border-border">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-primary truncate">{device.nickname}</p>
                   <p className="text-xs text-secondary truncate">{device.label || device.id}</p>
@@ -511,7 +511,7 @@ export default function SettingsPanel({ draft, set, setDraft, setDirty }: Settin
                 placeholder="搜尋..."
                 value={programPickerSearch}
                 onChange={e => setProgramPickerSearch(e.target.value)}
-                className="w-full px-3 py-1.5 text-sm border border-border rounded-lg bg-base text-primary"
+                className="input-field"
               />
             </div>
             <div className="max-h-52 overflow-y-auto">
@@ -556,7 +556,7 @@ export default function SettingsPanel({ draft, set, setDraft, setDirty }: Settin
                     const v = e.target.value
                     mutateRemote(remote => { remote.registeredPrograms[idx].name = v })
                   }}
-                  className="w-full px-2 py-1 text-sm border border-border rounded bg-base text-primary"
+                  className="input-field !rounded px-2 py-1"
                   placeholder="顯示名稱"
                 />
                 <p className="text-xs text-secondary font-mono break-all truncate" title={prog.path}>{prog.path}</p>
@@ -567,7 +567,7 @@ export default function SettingsPanel({ draft, set, setDraft, setDirty }: Settin
                     const v = e.target.value
                     mutateRemote(remote => { remote.registeredPrograms[idx].args = v })
                   }}
-                  className="w-full px-2 py-1 text-xs border border-border rounded bg-base text-primary font-mono"
+                  className="input-field !rounded px-2 py-1 !text-xs font-mono"
                   placeholder="啟動參數（選填）"
                 />
               </div>

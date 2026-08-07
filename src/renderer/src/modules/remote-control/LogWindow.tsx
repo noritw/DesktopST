@@ -73,7 +73,7 @@ export default function RemoteControlLogWindow() {
 
   return (
     <div
-      className="flex flex-col h-screen bg-base text-primary select-none"
+      className="flex flex-col h-screen bg-bg text-primary select-none"
       style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' }}
     >
       {/* Title bar */}
