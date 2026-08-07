@@ -1,5 +1,6 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MessageSnapshot } from '@core/data'
+import { formatLlmHoverTitle, llmBadgeGlyph } from '@shared/llmBadge'
 import { isOptimistic, useAppStore, getData } from '../stores/appStore'
 import { MessageImages } from './MessageImages'
 import { formatRandomBadge } from './randomLabels'
@@ -58,6 +59,43 @@ export function MessageList(): JSX.Element {
   )
 }
 
+/**
+ * 生成這則回覆的模型（角色名右邊那顆小圓）。
+ *
+ * 桌面是 hover 顯示 title，手機沒有 hover —— 改成**點一下把型號展開在旁邊**，
+ * 再點一下收起。可在設定關掉（`ui.showLlmBadge`，預設開）。
+ * 字母與文字格式跟桌面共用 `@shared/llmBadge`，不要另抄一份對照表。
+ */
+function LlmBadge({ message }: { message: MessageSnapshot }): JSX.Element | null {
+  const enabled = useAppStore((s) => s.snapshot?.showLlmBadge !== false)
+  const [open, setOpen] = useState(false)
+  const provider = message.llmProvider
+  const model = message.llmModel
+
+  if (!enabled || (!provider && !model)) return null
+  return (
+    <>
+      <button
+        type="button"
+        // 視覺是 14px 的小圓，但點擊區用 padding 撐到能按得到（小圓本身太小按不準）
+        className="-m-1 inline-flex items-center justify-center p-1"
+        aria-label={`生成模型：${formatLlmHoverTitle(provider, model)}`}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="inline-flex h-[14px] w-[14px] items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[9px] leading-none text-[var(--text-sub)]">
+          {llmBadgeGlyph(provider)}
+        </span>
+      </button>
+      {open && (
+        <span className="min-w-0 truncate text-[11px] text-[var(--text-sub)]">
+          {formatLlmHoverTitle(provider, model)}
+        </span>
+      )}
+    </>
+  )
+}
+
 function MessageRow({ message, characterName }: { message: MessageSnapshot; characterName: string }): JSX.Element {
   if (message.role === 'system') {
     return (
@@ -76,8 +114,11 @@ function MessageRow({ message, characterName }: { message: MessageSnapshot; char
         </div>
       )}
       <div className={`min-w-0 ${isUser ? 'max-w-[86%]' : 'flex-1'}`}>
-        {!isUser && characterName && (
-          <div className="mb-0.5 ml-1 text-xs text-[var(--text-sub)]">{characterName}</div>
+        {!isUser && (characterName || message.llmModel) && (
+          <div className="mb-0.5 ml-1 flex items-center gap-1 text-xs text-[var(--text-sub)]">
+            {characterName}
+            <LlmBadge message={message} />
+          </div>
         )}
 
         {/*

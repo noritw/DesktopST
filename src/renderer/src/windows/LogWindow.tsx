@@ -464,6 +464,8 @@ export default function LogWindow() {
 
   const LlmBadge = ({ msg }: { msg: Message }) => {
     const { provider, model } = messageLlmMeta(msg)
+    // 手機設定頁的「顯示生成模型小圖示」是同一個開關，桌面也要跟著關
+    if (settings?.ui.showLlmBadge === false) return null
     if (!provider && !model) return null
     return (
       <span

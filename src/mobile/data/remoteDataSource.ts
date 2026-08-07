@@ -80,6 +80,7 @@ export class RemoteDataSource implements DataSource {
       conversation: AppStateSnapshot['conversation']
       colorTheme: AppStateSnapshot['colorTheme']
       randomToolsEnabled: boolean
+      showLlmBadge?: boolean
       maxImages: number
       activeSceneId?: string
       activePersonaId?: string
@@ -94,6 +95,8 @@ export class RemoteDataSource implements DataSource {
       conversation: d.conversation ?? null,
       colorTheme: d.colorTheme,
       randomToolsEnabled: d.randomToolsEnabled,
+      // 舊版電腦端沒這個欄位；缺就當開啟（與 settings 的 `!== false` 同義）
+      showLlmBadge: d.showLlmBadge !== false,
       maxImagesPerMessage: d.maxImages,
       activeSceneId: d.activeSceneId,
       activePersonaId: d.activePersonaId,
@@ -217,6 +220,7 @@ export class RemoteDataSource implements DataSource {
 
   readonly settings: SettingsApi = {
     setColorTheme: async (theme) => { await this.http.post('/api/settings/color-theme', { theme }) },
+    setShowLlmBadge: async (show) => { await this.http.post('/api/settings/show-llm-badge', { show }) },
 
     getLlm: async () => (await this.http.get<{ llm: LlmSettingsSnapshot }>('/api/settings/llm')).llm,
     setLlmProvider: async (provider) => { await this.http.post('/api/settings/llm-provider', { provider }) },

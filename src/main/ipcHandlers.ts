@@ -578,6 +578,14 @@ export function setColorThemeDirect(theme: ColorTheme): boolean {
   return true
 }
 
+export function setShowLlmBadgeDirect(show: boolean): boolean {
+  if ((settings.ui.showLlmBadge !== false) === show) return true
+  settings.ui.showLlmBadge = show
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return true
+}
+
 export function activateWorldDirect(id: string): boolean {
   const preset = fileStore.loadWorldPreset(id)
   if (!preset) return false

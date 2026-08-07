@@ -1,11 +1,7 @@
 import type { Message } from '../types'
 
-const PROVIDER_LABELS: Record<string, string> = {
-  openai: 'OpenAI',
-  claude: 'Claude',
-  gemini: 'Gemini',
-  grok: 'Grok'
-}
+// 圖示字母與 hover 文字改放共用層，手機端用同一份（見 src/shared/llmBadge.ts）
+export { formatLlmHoverTitle, llmBadgeGlyph } from '@shared/llmBadge'
 
 export function parseDebugPromptLlmMeta(debugPrompt?: string): {
   provider?: Message['llmProvider']
@@ -28,17 +24,4 @@ export function messageLlmMeta(msg: Message): { provider?: Message['llmProvider'
   const fromDebug = parseDebugPromptLlmMeta(msg.debugPrompt)
   if (fromDebug?.provider || fromDebug?.model) return fromDebug
   return { provider: msg.llmProvider, model: msg.llmModel }
-}
-
-export function formatLlmHoverTitle(provider?: string, model?: string): string {
-  const label = provider ? (PROVIDER_LABELS[provider] ?? provider) : 'LLM'
-  return model ? `${label} / ${model}` : label
-}
-
-export function llmBadgeGlyph(provider?: string): string {
-  if (provider === 'openai') return 'O'
-  if (provider === 'claude') return 'C'
-  if (provider === 'gemini') return 'G'
-  if (provider === 'grok') return 'X'
-  return 'L'
 }

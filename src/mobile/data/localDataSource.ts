@@ -14,6 +14,7 @@ import type {
   SendMessageInput,
   SettingsApi
 } from '@core/data'
+import { DEFAULT_MODEL_BY_PROVIDER } from '@core/llm/modelCatalog'
 import { personaKey, worldKey } from '@core/store/keys'
 import type { StandaloneSession } from '../runtime/session'
 
@@ -151,13 +152,32 @@ export class LocalDataSource implements DataSource {
       await this.session.saveSettings()
       this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     },
-    getLlm: async () => this.session.llmSnapshot(),
-    setLlmProvider: async (provider) => {
-      this.session.settings.llm.provider = provider
+    setShowLlmBadge: async (show) => {
+      this.session.settings.ui.showLlmBadge = show
       await this.session.saveSettings()
+      this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    },
+    getLlm: async () => this.session.llmSnapshot(),
+    /*
+     * `llm.model` 是早期單一供應商時代的欄位，但 `core` 的 `resolveModel()` 仍會
+     * 在 `models[provider]` 空的時候拿它來墊 —— 不同步的話，切到 Claude 卻沒挑模型
+     * 就會把 OpenAI 的型號送去 Anthropic。桌面 `setLlmProviderDirect` 同樣做這件事。
+     */
+    setLlmProvider: async (provider) => {
+      const llm = this.session.settings.llm
+      llm.provider = provider
+      const model = llm.models?.[provider] || DEFAULT_MODEL_BY_PROVIDER[provider] || ''
+      if (model) {
+        llm.models = { ...llm.models, [provider]: model }
+        llm.model = model
+      }
+      await this.session.saveSettings()
+      this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     },
     setLlmModel: async (provider, model) => {
-      this.session.settings.llm.models = { ...this.session.settings.llm.models, [provider]: model }
+      const llm = this.session.settings.llm
+      llm.models = { ...llm.models, [provider]: model }
+      if (llm.provider === provider) llm.model = model
       await this.session.saveSettings()
     },
     setLlmEndpoint: async (endpoint) => {

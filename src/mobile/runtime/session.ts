@@ -81,6 +81,7 @@ export class StandaloneSession {
     }
 
     await this.loadSettings()
+    this.seedActiveModel()
     const seededPresets = await seedDefaultPresetsIfEmpty(this.adapters.storage)
     await this.reloadPresets()
     if (seededPresets.personas[0] && !this.settings.activePersonaId) {
@@ -276,7 +277,12 @@ export class StandaloneSession {
     const provider = this.settings.llm.provider
     return {
       provider,
-      model: this.settings.llm.models?.[provider] || this.settings.llm.model || '',
+      /*
+       * **不可以 fallback 到 `llm.model`。** 那是早期只有 OpenAI 時的單一欄位，
+       * 跨供應商拿來墊會把 OpenAI 型號顯示在 Claude／Gemini 的清單頂端
+       * （選單會把「不在本家目錄的目前值」保留成一個選項）。
+       */
+      model: this.settings.llm.models?.[provider] || '',
       models: { ...(this.settings.llm.models ?? {}) },
       endpoint: this.settings.llm.endpoint,
       hasApiKey,

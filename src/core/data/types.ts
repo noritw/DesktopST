@@ -139,6 +139,8 @@ export interface AppStateSnapshot {
   conversation: ConversationSnapshot | null
   colorTheme: ColorTheme
   randomToolsEnabled: boolean
+  /** 訊息旁顯示生成模型的小圖示（`settings.ui.showLlmBadge`，未設定＝開） */
+  showLlmBadge: boolean
   maxImagesPerMessage: number
   activeSceneId?: string
   activePersonaId?: string
@@ -363,6 +365,8 @@ export interface WeatherNowSnapshot {
  */
 export interface SettingsApi {
   setColorTheme(theme: ColorTheme): Promise<void>
+  /** 訊息旁的模型小圖示要不要顯示。 */
+  setShowLlmBadge(show: boolean): Promise<void>
 
   getLlm(): Promise<LlmSettingsSnapshot>
   setLlmProvider(provider: LlmProvider): Promise<void>

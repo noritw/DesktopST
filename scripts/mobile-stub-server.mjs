@@ -378,6 +378,7 @@ const state = () => ({
   colorTheme: process.env.THEME || 'mint',
   // NR=0 用來驗「隨機工具總開關關閉時 🎲 入口整個消失」（清單 C6）
   randomToolsEnabled: process.env.NR !== '0',
+  showLlmBadge: process.env.NO_BADGE !== '1',
   maxImages: Number(process.env.MAXIMG || 5)
   ,activeSceneId, activePersonaId, activeWorldId
   ,remoteControl: rcClientState()

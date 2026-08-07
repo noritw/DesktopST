@@ -392,6 +392,8 @@ export interface AppSettings {
     /** Include the input window when capturing screenshots with DesktopST windows visible. */
     screenshotIncludeInputWindow?: boolean
     randomToolsEnabled?: boolean
+    /** 每則角色回覆旁顯示生成它的模型小圖示（點一下看型號）。未設定＝開啟 */
+    showLlmBadge?: boolean
     /** Low performance mode: keeps character transparency, simplifies bubbles, and limits bubble windows. */
     lowPerformanceMode?: boolean
     /** Initial message count shown in the log window while low performance mode is enabled. */

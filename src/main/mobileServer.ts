@@ -65,6 +65,8 @@ export interface MobileBridge {
   removeScenePreset: (id: string) => { ok: true } | { error: string }
   getColorTheme: () => string
   getRandomToolsEnabled: () => boolean
+  getShowLlmBadge: () => boolean
+  setShowLlmBadge: (show: boolean) => boolean
   getMaxImagesPerMessage: () => number
   shouldIncludeDeviceNameInPrompt: () => boolean
   setColorTheme: (theme: import('./types').ColorTheme) => boolean
@@ -498,6 +500,7 @@ async function handleRequest(
         : null,
       colorTheme: bridge.getColorTheme(),
       randomToolsEnabled: bridge.getRandomToolsEnabled(),
+      showLlmBadge: bridge.getShowLlmBadge(),
       maxImages: bridge.getMaxImagesPerMessage(),
       activeSceneId: bridge.getActiveSceneId(),
       activePersonaId: bridge.getActivePersonaId(),
@@ -849,6 +852,20 @@ async function handleRequest(
     if ('error' in result) { jsonError(res, result.error === 'not-found' ? 404 : 409, result.error); return }
     pushDesktopUpdate(bridge.getDesktopCharacterIds())
     jsonOk(res, result)
+    return
+  }
+
+  // ── POST /api/settings/show-llm-badge ──
+  // 訊息旁的模型小圖示開關。與配色同樣是電腦端設定的一部分，要寫回去。
+  if (method === 'POST' && url === '/api/settings/show-llm-badge') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { show?: unknown }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (typeof payload.show !== 'boolean') { jsonError(res, 400, 'show must be boolean'); return }
+    bridge.setShowLlmBadge(payload.show)
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, { ok: true })
     return
   }
 

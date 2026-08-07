@@ -119,6 +119,20 @@ export function SettingsView(): JSX.Element {
     if (open === 'weather' && weather === null) void loadWeather()
   }, [open, weather, loadWeather])
 
+  /*
+   * 這個開關的真值住在快照裡（電腦端與本機共用同一個 `ui.showLlmBadge`），
+   * 不另存本地 state —— 否則遙控模式下電腦改了、手機這頁不會跟著動。
+   */
+  const showLlmBadge = useAppStore((s) => s.snapshot?.showLlmBadge !== false)
+
+  const toggleLlmBadge = async (): Promise<void> => {
+    try {
+      await getData().settings.setShowLlmBadge(!showLlmBadge)
+    } catch (e) {
+      toast(describeSettingsError(e, '切換模型圖示'), 'error')
+    }
+  }
+
   const changeProvider = async (provider: LlmProvider): Promise<void> => {
     if (!llm) return
     const previous = llm
@@ -433,6 +447,14 @@ export function SettingsView(): JSX.Element {
           max={10}
           onCommit={(v) => void saveChatLimits({ maxImagesPerMessage: v })}
         />
+        <ToggleRow
+          label="顯示生成模型小圖示"
+          checked={showLlmBadge}
+          onChange={() => void toggleLlmBadge()}
+        />
+        <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
+          角色名字旁邊會出現一顆小圓，標示這則回覆是哪家模型生的；點一下看完整型號。
+        </p>
       </Section>
 
       {/* ── 天氣 ────────────────────────────────────────── */}
