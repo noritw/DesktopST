@@ -70,6 +70,11 @@ export interface MobileBridge {
    * **只能在 `isLanDirectRequest()` 為真的分支呼叫**（roadmap §4.7）。
    */
   getApiKeysForSync: () => Record<string, string>
+  /**
+   * 這台電腦在區網裡的位址（`http://192.168.x.x:3721`，不含權杖）。
+   * 掃 QR 拿到的多半是 relay 網址，手機靠這個把連線升級成區網直連（S1）。
+   */
+  getLanBaseUrl: () => string
   getShowLlmBadge: () => boolean
   setShowLlmBadge: (show: boolean) => boolean
   getMaxImagesPerMessage: () => number
@@ -1279,6 +1284,16 @@ async function handleRequest(
     const llm = bridge.getLlmSettings()
     jsonOk(res, {
       lanDirect,
+      /*
+       * 掃 QR 拿到的網址優先是 relay（`QRCodeWindow` 的選址順序），所以
+       * **即使兩台就在同一個區網，第一次請求也是從外面繞回來的** —— 判定會是
+       * 非直連、金鑰被剝掉。這裡附上區網位址讓手機自己改走那條再問一次，
+       * 使用者不必知道 relay 是什麼、也不必手動選（§2 目標④）。
+       *
+       * 附位址不等於放寬判定：手機改連之後，這支仍會用該連線的 remoteAddress
+       * 重新判斷一次，權威還是在電腦端。
+       */
+      lanUrl: lanDirect ? '' : bridge.getLanBaseUrl(),
       colorTheme: bridge.getColorTheme(),
       showLlmBadge: bridge.getShowLlmBadge(),
       randomToolsEnabled: bridge.getRandomToolsEnabled(),
@@ -1315,7 +1330,18 @@ async function handleRequest(
    */
   if (method === 'GET' && url === '/api/sync-pack') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-    const ids = bridge.getCharacters().map((c) => c.id)
+    /*
+     * **一隻角色一包，不要整庫一次送。**
+     * owner 的資料庫有 10 隻角色、含表情圖，整包是 54 MB；手機端是
+     * `await res.arrayBuffer()` 一次吃下，而 CapacitorHttp 會把二進位
+     * 用 base64 穿過 JS bridge（再脹 1/3），實測直接失敗。
+     * 分開拿還讓 UI 有進度、單隻失敗不會整批白做。
+     */
+    // ⚠️ 要用 `requestUrl`，不是 `url` —— `url` 是已經去掉 query 的 pathname（見檔頭
+    // handleRequest），在它上面再解析一次 query 永遠拿不到 id，會退化成整庫一起送。
+    const wanted = requestUrl.searchParams.get('id')?.trim()
+    const all = bridge.getCharacters().map((c) => c.id)
+    const ids = wanted ? all.filter((id) => id === wanted) : all
     if (ids.length === 0) { jsonError(res, 404, 'No characters'); return }
     const r = await bridge.buildDstPack({
       characterIds: ids,

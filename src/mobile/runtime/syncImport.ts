@@ -17,6 +17,8 @@ import { newId } from './id'
 
 export interface SyncInitBundle {
   lanDirect: boolean
+  /** 非直連時電腦附上的區網位址，手機用它把連線升級（見 `upgradeToLan`）。 */
+  lanUrl?: string
   colorTheme?: string
   showLlmBadge?: boolean
   randomToolsEnabled?: boolean
@@ -42,6 +44,10 @@ export interface SyncSource {
 
 export interface SyncPreview {
   bundle: SyncInitBundle
+  /** 實際要用的來源。可能已被 `upgradeToLan` 換成區網位址。 */
+  src: SyncSource
+  /** 是否從 relay 自動改走了區網直連（UI 拿去說明金鑰為什麼突然可以帶了）。 */
+  upgradedToLan: boolean
   /** 手機上已存在同名角色的名字，UI 拿去問使用者 */
   conflictNames: string[]
   /** 電腦上有幾隻角色 */
@@ -53,6 +59,8 @@ export interface SyncPreview {
 export interface SyncResult {
   charactersImported: number
   charactersSkipped: number
+  /** 個別下載／解包失敗的隻數。不中斷整批，最後一起回報。 */
+  charactersFailed: number
   presetsImported: number
   apiKeysImported: number
   settingsApplied: boolean
@@ -83,14 +91,68 @@ export async function fetchSyncPreview(
   session: StandaloneSession,
   fetchImpl: FetchImpl = globalThis.fetch
 ): Promise<SyncPreview> {
-  const bundle = await getJson<SyncInitBundle>(src, '/api/sync-init', fetchImpl)
+  const first = await getJson<SyncInitBundle>(src, '/api/sync-init', fetchImpl)
+  const upgraded = await upgradeToLan(src, first, fetchImpl)
+  const bundle = upgraded?.bundle ?? first
+
   const existing = new Set(session.characters.map((c) => c.name))
   const incoming = bundle.characters ?? []
   return {
     bundle,
+    src: upgraded?.src ?? src,
+    upgradedToLan: !!upgraded,
     conflictNames: incoming.filter((c) => existing.has(c.name)).map((c) => c.name),
     characterCount: incoming.length,
     apiKeysIncluded: !!bundle.llm?.apiKeys && Object.keys(bundle.llm.apiKeys).length > 0
+  }
+}
+
+/** 私有位址才准跟去（RFC1918 ＋ loopback）。 */
+function isPrivateHost(host: string): boolean {
+  if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return true
+  const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(host)
+  if (!m) return false
+  const a = Number(m[1])
+  const b = Number(m[2])
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+}
+
+/**
+ * 掃 QR 拿到的多半是 relay 網址 —— 那條路徑拿不到 API Key。
+ * 電腦若附了 `lanUrl`，就用**同一個權杖**改連區網再問一次；
+ * 通了而且電腦說這次是直連，才採用。
+ *
+ * 為什麼安全：
+ * - 位址由「我們已經帶著權杖認證過的那台電腦」提供，沒有新增信任對象
+ * - 仍只接受私有位址，公網位址一律不跟（避免被導去別的地方）
+ * - **金鑰給不給仍由電腦端依 `remoteAddress` 判定**，這裡只是換一條路去問
+ *
+ * 連不上就當沒這回事（在外面用行動網路時必然如此），回 `null` 沿用原本那條。
+ */
+async function upgradeToLan(
+  src: SyncSource,
+  bundle: SyncInitBundle,
+  fetchImpl: FetchImpl
+): Promise<{ src: SyncSource; bundle: SyncInitBundle } | null> {
+  if (bundle.lanDirect) return null
+  const lanUrl = bundle.lanUrl?.trim()
+  if (!lanUrl) return null
+
+  let host: string
+  try {
+    host = new URL(lanUrl).hostname
+  } catch {
+    return null
+  }
+  if (!isPrivateHost(host)) return null
+
+  const lanSrc: SyncSource = { baseUrl: lanUrl.replace(/\/$/, ''), token: src.token }
+  try {
+    const next = await getJson<SyncInitBundle>(lanSrc, '/api/sync-init', fetchImpl)
+    if (!next.lanDirect) return null
+    return { src: lanSrc, bundle: next }
+  } catch {
+    return null
   }
 }
 
@@ -101,7 +163,12 @@ export async function fetchSyncPreview(
 export async function runSyncImport(
   src: SyncSource,
   session: StandaloneSession,
-  opts: { onConflict: SyncConflictPolicy; bundle?: SyncInitBundle },
+  opts: {
+    onConflict: SyncConflictPolicy
+    bundle?: SyncInitBundle
+    /** 角色一隻一隻抓，這裡回報進度給 UI。 */
+    onProgress?: (done: number, total: number) => void
+  },
   fetchImpl: FetchImpl = globalThis.fetch
 ): Promise<SyncResult> {
   const bundle = opts.bundle ?? (await getJson<SyncInitBundle>(src, '/api/sync-init', fetchImpl))
@@ -110,7 +177,14 @@ export async function runSyncImport(
   const presetsImported = await applyPresets(session, bundle)
   await session.saveSettings()
 
-  const { imported, skipped } = await importCharacters(src, session, opts.onConflict, fetchImpl)
+  const { imported, skipped, failed } = await importCharacters(
+    src,
+    session,
+    bundle,
+    opts.onConflict,
+    fetchImpl,
+    opts.onProgress
+  )
 
   await session.reloadCharacters()
   await session.reloadPresets()
@@ -119,6 +193,7 @@ export async function runSyncImport(
   return {
     charactersImported: imported,
     charactersSkipped: skipped,
+    charactersFailed: failed,
     presetsImported,
     apiKeysImported,
     settingsApplied: true
@@ -199,39 +274,71 @@ async function applyPresets(session: StandaloneSession, bundle: SyncInitBundle):
   return count
 }
 
+/**
+ * 角色**一隻一隻**抓。
+ *
+ * 不要整庫一包：owner 的資料庫（10 隻、含表情圖）整包 54 MB，而手機端是
+ * `arrayBuffer()` 一次吃下、CapacitorHttp 又會把二進位 base64 過 JS bridge，
+ * 實測會失敗。分開拿還有兩個好處：UI 有進度、單隻壞掉不會整批白做。
+ */
 async function importCharacters(
   src: SyncSource,
   session: StandaloneSession,
+  bundle: SyncInitBundle,
   onConflict: SyncConflictPolicy,
-  fetchImpl: FetchImpl
-): Promise<{ imported: number; skipped: number }> {
-  const bytes = await getBinary(src, '/api/sync-pack', fetchImpl)
-  if (!bytes || bytes.byteLength === 0) return { imported: 0, skipped: 0 }
-
+  fetchImpl: FetchImpl,
+  onProgress?: (done: number, total: number) => void
+): Promise<{ imported: number; skipped: number; failed: number }> {
   const keys = await import('@core/store/keys')
-  const beforeIds = new Set(session.characters.map((c) => c.id))
-  const { chars } = await importCharactersFromDstPack(session.adapters.storage, bytes)
+  const wanted = bundle.characters ?? []
+  const total = wanted.length
 
   let imported = 0
   let skipped = 0
-  for (const incoming of chars) {
-    const clash = session.characters.find((c) => beforeIds.has(c.id) && c.name === incoming.name)
+  let failed = 0
+
+  for (let i = 0; i < total; i++) {
+    const entry = wanted[i]!
+    onProgress?.(i, total)
+
+    // 同名的先問過再下載，省掉整包流量
+    const beforeIds = new Set(session.characters.map((c) => c.id))
+    const clash = session.characters.find((c) => c.name === entry.name)
     if (clash && onConflict === 'skip') {
-      // 已經解壓到磁碟了，略過就要把剛落地的那份清掉
-      await session.adapters.storage.remove(keys.characterDirKey(incoming.id))
       skipped++
       continue
     }
-    if (clash && onConflict === 'overwrite') {
-      await session.adapters.storage.remove(keys.characterDirKey(clash.id))
-      session.characters = session.characters.filter((c) => c.id !== clash.id)
-      session.settings.ui.desktopCharacters = session.settings.ui.desktopCharacters.map((d) =>
-        d.characterId === clash.id ? { ...d, characterId: incoming.id } : d
-      )
+
+    let chars: Awaited<ReturnType<typeof importCharactersFromDstPack>>['chars']
+    try {
+      const bytes = await getBinary(src, `/api/sync-pack?id=${encodeURIComponent(entry.id)}`, fetchImpl)
+      if (!bytes || bytes.byteLength === 0) {
+        failed++
+        continue
+      }
+      chars = (await importCharactersFromDstPack(session.adapters.storage, bytes)).chars
+    } catch {
+      // 單隻失敗不中斷整批 —— 十隻抓到第七隻斷線時，前六隻不該一起沒有
+      failed++
+      continue
     }
-    imported++
+
+    for (const incoming of chars) {
+      if (clash && onConflict === 'overwrite') {
+        await session.adapters.storage.remove(keys.characterDirKey(clash.id))
+        session.characters = session.characters.filter((c) => c.id !== clash.id)
+        session.settings.ui.desktopCharacters = session.settings.ui.desktopCharacters.map((d) =>
+          d.characterId === clash.id ? { ...d, characterId: incoming.id } : d
+        )
+      }
+      // 剛解壓的那份要進記憶體清單，下一輪的同名比對才看得到它
+      if (!beforeIds.has(incoming.id)) session.characters.push(incoming)
+      imported++
+    }
   }
-  return { imported, skipped }
+
+  onProgress?.(total, total)
+  return { imported, skipped, failed }
 }
 
 async function getJson<T>(src: SyncSource, path: string, fetchImpl: FetchImpl): Promise<T> {

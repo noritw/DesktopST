@@ -10,6 +10,7 @@
     "build": "electron-vite build && node -e \"require('fs').cpSync('src/renderer/public', 'out/renderer', {recursive: true})\" && electron-builder",
     "dev:mobile": "vite --config vite.mobile.config.ts",
     "build:mobile": "vite build --config vite.mobile.config.ts && node scripts/inline-mobile-build.mjs",
+    "sync:android": "npm run build:mobile && npx cap sync android && node scripts/prepare-android.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest"

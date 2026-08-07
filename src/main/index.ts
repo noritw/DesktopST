@@ -560,6 +560,10 @@ function initMobileServer(): void {
     getRandomToolsEnabled: () => getSettings().ui.randomToolsEnabled !== false,
     getShowLlmBadge: () => getSettings().ui.showLlmBadge !== false,
     getApiKeysForSync: getApiKeysForSyncDirect,
+    getLanBaseUrl: () => {
+      const st = getSettings()
+      return `http://${getLocalIp()}:${st.mobile?.port ?? 3721}`
+    },
     setShowLlmBadge: (show) => setShowLlmBadgeDirect(show),
     getMaxImagesPerMessage: () => getSettings().llm?.maxImagesPerMessage ?? 5,
     shouldIncludeDeviceNameInPrompt: () => getSettings().mobile?.enabled === true,

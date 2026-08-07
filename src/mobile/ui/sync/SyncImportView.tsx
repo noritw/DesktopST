@@ -40,6 +40,7 @@ export function SyncImportView(): JSX.Element {
   const [policy, setPolicy] = useState<SyncConflictPolicy>('skip')
   const [result, setResult] = useState<SyncResult | null>(null)
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState({ done: 0, total: 0 })
 
   useEffect(() => {
     void isScannerAvailable().then(setScannerOk)
@@ -74,7 +75,8 @@ export function SyncImportView(): JSX.Element {
     setBusy(true)
     try {
       const p = await fetchSyncPreview(next, session)
-      setSrc(next)
+      // 用 preview 回報的來源：可能已從 relay 自動升級成區網直連
+      setSrc(p.src)
       setPreview(p)
       setStep('preview')
     } catch (e) {
@@ -112,7 +114,11 @@ export function SyncImportView(): JSX.Element {
     if (!src || !preview) return
     setStep('running')
     try {
-      const r = await runSyncImport(src, session, { onConflict: policy, bundle: preview.bundle })
+      const r = await runSyncImport(src, session, {
+        onConflict: policy,
+        bundle: preview.bundle,
+        onProgress: (done, total) => setProgress({ done, total })
+      })
       setResult(r)
       setStep('done')
       await refresh()
@@ -126,7 +132,8 @@ export function SyncImportView(): JSX.Element {
     return (
       <div className="flex flex-col items-center gap-3 py-10 text-sm text-[var(--text-sub)]">
         <MonoIcon name="download" className="h-7 w-7 animate-pulse" />
-        匯入中⋯⋯請不要關掉 app
+        {progress.total > 0 ? `正在取得角色 ${progress.done} / ${progress.total}` : '匯入中⋯⋯'}
+        <span className="text-[11px]">角色一隻一隻抓，請不要關掉 app</span>
       </div>
     )
   }
@@ -139,7 +146,11 @@ export function SyncImportView(): JSX.Element {
           <p className="text-sm text-[var(--text)]">匯入完成</p>
         </div>
         <ul className="space-y-1.5 rounded-[14px] bg-[var(--bg)] p-3 text-[13px] text-[var(--text-sub)]">
-          <li>角色：新增 {result.charactersImported} 隻{result.charactersSkipped > 0 && `，略過 ${result.charactersSkipped} 隻同名的`}</li>
+          <li>
+            角色：新增 {result.charactersImported} 隻
+            {result.charactersSkipped > 0 && `，略過 ${result.charactersSkipped} 隻同名的`}
+            {result.charactersFailed > 0 && `，${result.charactersFailed} 隻沒抓成功（可以再匯入一次補齊）`}
+          </li>
           <li>設定組：新增 {result.presetsImported} 組</li>
           <li>設定：配色、模型、記憶參數已套用</li>
           <li>
@@ -166,8 +177,10 @@ export function SyncImportView(): JSX.Element {
           <p className="text-[var(--text)]">找到電腦上的 {preview.characterCount} 隻角色。</p>
           <p className="mt-1.5">
             {preview.apiKeysIncluded
-              ? '🟢 已透過家用網路直接連線 —— 設定與 API Key 都會帶過來。'
-              : '🟡 這條連線不會傳輸 API Key（為了保護你的金鑰）。匯入後請在設定裡填一次，回家連同一個網路再匯入一次也可以。'}
+              ? preview.upgradedToLan
+                ? '🟢 已自動改用家用網路直接連線 —— 設定與 API Key 都會帶過來。'
+                : '🟢 已透過家用網路直接連線 —— 設定與 API Key 都會帶過來。'
+              : '🟡 這條連線不會傳輸 API Key（為了保護你的金鑰）。匯入後請在設定裡填一次；等回到跟電腦同一個網路時再匯入一次，金鑰就會自動帶過來。'}
           </p>
           <p className="mt-1.5">手機上原有的對話不會被動到。</p>
         </div>
