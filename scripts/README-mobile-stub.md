@@ -31,13 +31,15 @@ npm run dev:mobile
 http://<電腦區網IP>:5180/?server=http://<電腦區網IP>:5999&token=x
 ```
 
-Windows 也可以直接雙擊專案根目錄的 `MobileST-test.bat`：它會啟動假伺服器、
-手機 UI、產生 `mobile-test-qr.png` 並開啟 QR Code。手機與電腦必須在同一個 Wi‑Fi；
-測試完成後關閉批次檔開出的兩個命令視窗即可。
+Windows 直接雙擊根目錄的 `MobileST.bat` 選 **[3] 手機 UI 即時預覽**比較省事：
+它會挑一個沒被占用的 Vite 埠、啟動手機 UI、產生 `mobile-test-qr.png` 並開啟 QR Code。
+接著再選假資料或真資料：
 
-要用**真實 DeST 資料＋ React 手機 UI**，請先開啟 DeST 並啟用 mobileServer，
-再雙擊根目錄的 `MobileST-real-test.bat`。它會自動偵測區網 IP、讀取 access token、
-確認 `http://電腦IP:3721` 的 mobileServer 可連，並自動選擇未被占用的 Vite 埠、產生正確的 QR Code。
+- **假資料**：順便起這支 stub，不必開 DeST，看排版最快。
+- **真資料**：DeST 要先開著並啟用 mobileServer。會自動讀 access token、
+  確認 `http://電腦IP:3721` 連得上，再產生帶參數的 QR。
+
+手機與電腦必須在同一個 Wi‑Fi；測試完關掉它另開的那幾個視窗即可。
 日常也可直接掃 DeST 內建 QR（單一入口 `/`，已無舊版 `mobile.html`）。
 
 桌機瀏覽器用 `localhost` 也可以。`token` 隨便填，這支不驗。

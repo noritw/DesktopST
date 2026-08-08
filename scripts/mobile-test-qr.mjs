@@ -1,4 +1,7 @@
-/** 產生獨立手機 UI 假伺服器的 QR Code（由 MobileST-test.bat 呼叫）。 */
+/**
+ * 產生手機 UI 即時預覽的 QR Code（由 `scripts/mobile-tool.mjs` 的 [3] 呼叫）。
+ * `MOBILE_REAL=1` 走真的 DeST，否則接 stub 假伺服器。
+ */
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs'

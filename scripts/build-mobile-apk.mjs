@@ -1,8 +1,13 @@
 /**
- * DeST 手機獨立版：一鍵建置 debug APK。
- * 由 MobileST-build-apk.bat 呼叫（避開 PowerShell 5.1 讀 UTF-8 無 BOM 會炸的問題）。
+ * DeST 手機獨立版：建置 debug APK，接著 USB 有裝置就直接裝上去。
+ *
+ * 由 `scripts/mobile-tool.mjs`（MobileST.bat）呼叫，也可以單獨跑。
+ * 用 Node 而不是 PowerShell，是因為 PS 5.1 讀 UTF-8 無 BOM 會炸。
+ *
+ * 這支只負責「產出並安裝」；區網 QR 下載頁是 mobile-tool 的事，不要在這裡開，
+ * 否則單獨跑一次就會冒出一個關不掉的 serve 視窗。
  */
-import { spawn, spawnSync, execFileSync } from 'node:child_process'
+import { spawnSync, execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -127,49 +132,13 @@ if (adb) {
   console.log('本機找不到 adb。改走區網下載。')
 }
 
-console.log('')
-console.log('正在開檔案總管到 APK 資料夾...')
-try {
-  execFileSync('explorer.exe', [`/select,${apkDst}`])
-} catch {
-  /* ignore */
+if (!installed) {
+  try {
+    execFileSync('explorer.exe', [`/select,${apkDst}`])
+  } catch {
+    /* 開不開檔案總管無關緊要 */
+  }
 }
 
 console.log('')
-console.log('接著會開區網下載頁（含 QR）。手機跟電腦同一個 Wi-Fi，掃碼即可下載安裝。')
-console.log('裝完後關掉那個「DeST APK serve」視窗即可。')
-console.log('')
-
-// cmd start 才能穩定跳出可見視窗；PowerShell detached 在這台常默默失敗
-const serveBat = path.join(outDir, '_serve-once.cmd')
-fs.writeFileSync(
-  serveBat,
-  [
-    '@echo off',
-    `cd /d "${root}"`,
-    'title DeST APK serve',
-    'node scripts\\serve-apk.mjs',
-    'echo.',
-    'if errorlevel 1 echo serve failed',
-    'pause'
-  ].join('\r\n'),
-  'utf8'
-)
-spawn('cmd.exe', ['/c', 'start', 'DeST APK serve', serveBat], {
-  cwd: root,
-  detached: true,
-  stdio: 'ignore',
-  windowsHide: false
-}).unref()
-
-console.log('測試提醒（這輪的變更）：')
-console.log('  1. 設定 → 天氣 → 「自動偵測位置」應跳定位權限；允許後顯示「（裝置定位）」')
-console.log('  2. 拒絕權限再按一次：應退回 IP 並顯示「（連線位置推估）」，不是報錯')
-console.log('  3. 按「立即更新」應出現氣溫濕度')
-console.log('  4. 開著天氣送一則訊息 → 完整 Prompt 裡要看得到 [Weather] 區塊')
-console.log('  5. 設定 → 與電腦同步 → 掃 QR → 電腦的潤飾／CWA 設定會過來，但**地點不會被蓋掉**')
-console.log('  6. 同一顆按鈕再按一次：設定更新，角色與對話數量不變')
-
-console.log('')
 console.log(`本機 IP 提示：${Object.values(os.networkInterfaces()).flat().find((x) => x && x.family === 'IPv4' && !x.internal)?.address ?? '未知'}`)
-console.log('打包流程結束。請看另開的 serve 視窗與 QR 圖。')

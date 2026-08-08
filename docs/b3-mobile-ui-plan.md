@@ -295,7 +295,7 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 - **驗收**：桌面切換對話後，手機不用重新整理就換成同一份訊息串（靠 `state-invalidated`
   推播 + `refresh()`）；手機清單新增/改名/刪除對話後，桌面端 log 視窗與桌寵泡泡跟著更新
   （沿用既有的 `broadcastConversationUpdate`）。**尚待 owner 真機驗證**，跟階段 5 一樣走
-  `MobileST-real-test.bat`，核對終點是桌面的對話清單/log 視窗，不是 HTTP 200。
+  `MobileST.bat`（`[3]` → 真資料），核對終點是桌面的對話清單/log 視窗，不是 HTTP 200。
 
 ### 階段 9 ── 用語解說（Lorebook）內容編輯（2026-08-05 owner 加入排程）
 
@@ -364,7 +364,7 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 http://<電腦區網IP>:<Vite 埠>/?server=http://<電腦區網IP>:<mobileServer 埠>&token=<存取權杖>
 ```
 
-`MobileST-real-test.bat` 會在 DeST 已啟動且 mobileServer 可用時，自動尋找區網 IP、權杖、mobileServer 埠，並選擇可用的 Vite 埠後產生 QR；不必手動輸入 IP。`MobileST-test.bat` 則啟動假伺服器與假資料。
+`MobileST.bat`（`[3]` → 真資料） 會在 DeST 已啟動且 mobileServer 可用時，自動尋找區網 IP、權杖、mobileServer 埠，並選擇可用的 Vite 埠後產生 QR；不必手動輸入 IP。`MobileST.bat`（`[3]` → 假資料） 則啟動假伺服器與假資料。
 正式版是同源、不需要參數（階段 7）。
 
 ⚠️ **dev server 會無聲停掉**（工具重啟、機器休眠）。手機出現「載入失敗」時，
@@ -393,7 +393,7 @@ node scripts/mobile-stub-server.mjs
 - 手機 UI 已有 Scene／Persona／World 的新增、編輯、刪除；資料寫入沿用 `ipcHandlers.ts` 的 `*Direct`，桌面 IPC 與 `mobileServer` 都是薄轉呼叫，不在手機端複製邏輯。
 - UI 顯示名稱而非內部 ID：Scene／World 以角色列上方的緊湊 chip 顯示目前使用中項目；Persona 移到輸入框上方，顯示「目前以誰發言」，點名稱可切換。
 - Scene 套用後會 refresh；桌面既有的「每個情境記住最後對話」邏輯仍由共用 handler 負責。這部分尚未由 owner 完成真機端到端確認。
-- `MobileST-test.bat` 只驗 React UI 與拒絕條件 stub，資料不會持久化；`MobileST-real-test.bat` 才是接真 DeST 的入口，DeST 必須先啟動並開啟 mobileServer。
+- `MobileST.bat`（`[3]` → 假資料） 只驗 React UI 與拒絕條件 stub，資料不會持久化；`MobileST.bat`（`[3]` → 真資料） 才是接真 DeST 的入口，DeST 必須先啟動並開啟 mobileServer。
 - ~~DeST 內建 QR 在階段 7 前仍指向舊的 `assets/mobile.html`~~ →
   ~~**已過時（2026-08-06）**：QR 視窗出兩組碼~~ →
   **已收尾（2026-08-07）**：B6 真機驗證通過後依 §4.23 移除 `mobile.html` 與舊版 QR，
@@ -402,7 +402,7 @@ node scripts/mobile-stub-server.mjs
 
 #### 真機檢查清單
 
-準備：DeST 先啟動並開啟 mobileServer → 跑 `MobileST-real-test.bat` → 手機掃碼連線。
+準備：DeST 先啟動並開啟 mobileServer → 跑 `MobileST.bat`（`[3]` → 真資料） → 手機掃碼連線。
 資料根目錄預設在 `%APPDATA%\desktop-st\Data\`；preset 各自一個檔案存在 `personas\<id>.json`／`worlds\<id>.json`／`scenes\<id>.json`（見 [keys.ts](../src/core/store/keys.ts)），啟用中的 id 記在 `settings.json` 的 `activePersonaId`／`activeWorldId`（Scene 目前無 active 概念，套用即切換對話，不落地成 settings 欄位——若手機端顯示的 chip 與桌面實際使用中的情境不一致，這是要抓的重點）。每一步都是「操作 → 看畫面回饋 → 開檔案／桌面視窗核對實際內容」，不是看 HTTP 200 就算過。
 
 1. **新增**
@@ -891,7 +891,7 @@ D5「至少留一位」的判斷兩處一致（只剩一位時不顯示這一項
 list／get／create／save（含缺 id 的 400）／delete，回應與檔案內狀態符合預期。
 **沒有** 用瀏覽器實際操作過 UI（`npm run dev:mobile` 未啟動驗證），也沒有驗證
 「存檔後角色下一則回覆看得出生效」這條端到端路徑——那需要真的 LLM 呼叫，
-比照階段 5／8 的慣例交給 owner 用 `MobileST-real-test.bat` 驗。
+比照階段 5／8 的慣例交給 owner 用 `MobileST.bat`（`[3]` → 真資料） 驗。
 
 ---
 
@@ -1140,7 +1140,7 @@ React 版不同：index.html 會再去要 `./assets/*.js`，那些請求是**瀏
 所以 QR 的新版永遠是最新程式碼，**不必再另外開 `MobileST-*.bat`**。
 
 ⚠️ **代價：新版走的是建置產物，沒有 HMR。** 改完手機 UI 要重跑一次 bat（或手動
-`npm run build:mobile`）才會生效。要邊改邊看仍然用 `MobileST-test.bat`（vite dev server）。
+`npm run build:mobile`）才會生效。要邊改邊看仍然用 `MobileST.bat` 的 `[3] 手機 UI 即時預覽`（vite dev server）。
 
 ### 驗證方式
 
