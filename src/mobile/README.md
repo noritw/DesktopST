@@ -27,6 +27,14 @@ src/mobile/   Capacitor adapter ＋ LocalDataSource ＋ runtime ← 這裡
 
 Header 左側狀態列會標：`本機`／`電腦 · 區網`／`電腦 · 中繼`／`電腦`。
 
+## 這份是哪一次建置的
+
+設定頁最底有版本、建置時間與 git 短雜湊（`buildInfo.ts`，值由
+`vite.mobile.config.ts` 的 `define` 注入）。
+
+**判斷「手機更新了沒」要看建置時間**，版本號沒有用 —— debug APK 重打十次都還是同一版。
+遙控模式顯示的是**電腦那份 bundle** 的建置時間，時間戳舊代表電腦該重跑 `build:mobile`。
+
 ## Adapters
 
 | 介面 | 套件 | 備註 |

@@ -96,12 +96,14 @@ src/mobile/ 手機 UI
   ①產物＝**單一自足 HTML**（`build:mobile` 含 inline）②`baseUrl` 相對路徑
   ③WebSocket 用注入的 `__tunnelWsUrl`
 - 入口：`/` 一律走 B3 React；`DesktopST-dev.bat` 先建置手機（**無 HMR**）；
-  邊改邊看用 `MobileST-test.bat`
+  邊改邊看用 `MobileST.bat` → `[3]`
 - 業務邏輯寫在 `core/` 或既有 `*Direct`；手機／`mobileServer` 只做薄轉呼叫
 - **獨立模式改完資料一定要 `events.push({ kind: 'state-invalidated', … })`**，
   否則畫面不會更新（漏推過一次：重新發送截斷後畫面停在舊清單）
 - **Capacitor 外掛放 `dependencies`，不是 `devDependencies`**；打 APK 前先看
   `src/mobile/README.md` 的兩個陷阱（另一個是 `JAVA_HOME` 不能用 Android Studio 的 jbr）
+- 手機版本資訊：`vite.mobile.config.ts` 的 `define` 注入，包裝在 `src/mobile/buildInfo.ts`，
+  顯示在設定頁最底。**要看「更新了沒」請看建置時間，不是版本號**（debug 版重打十次都是同一版）
 - 加 Capacitor 外掛時：**權限不見得會自動合併**（`@capacitor/geolocation` 的
   AndroidManifest 是空的），要自己寫進 `android/app/src/main/AndroidManifest.xml`；
   外掛一律用**動態 `import()`** 載，否則瀏覽器煙測與 vitest 會在載入時就炸
@@ -145,8 +147,19 @@ npm run dev          # 桌面；DesktopST-dev.bat 會先 build:mobile
 npm run build
 npm run typecheck
 npm test             # 只測 src/core/，見 tests/README.md
-npm run dev:mobile   # 手機 HMR（搭配 stub 或 real-test bat）
+npm run dev:mobile   # 手機 HMR（一般走 MobileST.bat [3]，它會順便起 stub 與 QR）
 npm run build:mobile # 產出 out/mobile（含 inline，給 QR／relay）
 ```
+
+**根目錄只有三個 `.bat`**（2026-08-08 從七個併過來，舊的 `MobileST-*.bat` 都已刪除）：
+
+| 檔案 | 做什麼 |
+|---|---|
+| `DesktopST-dev.bat` | 日常開發：先 `build:mobile` 再開桌面 DeST |
+| `MobileST.bat` | 手機全部：`[1]` 打包 APK 並裝機（含防火牆、桌面 DeST、區網 QR）`[2]` 只重開 QR `[3]` UI 即時預覽 |
+| `release.bat` | 發布：升版 → build → zip →（可選）APK → commit／tag／push → GitHub Release |
+
+選單邏輯在 `scripts/mobile-tool.mjs`；它只做編排，實際工作仍在
+`build-mobile-apk.mjs`／`serve-apk.mjs`／`mobile-test-qr.mjs`。
 
 授權：作者自訂條款 → https://nori.tw/DeST/license.html（repo 內 `docs/license.html`）。

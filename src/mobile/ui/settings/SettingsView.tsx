@@ -3,6 +3,7 @@ import type { LlmProvider, LlmSettingsSnapshot, MemorySettingsSnapshot, ModuleTo
 import { MODEL_DATA_UPDATED } from '@core/llm/modelCatalog'
 import MonoIcon from '@shared/MonoIcon'
 import { capacitorSecrets } from '../../adapters'
+import { buildInfoLines } from '../../buildInfo'
 import { resolveConnection } from '../connection'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
@@ -663,7 +664,25 @@ export function SettingsView(): JSX.Element {
           </div>
         </Field>
       </Section>
+
+      <AboutFooter standalone={standalone} />
     </div>
+  )
+}
+
+/**
+ * 頁尾的版本資訊。
+ *
+ * 不做成可收合的 `Section` —— 這行字存在的意義就是「捲到底一眼確認裝到新的了沒」，
+ * 多一次點擊就失去意義了。
+ */
+function AboutFooter({ standalone }: { standalone: boolean }): JSX.Element {
+  const { title, detail } = buildInfoLines(standalone)
+  return (
+    <footer className="px-1 pb-1 pt-1 text-center">
+      <p className="text-[11px] text-[var(--text-sub)]">{title}</p>
+      {detail && <p className="text-[11px] text-[var(--text-sub)]">{detail}</p>}
+    </footer>
   )
 }
 

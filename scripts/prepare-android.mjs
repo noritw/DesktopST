@@ -26,21 +26,23 @@
  * 而且 Android 會多跳一層「精確／大概」讓使用者猶豫。
  * 要改精度的話，`src/mobile/runtime/weather.ts` 請求的權限別名要一起改。
  *
- * 冪等：已經有的不重複加。
+ * ## 還有版本號
+ *
+ * `cap add android` 產生的 `app/build.gradle` 寫死 `versionCode 1` / `versionName "1.0"`，
+ * 於是 Android「設定 → 應用程式」和 `adb shell dumpsys package` 永遠顯示 1.0，
+ * 跟 `package.json` 毫無關係。裝了兩個版本也分不出誰是誰。
+ * 這裡每次 sync 都從 `package.json` 同步過去。
+ *
+ * 冪等：已經有的不重複加、值一樣就不寫檔。
  */
 import fs from 'node:fs'
 import path from 'node:path'
 
 const REQUIRED_PERMISSIONS = ['android.permission.ACCESS_COARSE_LOCATION']
 
-const manifestPath = path.resolve(
-  process.cwd(),
-  'android',
-  'app',
-  'src',
-  'main',
-  'AndroidManifest.xml'
-)
+const root = process.cwd()
+const manifestPath = path.resolve(root, 'android', 'app', 'src', 'main', 'AndroidManifest.xml')
+const gradlePath = path.resolve(root, 'android', 'app', 'build.gradle')
 
 if (!fs.existsSync(manifestPath)) {
   console.log('[prepare-android] 沒有 android/ 平台，略過（先跑 npx cap add android）')
@@ -74,10 +76,46 @@ if (missing.length > 0) {
   changes.push(`權限 ${missing.join('、')}`)
 }
 
-if (changes.length === 0) {
-  console.log('[prepare-android] 沒有要補的東西')
-  process.exit(0)
+if (changes.length > 0) {
+  fs.writeFileSync(manifestPath, xml, 'utf8')
+  console.log(`[prepare-android] ✅ 已補上：${changes.join('；')}`)
+} else {
+  console.log('[prepare-android] manifest 沒有要補的東西')
 }
 
-fs.writeFileSync(manifestPath, xml, 'utf8')
-console.log(`[prepare-android] ✅ 已補上：${changes.join('；')}`)
+syncGradleVersion()
+
+/**
+ * 把 `package.json` 的版本同步進 build.gradle。
+ *
+ * `versionCode` 必須是遞增整數，所以用 major*10000 + minor*100 + patch 壓成一個數
+ * （0.4.0 → 400）。前提是 minor 與 patch 不會超過 99，對這個專案綽綽有餘。
+ */
+function syncGradleVersion() {
+  if (!fs.existsSync(gradlePath)) return
+
+  const pkg = JSON.parse(fs.readFileSync(path.resolve(root, 'package.json'), 'utf8'))
+  const version = String(pkg.version ?? '').trim()
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version)
+  if (!m) {
+    console.log(`[prepare-android] package.json 版本「${version}」不是 x.y.z，略過版本同步`)
+    return
+  }
+  const code = Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3])
+
+  const before = fs.readFileSync(gradlePath, 'utf8')
+  const after = before
+    .replace(/versionCode\s+\d+/, `versionCode ${code}`)
+    .replace(/versionName\s+"[^"]*"/, `versionName "${version}"`)
+
+  if (after === before) {
+    console.log(`[prepare-android] 版本已是 ${version}（code ${code}），不動`)
+    return
+  }
+  if (!after.includes(`versionName "${version}"`)) {
+    console.error('[prepare-android] ⚠️ build.gradle 找不到 versionName，版本沒同步')
+    return
+  }
+  fs.writeFileSync(gradlePath, after, 'utf8')
+  console.log(`[prepare-android] ✅ 版本同步為 ${version}（versionCode ${code}）`)
+}

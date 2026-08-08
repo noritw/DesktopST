@@ -2,7 +2,35 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from 'tailwindcss'
 import autoprefixer from 'autoprefixer'
+import { execFileSync } from 'child_process'
+import { readFileSync } from 'fs'
 import { resolve } from 'path'
+
+/**
+ * 這份產物的身分證，注入給設定頁的「關於」用。
+ *
+ * **主角是建置時間，不是版本號。** debug APK 一天可能重打十次，
+ * `package.json` 從頭到尾都是同一個版本 —— owner 問「我到底更新了沒」時，
+ * 版本號答不出來，時間戳才能。git 短雜湊是回報問題時對照程式碼用的。
+ *
+ * 取不到 git 就給空字串：這份設定在沒有 .git 的地方（解壓縮的原始碼）也要能建置。
+ */
+function gitShortHash(): string {
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: __dirname,
+      stdio: ['ignore', 'pipe', 'ignore']
+    })
+      .toString()
+      .trim()
+  } catch {
+    return ''
+  }
+}
+
+const pkgVersion = (
+  JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')) as { version?: string }
+).version ?? '0.0.0'
 
 /**
  * 手機 UI 的建置設定（B3 階段 1）。
@@ -28,6 +56,12 @@ export default defineConfig({
     }
   },
   plugins: [react()],
+  // 對應的型別宣告在 src/mobile/vite-env.d.ts，讀取包裝在 src/mobile/buildInfo.ts
+  define: {
+    __APP_VERSION__: JSON.stringify(pkgVersion),
+    __GIT_HASH__: JSON.stringify(gitShortHash()),
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString())
+  },
   css: {
     // ⚠️ **必須內嵌，不能給檔案路徑。**
     //
