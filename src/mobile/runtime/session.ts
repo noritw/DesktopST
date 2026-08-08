@@ -246,6 +246,29 @@ export class StandaloneSession {
     this.activeConversation = newest
   }
 
+  /**
+   * S1 對話匯入：已經帶過來的**電腦端** conversation id。
+   * 匯入畫面拿它把已匯入的那幾則標出來並停用勾選，避免重複拉一份。
+   */
+  importedConversationSourceIds(): Set<string> {
+    const out = new Set<string>()
+    for (const conv of this.conversationIndex.values()) {
+      if (conv.importedFrom) out.add(conv.importedFrom.sourceId)
+    }
+    return out
+  }
+
+  /**
+   * S1 對話匯入：放一則完整對話進來。
+   *
+   * **不設為使用中** —— 一次勾了五則的話，最後一則變成正在看的那則毫無道理；
+   * 使用者匯入完自己去對話清單挑。
+   */
+  async addImportedConversation(conv: Conversation): Promise<void> {
+    this.conversationIndex.set(conv.id, conv)
+    await this.adapters.storage.writeJson(keys.conversationKey(conv.id), conv)
+  }
+
   async saveConversation(conv: Conversation): Promise<void> {
     this.conversationIndex.set(conv.id, conv)
     if (this.activeConversation?.id === conv.id) this.activeConversation = conv

@@ -4,10 +4,12 @@ import { useUiStore } from '../stores/uiStore'
 import { useAppStore } from '../stores/appStore'
 import { getStandaloneSession } from '../../runtime/sessionHolder'
 import {
+  fetchSyncConversations,
   fetchSyncPreview,
   runSyncImport,
   SyncError,
   type SyncConflictPolicy,
+  type SyncConversationItem,
   type SyncPreview,
   type SyncResult
 } from '../../runtime/syncImport'
@@ -41,6 +43,13 @@ export function SyncImportView(): JSX.Element {
   const [result, setResult] = useState<SyncResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
+  /** `null` ＝ 這台電腦的 DeST 還沒有這支端點（舊版）。 */
+  const [convs, setConvs] = useState<SyncConversationItem[] | null>(null)
+  /**
+   * 勾選的對話。**預設一則都不勾**（owner 2026-08-08 指定）——
+   * 對話是所有資料裡最私密也最佔空間的，要帶哪些應該是明確的決定，不是預設值。
+   */
+  const [pickedConvs, setPickedConvs] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     void isScannerAvailable().then(setScannerOk)
@@ -78,6 +87,13 @@ export function SyncImportView(): JSX.Element {
       // 用 preview 回報的來源：可能已從 relay 自動升級成區網直連
       setSrc(p.src)
       setPreview(p)
+      /*
+       * 對話清單只有後設資料，跟預覽一起抓不會慢。
+       * 抓不到就當這台電腦是舊版（沒有這支端點）——**不要讓整個匯入失敗**，
+       * 角色與設定照樣可以帶過來。
+       */
+      setConvs(await fetchSyncConversations(p.src, session).catch(() => null))
+      setPickedConvs(new Set())
       setStep('preview')
     } catch (e) {
       toast(describe(e), 'error')
@@ -117,6 +133,7 @@ export function SyncImportView(): JSX.Element {
       const r = await runSyncImport(src, session, {
         onConflict: policy,
         bundle: preview.bundle,
+        conversationIds: [...pickedConvs],
         onProgress: (done, total) => setProgress({ done, total })
       })
       setResult(r)
@@ -132,8 +149,8 @@ export function SyncImportView(): JSX.Element {
     return (
       <div className="flex flex-col items-center gap-3 py-10 text-sm text-[var(--text-sub)]">
         <MonoIcon name="download" className="h-7 w-7 animate-pulse" />
-        {progress.total > 0 ? `正在取得角色 ${progress.done} / ${progress.total}` : '匯入中⋯⋯'}
-        <span className="text-[11px]">角色一隻一隻抓，請不要關掉 app</span>
+        {progress.total > 0 ? `正在取得資料 ${progress.done} / ${progress.total}` : '匯入中⋯⋯'}
+        <span className="text-[11px]">角色與對話一份一份抓，請不要關掉 app</span>
       </div>
     )
   }
@@ -152,6 +169,15 @@ export function SyncImportView(): JSX.Element {
             {result.charactersFailed > 0 && `，${result.charactersFailed} 隻沒抓成功（可以再匯入一次補齊）`}
           </li>
           <li>設定組：新增 {result.presetsImported} 組</li>
+          <li>
+            {result.conversationsImported > 0 || result.conversationsFailed > 0
+              ? `對話：帶回 ${result.conversationsImported} 則${
+                  result.conversationsFailed > 0
+                    ? `，${result.conversationsFailed} 則沒抓成功（可以再匯入一次補齊）`
+                    : ''
+                }`
+              : '對話：這次沒有勾選任何一則'}
+          </li>
           <li>設定：配色、模型、記憶參數已套用</li>
           <li>
             {result.apiKeysImported > 0
@@ -204,6 +230,12 @@ export function SyncImportView(): JSX.Element {
             />
           </div>
         )}
+
+        <ConversationPicker
+          items={convs}
+          picked={pickedConvs}
+          onChange={setPickedConvs}
+        />
 
         <button
           type="button"
@@ -262,6 +294,111 @@ export function SyncImportView(): JSX.Element {
           {busy ? '連線中⋯⋯' : '連線'}
         </button>
       </div>
+    </div>
+  )
+}
+
+/**
+ * 要把哪幾則對話帶過來（owner 2026-08-08）。
+ *
+ * **預設一則都不勾**，另給「全選／取消全選」。對話是所有資料裡最私密、也最佔空間的，
+ * 預設全帶會讓人在不知情下把整個聊天記錄複製到另一台裝置。
+ *
+ * 已經匯入過的照樣列出來但停用 —— 直接濾掉的話使用者會以為那幾則不見了。
+ */
+function ConversationPicker({
+  items,
+  picked,
+  onChange
+}: {
+  items: SyncConversationItem[] | null
+  picked: Set<string>
+  onChange: (next: Set<string>) => void
+}): JSX.Element | null {
+  if (items === null) {
+    return (
+      <p className="rounded-[14px] bg-[var(--bg)] p-3 text-[12px] leading-relaxed text-[var(--text-sub)]">
+        這台電腦的 DeST 版本還不支援帶對話過來。更新電腦上的 DeST 之後再匯入一次就會出現。
+      </p>
+    )
+  }
+
+  const selectable = items.filter((c) => !c.alreadyImported)
+  if (items.length === 0) {
+    return (
+      <p className="rounded-[14px] bg-[var(--bg)] p-3 text-[12px] text-[var(--text-sub)]">
+        那台電腦上沒有對話記錄。
+      </p>
+    )
+  }
+
+  const toggle = (id: string): void => {
+    const next = new Set(picked)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    onChange(next)
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <p className="flex-1 text-[13px] text-[var(--text)]">
+          要帶哪幾則對話？（已選 {picked.size}）
+        </p>
+        <button
+          type="button"
+          disabled={selectable.length === 0}
+          onClick={() => onChange(new Set(selectable.map((c) => c.id)))}
+          className="rounded-full border border-[var(--border)] px-3 py-1 text-[11px] text-[var(--text)] disabled:opacity-40"
+        >
+          全選
+        </button>
+        <button
+          type="button"
+          disabled={picked.size === 0}
+          onClick={() => onChange(new Set())}
+          className="rounded-full border border-[var(--border)] px-3 py-1 text-[11px] text-[var(--text)] disabled:opacity-40"
+        >
+          取消全選
+        </button>
+      </div>
+
+      <div className="scroll-y max-h-[45vh] space-y-1.5">
+        {items.map((c) => {
+          const checked = picked.has(c.id)
+          return (
+            <button
+              key={c.id}
+              type="button"
+              disabled={c.alreadyImported}
+              onClick={() => toggle(c.id)}
+              className={`flex w-full items-start gap-2.5 rounded-[14px] border px-3 py-2.5 text-left disabled:opacity-45 ${
+                checked ? 'border-[var(--text-sub)] bg-[var(--bg)]' : 'border-[var(--border)]'
+              }`}
+            >
+              <span
+                className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border ${
+                  checked ? 'border-[var(--text)] bg-[var(--mint)]' : 'border-[var(--border)]'
+                }`}
+              >
+                {checked && <MonoIcon name="check" className="h-3 w-3 text-[var(--text)]" />}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] text-[var(--text)]">{c.title}</span>
+                <span className="mt-0.5 block truncate text-[11px] text-[var(--text-sub)]">
+                  {c.alreadyImported
+                    ? '已經帶過來了'
+                    : `${c.messageCount} 則${c.characterNames.length ? ` · ${c.characterNames.join('、')}` : ''}`}
+                </span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
+        帶過來的對話會以新的一則加進手機，不會覆蓋這裡原有的內容。含圖片的對話比較大，抓起來會慢一些。
+      </p>
     </div>
   )
 }

@@ -120,8 +120,28 @@ export interface Conversation {
   summary: string
   /** 摘要已涵蓋到哪個時間點（最後一則被濃縮訊息的 timestamp）；訊息被刪除也不受影響 */
   summaryCoversTs?: number
+  /**
+   * 這則對話是 S1 從電腦匯入來的（roadmap §4.7）。
+   *
+   * 存來源 id 而不是沿用它當本地 id：手機上可能已經有同 id 的對話，
+   * 而且同一則從兩台電腦匯入時要分得開。S2 雙向同步靠這個找到對應的那一則；
+   * 匯入畫面也用它標出「已經帶過來了」，避免重複拉一份。
+   */
+  importedFrom?: ConversationImportSource
   createdAt: number
   updatedAt: number
+}
+
+export interface ConversationImportSource {
+  /** 電腦端的 conversation id */
+  sourceId: string
+  /**
+   * 匯入當下**電腦那份**的 `updatedAt`。
+   * S2 判斷「電腦端有沒有變動過」要比對這個，不是本地的 `updatedAt`
+   * —— 本地那個一被使用者接著聊天就會往前跑。
+   */
+  sourceUpdatedAt: number
+  importedAt: number
 }
 
 export interface DesktopCharacterState {

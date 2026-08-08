@@ -5,6 +5,7 @@ import { createMemoryStorage } from '../../src/mobile/adapters/memoryStorage'
 import { unavailableSecrets } from '../../src/mobile/adapters/secretCrypto'
 import { bootStandaloneSession, type StandaloneSession } from '../../src/mobile/runtime/session'
 import {
+  fetchSyncConversations,
   fetchSyncPreview,
   runSyncImport,
   SyncError,
@@ -293,3 +294,168 @@ describe('S1 一隻一包的韌性', () => {
     expect(packRequests).toBe(0)
   })
 })
+
+describe('S1 對話匯入', () => {
+  /** 電腦端的兩則對話：一則有角色訊息（要重新對到手機的角色 id），一則只有純文字。 */
+  const PC_CONVS = [
+    {
+      id: 'conv-a',
+      title: '深夜聊天',
+      participantIds: ['pc0'],
+      messages: [
+        { id: 'm1', role: 'user' as const, content: '在嗎', timestamp: 1 },
+        { id: 'm2', role: 'character' as const, characterId: 'pc0', content: '在。', timestamp: 2 }
+      ],
+      summary: '',
+      createdAt: 1,
+      updatedAt: 200
+    },
+    {
+      id: 'conv-b',
+      title: '雜談',
+      participantIds: [],
+      messages: [{ id: 'm3', role: 'user' as const, content: '哈囉', timestamp: 3 }],
+      summary: '',
+      createdAt: 1,
+      updatedAt: 100
+    }
+  ]
+
+  function convFetch(
+    packs: Map<string, Uint8Array>,
+    characters: { id: string; name: string }[],
+    opts: { missing?: string[]; noEndpoint?: boolean } = {}
+  ) {
+    return (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/sync-conversations')) {
+        if (opts.noEndpoint) return new Response('nope', { status: 404 })
+        return new Response(
+          JSON.stringify({
+            conversations: PC_CONVS.map((c) => ({
+              id: c.id,
+              title: c.title,
+              updatedAt: c.updatedAt,
+              messageCount: c.messages.length,
+              characterNames: ['星離宸']
+            }))
+          }),
+          { status: 200 }
+        )
+      }
+      if (url.includes('/api/sync-conversation?')) {
+        const id = new URL(url, 'http://x').searchParams.get('id') ?? ''
+        if (opts.missing?.includes(id)) return new Response('gone', { status: 404 })
+        const conv = PC_CONVS.find((c) => c.id === id)
+        if (!conv) return new Response('gone', { status: 404 })
+        return new Response(JSON.stringify({ conversation: conv }), { status: 200 })
+      }
+      return fakeFetch(bundle({ characters }), packs)(input)
+    }) as typeof fetch
+  }
+
+  it('預設一則都不勾，沒勾就一則都不帶', async () => {
+    const session = await boot()
+    const { packs, characters } = await makePacks(['星離宸'])
+    const before = session.listConversations().length
+
+    const result = await runSyncImport(
+      SRC, session, { onConflict: 'skip' }, convFetch(packs, characters)
+    )
+
+    expect(result.conversationsImported).toBe(0)
+    expect(session.listConversations()).toHaveLength(before)
+  })
+
+  /**
+   * `.dstpack` 解包一律發新 id，電腦那邊的角色 id 在手機上根本不存在。
+   * 沒重新對上的話，帶過來的對話會整串顯示成無名氏。
+   */
+  it('訊息裡的角色 id 會對到手機這邊的那隻', async () => {
+    const session = await boot()
+    const { packs, characters } = await makePacks(['星離宸'])
+
+    await runSyncImport(
+      SRC, session, { onConflict: 'skip', conversationIds: ['conv-a'] }, convFetch(packs, characters)
+    )
+
+    const local = session.characters.find((c) => c.name === '星離宸')!
+    expect(local.id).not.toBe('pc0')
+    const imported = [...session.listConversations()].find((c) => c.title === '深夜聊天')!
+    const conv = await loadedConversation(session, imported.id)
+    expect(conv.messages[1]!.characterId).toBe(local.id)
+    expect(conv.participantIds).toEqual([local.id])
+  })
+
+  it('帶過來的用新 id、記下來源，且不動手機原有的對話', async () => {
+    const session = await boot()
+    const original = session.activeConversation!.id
+    const { packs, characters } = await makePacks(['星離宸'])
+
+    const result = await runSyncImport(
+      SRC,
+      session,
+      { onConflict: 'skip', conversationIds: ['conv-a', 'conv-b'] },
+      convFetch(packs, characters)
+    )
+
+    expect(result.conversationsImported).toBe(2)
+    const titles = session.listConversations().map((c) => c.title)
+    expect(titles).toEqual(expect.arrayContaining(['深夜聊天', '雜談']))
+    // 原有那則還在，而且仍是使用中的那則（匯入不該把使用者踢到別的對話）
+    expect(session.activeConversation!.id).toBe(original)
+
+    const imported = session.listConversations().find((c) => c.title === '雜談')!
+    expect(imported.id).not.toBe('conv-b')
+    const conv = await loadedConversation(session, imported.id)
+    expect(conv.importedFrom).toMatchObject({ sourceId: 'conv-b', sourceUpdatedAt: 100 })
+  })
+
+  it('已經帶過來的不會再匯入一次', async () => {
+    const session = await boot()
+    const { packs, characters } = await makePacks(['星離宸'])
+    const fetchImpl = convFetch(packs, characters)
+
+    await runSyncImport(SRC, session, { onConflict: 'skip', conversationIds: ['conv-a'] }, fetchImpl)
+    const listed = await fetchSyncConversations(SRC, session, fetchImpl)
+    expect(listed.find((c) => c.id === 'conv-a')!.alreadyImported).toBe(true)
+
+    const again = await runSyncImport(
+      SRC, session, { onConflict: 'skip', conversationIds: ['conv-a'] }, fetchImpl
+    )
+    expect(again.conversationsImported).toBe(0)
+    expect(session.listConversations().filter((c) => c.title === '深夜聊天')).toHaveLength(1)
+  })
+
+  it('中間一則抓不到時，其餘照樣進來並回報失敗數', async () => {
+    const session = await boot()
+    const { packs, characters } = await makePacks(['星離宸'])
+
+    const result = await runSyncImport(
+      SRC,
+      session,
+      { onConflict: 'skip', conversationIds: ['conv-a', 'conv-b'] },
+      convFetch(packs, characters, { missing: ['conv-a'] })
+    )
+
+    expect(result.conversationsImported).toBe(1)
+    expect(result.conversationsFailed).toBe(1)
+  })
+
+  /** 舊版電腦沒有這支端點。整個匯入不該因此失敗 —— 角色與設定照樣要能帶過來。 */
+  it('電腦端沒有這支端點時，清單抓失敗但不影響其他匯入', async () => {
+    const session = await boot()
+    const { packs, characters } = await makePacks(['星離宸'])
+    const fetchImpl = convFetch(packs, characters, { noEndpoint: true })
+
+    await expect(fetchSyncConversations(SRC, session, fetchImpl)).rejects.toBeInstanceOf(SyncError)
+    const result = await runSyncImport(SRC, session, { onConflict: 'skip' }, fetchImpl)
+    expect(result.charactersImported).toBe(1)
+  })
+})
+
+/** 匯入的對話不會成為使用中那則，要自己 load 一次才拿得到完整內容。 */
+async function loadedConversation(session: StandaloneSession, id: string) {
+  await session.loadConversation(id)
+  return session.activeConversation!
+}

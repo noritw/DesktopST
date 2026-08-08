@@ -70,5 +70,6 @@ Spotify／日曆授權同樣只在桌面。
 | 點頭像 → 角色選單 | 聊天串的角色頭像 → `character-menu`（提及／說點什麼／禁言／編輯角色） |
 | 獨立版不再送表情合約 | `ChatLLMParams.omitEmotionTag`；獨立版單張主圖用不到情緒標籤 |
 | **缺口 #1 情境與設定組** | `applyScene`／`captureScene`／`saveScene`／`removeScene`／`removePersona`／`removeWorld` 全部接上；`activeSceneDirty` 也真的算了。設定層套用共用 `core/scene/apply` |
+| **S1 對話匯入** | 掃 QR 時可勾選要帶哪幾則（全選／取消全選，**預設全不選**）；電腦端 `/api/sync-conversations`（只給清單）＋ `/api/sync-conversation`（逐則）。角色 id 靠名字重新對上，`Conversation.importedFrom` 留給 S2 |
 
 細節見 `progress-log.md` 同日條目。

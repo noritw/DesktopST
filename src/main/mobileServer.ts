@@ -33,6 +33,16 @@ export interface MobileBridge {
   removeDesktopCharacter: (characterId: string) => boolean
   captureScreenshot: (withChars: boolean, displayIndex?: number) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
   getConversationList: () => { id: string; title: string; updatedAt: number; active: boolean }[]
+  /** S1 對話匯入的勾選清單（多了訊息則數與參與角色，見 `/api/sync-conversations`）。 */
+  getConversationsForSync: () => {
+    id: string
+    title: string
+    updatedAt: number
+    messageCount: number
+    characterNames: string[]
+  }[]
+  /** 取一整則對話給手機匯入。**不切換電腦上正在看的那則。** */
+  getConversationForSync: (id: string) => import('./types').Conversation | null
   loadConversation: (id: string) => boolean
   createConversation: (title?: string) => { id: string; title: string; updatedAt: number; active: boolean }
   renameConversation: (id: string, title: string) => { ok: true; conversation: { id: string; title: string; updatedAt: number; active: boolean } } | { error: string }
@@ -1388,6 +1398,35 @@ async function handleRequest(
       'Content-Length': String(buf.length)
     })
     res.end(buf)
+    return
+  }
+
+  /*
+   * ── GET /api/sync-conversations ── S1 對話匯入：勾選用的清單
+   *
+   * 只給後設資料（標題、則數、參與角色），**不含訊息內容** ——
+   * 十幾則對話的內容一次送出去可以是好幾十 MB，而使用者這一步只是在挑要哪些。
+   */
+  if (method === 'GET' && url === '/api/sync-conversations') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, { conversations: bridge.getConversationsForSync() })
+    return
+  }
+
+  /*
+   * ── GET /api/sync-conversation?id=… ── S1 對話匯入：一則的完整內容
+   *
+   * 一次一則，理由與 `/api/sync-pack` 相同：訊息帶著圖片的 data URI，
+   * 整批一起送會在 CapacitorHttp 的 base64 bridge 上爆掉，而且沒有進度可顯示。
+   */
+  if (method === 'GET' && url === '/api/sync-conversation') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    // ⚠️ 用 `requestUrl`，不是已經去掉 query 的 `url`（同 `/api/sync-pack` 那個坑）
+    const wanted = requestUrl.searchParams.get('id')?.trim()
+    if (!wanted) { jsonError(res, 400, 'id required'); return }
+    const conv = bridge.getConversationForSync(wanted)
+    if (!conv) { jsonError(res, 404, 'Conversation not found'); return }
+    jsonOk(res, { conversation: conv })
     return
   }
 

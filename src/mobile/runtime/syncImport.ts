@@ -1,4 +1,4 @@
-import type { AppSettings, PersonaPreset, ScenePreset, WorldPreset } from '@core/types'
+import type { AppSettings, Conversation, PersonaPreset, ScenePreset, WorldPreset } from '@core/types'
 import type { StandaloneSession } from './session'
 import { importCharactersFromDstPack } from './seedDefaults'
 import { newId } from './id'
@@ -64,6 +64,20 @@ export interface SyncResult {
   presetsImported: number
   apiKeysImported: number
   settingsApplied: boolean
+  conversationsImported: number
+  /** 個別下載失敗的則數。同樣不中斷整批。 */
+  conversationsFailed: number
+}
+
+/** 電腦上一則對話的後設資料（勾選畫面用，不含訊息內容）。 */
+export interface SyncConversationItem {
+  id: string
+  title: string
+  updatedAt: number
+  messageCount: number
+  characterNames: string[]
+  /** 這台手機已經匯入過（比對 `Conversation.importedFrom.sourceId`）。已匯入的不給重選。 */
+  alreadyImported: boolean
 }
 
 export class SyncError extends Error {
@@ -157,8 +171,29 @@ async function upgradeToLan(
 }
 
 /**
- * 實際匯入。順序刻意是「設定 → 預設組 → 角色」：
+ * 電腦上有哪些對話可以帶過來。**這一步只拿後設資料**，內容等勾選完才逐則抓。
+ *
+ * 已經匯入過的照樣列出來但標記 `alreadyImported` —— 直接濾掉的話，使用者會以為
+ * 那幾則消失了；標出來才知道「已經在手機上了」。
+ */
+export async function fetchSyncConversations(
+  src: SyncSource,
+  session: StandaloneSession,
+  fetchImpl: FetchImpl = globalThis.fetch
+): Promise<SyncConversationItem[]> {
+  const res = await getJson<{ conversations?: Omit<SyncConversationItem, 'alreadyImported'>[] }>(
+    src,
+    '/api/sync-conversations',
+    fetchImpl
+  )
+  const seen = session.importedConversationSourceIds()
+  return (res.conversations ?? []).map((c) => ({ ...c, alreadyImported: seen.has(c.id) }))
+}
+
+/**
+ * 實際匯入。順序刻意是「設定 → 預設組 → 角色 → 對話」：
  * 角色最慢（要下載 pack、寫圖檔），前面兩步先落地，中途失敗至少設定已經好了。
+ * 對話排最後，因為它要靠角色先進來才對得上是誰在說話。
  */
 export async function runSyncImport(
   src: SyncSource,
@@ -166,7 +201,9 @@ export async function runSyncImport(
   opts: {
     onConflict: SyncConflictPolicy
     bundle?: SyncInitBundle
-    /** 角色一隻一隻抓，這裡回報進度給 UI。 */
+    /** 要帶過來的對話（電腦端 id）。空陣列＝不帶對話，這是預設。 */
+    conversationIds?: string[]
+    /** 角色與對話都是一個一個抓，這裡回報進度給 UI。 */
     onProgress?: (done: number, total: number) => void
   },
   fetchImpl: FetchImpl = globalThis.fetch
@@ -177,17 +214,32 @@ export async function runSyncImport(
   const presetsImported = await applyPresets(session, bundle)
   await session.saveSettings()
 
+  const wantedConvs = opts.conversationIds ?? []
+  const charTotal = (bundle.characters ?? []).length
+  const grandTotal = charTotal + wantedConvs.length
+
   const { imported, skipped, failed } = await importCharacters(
     src,
     session,
     bundle,
     opts.onConflict,
     fetchImpl,
-    opts.onProgress
+    // 進度條算的是「角色 ＋ 對話」的總數，所以角色階段的分母要換成總數
+    opts.onProgress && ((done) => opts.onProgress!(done, grandTotal))
   )
 
   await session.reloadCharacters()
   await session.reloadPresets()
+
+  const conv = await importConversations(
+    src,
+    session,
+    bundle,
+    wantedConvs,
+    fetchImpl,
+    opts.onProgress && ((done) => opts.onProgress!(charTotal + done, grandTotal))
+  )
+
   session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
 
   return {
@@ -196,7 +248,95 @@ export async function runSyncImport(
     charactersFailed: failed,
     presetsImported,
     apiKeysImported,
-    settingsApplied: true
+    settingsApplied: true,
+    conversationsImported: conv.imported,
+    conversationsFailed: conv.failed
+  }
+}
+
+/**
+ * 對話一則一則抓（理由同角色：訊息帶著圖片的 data URI，整批會太大）。
+ *
+ * 一律以**新 id** 落地並記下 `importedFrom`，不覆蓋手機上任何既有對話。
+ * 已經匯入過的直接略過 —— UI 那邊本來就不給勾，這裡是第二道保險
+ * （清單抓完到按下匯入之間，使用者可能在另一個分頁匯過了）。
+ */
+async function importConversations(
+  src: SyncSource,
+  session: StandaloneSession,
+  bundle: SyncInitBundle,
+  ids: string[],
+  fetchImpl: FetchImpl,
+  onProgress?: (done: number) => void
+): Promise<{ imported: number; failed: number }> {
+  if (ids.length === 0) return { imported: 0, failed: 0 }
+
+  const remap = characterIdRemap(session, bundle)
+  const already = session.importedConversationSourceIds()
+  let imported = 0
+  let failed = 0
+
+  for (let i = 0; i < ids.length; i++) {
+    const sourceId = ids[i]!
+    onProgress?.(i)
+    if (already.has(sourceId)) continue
+
+    try {
+      const res = await getJson<{ conversation?: Conversation }>(
+        src,
+        `/api/sync-conversation?id=${encodeURIComponent(sourceId)}`,
+        fetchImpl
+      )
+      const incoming = res.conversation
+      if (!incoming) {
+        failed++
+        continue
+      }
+      const now = Date.now()
+      await session.addImportedConversation({
+        ...incoming,
+        id: newId(),
+        participantIds: (incoming.participantIds ?? []).map((cid) => remap(cid)),
+        messages: (incoming.messages ?? []).map((m) =>
+          m.characterId ? { ...m, characterId: remap(m.characterId) } : m
+        ),
+        importedFrom: {
+          sourceId,
+          sourceUpdatedAt: incoming.updatedAt,
+          importedAt: now
+        }
+      })
+      already.add(sourceId)
+      imported++
+    } catch {
+      // 抓到第七則斷線時，前六則不該一起沒有（同角色那邊的處置）
+      failed++
+    }
+  }
+
+  onProgress?.(ids.length)
+  return { imported, failed }
+}
+
+/**
+ * 電腦端的角色 id → 這台手機的角色 id。
+ *
+ * **靠名字對**：`.dstpack` 解包時一律發新 id（`extractOneCharacter`），
+ * 電腦那邊的 id 在手機上根本不存在。名字也正是 S1 判斷「同名衝突」的依據，
+ * 兩處用同一把尺才不會出現「匯入時算同一隻、對話卻對不上」。
+ *
+ * 對不上的（角色沒一起帶過來、或事後改了名）原樣保留：訊息內容照樣看得到，
+ * 只是少了名字與頭像。硬塞給別隻角色比這糟糕得多。
+ */
+function characterIdRemap(
+  session: StandaloneSession,
+  bundle: SyncInitBundle
+): (sourceId: string) => string {
+  const nameBySourceId = new Map((bundle.characters ?? []).map((c) => [c.id, c.name]))
+  const localIdByName = new Map(session.characters.map((c) => [c.name, c.id]))
+  return (sourceId) => {
+    const name = nameBySourceId.get(sourceId)
+    return (name && localIdByName.get(name)) || sourceId
   }
 }
 

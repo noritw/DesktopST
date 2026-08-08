@@ -468,6 +468,56 @@ export function getConversationListDirect(): { id: string; title: string; update
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
 }
 
+/**
+ * S1 對話匯入的清單（roadmap §4.7）。
+ *
+ * 與 `getConversationListDirect` 分開是因為勾選畫面要多知道兩件事：
+ * 有幾則訊息、參與的角色是誰 —— 沒有這兩個，使用者只看得到一排標題與時間，
+ * 沒辦法判斷哪些值得帶過去。
+ */
+export function getConversationsForSyncDirect(): {
+  id: string
+  title: string
+  updatedAt: number
+  messageCount: number
+  characterNames: string[]
+}[] {
+  return fileStore.listConversationIds()
+    .map(id => getOrLoadConversation(id))
+    .filter((c): c is NonNullable<typeof c> => !!c)
+    .map(conv => {
+      const ids = new Set(conv.messages.map(m => m.characterId).filter(Boolean) as string[])
+      return {
+        id: conv.id,
+        title: conv.title,
+        updatedAt: conv.updatedAt,
+        messageCount: conv.messages.length,
+        characterNames: [...ids].map(cid => getCharacter(cid)?.name).filter(Boolean) as string[]
+      }
+    })
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+}
+
+/**
+ * 取一整則對話給手機匯入。**不切換電腦上正在看的那則**
+ * （`loadConversationDirect` 會切，那是遙控用的）。
+ *
+ * 除錯用的 prompt 一律剝掉：一則 prompt 動輒數十 KB，而手機那邊只是要保存
+ * 聊天記錄，帶過去純粹是把傳輸與儲存撐大。圖片保留 —— 那是內容。
+ */
+export function getConversationForSyncDirect(id: string): Conversation | null {
+  const conv = getOrLoadConversation(id)
+  if (!conv) return null
+  return {
+    ...conv,
+    messages: conv.messages.map(m => {
+      const { debugPrompt, utilityDebugPrompt, convSearchDebugPrompt, newsDebug, ...rest } = m
+      void debugPrompt; void utilityDebugPrompt; void convSearchDebugPrompt; void newsDebug
+      return { ...rest, hasDebugPrompt: false, hasNewsDebug: false }
+    })
+  }
+}
+
 export function loadConversationDirect(id: string): boolean {
   const conv = getOrLoadConversation(id)
   if (!conv) return false
