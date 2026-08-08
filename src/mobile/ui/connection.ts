@@ -99,11 +99,32 @@ export async function detectLanDirect(conn: Connection): Promise<boolean> {
   }
 }
 
-/** 狀態列顯示用的白話模式標籤。 */
-export function modeLabel(conn: Connection, lanDirect: boolean | null): string {
+/** Header 小標籤用：最多兩個字，點進去「關於」才看完整說明。 */
+export function modeBadgeLabel(conn: Connection, lanDirect: boolean | null): string {
   if (conn.mode === 'standalone') return '本機'
-  if (window.__relayDeviceId || window.__tunnelWsUrl) return '電腦 · 中繼'
-  if (lanDirect === true) return '電腦 · 區網'
-  if (lanDirect === false) return '電腦'
+  if (window.__relayDeviceId || window.__tunnelWsUrl) return '中繼'
+  if (lanDirect === true) return '區網'
   return '電腦'
+}
+
+/** 關於視窗用的完整連線說明。 */
+export function modeDescription(conn: Connection, lanDirect: boolean | null): string {
+  if (conn.mode === 'standalone') {
+    return '獨立模式：角色、對話與設定都存在這台手機上，不必開著電腦也能聊。'
+  }
+  if (window.__relayDeviceId || window.__tunnelWsUrl) {
+    return '遙控模式（中繼）：畫面與操作經過中繼伺服器連到你的電腦。金鑰等敏感資料不會經中繼傳送。'
+  }
+  if (lanDirect === true) {
+    return '遙控模式（區網）：手機與電腦在同一個區域網路，直接連到電腦上的 DeST。'
+  }
+  if (lanDirect === false) {
+    return '遙控模式：正在連線到電腦上的 DeST。若兩台在同一個 Wi-Fi，通常可以升級成區網直連。'
+  }
+  return '遙控模式：正在確認與電腦的連線方式……'
+}
+
+/** @deprecated 改用 modeBadgeLabel／modeDescription */
+export function modeLabel(conn: Connection, lanDirect: boolean | null): string {
+  return modeBadgeLabel(conn, lanDirect)
 }

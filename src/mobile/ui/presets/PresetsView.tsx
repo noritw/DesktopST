@@ -259,13 +259,20 @@ function Row({
         isActive ? 'border-[var(--mint)] bg-[var(--mint)]/25' : 'border-[var(--border)] bg-[var(--bg)]'
       }`}
     >
-      <div className="flex items-center gap-2">
-        <button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 text-left" onClick={onEdit}>
-          <span className="min-w-0 flex-1 truncate text-sm text-[var(--text)]">
+      <div className="flex items-center gap-3">
+        {/*
+          名稱一整塊可點進編輯；小鉛筆放名稱*下方*，與右側套用拉開距離
+          （owner 2026-08-09：鉛筆貼在套用旁邊太近）。
+        */}
+        <button type="button" className="min-w-0 flex-1 text-left" onClick={onEdit}>
+          <p className="truncate text-sm text-[var(--text)]">
             {item.name}
             {dirty ? ' *' : ''}
+          </p>
+          <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] text-[var(--text-sub)]">
+            <MonoIcon name="edit" className="h-3 w-3" />
+            編輯
           </span>
-          <MonoIcon name="edit" className="h-3.5 w-3.5 shrink-0 text-[var(--text-sub)]" />
         </button>
         {kind !== 'lore' && (
           <StatusChip

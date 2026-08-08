@@ -43,6 +43,8 @@ export type ViewKind =
   | 'sync-import'
   /** 頂部那顆 ☰ 展開的主選單（B3 2026-08-06 資訊架構重整）。 */
   | 'menu'
+  /** header 左上角兩字標籤點進來的「關於本程式」。 */
+  | 'about'
 
 export interface ViewEntry {
   /** 每次 push 都不同，讓 React 的 key 穩定（同一個 kind 可以疊兩層）。 */

@@ -29,6 +29,8 @@ export interface MobileBridge {
     sourceDeviceName?: string
     newsLink?: import('./types').NewsLinkInfo | null
   }) => Promise<void>
+  /** 中止進行中的生成；回草稿給手機還原輸入框，沒東西可停就回 null */
+  stopGenerating: () => { content: string; images?: string[] } | null
   addDesktopCharacter: (characterId: string) => Promise<boolean>
   removeDesktopCharacter: (characterId: string) => boolean
   captureScreenshot: (withChars: boolean, displayIndex?: number) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
@@ -621,6 +623,18 @@ async function handleRequest(
     } catch (e) {
       jsonError(res, 500, String(e))
     }
+    return
+  }
+
+  // ── POST /api/stop ──（對齊桌面 message:stop；回草稿讓手機還原輸入框）
+  if (method === 'POST' && url === '/api/stop') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const draft = bridge.stopGenerating()
+    if (!draft) {
+      jsonOk(res, { ok: true, stopped: false })
+      return
+    }
+    jsonOk(res, { ok: true, stopped: true, content: draft.content, images: draft.images ?? [] })
     return
   }
 

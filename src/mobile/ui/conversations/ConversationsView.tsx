@@ -102,7 +102,7 @@ export function ConversationsView(): JSX.Element {
           {list.map((item) => (
             <div
               key={item.id}
-              className={`flex items-center gap-2 rounded-[14px] border px-3 py-2.5 ${
+              className={`flex items-center gap-3 rounded-[14px] border px-3 py-2.5 ${
                 item.active ? 'border-[var(--mint)] bg-[var(--mint)]/25' : 'border-[var(--border)] bg-[var(--bg)]'
               }`}
             >
@@ -110,15 +110,18 @@ export function ConversationsView(): JSX.Element {
                 type="button"
                 aria-label={`編輯${item.title || '未命名'}`}
                 onClick={() => push('conversation-editor', item.id)}
-                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                className="min-w-0 flex-1 text-left"
               >
-                <span className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-[var(--text)]">{item.title || '（未命名）'}</p>
-                  {!item.active && (
-                    <p className="mt-0.5 text-[11px] text-[var(--text-sub)]">{formatUpdatedAt(item.updatedAt)}</p>
-                  )}
+                <p className="truncate text-sm text-[var(--text)]">{item.title || '（未命名）'}</p>
+                <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-[var(--text-sub)]">
+                  <span className="inline-flex items-center gap-0.5">
+                    <MonoIcon name="edit" className="h-3 w-3" />
+                    編輯
+                  </span>
+                  {!item.active && formatUpdatedAt(item.updatedAt) ? (
+                    <span>· {formatUpdatedAt(item.updatedAt)}</span>
+                  ) : null}
                 </span>
-                <MonoIcon name="edit" className="h-3.5 w-3.5 shrink-0 text-[var(--text-sub)]" />
               </button>
               <StatusChip
                 active={item.active}

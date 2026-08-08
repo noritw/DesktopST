@@ -40,6 +40,10 @@ export class LocalDataSource implements DataSource {
     return this.session.sendMessage(input)
   }
 
+  stopGenerating() {
+    return this.session.stopGenerating()
+  }
+
   getMessageImageUrl(messageId: string, index: number): Promise<string | null> {
     return this.session.getMessageImageUrl(messageId, index)
   }

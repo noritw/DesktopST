@@ -41,6 +41,7 @@ export type {
   RemoteSystemAction,
   RemoteWindow,
   SendMessageInput,
+  StopGeneratingResult,
   SettingsApi,
   WeatherNowSnapshot,
   WeatherSettingsSnapshot

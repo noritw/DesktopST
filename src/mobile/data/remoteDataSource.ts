@@ -118,6 +118,17 @@ export class RemoteDataSource implements DataSource {
     })
   }
 
+  async stopGenerating() {
+    const r = await this.http.post<{
+      ok: boolean
+      stopped?: boolean
+      content?: string
+      images?: string[]
+    }>('/api/stop', {})
+    if (!r.stopped) return null
+    return { content: r.content ?? '', images: r.images }
+  }
+
   async getMessageImageUrl(messageId: string, index: number): Promise<string | null> {
     // 圖片按需取用（base64 不隨快照走）。`<img>` 沒法加 header，所以走 query token。
     return this.http.url(`/api/message-image/${encodeURIComponent(messageId)}/${index}`)

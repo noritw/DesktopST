@@ -102,9 +102,9 @@ src/mobile/ 手機 UI
   否則畫面不會更新（漏推過一次：重新發送截斷後畫面停在舊清單）
 - **Capacitor 外掛放 `dependencies`，不是 `devDependencies`**；打 APK 前先看
   `src/mobile/README.md` 的兩個陷阱（另一個是 `JAVA_HOME` 不能用 Android Studio 的 jbr）
-- 手機版本資訊：`vite.mobile.config.ts` 的 `define` 注入，包裝在 `src/mobile/buildInfo.ts`，
-  顯示在 header 左上角模式標籤下方（設定頁最底有完整版）。**要看「更新了沒」請看建置時間，不是版本號**（debug 版重打十次都是同一版）
-- 清單列慣例（角色／情境／使用者／世界觀／對話）：**左邊點名稱編輯、右邊大標籤套用／加入**
+- 手機版本資訊：`vite.mobile.config.ts` 的 `define` 注入，包裝在 `src/mobile/buildInfo.ts`；
+  header 左上角兩字標籤（本機／區網／中繼）點進去「關於」。**要看「更新了沒」請看建置時間，不是版本號**
+- 清單列慣例（角色／情境／使用者／世界觀／對話）：**點名稱編輯（小「編輯」在名稱下方）、右邊大標籤套用／加入**
 - 加 Capacitor 外掛時：**權限不見得會自動合併**（`@capacitor/geolocation` 的
   AndroidManifest 是空的），要自己寫進 `android/app/src/main/AndroidManifest.xml`；
   外掛一律用**動態 `import()`** 載，否則瀏覽器煙測與 vitest 會在載入時就炸

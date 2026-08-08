@@ -688,7 +688,7 @@ describe('S1 情境內部引用重新對應', () => {
     ])
   })
 
-  it('有勾選匯入的對話會對到新 id；沒勾就清掉', async () => {
+  it('有勾選匯入的對話會對到新 id', async () => {
     const withConv = await boot()
     const a = await makePacks(['星離宸', '琉緋璃'])
     await runSyncImport(
@@ -697,11 +697,33 @@ describe('S1 情境內部引用重新對應', () => {
     const imported = withConv.listConversations().find((c) => c.title === '深夜聊天')!
     expect(imported.id).not.toBe('conv-a')
     expect(withConv.scenes.find((s) => s.name === '深夜')!.lastActiveConversationId).toBe(imported.id)
+  })
 
-    const without = await boot()
-    const b = await makePacks(['星離宸', '琉緋璃'])
-    await runSyncImport(SRC, without, { onConflict: 'skip' }, sceneFetch(b.packs, b.characters))
-    expect(without.scenes.find((s) => s.name === '深夜')!.lastActiveConversationId).toBeUndefined()
+  it('就算沒勾對話，情境綁定的那則仍會自動帶過來', async () => {
+    const session = await boot()
+    const { packs, characters } = await makePacks(['星離宸', '琉緋璃'])
+    await runSyncImport(SRC, session, { onConflict: 'skip' }, sceneFetch(packs, characters))
+
+    const imported = session.listConversations().find((c) => c.title === '深夜聊天')
+    expect(imported).toBeDefined()
+    expect(session.scenes.find((s) => s.name === '深夜')!.lastActiveConversationId).toBe(imported!.id)
+  })
+
+  it('同名情境再拉一次會用電腦的在場角色覆寫', async () => {
+    const session = await boot()
+    const { packs, characters } = await makePacks(['星離宸', '琉緋璃'])
+    await runSyncImport(SRC, session, { onConflict: 'skip' }, sceneFetch(packs, characters))
+
+    const scene = session.scenes.find((s) => s.name === '深夜')!
+    // 模擬「手機上被改壞／套用失敗後存成空的」
+    scene.desktopCharacters = []
+    scene.lastActiveConversationId = undefined
+    await session.saveScene(scene)
+
+    await runSyncImport(SRC, session, { onConflict: 'skip' }, sceneFetch(packs, characters))
+    const fixed = session.scenes.find((s) => s.name === '深夜')!
+    expect(fixed.desktopCharacters.length).toBe(2)
+    expect(fixed.lastActiveConversationId).toBeTruthy()
   })
 
   /** owner 回報的那兩個症狀，一次驗完。 */

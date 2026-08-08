@@ -98,7 +98,7 @@ export function PresenceSheet(): JSX.Element {
         return (
           <div
             key={item.id}
-            className={`mb-2 flex items-center gap-2 rounded-[14px] border px-3 py-2.5 ${
+            className={`mb-2 flex items-center gap-3 rounded-[14px] border px-3 py-2.5 ${
               isPresent ? 'border-[var(--mint)] bg-[var(--mint)]/25' : 'border-[var(--border)] bg-[var(--bg)]'
             }`}
           >
@@ -109,8 +109,13 @@ export function PresenceSheet(): JSX.Element {
               className="flex min-w-0 flex-1 items-center gap-3 text-left"
             >
               <Avatar characterId={item.id} size={38} />
-              <span className="min-w-0 flex-1 truncate text-[15px] text-[var(--text)]">{item.name}</span>
-              <MonoIcon name="edit" className="h-3.5 w-3.5 shrink-0 text-[var(--text-sub)]" />
+              <span className="min-w-0 flex-1">
+                <p className="truncate text-[15px] text-[var(--text)]">{item.name}</p>
+                <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] text-[var(--text-sub)]">
+                  <MonoIcon name="edit" className="h-3 w-3" />
+                  編輯
+                </span>
+              </span>
             </button>
             <StatusChip
               active={isPresent}

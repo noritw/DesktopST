@@ -30,6 +30,12 @@ interface AppState {
   sending: boolean
 
   /**
+   * 停止生成後還給輸入框的草稿。`Composer` 讀到就套用並清掉。
+   * 放這裡是因為停止指令在 store，圖片附件卻在 Composer 本地 state。
+   */
+  restoreDraft: { content: string; images?: string[] } | null
+
+  /**
    * 訊息 id → 手上已有的圖片 data URI（清單 B3／B4）。
    *
    * 為什麼需要這張表：`MessageSnapshot` 刻意不帶 `images`（base64 太肥不隨快照走），
@@ -45,6 +51,8 @@ interface AppState {
   attach: (deps: { data: DataSource; events: EventSource }) => () => void
   refresh: () => Promise<void>
   send: (input: SendMessageInput) => Promise<void>
+  /** 中止進行中的生成，並把草稿還給輸入框。 */
+  stop: () => Promise<void>
 }
 
 /**
@@ -71,6 +79,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadError: null,
   snapshot: null,
   messages: [],
+  restoreDraft: null,
   thinkingIds: [],
   sending: false,
   localImages: {},
@@ -154,7 +163,40 @@ export const useAppStore = create<AppState>((set, get) => ({
       }))
       throw e
     }
-    set({ sending: false })
+    // 若使用者中途按了停止，sending 已被 stop() 清掉；勿再蓋掉 restoreDraft。
+    if (get().sending) set({ sending: false })
+  },
+
+  stop: async () => {
+    if (!deps || !get().sending) return
+    const draft = await deps.data.stopGenerating()
+    set((s) => {
+      // 樂觀那則＋已寫入的同內容使用者訊息都先拿掉（對齊桌面撤回未回覆訊息）。
+      // 遙控端 abort 清理是非同步的，若不先清，字已還回輸入框時泡泡還會留一瞬。
+      let messages = s.messages.filter((m) => !isOptimistic(m))
+      if (draft) {
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const m = messages[i]!
+          if (m.role === 'user' && m.content === draft.content) {
+            messages = [...messages.slice(0, i), ...messages.slice(i + 1)]
+            break
+          }
+        }
+      }
+      return {
+        sending: false,
+        thinkingIds: [],
+        messages,
+        localImages: Object.fromEntries(
+          Object.entries(s.localImages).filter(([id]) => !id.startsWith(OPTIMISTIC_PREFIX))
+        ),
+        restoreDraft: draft
+          ? { content: draft.content, images: draft.images }
+          : s.restoreDraft
+      }
+    })
+    // 獨立模式會 push state-invalidated；遙控則靠訊息數減少觸發 desktop-updated。
+    await get().refresh()
   }
 }))
 

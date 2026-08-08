@@ -531,6 +531,11 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  if (url.startsWith('/api/stop')) {
+    console.log('[stop] (stub: nothing in-flight to abort)')
+    return json(res, { ok: true, stopped: false })
+  }
+
   // 摘要清單。**必須用精確比對**，不能用 startsWith，否則會連下面幾支
   // /api/lorebooks/:id、/create、/save、/delete 一起吃掉（都是同一個字首）。
   if (url === '/api/lorebooks') return json(res, { lorebooks: lorebooks.map((b) => ({ id: b.id, name: b.name })) })

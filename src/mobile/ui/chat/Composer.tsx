@@ -25,7 +25,9 @@ const DEFAULT_MAX_IMAGES = 5
 
 export function Composer(): JSX.Element {
   const send = useAppStore((s) => s.send)
+  const stop = useAppStore((s) => s.stop)
   const sending = useAppStore((s) => s.sending)
+  const restoreDraft = useAppStore((s) => s.restoreDraft)
   const maxImages = useAppStore((s) => s.snapshot?.maxImagesPerMessage ?? DEFAULT_MAX_IMAGES)
   // 清單 C6：設定關閉時整個入口消失，而不是 disabled ——
   // 灰掉的按鈕會讓使用者以為壞了（計畫書 §5 對 API Key 欄位的同一條判斷）。
@@ -72,6 +74,17 @@ export function Composer(): JSX.Element {
     if (el && caret != null) el.setSelectionRange(caret, caret)
     grow()
   }, [text, caret])
+
+  /** 停止生成後把草稿還回輸入框（對齊桌面 input:restore-draft）。 */
+  useEffect(() => {
+    if (!restoreDraft) return
+    const next = restoreDraft.content
+    typed.current = next
+    setText(next, next.length)
+    if (restoreDraft.images?.length) setImages(restoreDraft.images)
+    useAppStore.setState({ restoreDraft: null })
+    requestAnimationFrame(grow)
+  }, [restoreDraft, setText])
 
   /** 選圖（清單 B1）：多選、夾在上限內、逐張壓縮（B2）。 */
   const pickFiles = async (files: File[]): Promise<void> => {
@@ -150,6 +163,11 @@ export function Composer(): JSX.Element {
   }
 
   const canSend = (text.trim().length > 0 || images.length > 0 || !!pendingNewsLink) && !sending
+
+  const onPrimary = (): void => {
+    if (sending) void stop()
+    else void submit()
+  }
 
   return (
     <div className="border-t border-[var(--border)] bg-[var(--surface)]">
@@ -278,16 +296,18 @@ export function Composer(): JSX.Element {
               void submit()
             }
           }}
-          className="scroll-y max-h-[140px] flex-1 resize-none rounded-[18px] border border-[var(--border)] bg-[var(--bg)] px-3.5 py-2.5 text-[15px] leading-relaxed text-[var(--text)] outline-none focus:border-[var(--mint2)]"
+          disabled={sending}
+          className="scroll-y max-h-[140px] flex-1 resize-none rounded-[18px] border border-[var(--border)] bg-[var(--bg)] px-3.5 py-2.5 text-[15px] leading-relaxed text-[var(--text)] outline-none focus:border-[var(--mint2)] disabled:opacity-70"
         />
         <button
           type="button"
-          onClick={() => void submit()}
-          disabled={!canSend}
-          aria-label="送出"
+          onClick={onPrimary}
+          disabled={!sending && !canSend}
+          aria-label={sending ? '停止' : '送出'}
+          title={sending ? '停止回應' : '送出訊息'}
           className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--mint)] text-[var(--text)] transition-opacity disabled:opacity-40"
         >
-          <MonoIcon name="send" className="h-[18px] w-[18px]" />
+          <MonoIcon name={sending ? 'stop' : 'send'} className="h-[18px] w-[18px]" />
         </button>
       </div>
     </div>

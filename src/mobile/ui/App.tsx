@@ -11,7 +11,7 @@ import { MessageList } from './chat/MessageList'
 import { Composer } from './chat/Composer'
 import { AvatarBar } from './characters/AvatarBar'
 import MonoIcon from '@shared/MonoIcon'
-import { detectLanDirect, modeLabel, resolveConnection, wsUrlFor } from './connection'
+import { detectLanDirect, modeBadgeLabel, resolveConnection, wsUrlFor } from './connection'
 import { RemoteDataSource } from '../data/remoteDataSource'
 import { LocalDataSource } from '../data/localDataSource'
 import { getDeviceIdentity } from '../data/deviceIdentity'
@@ -20,7 +20,6 @@ import { HeaderChips } from './context/HeaderChips'
 import { initCapacitorSecrets, capacitorAdapters } from '../adapters'
 import { bootStandaloneSession } from '../runtime/session'
 import { setStandaloneSession } from '../runtime/sessionHolder'
-import { APP_VERSION, formatBuildTimeShort } from '../buildInfo'
 
 /**
  * 手機 UI 的根元件。
@@ -66,7 +65,7 @@ export function App(): JSX.Element {
   }, [])
 
   const conn = useMemo(() => resolveConnection(), [])
-  const modeText = modeLabel(conn, lanDirect)
+  const modeText = modeBadgeLabel(conn, lanDirect)
 
   useEffect(() => {
     let cancelled = false
@@ -127,21 +126,15 @@ export function App(): JSX.Element {
         className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--mint)] px-3 pb-2"
         style={{ paddingTop: 'calc(var(--safe-top) + 8px)' }}
       >
-        {/*
-          版本放這裡：一步就能看到，不用進設定。
-          建置時間才是「更新了沒」的依據（debug APK 版號不會變）。
-          shrink-0 + 固定兩行，不跟右側 chips 搶寬，避免把對話／情境標籤擠出橫向捲軸。
-        */}
-        <span
-          className="flex shrink-0 flex-col items-start rounded-full border border-[var(--border)] bg-[var(--bg)] px-2 py-0.5 leading-tight"
-          title={`資料來源：${modeText}　DeST v${APP_VERSION}　建置 ${formatBuildTimeShort() || '—'}`}
+        {/* 兩字小標籤；版號／建置／連線說明點進去「關於」再看。 */}
+        <button
+          type="button"
+          onClick={() => push('about')}
+          aria-label={`目前模式：${modeText}，開啟關於`}
+          className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--bg)] px-2 py-0.5 text-[11px] font-semibold text-[var(--text)] active:bg-[var(--surface)]"
         >
-          <span className="text-[11px] font-semibold text-[var(--text)]">{modeText}</span>
-          <span className="text-[10px] text-[var(--text-sub)]">
-            v{APP_VERSION}
-            {formatBuildTimeShort() ? ` · ${formatBuildTimeShort()}` : ''}
-          </span>
-        </span>
+          {modeText}
+        </button>
         {ready ? <HeaderChips /> : <span className="min-w-0 flex-1 text-[13px] font-semibold text-[var(--text)]">DeST</span>}
         <button
           type="button"

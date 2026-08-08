@@ -699,6 +699,12 @@ export interface RemoteControlApi {
   restoreWindows(): Promise<void>
 }
 
+/** 停止生成後還給輸入框的草稿；`null`＝當下沒有可停的請求。 */
+export type StopGeneratingResult = {
+  content: string
+  images?: string[]
+} | null
+
 export interface DataSource {
   readonly capabilities: Capabilities
 
@@ -706,6 +712,12 @@ export interface DataSource {
   getState(): Promise<AppStateSnapshot>
 
   sendMessage(input: SendMessageInput): Promise<void>
+
+  /**
+   * 中止進行中的生成（對齊桌面「停止」）。
+   * 成功中止時回草稿，讓 UI 把字／圖還回輸入框；沒東西可停就回 `null`。
+   */
+  stopGenerating(): Promise<StopGeneratingResult>
 
   /** 第 `index` 張圖的可顯示位址；同 `avatarUrl` 的理由，不可讓 UI 直接讀 `message.images`。 */
   getMessageImageUrl(messageId: string, index: number): Promise<string | null>

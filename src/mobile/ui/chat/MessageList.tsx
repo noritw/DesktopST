@@ -22,11 +22,23 @@ export function MessageList(): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
 
+  const scrollToEnd = (): void => {
+    const el = containerRef.current
+    if (!el) return
+    // ⚠️ 用容器自己的 scrollTop，不要 scrollIntoView。
+    // Capacitor WebView 裡 scrollIntoView 常去捲外層（整個視窗），
+    // 訊息串看起來就「角色發話了但畫面沒跟著下去」。
+    el.scrollTop = el.scrollHeight
+  }
+
   /**
    * 自動捲到底（清單 A9），但**只有在使用者本來就在底部時**。
    *
    * 少了這個條件，使用者往上翻舊訊息時只要有新訊息進來就會被拉回底部 ——
    * 群組聊天時角色接連發話，那等於完全沒辦法讀歷史。
+   *
+   * 例外：使用者自己剛送出、或角色正在「思考中」——那代表在等回覆，
+   * 一律黏底，不然鍵盤收合／版面抖一下就容易判定「離底」而漏捲。
    */
   useEffect(() => {
     const el = containerRef.current
@@ -40,7 +52,14 @@ export function MessageList(): JSX.Element {
   }, [])
 
   useLayoutEffect(() => {
-    if (stickToBottom.current) endRef.current?.scrollIntoView({ block: 'end' })
+    const last = messages[messages.length - 1]
+    if (last && isOptimistic(last) && last.role === 'user') stickToBottom.current = true
+    if (thinkingIds.length > 0) stickToBottom.current = true
+    if (!stickToBottom.current) return
+    scrollToEnd()
+    // 圖片／字體晚一拍撐高時再補一次，否則角色泡泡出現後仍差一截
+    const t = window.setTimeout(scrollToEnd, 50)
+    return () => window.clearTimeout(t)
   }, [messages, thinkingIds])
 
   const nameOf = (id?: string): string =>

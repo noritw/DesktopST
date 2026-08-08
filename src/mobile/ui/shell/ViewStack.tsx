@@ -21,6 +21,7 @@ import { NewsView } from '../news/NewsView'
 import { NewsSettingsView } from '../news/NewsSettingsView'
 import { RemoteControlView } from '../remote/RemoteControlView'
 import { MainMenu } from './MainMenu'
+import { AboutView } from './AboutView'
 import { SyncImportView } from '../sync/SyncImportView'
 
 /**
@@ -51,7 +52,8 @@ const TITLES: Record<ViewKind, string> = {
   'lorebook-editor': '編輯用語解說',
   'sync-import': '從電腦匯入',
   remote: '遙控電腦',
-  menu: '選單'
+  menu: '選單',
+  about: '關於'
 }
 
 export function ViewStack(): JSX.Element | null {
@@ -87,6 +89,7 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'characters') return <CharacterLibrary />
   if (entry.kind === 'character-editor' && entry.param) return <CharacterEditor characterId={entry.param} />
   if (entry.kind === 'settings') return <SettingsView />
+  if (entry.kind === 'about') return <AboutView />
   if (entry.kind === 'menu') return <MainMenu />
   // param 選填：header 的狀態標籤點「情境」就帶 'scene' 進來直接展開那一組。
   if (entry.kind === 'presets') return <PresetsView openParam={entry.param} />

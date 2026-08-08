@@ -227,7 +227,15 @@ export async function runSyncImport(
   await session.saveSettings()
   await session.rememberSyncHost(src)
 
-  const wantedConvs = opts.conversationIds ?? []
+  /*
+   * 情境綁定的對話一定要帶過來，否則套用情境時換不了對話
+   * （owner 2026-08-09：「切情境都沒有切到和電腦一樣的角色和對話」）。
+   * 使用者勾選的那幾則再併進去；已匯入的會被 importConversations 略過。
+   */
+  const wantedConvs = uniqueIds([
+    ...(opts.conversationIds ?? []),
+    ...sceneBoundConversationIds(bundle)
+  ])
   const charTotal = (bundle.characters ?? []).length
   const grandTotal = charTotal + wantedConvs.length
 
@@ -255,8 +263,7 @@ export async function runSyncImport(
 
   /*
    * 一定要等角色與對話都落地才能對 id。
-   * 處理**全部**情境而不只是剛匯入的那些 —— 之前版本匯進來的壞引用
-   * （星號永遠亮、套用沒反應）靠再匯入一次同名情境是修不到的（同名會略過）。
+   * 同名情境現在會用電腦內容覆寫綁定欄位（見 applyPresets），再整批 remap。
    */
   await remapSceneReferences(session, bundle)
   await session.reloadPresets()
@@ -306,8 +313,15 @@ export async function pullSettingsFromDesktop(
   const usedSrc = upgraded?.src ?? src
 
   const apiKeysImported = applySettings(session, bundle)
-  // 順便把先前匯壞的情境引用修掉（見 remapSceneReferences）
+  /*
+   * 設定覆蓋也要把情境的「在場角色／綁定對話」從電腦抄過來。
+   * 這裡**只動情境**，不新增 persona／世界觀／角色（那是完整 S1 的事）。
+   * 情境綁定的對話一併拉下來，否則套用時還是換不了對話。
+   */
   await session.reloadPresets()
+  await syncScenesFromBundle(session, bundle)
+  await session.reloadPresets()
+  await importConversations(usedSrc, session, bundle, sceneBoundConversationIds(bundle), fetchImpl)
   await remapSceneReferences(session, bundle)
   await session.reloadPresets()
   await session.saveSettings()
@@ -479,12 +493,16 @@ function applyWeatherSettings(s: AppSettings, bundle: SyncInitBundle): number {
 }
 
 /**
- * 預設組一律以**新 id** 落地，並保留電腦端的名字。
- * 用新 id 是因為手機上可能已經有同 id 的內建預設組（種子產生的 id 與電腦無關），
- * 直接沿用會蓋掉使用者自己改過的那份。
+ * 預設組落地規則：
+ * - Persona／World：同名略過（避免蓋掉手機上改過的文案）
+ * - Scene：**同名則覆寫綁定欄位**（在場角色、對話、身分、世界觀、配色……）
  *
- * ⚠️ 情境**內部**的引用（persona／世界觀／在場角色／對話）這時還是電腦端的 id ——
- * 角色與對話都排在這一步後面才落地，現在還對不到。由 `remapSceneReferences` 收尾。
+ * 情境同名略過是 2026-08-09 才發現的坑：第一次匯入若帶著電腦端 id、或手機上
+ * 先有一個空的同名情境，之後再拉一次永遠拿不到電腦那份角色／對話綁定，
+ * 套用看起來「沒反應」。身分／世界觀的內文仍以同名略過為準；情境要的是
+ * 「桌面狀態快照」，內容本來就該跟電腦對齊。
+ *
+ * ⚠️ 寫進去的引用這時還是電腦端 id，由後續的 `remapSceneReferences` 收尾。
  */
 async function applyPresets(session: StandaloneSession, bundle: SyncInitBundle): Promise<number> {
   const keys = await import('@core/store/keys')
@@ -509,15 +527,54 @@ async function applyPresets(session: StandaloneSession, bundle: SyncInitBundle):
     count++
   }
 
-  const existingScene = new Set(session.scenes.map((s) => s.name))
+  count += await syncScenesFromBundle(session, bundle)
+  return count
+}
+
+/**
+ * 把電腦的情境綁定寫進手機（同名覆寫、沒有就新建）。
+ * S1 完整匯入與「重新拉設定」共用。
+ */
+async function syncScenesFromBundle(session: StandaloneSession, bundle: SyncInitBundle): Promise<number> {
+  const keys = await import('@core/store/keys')
+  const now = Date.now()
+  let count = 0
+  const localByName = new Map(session.scenes.map((s) => [s.name, s]))
+
   for (const sc of bundle.scenes ?? []) {
-    if (existingScene.has(sc.name)) continue
-    const next: ScenePreset = { ...sc, id: newId(), createdAt: sc.createdAt || now, updatedAt: now }
-    await session.adapters.storage.writeJson(keys.sceneKey(next.id), next)
+    const existing = localByName.get(sc.name)
+    if (existing) {
+      existing.activePersonaId = sc.activePersonaId
+      existing.activeWorldId = sc.activeWorldId
+      existing.desktopCharacters = (sc.desktopCharacters ?? []).map((d) => ({ ...d }))
+      existing.lastActiveConversationId = sc.lastActiveConversationId
+      existing.colorTheme = sc.colorTheme
+      existing.lorebookIds = sc.lorebookIds
+      existing.moduleOverrides = sc.moduleOverrides
+      existing.newsKeywordGroupId = sc.newsKeywordGroupId
+      existing.updatedAt = now
+      await session.adapters.storage.writeJson(keys.sceneKey(existing.id), existing)
+    } else {
+      const next: ScenePreset = { ...sc, id: newId(), createdAt: sc.createdAt || now, updatedAt: now }
+      await session.adapters.storage.writeJson(keys.sceneKey(next.id), next)
+      localByName.set(next.name, next)
+    }
     count++
   }
-
   return count
+}
+
+/** 電腦端情境記著的對話 id（套用情境時要切過去的那則）。 */
+function sceneBoundConversationIds(bundle: SyncInitBundle): string[] {
+  return uniqueIds(
+    (bundle.scenes ?? [])
+      .map((s) => s.lastActiveConversationId)
+      .filter((id): id is string => !!id?.trim())
+  )
+}
+
+function uniqueIds(ids: string[]): string[] {
+  return [...new Set(ids)]
 }
 
 /**

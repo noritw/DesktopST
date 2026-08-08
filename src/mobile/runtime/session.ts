@@ -20,7 +20,8 @@ import type {
   MessageDebug,
   ModuleToggle,
   PackConflictPolicy,
-  SendMessageInput
+  SendMessageInput,
+  StopGeneratingResult
 } from '@core/data'
 import { extractCharaJson, PngCardError } from '@core/card/pngCard'
 import { importStJson } from '@core/card/stCardMapper'
@@ -74,6 +75,9 @@ export class StandaloneSession {
   scenes: ScenePreset[] = []
   activeConversation: Conversation | null = null
   private conversationIndex = new Map<string, Conversation>()
+  private sendAbort: AbortController | null = null
+  private sendDraft: { content: string; images?: string[] } | null = null
+  private sendInFlight: Promise<void> | null = null
 
   private constructor(readonly adapters: PlatformAdapters) {}
 
@@ -386,12 +390,12 @@ export class StandaloneSession {
 
     /*
      * 在場角色直接換成情境記著的那組，但**只留這台手機真的有的角色**。
-     * 情境是從電腦匯入來的話會帶著手機沒有的 id，照抄會讓聊天列出現
-     * 一排點不開的「角色」。全部都不在時保持原狀，總比清空好。
+     * 匯入後應已 remap 成本地 id；若仍對不到，寧願套用後變少，也不要靜靜
+     * 「保持原狀」——那會讓壞掉的匯入看起來像套用沒反應（owner 2026-08-09）。
      */
     const owned = new Set(this.characters.map((c) => c.id))
     const next = scene.desktopCharacters.filter((d) => owned.has(d.characterId))
-    if (next.length > 0) {
+    if (scene.desktopCharacters.length > 0) {
       this.settings.ui.desktopCharacters = next.map((d) => ({ ...d }))
     }
 
@@ -627,7 +631,13 @@ export class StandaloneSession {
   }
 
   async sendMessage(input: SendMessageInput): Promise<void> {
-    await sendStandaloneMessage({
+    // 同時間只允許一則進行中的生成（對齊桌面 activeSendAbort）
+    if (this.sendInFlight) await this.sendInFlight.catch(() => undefined)
+
+    const abort = new AbortController()
+    this.sendAbort = abort
+    this.sendDraft = { content: input.content, images: input.images }
+    this.sendInFlight = sendStandaloneMessage({
       adapters: this.adapters,
       events: this.events,
       settings: this.settings,
@@ -636,8 +646,28 @@ export class StandaloneSession {
       saveConversation: (c) => this.saveConversation(c),
       getPersona: () => this.personas.find((p) => p.id === this.settings.activePersonaId) ?? null,
       getWorld: () => this.worlds.find((w) => w.id === this.settings.activeWorldId) ?? null,
-      input
+      input,
+      signal: abort.signal
+    }).finally(() => {
+      if (this.sendAbort === abort) {
+        this.sendAbort = null
+        this.sendDraft = null
+        this.sendInFlight = null
+      }
     })
+    await this.sendInFlight
+  }
+
+  async stopGenerating(): Promise<StopGeneratingResult> {
+    if (!this.sendAbort) return null
+    const draft = this.sendDraft
+    this.sendAbort.abort()
+    try {
+      await this.sendInFlight
+    } catch {
+      // 中止路徑不往上拋；草稿仍還給 UI
+    }
+    return draft ? { content: draft.content, images: draft.images } : { content: '' }
   }
 
   listConversations() {

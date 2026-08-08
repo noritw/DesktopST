@@ -67,6 +67,47 @@ describe('StandaloneSession', () => {
     session.settings.llm.models = {}
     expect(session.llmSnapshot().model).toBe('')
   })
+
+  it('stopGenerating aborts in-flight reply and restores the draft', async () => {
+    const hangingFetch: typeof fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        const signal = init?.signal
+        if (!signal) return
+        if (signal.aborted) {
+          reject(new DOMException('Aborted', 'AbortError'))
+          return
+        }
+        signal.addEventListener('abort', () => {
+          reject(new DOMException('Aborted', 'AbortError'))
+        })
+      })
+
+    const session = await bootStandaloneSession(
+      {
+        ...testAdapters(),
+        http: { fetch: hangingFetch, supportsStreaming: false }
+      },
+      { skipPackFetch: true }
+    )
+    session.settings.llm.provider = 'openai'
+    session.settings.llm.apiKeys.openai = 'test-key'
+    session.settings.llm.models = { openai: 'gpt-4o-mini' }
+    // 關掉天氣，否則會先卡在氣象 fetch
+    session.settings.weather = { ...session.settings.weather, enabled: false }
+
+    const before = session.activeConversation!.messages.length
+    const sendPromise = session.sendMessage({ content: '打錯字了' })
+    // 讓 send 先寫入使用者訊息、進入 LLM
+    await new Promise((r) => setTimeout(r, 20))
+
+    const draft = await session.stopGenerating()
+    await sendPromise
+
+    expect(draft).toEqual({ content: '打錯字了' })
+    expect(session.activeConversation!.messages).toHaveLength(before)
+    expect(session.activeConversation!.messages.every((m) => m.content !== '打錯字了')).toBe(true)
+    expect(await session.stopGenerating()).toBeNull()
+  })
 })
 
 describe('StandaloneSession：情境與設定組（缺口 #1）', () => {
@@ -94,19 +135,18 @@ describe('StandaloneSession：情境與設定組（缺口 #1）', () => {
   })
 
   /**
-   * 從電腦匯入的情境會記著手機上沒有的角色 id。照抄的話聊天列會出現
-   * 一排點不開的空角色，所以只留這台真的有的；一個都沒有時維持原狀。
+   * 情境記著的角色 id 只留這台真的有的。全部對不到時也要套用成空清單，
+   * 不要靜靜「保持原狀」——否則壞掉的匯入看起來像套用沒反應。
    */
-  it('情境帶著手機沒有的角色時不會把在場清單洗成空的', async () => {
+  it('情境角色全對不到時套用後在場清單會變空（不偷偷保留舊的）', async () => {
     const session = await bootWithScene()
-    const before = session.settings.ui.desktopCharacters.map((d) => d.characterId)
     const scene = session.scenes.find((s) => s.id === 'sc1')!
     await session.saveScene({
       ...scene,
       desktopCharacters: [{ ...scene.desktopCharacters[0]!, characterId: '電腦上才有的角色' }]
     })
     await session.applyScene('sc1')
-    expect(session.settings.ui.desktopCharacters.map((d) => d.characterId)).toEqual(before)
+    expect(session.settings.ui.desktopCharacters).toEqual([])
   })
 
   it('覆寫為目前狀態會保留新聞關鍵字組與用語解說綁定', async () => {

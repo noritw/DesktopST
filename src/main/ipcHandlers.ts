@@ -156,6 +156,8 @@ let activeConversationId: string | null = null
 let conversations: Map<string, Conversation> = new Map()
 // 目前進行中的 message:send 流程的中止控制器；按下「停止」時 abort 並中斷該流程
 let activeSendAbort: AbortController | null = null
+/** 供停止時把內容還給輸入框（桌面 IPC／手機 `/api/stop` 共用） */
+let activeSendDraft: { content: string; images?: string[] } | null = null
 
 function centerWindowInPrimary(winSize: { width: number; height: number }): { x: number; y: number } {
   const wa = screen.getPrimaryDisplay().workArea
@@ -1347,6 +1349,14 @@ export function handleSendMessageFromMobile(payload: {
 }): Promise<{ ok: boolean } | { error: string }> {
   if (!_mobileSendImpl) return Promise.resolve({ error: 'IPC handlers not registered yet' })
   return _mobileSendImpl(payload)
+}
+
+/** 中止進行中的送出；回草稿給呼叫端還原輸入框。沒有進行中的請求就回 null。 */
+export function stopSendDirect(): { content: string; images?: string[] } | null {
+  if (!activeSendAbort) return null
+  const draft = activeSendDraft
+  activeSendAbort.abort()
+  return draft ? { content: draft.content, images: draft.images } : { content: '' }
 }
 
 export function deleteMessageDirect(id: string): boolean {
@@ -4334,6 +4344,7 @@ export function registerIpcHandlers() {
 
     const abortController = new AbortController()
     activeSendAbort = abortController
+    activeSendDraft = { content: payload.content, images: payload.images }
 
     setThinking(primaryId, true)
     deferRaiseCharacterAbovePinnedNotes(primaryId)
@@ -4458,6 +4469,7 @@ export function registerIpcHandlers() {
       setThinking(primaryId, false)
       if (abortController.signal.aborted) {
         activeSendAbort = null
+        activeSendDraft = null
         // 使用者按下停止：移除尚未獲得回覆的訊息，關閉使用者泡泡，並把內容還給輸入框讓使用者修改重發
         conv.messages = conv.messages.filter(m => m.id !== userMsg.id)
         conv.updatedAt = Date.now()
@@ -4484,6 +4496,7 @@ export function registerIpcHandlers() {
       scheduleConversationBroadcast(conv)
       flushConversationBroadcast()
       activeSendAbort = null
+      activeSendDraft = null
       fileStore.saveConversation(conv)
       return { ok: true }
     }
@@ -4620,6 +4633,7 @@ export function registerIpcHandlers() {
     }
 
     activeSendAbort = null
+    activeSendDraft = null
     flushConversationBroadcast()
     fileStore.saveConversation(conv)
     maybeAutoSummarize(conv)
@@ -4630,7 +4644,7 @@ export function registerIpcHandlers() {
 
   // Stop the in-flight message:send LLM call(s), if any
   ipcMain.handle('message:stop', () => {
-    activeSendAbort?.abort()
+    stopSendDirect()
     return { ok: true }
   })
 

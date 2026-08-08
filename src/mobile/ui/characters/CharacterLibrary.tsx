@@ -188,11 +188,11 @@ export function CharacterLibrary(): JSX.Element {
           const isPresent = presentIds.has(item.id)
           // 只剩一位在場時不給移出按鈕（D5：至少保留一個）。留著會是一顆必定失敗的按鈕。
           const canToggleOff = !(isPresent && presentIds.size <= 1)
-          // 左邊點名稱／頭像編輯、右邊大標籤加入／移出（owner 2026-08-08）
+          // 點名稱／頭像編輯；小「編輯」在名稱下方，右側大標籤加入／移出
           return (
             <div
               key={item.id}
-              className={`mb-2 flex items-center gap-2 rounded-[14px] border px-3 py-2.5 ${
+              className={`mb-2 flex items-center gap-3 rounded-[14px] border px-3 py-2.5 ${
                 isPresent ? 'border-[var(--mint)] bg-[var(--mint)]/25' : 'border-[var(--border)] bg-[var(--bg)]'
               }`}
             >
@@ -203,8 +203,13 @@ export function CharacterLibrary(): JSX.Element {
                 className="flex min-w-0 flex-1 items-center gap-3 text-left"
               >
                 <Avatar characterId={item.id} size={38} />
-                <span className="min-w-0 flex-1 truncate text-[15px] text-[var(--text)]">{item.name}</span>
-                <MonoIcon name="edit" className="h-3.5 w-3.5 shrink-0 text-[var(--text-sub)]" />
+                <span className="min-w-0 flex-1">
+                  <p className="truncate text-[15px] text-[var(--text)]">{item.name}</p>
+                  <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] text-[var(--text-sub)]">
+                    <MonoIcon name="edit" className="h-3 w-3" />
+                    編輯
+                  </span>
+                </span>
               </button>
               <StatusChip
                 active={isPresent}

@@ -3,7 +3,6 @@ import type { LlmProvider, LlmSettingsSnapshot, MemorySettingsSnapshot, ModuleTo
 import { MODEL_DATA_UPDATED } from '@core/llm/modelCatalog'
 import MonoIcon from '@shared/MonoIcon'
 import { capacitorSecrets } from '../../adapters'
-import { buildInfoLines } from '../../buildInfo'
 import { resolveConnection } from '../connection'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
@@ -665,22 +664,10 @@ export function SettingsView(): JSX.Element {
         </Field>
       </Section>
 
-      <AboutFooter standalone={standalone} />
+      <p className="px-1 pt-1 text-center text-[11px] text-[var(--text-sub)]">
+        版本與建置資訊：點左上角的模式標籤
+      </p>
     </div>
-  )
-}
-
-/**
- * 頁尾的完整建置資訊（含模式與 git 雜湊）。
- * 日常「更新了沒」看 header 左上角那兩行就夠；這裡是想對 commit 時用的。
- */
-function AboutFooter({ standalone }: { standalone: boolean }): JSX.Element {
-  const { title, detail } = buildInfoLines(standalone)
-  return (
-    <footer className="px-1 pb-1 pt-1 text-center">
-      <p className="text-[11px] text-[var(--text-sub)]">{title}</p>
-      {detail && <p className="text-[11px] text-[var(--text-sub)]">{detail}</p>}
-    </footer>
   )
 }
 

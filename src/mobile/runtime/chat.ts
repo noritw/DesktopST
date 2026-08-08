@@ -31,6 +31,8 @@ export async function sendStandaloneMessage(opts: {
   getPersona: () => import('@core/types').PersonaPreset | null
   getWorld: () => import('@core/types').WorldPreset | null
   input: SendMessageInput
+  /** 停止生成時 abort；中止後會撤回尚未得到回覆的使用者訊息 */
+  signal?: AbortSignal
 }): Promise<void> {
   const conv = opts.getActiveConversation()
   if (!conv) throw new Error('No active conversation')
@@ -132,6 +134,14 @@ export async function sendStandaloneMessage(opts: {
 
   opts.events.push({ kind: 'thinking', characterId: primaryId })
 
+  const undoUserMessage = async (): Promise<void> => {
+    opts.events.push({ kind: 'thinking-done', characterId: primaryId })
+    conv.messages = conv.messages.filter((m) => m.id !== userMsg.id)
+    conv.updatedAt = Date.now()
+    await opts.saveConversation(conv)
+    opts.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
   const userMsgForPrompt: Message = { ...userMsg, content: userContentForPrompt }
   const recentMessagesBase = contextMessages(
     [...conv.messages.slice(0, -1), userMsgForPrompt],
@@ -145,6 +155,10 @@ export async function sendStandaloneMessage(opts: {
    * 掛掉就收不到回覆。桌面另有的新聞／日曆／Spotify 注入獨立版還沒接。
    */
   const weatherContext = await getWeatherContextString(opts.settings, { http: opts.adapters.http })
+  if (opts.signal?.aborted) {
+    await undoUserMessage()
+    return
+  }
 
   // `omitEmotionTag`：獨立版是單張主圖、不做表情差分，沒有東西會用到情緒標籤。
   // 角色卡若帶著表情圖，情緒合約會把每張圖的 id 與用途逐條寫進 system prompt
@@ -162,7 +176,8 @@ export async function sendStandaloneMessage(opts: {
         desktopCharacterNames,
         memorySummary: conv.summary,
         extraSystemContext: weatherContext ?? undefined,
-        omitEmotionTag: true
+        omitEmotionTag: true,
+        signal: opts.signal
       },
       { http: opts.adapters.http }
     )
@@ -204,6 +219,10 @@ export async function sendStandaloneMessage(opts: {
       opts.events.push({ kind: 'thinking', characterId: oid })
       try {
         const recent = contextMessages(conv.messages, opts.settings.memory.keepRecentN)
+        if (opts.signal?.aborted) {
+          opts.events.push({ kind: 'thinking-done', characterId: oid })
+          break
+        }
         const sec = await chatWithLLM(
           {
             settings: opts.settings,
@@ -215,7 +234,8 @@ export async function sendStandaloneMessage(opts: {
             desktopCharacterNames,
             memorySummary: conv.summary,
             extraSystemContext: weatherContext ?? undefined,
-            omitEmotionTag: true
+            omitEmotionTag: true,
+            signal: opts.signal
           },
           { http: opts.adapters.http }
         )
@@ -249,11 +269,16 @@ export async function sendStandaloneMessage(opts: {
         opts.events.push({ kind: 'thinking-done', characterId: oid })
         opts.events.push({ kind: 'message', message: msg })
       } catch (e) {
-        console.warn('[standalone] secondary reply failed', oid, e)
         opts.events.push({ kind: 'thinking-done', characterId: oid })
+        if (opts.signal?.aborted) break
+        console.warn('[standalone] secondary reply failed', oid, e)
       }
     }
   } catch (e) {
+    if (opts.signal?.aborted) {
+      await undoUserMessage()
+      return
+    }
     opts.events.push({ kind: 'thinking-done', characterId: primaryId })
     const errText = e instanceof Error ? e.message : String(e)
     const errMsg: Message = {

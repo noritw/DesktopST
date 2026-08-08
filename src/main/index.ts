@@ -4,7 +4,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import * as os from 'os'
 import { loadSettings, saveSettings, flushSaveSettings, loadCharacters, initDefaultCharacters, initDefaultPresets, loadPersonaPresets, loadWorldPresets, loadScenePresets, getDataDir } from './fileStore'
-import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, getConversationsForSyncDirect, getConversationForSyncDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, savePersonaPresetDirect, saveWorldPresetDirect, saveScenePresetDirect, captureSceneDirect, getActiveSceneDirtyDirect, removePersonaPresetDirect, removeWorldPresetDirect, removeScenePresetDirect, setColorThemeDirect, setShowLlmBadgeDirect, setShowPersonaNameDirect, getMessageDebugDirect, getApiKeysForSyncDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect, createCharacterDirect, saveCharacterDirect, deleteCharacterDirect, saveCharacterAvatarDirect, importCharacterPngDirect, importCharacterJsonDirect, exportCharacterPngDirect, exportCharacterJsonDirect, buildDstPackDirect, importDstPackDirect, listLorebooksDirect, getLorebookDirect, createLorebookDirect, saveLorebookDirect, removeLorebookDirect, getLlmSettingsSummaryDirect, setLlmProviderDirect, setLlmModelDirect, setLlmEndpointDirect, setLlmApiKeyDirect, setLlmChatLimitsDirect, getMemorySettingsDirect, setMemorySettingsDirect, listMobileModuleTogglesDirect, setMobileModuleEnabledDirect, getWeatherSettingsDirect, getWeatherSyncSettingsDirect, setWeatherSettingsDirect, detectWeatherLocationDirect, geocodeWeatherLocationDirect, fetchWeatherNowDirect, listRemindersDirect, createReminderDirect, saveReminderDirect, deleteReminderDirect, toggleReminderDirect } from './ipcHandlers'
+import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedAuxWindows, hasDismissedAuxWindows, getSettings, getCharacters, getActiveConversationForMobile, addDesktopCharacterDirect, removeDesktopCharacterDirect, captureScreenshotDirect, handleSendMessageFromMobile, stopSendDirect, setMobileMessageListener, setGetMobileStatusFn, setApplyMobileRuntimeSettingsFn, getConversationListDirect, getConversationsForSyncDirect, getConversationForSyncDirect, loadConversationDirect, createConversationDirect, renameConversationDirect, deleteConversationDirect, getScenesDirect, getPersonaPresetsDirect, getWorldPresetsDirect, activatePersonaDirect, activateWorldDirect, savePersonaPresetDirect, saveWorldPresetDirect, saveScenePresetDirect, captureSceneDirect, getActiveSceneDirtyDirect, removePersonaPresetDirect, removeWorldPresetDirect, removeScenePresetDirect, setColorThemeDirect, setShowLlmBadgeDirect, setShowPersonaNameDirect, getMessageDebugDirect, getApiKeysForSyncDirect, triggerReminderSpeak, applySceneById, handleSpotifyProtocolUrl, deleteMessageDirect, editMessageDirect, resendMessageDirect, forceSpeakDirect, toggleMuteDirect, createCharacterDirect, saveCharacterDirect, deleteCharacterDirect, saveCharacterAvatarDirect, importCharacterPngDirect, importCharacterJsonDirect, exportCharacterPngDirect, exportCharacterJsonDirect, buildDstPackDirect, importDstPackDirect, listLorebooksDirect, getLorebookDirect, createLorebookDirect, saveLorebookDirect, removeLorebookDirect, getLlmSettingsSummaryDirect, setLlmProviderDirect, setLlmModelDirect, setLlmEndpointDirect, setLlmApiKeyDirect, setLlmChatLimitsDirect, getMemorySettingsDirect, setMemorySettingsDirect, listMobileModuleTogglesDirect, setMobileModuleEnabledDirect, getWeatherSettingsDirect, getWeatherSyncSettingsDirect, setWeatherSettingsDirect, detectWeatherLocationDirect, geocodeWeatherLocationDirect, fetchWeatherNowDirect, listRemindersDirect, createReminderDirect, saveReminderDirect, deleteReminderDirect, toggleReminderDirect } from './ipcHandlers'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import { loadNewsModuleSettings } from './modules/news/settings'
@@ -525,6 +525,7 @@ function initMobileServer(): void {
     },
     getActiveConversation: getActiveConversationForMobile,
     sendMessage: async (payload) => { await handleSendMessageFromMobile(payload) },
+    stopGenerating: () => stopSendDirect(),
     addDesktopCharacter: addDesktopCharacterDirect,
     removeDesktopCharacter: removeDesktopCharacterDirect,
     captureScreenshot: (withChars: boolean, displayIndex?: number) => captureScreenshotDirect(withChars, displayIndex),
@@ -667,8 +668,9 @@ function initMobileServer(): void {
       for (const msg of newMsgs) pushMessage(msg)
       mobileLastConvMessageCount = msgs.length
     } else if (msgs.length < mobileLastConvMessageCount) {
-      // Messages were deleted / cleared
+      // 訊息被刪／停止生成撤回：計數對齊，並叫手機重抓整串（否則樂觀／已送出那則會留在畫面上）
       mobileLastConvMessageCount = msgs.length
+      pushDesktopUpdate(getSettings().ui.desktopCharacters.map(d => d.characterId))
     }
   })
 

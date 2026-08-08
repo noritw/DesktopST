@@ -261,7 +261,7 @@ describe('Capabilities：模式的真實差異', () => {
 
 describe('兩個實作對 UI 是同一個形狀', () => {
   const shape = (ds: DataSource) => ({
-    top: ['getState', 'sendMessage', 'getMessageImageUrl'].every((k) => typeof (ds as unknown as Record<string, unknown>)[k] === 'function'),
+    top: ['getState', 'sendMessage', 'stopGenerating', 'getMessageImageUrl'].every((k) => typeof (ds as unknown as Record<string, unknown>)[k] === 'function'),
     conversations: Object.keys(ds.conversations).sort(),
     messages: Object.keys(ds.messages).sort(),
     characters: Object.keys(ds.characters).sort(),
