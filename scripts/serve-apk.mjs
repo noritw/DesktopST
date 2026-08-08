@@ -1,6 +1,6 @@
 /**
  * 在區網開一個暫時下載頁，讓手機掃 QR 拿 debug APK。
- * 由 MobileST-build-apk.bat / MobileST-serve-apk.bat 呼叫。
+ * 由 `scripts/mobile-tool.mjs`（MobileST.bat 的 [1]／[2]）另開視窗呼叫。
  */
 import { execFile, execFileSync } from 'node:child_process'
 import http from 'node:http'
@@ -16,7 +16,7 @@ const qrPath = path.join(root, 'out', 'apk', 'DeST-debug-qr.png')
 
 if (!fs.existsSync(apkPath)) {
   console.error(`找不到 APK：${apkPath}`)
-  console.error('請先跑 MobileST-build-apk.bat')
+  console.error('請先跑 MobileST.bat 選 [1] 打包。')
   process.exit(1)
 }
 
@@ -53,8 +53,16 @@ const qrPng = await QRCode.toBuffer(pageUrl, { width: 640, margin: 2, errorCorre
 fs.writeFileSync(qrPath, qrPng)
 const qrDataUrl = `data:image/png;base64,${qrPng.toString('base64')}`
 
-const apkStat = fs.statSync(apkPath)
-const sizeMb = (apkStat.size / (1024 * 1024)).toFixed(1)
+/**
+ * ⚠️ **每次請求都要重新 stat，不能在啟動時記死。**
+ *
+ * 這個視窗常常開著不關，然後在旁邊重打一次 APK。檔案被覆蓋後大小就變了，
+ * 但舊的 `Content-Length` 還宣告著舊尺寸 —— 手機會乖乖等那些永遠不會來的位元組，
+ * 下載卡在 89% 不動，看起來完全像網路問題。2026-08-08 實際踩到（44.6 MB → 39.6 MB）。
+ */
+function apkSize() {
+  return fs.statSync(apkPath).size
+}
 
 function ensureFirewallRule() {
   try {
@@ -80,7 +88,7 @@ function ensureFirewallRule() {
   }
 }
 
-const html = `<!doctype html>
+const renderHtml = (sizeMb) => `<!doctype html>
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8" />
@@ -116,14 +124,29 @@ const server = http.createServer((req, res) => {
   console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${url.pathname} from ${from}`)
 
   if (url.pathname === '/' || url.pathname === '/index.html') {
+    let sizeMb = '?'
+    try {
+      sizeMb = (apkSize() / (1024 * 1024)).toFixed(1)
+    } catch {
+      /* 正在重新打包，檔案暫時不在 */
+    }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' })
-    res.end(html)
+    res.end(renderHtml(sizeMb))
     return
   }
   if (url.pathname === '/DeST-debug.apk') {
+    let size
+    try {
+      size = apkSize()
+    } catch {
+      // 多半是正在重新打包。給明確的 503，不要讓手機下載到一半的檔案。
+      res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' })
+      res.end('APK 暫時不存在（可能正在重新打包）。請稍候重試。')
+      return
+    }
     res.writeHead(200, {
       'Content-Type': 'application/vnd.android.package-archive',
-      'Content-Length': apkStat.size,
+      'Content-Length': size,
       'Content-Disposition': 'attachment; filename="DeST-debug.apk"',
       'Cache-Control': 'no-store'
     })
