@@ -7,6 +7,7 @@ import { bootStandaloneSession, type StandaloneSession } from '../../src/mobile/
 import {
   fetchSyncConversations,
   fetchSyncPreview,
+  pullSettingsFromDesktop,
   runSyncImport,
   SyncError,
   type SyncInitBundle
@@ -199,6 +200,131 @@ describe('S1 初始化匯入', () => {
 
     const dead = (() => Promise.reject(new Error('ECONNREFUSED'))) as typeof fetch
     await expect(fetchSyncPreview(SRC, session, dead)).rejects.toBeInstanceOf(SyncError)
+  })
+})
+
+describe('S1 天氣設定', () => {
+  const desktopWeather = {
+    polish: true,
+    realtimeQuery: { enabled: true, forecastCounty: '臺北市', cwaApiKey: 'CWA-FROM-PC' }
+  }
+
+  it('帶潤飾與 CWA 設定，但**不動手機的地點**', async () => {
+    const session = await boot()
+    session.settings.weather = {
+      enabled: true,
+      polish: false,
+      locationName: '手機用 GPS 抓到的地方',
+      latitude: 24.15,
+      longitude: 120.67,
+      locationSource: 'gps'
+    }
+
+    await runSyncImport(
+      SRC, session, { onConflict: 'skip' },
+      fakeFetch(bundle({ weather: desktopWeather }), (await makePacks(['星離宸'])).packs)
+    )
+
+    expect(session.settings.weather!.polish).toBe(true)
+    expect(session.settings.weather!.realtimeQuery).toEqual(desktopWeather.realtimeQuery)
+    // 手機會移動、而且有 GPS —— 帶電腦的座標過來只會讓它顯示家裡的天氣
+    expect(session.settings.weather!.locationName).toBe('手機用 GPS 抓到的地方')
+    expect(session.settings.weather!.latitude).toBe(24.15)
+    expect(session.settings.weather!.locationSource).toBe('gps')
+  })
+
+  it('CWA 金鑰算一把，計進「帶回幾把金鑰」', async () => {
+    const session = await boot()
+    const r = await runSyncImport(
+      SRC, session, { onConflict: 'skip' },
+      fakeFetch(
+        bundle({ weather: desktopWeather, llm: { apiKeys: { claude: '電腦來的' } } }),
+        (await makePacks(['星離宸'])).packs
+      )
+    )
+    expect(r.apiKeysImported).toBe(2)
+  })
+
+  it('中繼連線沒附 cwaApiKey 時，留住手機自己填的那把', async () => {
+    const session = await boot()
+    session.settings.weather = {
+      enabled: true, polish: false, locationName: '臺北市',
+      latitude: 25, longitude: 121, locationSource: 'manual',
+      realtimeQuery: { enabled: true, cwaApiKey: '手機填的', forecastCounty: '' }
+    }
+
+    const r = await runSyncImport(
+      SRC, session, { onConflict: 'skip' },
+      fakeFetch(
+        bundle({
+          lanDirect: false,
+          weather: { polish: true, realtimeQuery: { enabled: true, forecastCounty: '新北市' } }
+        }),
+        (await makePacks(['星離宸'])).packs
+      )
+    )
+
+    expect(session.settings.weather!.realtimeQuery!.cwaApiKey).toBe('手機填的')
+    expect(session.settings.weather!.realtimeQuery!.forecastCounty).toBe('新北市')
+    expect(r.apiKeysImported).toBe(0)
+  })
+
+  it('電腦沒有天氣設定時完全不碰手機這邊', async () => {
+    const session = await boot()
+    session.settings.weather = {
+      enabled: true, polish: true, locationName: '臺北市',
+      latitude: 25, longitude: 121, locationSource: 'manual'
+    }
+    await runSyncImport(
+      SRC, session, { onConflict: 'skip' },
+      fakeFetch(bundle(), (await makePacks(['星離宸'])).packs)
+    )
+    expect(session.settings.weather!.polish).toBe(true)
+  })
+})
+
+describe('從電腦重新拉設定（可重複執行）', () => {
+  it('只套設定 —— 不新增角色、預設組與對話', async () => {
+    const session = await boot()
+    const charsBefore = session.characters.length
+    const presetsBefore = session.personas.length
+    const convsBefore = session.listConversations().length
+
+    await pullSettingsFromDesktop(
+      SRC,
+      session,
+      fakeFetch(bundle({ colorTheme: 'retro', memory: { keepRecentN: 7 } }), null)
+    )
+
+    expect(session.settings.ui.colorTheme).toBe('retro')
+    expect(session.settings.memory.keepRecentN).toBe(7)
+    // 這幾樣每次匯入都會新增一份，可重複執行的入口絕不能碰
+    expect(session.characters).toHaveLength(charsBefore)
+    expect(session.personas).toHaveLength(presetsBefore)
+    expect(session.listConversations()).toHaveLength(convsBefore)
+  })
+
+  it('連按兩次不會累積出任何東西', async () => {
+    const session = await boot()
+    const f = fakeFetch(bundle(), null)
+    await pullSettingsFromDesktop(SRC, session, f)
+    const after = session.personas.length
+    await pullSettingsFromDesktop(SRC, session, f)
+    expect(session.personas).toHaveLength(after)
+  })
+
+  it('成功後記住同步主機，下次不必重掃', async () => {
+    const session = await boot()
+    expect(await session.getSyncHost()).toBeNull()
+    await pullSettingsFromDesktop(SRC, session, fakeFetch(bundle(), null))
+    expect((await session.getSyncHost())?.baseUrl).toBe(SRC.baseUrl)
+  })
+
+  it('權杖過期時拋 unauthorized，讓 UI 請使用者重掃', async () => {
+    const session = await boot()
+    await expect(
+      pullSettingsFromDesktop(SRC, session, fakeFetch(bundle(), null, { status: 401 }))
+    ).rejects.toMatchObject({ code: 'unauthorized' })
   })
 })
 

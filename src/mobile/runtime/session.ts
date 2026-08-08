@@ -25,7 +25,9 @@ import type {
 import { extractCharaJson, PngCardError } from '@core/card/pngCard'
 import { importStJson } from '@core/card/stCardMapper'
 import { bytesToBase64 } from '@core/util/base64'
+import { fetchWeather, geocodeCity, invalidateWeatherCache, type WeatherData } from '@core/weather'
 import { LocalEventSource } from '../events/localEventSource'
+import { detectMobileLocation } from './weather'
 import { newId } from './id'
 import { toConversationSnapshot } from './messages'
 import {
@@ -44,6 +46,13 @@ const MODULE_DEFS: ModuleToggle[] = [
 ]
 
 const ALLOWED_AVATAR_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp']
+
+/** 記住的同步主機。權杖會過期，所以拿來用之前要有失敗的心理準備。 */
+export interface SyncHostMemo {
+  baseUrl: string
+  token: string
+  lastSyncedAt: number
+}
 
 export interface BootStandaloneOptions {
   /** 測試用：直接注入 dstpack bytes，略過 fetch */
@@ -267,6 +276,26 @@ export class StandaloneSession {
   async addImportedConversation(conv: Conversation): Promise<void> {
     this.conversationIndex.set(conv.id, conv)
     await this.adapters.storage.writeJson(keys.conversationKey(conv.id), conv)
+  }
+
+  // ── 同步主機 ──────────────────────────────────────────
+  //
+  // roadmap §4.7 的星狀拓樸：手機只綁定**一台**同步主機，其他配對僅供遙控。
+  // 記住它是為了「從電腦重新拉設定」不必每次重掃 QR。
+
+  /**
+   * 上次成功同步的那台電腦。
+   *
+   * 權杖會在電腦重開手機連線時換新，所以拿它去連**很可能是 401**——
+   * 那不是錯誤，呼叫端要能安靜地請使用者重掃一次。
+   */
+  async getSyncHost(): Promise<SyncHostMemo | null> {
+    return (await this.adapters.storage.readJson<SyncHostMemo>(keys.SYNC_HOST_KEY)) ?? null
+  }
+
+  async rememberSyncHost(src: { baseUrl: string; token: string }): Promise<void> {
+    const memo: SyncHostMemo = { ...src, lastSyncedAt: Date.now() }
+    await this.adapters.storage.writeJson(keys.SYNC_HOST_KEY, memo)
   }
 
   async saveConversation(conv: Conversation): Promise<void> {
@@ -519,6 +548,68 @@ export class StandaloneSession {
     }
     await this.saveSettings()
     this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  // ── 天氣 ──────────────────────────────────────────────
+  //
+  // 設定的讀寫在 `LocalDataSource`（純欄位搬運）；這裡只放需要打外部服務的三支。
+
+  private ensureWeather(): NonNullable<AppSettings['weather']> {
+    this.settings.weather ??= {
+      enabled: false,
+      polish: false,
+      locationName: '',
+      latitude: 0,
+      longitude: 0,
+      locationSource: ''
+    }
+    return this.settings.weather
+  }
+
+  /** 定位並寫進設定。GPS 優先、退回 IP，詳見 `runtime/weather.ts`。 */
+  async detectWeatherLocation(): Promise<void> {
+    const hit = await detectMobileLocation({ http: this.adapters.http })
+    if (!hit) {
+      throw new DataError('unknown', '定位失敗。請確認已開啟定位權限，或手動輸入城市名稱。')
+    }
+    const w = this.ensureWeather()
+    w.locationName = hit.name
+    w.latitude = hit.lat
+    w.longitude = hit.lon
+    w.locationSource = hit.source
+    // 使用者特地按了定位，顯然是想用天氣
+    if (!w.enabled) w.enabled = true
+    invalidateWeatherCache()
+    await this.saveSettings()
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  async geocodeWeatherLocation(name: string): Promise<void> {
+    const q = name.trim()
+    if (!q) throw new DataError('invalid-input', '請輸入城市名稱')
+    const hit = await geocodeCity({ http: this.adapters.http }, q)
+    if (!hit) throw new DataError('not-found', '找不到城市，請換個關鍵字')
+    const w = this.ensureWeather()
+    w.locationName = hit.name
+    w.latitude = hit.lat
+    w.longitude = hit.lon
+    w.locationSource = 'manual'
+    if (!w.enabled) w.enabled = true
+    invalidateWeatherCache()
+    await this.saveSettings()
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  /** 立即抓一次天氣給 UI 顯示。**繞過快取**——使用者按「立即更新」就是不信任舊值。 */
+  async fetchWeatherNow(): Promise<WeatherData> {
+    const w = this.settings.weather
+    if (!w?.locationName || !w.latitude || !w.longitude) {
+      throw new DataError('invalid-input', '尚未設定位置')
+    }
+    invalidateWeatherCache()
+    const data = await fetchWeather({ http: this.adapters.http }, w.latitude, w.longitude, w.locationName)
+    if (!data) throw new DataError('unknown', '天氣更新失敗')
+    return data
   }
 
   async sendMessage(input: SendMessageInput): Promise<void> {

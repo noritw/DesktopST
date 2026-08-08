@@ -16,9 +16,10 @@
 | 類別 | 缺什麼 |
 |---|---|
 | A. 需要背景執行 | 新聞報、提醒 |
-| B. 還沒補的資料面 | 情境（scene）整組、Lorebook 編輯、角色卡／設定包**匯出** |
-| C. 需要網路查詢 | 天氣定位與即時查詢 |
-| D. 尚未開工 | 對話與電腦雙向同步（S2；S1 單向匯入已完成） |
+| B. 還沒補的資料面 | Lorebook 編輯、角色卡／設定包**匯出** |
+| C. 尚未開工 | 對話與電腦雙向同步（S2；S1 單向匯入與「重新拉設定」已完成） |
+
+情境整組、天氣（含定位與 CWA）2026-08-08 已補上。
 
 ---
 
@@ -29,8 +30,8 @@
 | ~~1~~ | ~~情境（scene）套用／存檔／擷取／刪除~~ | `PresetsView` 有完整清單與按鈕 | **2026-08-08 完成** | — | 已做 |
 | 2 | **Lorebook（用語解說）編輯** | `LorebookEditor` 已存在 | `lorebooks.list` 回空陣列；`get`／`save`／`remove`／`create` pending | 純檔案讀寫，沒有平台阻礙 | ② |
 | 3 | **角色卡／設定包匯出** | 角色編輯器有匯出入口 | `characters.exportCard`／`exportPack` pending（匯入**已可用**） | 需要 Capacitor Filesystem 寫檔 ＋ 分享 intent | ③ |
-| 4 | **天氣定位／即時查詢** | 設定頁有天氣區塊，開關可存 | `detectWeatherLocation`／`geocodeWeatherLocation`／`fetchWeatherNow` pending | 要在手機端直接打第三方 API（桌面是主行程代打） | ④ |
-| 5 | **提醒** | `RemindersView`／`ReminderEditor` 完整 | `reminders.list` 回空；`create`／`save`／`remove`／`toggle` pending | **不只是資料**：要排程與本機通知（Capacitor LocalNotifications），且 roadmap 已否決「Relay 代排程」「RTC 半夜喚醒」 | ⑤ |
+| ~~4~~ | ~~天氣定位／即時查詢~~ | 設定頁有天氣區塊 | **2026-08-08 完成**（背景 `[Weather]` 含 CWA；地震／颱風關鍵詞查詢仍桌面限定） | — | 已做 |
+| 5 | **提醒** | `RemindersView`／`ReminderEditor` 完整 | `reminders.list` 回空；`create`／`save`／`remove`／`toggle` pending | **不只是資料**：要排程與本機通知（Capacitor LocalNotifications），且 roadmap 已否決「Relay 代排程」「RTC 半夜喚醒」。**同步要連著做**，見 §3.1 | ⑤ |
 | 6 | **個人新聞報** | `NewsView`／設定／關鍵字面板完整 | `news.*` 全 pending（15 支） | 抓 RSS／解析／配額／排程，量最大；還牽涉 CORS 與背景抓取 | ⑥ |
 | 7 | **對話與電腦同步（S2）** | 只有 S1「從電腦匯入」 | 未開工 | roadmap §4.7 已定分層與星狀拓樸 | ⑦（獨立議題） |
 
@@ -44,8 +45,23 @@ Spotify／日曆授權同樣只在桌面。
 2–3 是**純資料操作**，跟已完成的情境／persona／world 存檔走同一條路（讀寫 `adapters.storage` ＋
 `events.push({ kind: 'state-invalidated' })`），做完就能用，風險最低。
 
-4–6 每一項都要**引進新的平台能力**（網路／通知／排程），且 5 和 6 都碰到「手機不是常駐主機」
+5–6 都要**引進新的平台能力**（通知／排程），且兩者都碰到「手機不是常駐主機」
 這個根本限制 —— 開工前先回頭讀 roadmap §2 的四大目標，別把已否決的方案再提一次。
+
+### 3.1 提醒要連同步一起做（owner 2026-08-08 決議）
+
+owner：「天氣和提醒希望也可以和電腦同步，這樣我不用設定兩次。」
+
+天氣已照這個做完了。提醒**刻意還沒動**，因為它不像天氣那樣「同步設定」就結案：
+
+| 問題 | 說明 |
+|---|---|
+| 同步了但不會響 | 缺口 #5 沒做之前，帶過去的提醒在手機上只是一排看得到的字。比現在誠實失敗更糟 —— 使用者會以為它會響，然後錯過 |
+| **兩邊都響** | 早上八點的「吃藥」電腦響一次、手機再響一次。使用者要的是不用設定兩次，不是被提醒兩次 |
+| `lastTriggeredAt` 是狀態不是設定 | 兩邊各自觸發、各自往裡面寫，而 `interval` 型排程完全依賴它。這已經是雙向合併，屬於 S2 |
+
+**決議：`Reminder` 要加「哪台裝置響」的欄位**（桌面／手機／兩者），
+**預設只在原本建立的那台響**。做缺口 #5 時一起加，不要等到同步才回頭改資料結構。
 
 ---
 
@@ -71,5 +87,7 @@ Spotify／日曆授權同樣只在桌面。
 | 獨立版不再送表情合約 | `ChatLLMParams.omitEmotionTag`；獨立版單張主圖用不到情緒標籤 |
 | **缺口 #1 情境與設定組** | `applyScene`／`captureScene`／`saveScene`／`removeScene`／`removePersona`／`removeWorld` 全部接上；`activeSceneDirty` 也真的算了。設定層套用共用 `core/scene/apply` |
 | **S1 對話匯入** | 掃 QR 時可勾選要帶哪幾則（全選／取消全選，**預設全不選**）；電腦端 `/api/sync-conversations`（只給清單）＋ `/api/sync-conversation`（逐則）。角色 id 靠名字重新對上，`Conversation.importedFrom` 留給 S2 |
+| **缺口 #4 天氣** | 邏輯抽到 `core/weather/`（兩邊共用）；獨立版定位 **GPS 優先、退回 IP**，聊天會帶 `[Weather]`。CWA 背景預報也共用了 |
+| **從電腦重新拉設定** | 設定頁「與電腦同步」，可重複按。單向覆蓋，不碰角色／預設組／對話／天氣地點 |
 
 細節見 `progress-log.md` 同日條目。

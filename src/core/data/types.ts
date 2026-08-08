@@ -10,6 +10,7 @@ import type {
   Reminder,
   ReminderSchedule,
   ScenePreset,
+  WeatherLocationSource,
   WorldPreset
 } from '../types'
 import type { Lorebook } from '../lore'
@@ -363,7 +364,7 @@ export interface WeatherSettingsSnapshot {
   locationName: string
   latitude: number
   longitude: number
-  locationSource: 'ip' | 'manual' | ''
+  locationSource: WeatherLocationSource
   /** 輔助模型是否啟用；潤飾勾選要靠它，只讀。 */
   utilityEnabled: boolean
 }

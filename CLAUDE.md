@@ -74,13 +74,14 @@ src/mobile/ 手機 UI
 | **B3 手機 UI** | 階段 0–9 ＋ 資訊架構完成；`mobile.html` 已移除（單一入口 `/`） |
 | **B6 遙控 UI** | 已完成（真機驗證通過） |
 | **手機獨立版 W1–W3** | 完成。**debug APK 已在 Pixel 10a 實測通過**（聊天、落地、金鑰加密、重開保留）。建置流程與陷阱：`src/mobile/README.md` |
-| **S1 初始化匯入** | 完成（掃 QR 單向拉角色／預設組／設定／**對話**；對話勾選匯入，預設全不選） |
-| **下一步** | 獨立版天氣（缺口 #4）→ Lorebook 編輯／角色卡匯出。S2 雙向同步再往後。另：v0.4.0 真機煙測（配色／新聞泡泡／遙控） |
+| **S1 初始化匯入** | 完成（掃 QR 單向拉角色／預設組／設定／**對話**；對話勾選匯入，預設全不選）。另有可重複執行的「從電腦重新拉設定」 |
+| **獨立版天氣** | 完成（缺口 #4）。邏輯在 `core/weather/`，定位 GPS 優先退回 IP，聊天會帶 `[Weather]`。地震／颱風關鍵詞查詢仍桌面限定 |
+| **下一步** | Lorebook 編輯（缺口 #2）→ 角色卡匯出（#3）→ 提醒（#5，**要連「哪台裝置響」一起做**）。S2 雙向同步再往後。另：v0.4.0 真機煙測（配色／新聞泡泡／遙控） |
 | 延後／已排程 | 角色印象（B8）；系統通知（B5）；**飲食熱量模組（B9）** → `docs/future-nutrition-module.md`（owner 自用優先；含換機搬家包） |
 
 獨立模式**尚未實作**（會誠實擲 `not-supported`，不是 bug）：新聞、提醒、
-角色卡匯出、Lorebook 編輯、天氣定位／即時查詢。Spotify／日曆授權仍只在桌面。
-（情境套用／擷取／刪除、設定組刪除 2026-08-08 已補上。）
+角色卡匯出、Lorebook 編輯、天氣的地震／颱風關鍵詞查詢。Spotify／日曆授權仍只在桌面。
+（情境套用／擷取／刪除、設定組刪除、天氣 2026-08-08 已補上。）
 → 缺口總表與建議順序：`docs/mobile-standalone-gap-inventory.md`（不長，可整份讀）。
 
 分支：`feat/mobile-standalone`。
@@ -101,6 +102,11 @@ src/mobile/ 手機 UI
   否則畫面不會更新（漏推過一次：重新發送截斷後畫面停在舊清單）
 - **Capacitor 外掛放 `dependencies`，不是 `devDependencies`**；打 APK 前先看
   `src/mobile/README.md` 的兩個陷阱（另一個是 `JAVA_HOME` 不能用 Android Studio 的 jbr）
+- 加 Capacitor 外掛時：**權限不見得會自動合併**（`@capacitor/geolocation` 的
+  AndroidManifest 是空的），要自己寫進 `android/app/src/main/AndroidManifest.xml`；
+  外掛一律用**動態 `import()`** 載，否則瀏覽器煙測與 vitest 會在載入時就炸
+- core 裡要打外部 API 就**注入 `HttpAdapter`**（比照 `core/llm`、`core/weather`），
+  不要用全域 `fetch` —— 手機那邊要 CapacitorHttp patch 過才繞得過 CORS
 - 動 LLM 供應商設定時注意 `llm.model` 是早期單一供應商的遺留欄位，
   `resolveModel()` 仍會拿它墊底 —— 不同步會把 A 家型號送去 B 家
 
@@ -115,6 +121,7 @@ src/mobile/ 手機 UI
 | 改 QR／relay／手機建置 | 計畫書 **只讀 §4.20** | §4.10–4.18 |
 | S1／S2 同步 | roadmap **§4.7**（模式、S1–S3 分層、API Key 判定、星狀拓樸） | 整份 roadmap |
 | 打 APK／改 Capacitor | `src/mobile/README.md` | 一切長文 |
+| 動天氣（兩邊共用） | `core/weather/`（四個小檔，直接讀原始碼）＋ `progress-log.md` 搜「獨立版天氣」 | 舊的 `weather-realtime-query-spec.md`（那是桌面 CWA 規格） |
 | 問「獨立版還缺什麼」／挑下一項做 | `mobile-standalone-gap-inventory.md`（整份，不長） | 舊的 `mobile-html-feature-inventory.md` |
 | 查「以前為什麼這樣做／已知坑」 | `progress-log.md` **Grep 關鍵字** | 整份 log |
 | 實作某桌面／資料規格 | `DesktopST-Spec.md` **對應章節** | 整本 Spec |

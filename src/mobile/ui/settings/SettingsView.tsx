@@ -6,6 +6,7 @@ import { capacitorSecrets } from '../../adapters'
 import { resolveConnection } from '../connection'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
+import { DesktopPullSection } from './DesktopPullSection'
 import { describeSettingsError } from './settingsErrors'
 import {
   HIGH_PRICE_GROUP_LABEL,
@@ -30,9 +31,10 @@ import { moduleDescription } from './moduleInfo'
  *
  *   ┌ 連線（不可收合，這是唯一必填的東西）── 供應商／模型／API Key
  *   ├ 對話            ← 回應字數／群組回應數／圖片上限
- *   ├ 天氣            ← 位置／開關／潤飾（手機可設；CWA 進階仍桌面）
+ *   ├ 天氣            ← 位置／開關／潤飾（獨立版可定位；地震颱風查詢仍桌面）
  *   ├ 記憶
  *   ├ 模組開關         ← 天氣／新聞在前；Spotify／日曆只給開關
+ *   ├ 與電腦同步       ← 可重複執行的單向拉設定（獨立版限定）
  *   └ 進階            ← 只剩自訂端點
  *
  * 「提醒」已搬到頂部 ☰ 主選單（owner 決定：它是會固定使用的功能，不是設定項）。
@@ -50,7 +52,9 @@ export function SettingsView(): JSX.Element {
   const [modules, setModules] = useState<ModuleToggle[] | null>(null)
   const [weather, setWeather] = useState<WeatherSettingsSnapshot | null>(null)
   const [failed, setFailed] = useState(false)
-  const [open, setOpen] = useState<'chat' | 'weather' | 'memory' | 'modules' | 'advanced' | null>(null)
+  const [open, setOpen] = useState<
+    'chat' | 'weather' | 'memory' | 'modules' | 'desktop' | 'advanced' | null
+  >(null)
   const [apiKeyAccess, setApiKeyAccess] = useState(false)
   const [cityDraft, setCityDraft] = useState('')
   const [weatherBusy, setWeatherBusy] = useState(false)
@@ -67,9 +71,8 @@ export function SettingsView(): JSX.Element {
    * 獨立模式但金鑰保險箱沒解封（＝瀏覽器煙測，沒有 Android Keystore）：
    * API Key 會以明文落地。這種情況要當面講，不能只寫在 console。
    */
-  const [plaintextKey] = useState(
-    () => resolveConnection().mode === 'standalone' && !capacitorSecrets.isAvailable()
-  )
+  const [standalone] = useState(() => resolveConnection().mode === 'standalone')
+  const [plaintextKey] = useState(() => standalone && !capacitorSecrets.isAvailable())
 
   const load = useCallback(async (): Promise<void> => {
     setFailed(false)
@@ -272,7 +275,17 @@ export function SettingsView(): JSX.Element {
       await applyWeather(next)
       setWeatherMsg(`已偵測到：${next.locationName}`)
     } catch (e) {
-      toast(describeSettingsError(e, '偵測位置'), 'error')
+      /*
+       * 獨立版的定位只會因為兩件事失敗：沒給定位權限、或連不上外部服務。
+       * 共用文案的「請再試一次」對前者毫無幫助——再按一百次也還是沒權限。
+       */
+      const standalone = !getData().capabilities.remoteControl
+      toast(
+        standalone
+          ? '偵測位置失敗。請確認已允許定位權限並開啟網路，或直接在下方輸入城市名稱。'
+          : describeSettingsError(e, '偵測位置'),
+        'error'
+      )
     } finally {
       setWeatherBusy(false)
     }
@@ -474,7 +487,7 @@ export function SettingsView(): JSX.Element {
               onChange={(v) => void patchWeather({ enabled: v }, '切換天氣')}
             />
             <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
-              即時氣象署查詢（CWA API Key）仍請在電腦版「設定 → 擴充」設定。
+              地震與颱風的關鍵詞查詢仍只在電腦版。
             </p>
             <button
               type="button"
@@ -482,8 +495,11 @@ export function SettingsView(): JSX.Element {
               onClick={() => void detectWeather()}
               className="min-h-[40px] w-full rounded-full bg-[var(--mint)] px-4 text-sm text-[var(--text)] disabled:opacity-50"
             >
-              {weatherBusy ? '處理中…' : '自動偵測位置（IP）'}
+              {weatherBusy ? '處理中…' : '自動偵測位置'}
             </button>
+            <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
+              優先用裝置定位；沒給權限時改用連線位置推估，那會粗略得多。
+            </p>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -508,7 +524,13 @@ export function SettingsView(): JSX.Element {
               <p className="text-[12px] text-[var(--text-sub)]">
                 目前位置：
                 <span className="font-medium text-[var(--text)]">{weather.locationName}</span>
-                {weather.locationSource === 'ip' ? '（自動偵測）' : weather.locationSource === 'manual' ? '（手動）' : ''}
+                {weather.locationSource === 'gps'
+                  ? '（裝置定位）'
+                  : weather.locationSource === 'ip'
+                    ? '（連線位置推估）'
+                    : weather.locationSource === 'manual'
+                      ? '（手動）'
+                      : ''}
                 {' '}
                 <button
                   type="button"
@@ -597,6 +619,18 @@ export function SettingsView(): JSX.Element {
           </div>
         )}
       </Section>
+
+      {/* 遙控模式讀的本來就是電腦那份資料，沒有「拉一份過來」這回事 */}
+      {standalone && (
+        <Section
+          title="與電腦同步"
+          hint="把電腦上的設定拉一份過來"
+          expanded={open === 'desktop'}
+          onToggle={() => setOpen(open === 'desktop' ? null : 'desktop')}
+        >
+          <DesktopPullSection />
+        </Section>
+      )}
 
       {/* ── 進階：只剩自訂端點 ──────────────────────────── */}
       <Section

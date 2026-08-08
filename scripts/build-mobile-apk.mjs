@@ -162,14 +162,13 @@ spawn('cmd.exe', ['/c', 'start', 'DeST APK serve', serveBat], {
   windowsHide: false
 }).unref()
 
-if (!installed) {
-  console.log('測試提醒（這輪未推的變更）：')
-  console.log('  1. 冷啟後 header 左側應是「本機」')
-  console.log('  2. 設定填 API Key → 送一則，看身分名是否出現在訊息旁')
-  console.log('  3. 訊息選單：有留 debug prompt 的才會有「顯示完整 Prompt」')
-  console.log('  4. 點角色頭像應進角色卡')
-  console.log('  5. 情境與設定組 → 使用者設定：可關「顯示發話身分」')
-}
+console.log('測試提醒（這輪的變更）：')
+console.log('  1. 設定 → 天氣 → 「自動偵測位置」應跳定位權限；允許後顯示「（裝置定位）」')
+console.log('  2. 拒絕權限再按一次：應退回 IP 並顯示「（連線位置推估）」，不是報錯')
+console.log('  3. 按「立即更新」應出現氣溫濕度')
+console.log('  4. 開著天氣送一則訊息 → 完整 Prompt 裡要看得到 [Weather] 區塊')
+console.log('  5. 設定 → 與電腦同步 → 掃 QR → 電腦的潤飾／CWA 設定會過來，但**地點不會被蓋掉**')
+console.log('  6. 同一顆按鈕再按一次：設定更新，角色與對話數量不變')
 
 console.log('')
 console.log(`本機 IP 提示：${Object.values(os.networkInterfaces()).flat().find((x) => x && x.family === 'IPv4' && !x.internal)?.address ?? '未知'}`)

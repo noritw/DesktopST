@@ -725,7 +725,7 @@ const server = http.createServer(async (req, res) => {
       ...(typeof p.locationName === 'string' ? { locationName: p.locationName } : {}),
       ...(typeof p.latitude === 'number' ? { latitude: p.latitude } : {}),
       ...(typeof p.longitude === 'number' ? { longitude: p.longitude } : {}),
-      ...(p.locationSource === 'ip' || p.locationSource === 'manual' || p.locationSource === ''
+      ...(['ip', 'gps', 'manual', ''].includes(p.locationSource)
         ? { locationSource: p.locationSource }
         : {})
     }

@@ -210,13 +210,16 @@ export interface RemoteControlSettings {
   registeredPrograms: RegisteredProgram[]
 }
 
+/** 見 `core/types.ts` 的同名型別；`gps` 只有手機端會寫入。 */
+export type WeatherLocationSource = 'ip' | 'gps' | 'manual' | ''
+
 export interface WeatherSettings {
   enabled: boolean
   polish: boolean
   locationName: string
   latitude: number
   longitude: number
-  locationSource: 'ip' | 'manual' | ''
+  locationSource: WeatherLocationSource
   realtimeQuery?: {
     enabled: boolean
     cwaApiKey: string

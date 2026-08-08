@@ -1,10 +1,27 @@
 /**
  * 中央氣象署 Open Data API 查詢服務
  * 偵測使用者訊息中的氣象關鍵詞，即時查詢並組成 prompt 注入字串
+ *
+ * **桌面限定。** 背景天氣（`[Weather]`）用的 F-C0032-001 已移到
+ * `core/weather/cwa.ts` 給兩邊共用；這裡剩下的地震與颱風還沒接到手機。
  */
+import {
+  cwaFetch as coreCwaFetch,
+  fetchCwaBackgroundWeather as coreFetchCwaBackgroundWeather,
+  testCwaApiKey as coreTestCwaApiKey,
+  type CwaForecastResponse
+} from '../core/weather'
+import { electronHttp } from './adapters/httpAdapter'
 
-const CWA_BASE = 'https://opendata.cwa.gov.tw/api/v1/rest/datastore'
-const TIMEOUT_MS = 5000
+const deps = { http: electronHttp }
+
+export function fetchCwaBackgroundWeather(apiKey: string, county: string): Promise<string | null> {
+  return coreFetchCwaBackgroundWeather(deps, apiKey, county)
+}
+
+export function testCwaApiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
+  return coreTestCwaApiKey(deps, apiKey)
+}
 
 export type RealtimeQueryType = 'forecast' | 'earthquake' | 'typhoon'
 
@@ -42,47 +59,10 @@ export function detectQueryType(message: string): RealtimeQueryType | null {
   return null
 }
 
-// ─── API 呼叫工具 ─────────────────────────────────────────────
-async function cwaFetch(dataset: string, params: Record<string, string>, apiKey: string): Promise<unknown> {
-  const url = new URL(`${CWA_BASE}/${dataset}`)
-  url.searchParams.set('Authorization', apiKey)
-  for (const [k, v] of Object.entries(params)) {
-    url.searchParams.set(k, v)
-  }
-  const controller = new AbortController()
-  const tid = setTimeout(() => controller.abort(), TIMEOUT_MS)
-  try {
-    const res = await fetch(url.toString(), { signal: controller.signal })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    return await res.json()
-  } finally {
-    clearTimeout(tid)
-  }
-}
+const cwaFetch = (dataset: string, params: Record<string, string>, apiKey: string): Promise<unknown> =>
+  coreCwaFetch(deps, dataset, params, apiKey)
 
 // ─── 天氣預報 F-C0032-001 ─────────────────────────────────────
-interface CwaForecastRecord {
-  locationName: string
-  weatherElement: Array<{
-    elementName: string
-    time: Array<{
-      startTime: string
-      endTime: string
-      parameter: {
-        parameterName: string
-        parameterUnit?: string
-      }
-    }>
-  }>
-}
-
-interface CwaForecastResponse {
-  success: string
-  records?: {
-    location?: CwaForecastRecord[]
-  }
-}
-
 async function fetchForecast(apiKey: string, county: string): Promise<string> {
   const params: Record<string, string> = {
     elementName: 'Wx,PoP,MinT,MaxT'
@@ -333,56 +313,4 @@ export async function fetchCwaData(
     }
   }
   return { type, injectionText, fetchedAt: new Date(), typhoonName }
-}
-
-/**
- * 背景天氣：從 CWA F-C0032-001 取得簡短的目前天氣描述，
- * 取代 Open-Meteo 作為 [Weather] 注入字串。
- * 失敗時回傳 null（讓呼叫端 fallback 至 Open-Meteo）。
- */
-export async function fetchCwaBackgroundWeather(apiKey: string, county: string): Promise<string | null> {
-  try {
-    const params: Record<string, string> = { elementName: 'Wx,PoP,MinT,MaxT' }
-    if (county) params.locationName = county
-
-    const json = await cwaFetch('F-C0032-001', params, apiKey) as CwaForecastResponse
-    if (json.success !== 'true') return null
-
-    const loc = json.records?.location?.[0]
-    if (!loc) return null
-
-    const getEl = (name: string) => loc.weatherElement.find(e => e.elementName === name)
-    const wx = getEl('Wx')
-    const pop = getEl('PoP')
-    const minT = getEl('MinT')
-    const maxT = getEl('MaxT')
-
-    const wxNow = wx?.time[0]?.parameter.parameterName ?? '—'
-    const wxNext = wx?.time[1]?.parameter.parameterName
-    const popNow = pop?.time[0]?.parameter.parameterName ?? '—'
-    const minTNow = minT?.time[0]?.parameter.parameterName ?? '—'
-    const maxTNow = maxT?.time[0]?.parameter.parameterName ?? '—'
-
-    let desc = `${loc.locationName}：${wxNow}`
-    if (wxNext && wxNext !== wxNow) desc += `（明日${wxNext}）`
-    desc += `，今日氣溫 ${minTNow}–${maxTNow}°C，降雨機率 ${popNow}%`
-
-    return `[Weather]\n${desc}`
-  } catch {
-    return null
-  }
-}
-
-/** 測試 API Key 是否有效（打一次 F-C0032-001，只要有回 success 即可）*/
-export async function testCwaApiKey(apiKey: string): Promise<{ ok: boolean; error?: string }> {
-  try {
-    const json = await cwaFetch('F-C0032-001', { elementName: 'Wx', limit: '1' }, apiKey) as CwaForecastResponse
-    if (json.success === 'true') return { ok: true }
-    return { ok: false, error: 'API 回傳失敗' }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    if (msg.includes('401') || msg.includes('403')) return { ok: false, error: 'API Key 無效' }
-    if (msg.includes('abort')) return { ok: false, error: '連線逾時（5 秒）' }
-    return { ok: false, error: msg }
-  }
 }

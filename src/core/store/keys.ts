@@ -12,6 +12,13 @@
 export const SETTINGS_KEY = 'settings.json'
 export const PINNED_NOTES_KEY = 'pinned-notes.json'
 export const REMINDERS_KEY = 'reminders.json'
+/**
+ * 手機記住的「同步主機」（roadmap §4.7 星狀拓樸：只綁定一台）。
+ *
+ * 不放進 `settings.json` 是因為它**不該跟著設定被同步或匯出**——
+ * 那是「這台裝置跟誰配對」，換一台手機就該重配，不是使用者偏好。
+ */
+export const SYNC_HOST_KEY = 'sync-host.json'
 
 export const MODULES_DIR = 'modules'
 export const CHARACTERS_DIR = 'characters'

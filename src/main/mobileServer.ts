@@ -8,7 +8,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { app, desktopCapturer } from 'electron'
-import type { Message, RandomResult } from './types'
+import type { Message, RandomResult, WeatherLocationSource } from './types'
 import { computeRandomResult, sanitizePendingRandomTool } from '../core/random/dice'
 import { getAccessToken } from './relayService'
 import { getRemoteControlClientState, getRemoteControlClientStateForDevice } from './modules/remote-control'
@@ -157,7 +157,7 @@ export interface MobileBridge {
     locationName: string
     latitude: number
     longitude: number
-    locationSource: 'ip' | 'manual' | ''
+    locationSource: WeatherLocationSource
     utilityEnabled: boolean
   }
   setWeatherSettings: (patch: {
@@ -166,8 +166,16 @@ export interface MobileBridge {
     locationName?: string
     latitude?: number
     longitude?: number
-    locationSource?: 'ip' | 'manual' | ''
+    locationSource?: WeatherLocationSource
   }) => { ok: true; weather: ReturnType<MobileBridge['getWeatherSettings']> } | { error: string }
+  /**
+   * S1 要帶去手機的天氣設定。**不含地點**（手機自己定位）。
+   * `lanDirect` 為 false 時不附 `cwaApiKey`，規矩同 LLM 金鑰。
+   */
+  getWeatherSyncSettings: (lanDirect: boolean) => {
+    polish: boolean
+    realtimeQuery?: { enabled: boolean; forecastCounty: string; cwaApiKey?: string }
+  }
   detectWeatherLocation: () => Promise<{ ok: true; weather: ReturnType<MobileBridge['getWeatherSettings']> } | { error: string }>
   geocodeWeatherLocation: (name: string) => Promise<{ ok: true; weather: ReturnType<MobileBridge['getWeatherSettings']> } | { error: string }>
   fetchWeatherNow: () => Promise<
@@ -1353,6 +1361,8 @@ async function handleRequest(
         ...(lanDirect ? { apiKeys: bridge.getApiKeysForSync() } : {})
       },
       memory: bridge.getMemorySettings(),
+      // 地點不帶：手機會移動、也有 GPS，帶座標只會讓它出門顯示家裡的天氣
+      weather: bridge.getWeatherSyncSettings(lanDirect),
       modules: bridge.listModuleToggles(),
       personas: bridge.getPersonaPresets(),
       worlds: bridge.getWorldPresets(),
@@ -1559,7 +1569,7 @@ async function handleRequest(
       locationName?: string
       latitude?: number
       longitude?: number
-      locationSource?: 'ip' | 'manual' | ''
+      locationSource?: WeatherLocationSource
     }>(req, res)
     if (!payload) return
     const r = bridge.setWeatherSettings(payload)

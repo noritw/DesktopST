@@ -24,6 +24,18 @@ export interface SyncInitBundle {
   randomToolsEnabled?: boolean
   llm?: Partial<AppSettings['llm']> & { apiKeys?: Record<string, string> }
   memory?: Partial<AppSettings['memory']>
+  /**
+   * 天氣設定裡**與地點無關**的那幾項。
+   *
+   * 地點刻意不帶（owner 2026-08-08 決定）：手機會移動、而且有 GPS，
+   * 同步電腦的座標只會讓你出門在外看到家裡的天氣。
+   *
+   * `cwaApiKey` 與 LLM 金鑰同規矩 —— 只有區網直連才會出現這個欄位。
+   */
+  weather?: {
+    polish?: boolean
+    realtimeQuery?: { enabled: boolean; forecastCounty: string; cwaApiKey?: string }
+  }
   modules?: { id: string; label: string; enabled: boolean }[]
   personas?: PersonaPreset[]
   worlds?: WorldPreset[]
@@ -213,6 +225,7 @@ export async function runSyncImport(
   const apiKeysImported = applySettings(session, bundle)
   const presetsImported = await applyPresets(session, bundle)
   await session.saveSettings()
+  await session.rememberSyncHost(src)
 
   const wantedConvs = opts.conversationIds ?? []
   const charTotal = (bundle.characters ?? []).length
@@ -252,6 +265,44 @@ export async function runSyncImport(
     conversationsImported: conv.imported,
     conversationsFailed: conv.failed
   }
+}
+
+/**
+ * 只把**設定**從電腦拉一次，可以重複執行（owner 2026-08-08）。
+ *
+ * S1 是一次性的初始化，解決不了「電腦改了設定、手機又要再設一次」——
+ * 那本來是 S2 的守備範圍，但 S2 貴在雙向合併與差異預覽。這支把方向
+ * 固定成「電腦 → 手機」，就退化成單純的覆蓋，不需要任何衝突處理。
+ *
+ * ## 刻意不碰的東西
+ *
+ * | 不動 | 為什麼 |
+ * |---|---|
+ * | 角色 | 每次都會多一份（匯入一律發新 id），重複按就會爆量 |
+ * | 預設組 | 同上 |
+ * | 對話 | 那是要勾選的，不該被「更新設定」順手帶走 |
+ * | 天氣**地點** | 手機自己定位，見 `applyWeatherSettings` |
+ *
+ * 手機這邊改過的設定會被覆蓋掉 —— 所以 UI 上的按鈕要寫明是「以電腦的設定覆蓋」，
+ * 不能只寫「同步」。
+ */
+export async function pullSettingsFromDesktop(
+  src: SyncSource,
+  session: StandaloneSession,
+  fetchImpl: FetchImpl = globalThis.fetch
+): Promise<{ apiKeysImported: number; lanDirect: boolean }> {
+  const first = await getJson<SyncInitBundle>(src, '/api/sync-init', fetchImpl)
+  // 走 relay 的話金鑰會被剝掉；能升級成區網直連就順手升，理由同 `fetchSyncPreview`
+  const upgraded = await upgradeToLan(src, first, fetchImpl)
+  const bundle = upgraded?.bundle ?? first
+  const usedSrc = upgraded?.src ?? src
+
+  const apiKeysImported = applySettings(session, bundle)
+  await session.saveSettings()
+  await session.rememberSyncHost(usedSrc)
+  session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+
+  return { apiKeysImported, lanDirect: !!bundle.lanDirect }
 }
 
 /**
@@ -365,6 +416,8 @@ function applySettings(session: StandaloneSession, bundle: SyncInitBundle): numb
     }
   }
 
+  apiKeysImported += applyWeatherSettings(s, bundle)
+
   // 模組開關：手機沒有的模組略過（例如桌面限定的那些）
   for (const m of bundle.modules ?? []) {
     if (m.id === 'desktopst.weather' && s.weather) s.weather.enabled = m.enabled
@@ -373,6 +426,44 @@ function applySettings(session: StandaloneSession, bundle: SyncInitBundle): numb
   }
 
   return apiKeysImported
+}
+
+/**
+ * 天氣：帶潤飾開關與 CWA 設定，**不動地點**。
+ *
+ * 回傳帶進來的金鑰數（CWA 金鑰算一把，計入畫面上的「已帶入 N 把金鑰」）。
+ */
+function applyWeatherSettings(s: AppSettings, bundle: SyncInitBundle): number {
+  const from = bundle.weather
+  if (!from) return 0
+
+  // 手機可能還沒碰過天氣，先給一份空的再往上蓋
+  s.weather ??= {
+    enabled: false,
+    polish: false,
+    locationName: '',
+    latitude: 0,
+    longitude: 0,
+    locationSource: ''
+  }
+
+  if (typeof from.polish === 'boolean') s.weather.polish = from.polish
+
+  const rq = from.realtimeQuery
+  if (!rq) return 0
+
+  const existingKey = s.weather.realtimeQuery?.cwaApiKey ?? ''
+  /*
+   * 沒附金鑰欄位＝這條連線不給金鑰（不是「電腦上是空的」），
+   * 這時要留住手機自己填過的那把。判斷規則與 LLM 金鑰一致。
+   */
+  const key = rq.cwaApiKey?.trim() ? rq.cwaApiKey : existingKey
+  s.weather.realtimeQuery = {
+    enabled: rq.enabled,
+    forecastCounty: rq.forecastCounty,
+    cwaApiKey: key
+  }
+  return rq.cwaApiKey?.trim() ? 1 : 0
 }
 
 /**

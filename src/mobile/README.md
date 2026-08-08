@@ -92,9 +92,28 @@ cd android && ./gradlew.bat assembleDebug
 2. **Capacitor 外掛必須放 `dependencies`，不能放 `devDependencies`。**
    `cap sync` 只掃 `dependencies`；放錯的話 `capacitor.settings.gradle` 不會註冊
    Filesystem／SecureStorage，APK 裝起來但**儲存與金鑰全滅**，而且不會有編譯錯誤。
-   正確時 sync 會印 `Found 2 Capacitor plugins for android`。
+   目前正確時 sync 會印 `Found 4 Capacitor plugins for android`。
+
+## 加新的 Capacitor 外掛時
+
+除了上面第 2 點，還有兩件事會安靜地咬人：
+
+1. **權限不見得會自動合併。** `@capacitor/geolocation` 的 AndroidManifest 是**空的**，
+   `ACCESS_COARSE_LOCATION` 得自己寫進 `android/app/src/main/AndroidManifest.xml`。
+   漏了的話 `requestPermissions()` 直接被系統拒絕，畫面上只會看到「定位失敗」。
+   只索取真正需要的精度 —— 天氣是縣市級的，`FINE` 會讓 Android 多跳一層
+   「精確／大概」讓使用者猶豫。
+
+   ⚠️ **`/android/` 整個被 .gitignore，手改的 manifest 進不了版控**，
+   `npx cap add android` 一跑就沒了。所以 `scripts/prepare-android.mjs`
+   每次 `sync:android` 都會檢查補上（`REQUIRED_PERMISSIONS`）——
+   **要加新權限請改那份清單**，不要只改 manifest。
+2. **用動態 `import()` 載外掛，不要靜態 import。** 手機 UI 也跑在瀏覽器
+   （`dev:mobile` 煙測）與 vitest 裡，那些環境沒有原生 plugin；
+   靜態 import 會讓整個模組在載入時就炸，連退回方案都走不到。
+   範例：`src/mobile/runtime/weather.ts` 的 `loadGeolocation()`。
 
 ## 尚未做
-- 新聞／提醒完整本機實作、角色卡 import／export、情境 apply
-- S1／S2 與電腦同步
+- 新聞／提醒完整本機實作、角色卡 export
+- S2 雙向同步（S1 單向匯入與「從電腦重新拉設定」已完成）
 - 簽章 keystore（不要自行產生）

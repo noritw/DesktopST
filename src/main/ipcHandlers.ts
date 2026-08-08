@@ -3,7 +3,7 @@ import { checkForUpdates } from './updateChecker'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AppSettings, Character, ColorTheme, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo, NewsLinkInfo } from './types'
+import type { AppSettings, Character, ColorTheme, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo, NewsLinkInfo, WeatherLocationSource } from './types'
 import { MESSAGE_REACTION_EMOJIS } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM, generateLoreEntryForCharacter } from './llm/index'
@@ -1097,7 +1097,7 @@ export function getWeatherSettingsDirect(): {
   locationName: string
   latitude: number
   longitude: number
-  locationSource: 'ip' | 'manual' | ''
+  locationSource: WeatherLocationSource
   utilityEnabled: boolean
 } {
   const w = settings.weather
@@ -1136,7 +1136,7 @@ export function setWeatherSettingsDirect(patch: {
   locationName?: string
   latitude?: number
   longitude?: number
-  locationSource?: 'ip' | 'manual' | ''
+  locationSource?: WeatherLocationSource
 }): { ok: true; weather: ReturnType<typeof getWeatherSettingsDirect> } | { error: string } {
   const w = ensureWeatherSettings()
   if (typeof patch.enabled === 'boolean') {
@@ -1149,7 +1149,12 @@ export function setWeatherSettingsDirect(patch: {
   if (typeof patch.locationName === 'string') w.locationName = patch.locationName.trim().slice(0, 120)
   if (typeof patch.latitude === 'number' && Number.isFinite(patch.latitude)) w.latitude = patch.latitude
   if (typeof patch.longitude === 'number' && Number.isFinite(patch.longitude)) w.longitude = patch.longitude
-  if (patch.locationSource === 'ip' || patch.locationSource === 'manual' || patch.locationSource === '') {
+  if (
+    patch.locationSource === 'ip' ||
+    patch.locationSource === 'gps' ||
+    patch.locationSource === 'manual' ||
+    patch.locationSource === ''
+  ) {
     w.locationSource = patch.locationSource
   }
   settings.weather = w
@@ -1157,6 +1162,40 @@ export function setWeatherSettingsDirect(patch: {
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return { ok: true, weather: getWeatherSettingsDirect() }
+}
+
+/**
+ * S1 要送去手機的天氣設定。
+ *
+ * **不含地點** —— 手機自己有 GPS，帶座標過去只會讓它出門在外顯示家裡的天氣
+ * （owner 2026-08-08 決定）。帶的是「設定兩次很煩」的那幾項：潤飾開關、
+ * CWA 縣市與金鑰。
+ *
+ * `cwaApiKey` 只在區網直連時附上，規矩與 LLM 金鑰完全相同：
+ * 判定在這一端做，非直連時**連欄位都不出現**（不是空字串，
+ * 否則手機會誤判成「電腦上清空了」而把自己填的那把洗掉）。
+ */
+export function getWeatherSyncSettingsDirect(lanDirect: boolean): {
+  polish: boolean
+  realtimeQuery?: { enabled: boolean; forecastCounty: string; cwaApiKey?: string }
+} {
+  const w = settings.weather
+  const rq = w?.realtimeQuery
+  return {
+    polish: !!w?.polish,
+    ...(rq
+      ? {
+          realtimeQuery: {
+            enabled: !!rq.enabled,
+            forecastCounty: rq.forecastCounty ?? '',
+            // 解不開的金鑰長得像密文，那種情況當作沒有，不要送過去汙染手機
+            ...(lanDirect && rq.cwaApiKey && !rq.cwaApiKey.startsWith('enc:v1:')
+              ? { cwaApiKey: rq.cwaApiKey }
+              : {})
+          }
+        }
+      : {})
+  }
 }
 
 export async function detectWeatherLocationDirect(): Promise<

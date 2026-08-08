@@ -224,13 +224,22 @@ export interface ScenePreset {
   updatedAt: number
 }
 
+/**
+ * 天氣地點是怎麼來的。
+ *
+ * `gps` **只有手機會出現** —— 桌面沒有定位硬體，只能靠對外 IP 猜。
+ * 兩者精度差很多（IP 常落在電信商的機房而不是你家），所以要分得開，
+ * 使用者才知道畫面上那個地名可不可信。
+ */
+export type WeatherLocationSource = 'ip' | 'gps' | 'manual' | ''
+
 export interface WeatherSettings {
   enabled: boolean
   polish: boolean
   locationName: string
   latitude: number
   longitude: number
-  locationSource: 'ip' | 'manual' | ''
+  locationSource: WeatherLocationSource
   realtimeQuery?: {
     enabled: boolean
     cwaApiKey: string

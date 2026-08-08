@@ -10,6 +10,7 @@ import { stripOtherCharacterSpeakerLines } from '@core/group/dialogueCleanup'
 import { normalizeCharacterDialogue } from '@core/prompt/dialogue'
 import { formatRandomResultForPrompt } from '@core/prompt/randomResult'
 import { messageLlmMeta, resolveModel } from '@core/prompt/promptUtils'
+import { getWeatherContextString } from '@core/weather'
 import type { Character, Conversation, Message } from '@core/types'
 import type { SendMessageInput } from '@core/data'
 import type { LocalEventSource } from '../events/localEventSource'
@@ -137,6 +138,14 @@ export async function sendStandaloneMessage(opts: {
     opts.settings.memory.keepRecentN
   )
 
+  /*
+   * 天氣（`[Weather]`）。附 30 分鐘快取，所以不是每則訊息都真的打外部服務。
+   *
+   * 抓失敗一律回 `null` 而不是拋 —— 使用者是來聊天的，不該因為氣象服務
+   * 掛掉就收不到回覆。桌面另有的新聞／日曆／Spotify 注入獨立版還沒接。
+   */
+  const weatherContext = await getWeatherContextString(opts.settings, { http: opts.adapters.http })
+
   // `omitEmotionTag`：獨立版是單張主圖、不做表情差分，沒有東西會用到情緒標籤。
   // 角色卡若帶著表情圖，情緒合約會把每張圖的 id 與用途逐條寫進 system prompt
   // （id 取自圖檔檔名），每則對話都白付這筆 token。
@@ -152,6 +161,7 @@ export async function sendStandaloneMessage(opts: {
         world: opts.getWorld(),
         desktopCharacterNames,
         memorySummary: conv.summary,
+        extraSystemContext: weatherContext ?? undefined,
         omitEmotionTag: true
       },
       { http: opts.adapters.http }
@@ -204,6 +214,7 @@ export async function sendStandaloneMessage(opts: {
             world: opts.getWorld(),
             desktopCharacterNames,
             memorySummary: conv.summary,
+            extraSystemContext: weatherContext ?? undefined,
             omitEmotionTag: true
           },
           { http: opts.adapters.http }

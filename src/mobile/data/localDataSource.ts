@@ -223,7 +223,7 @@ export class LocalDataSource implements DataSource {
         locationName: w?.locationName ?? '',
         latitude: w?.latitude ?? 0,
         longitude: w?.longitude ?? 0,
-        locationSource: (w?.locationSource as 'ip' | 'manual' | '') || '',
+        locationSource: w?.locationSource ?? '',
         utilityEnabled: !!this.session.settings.llm.utilityEnabled
       }
     },
@@ -241,9 +241,15 @@ export class LocalDataSource implements DataSource {
       await this.session.saveSettings()
       return this.settings.getWeather()
     },
-    detectWeatherLocation: () => Promise.reject(pending('settings.detectWeatherLocation', 4)),
-    geocodeWeatherLocation: () => Promise.reject(pending('settings.geocodeWeatherLocation', 4)),
-    fetchWeatherNow: () => Promise.reject(pending('settings.fetchWeatherNow', 4))
+    detectWeatherLocation: async () => {
+      await this.session.detectWeatherLocation()
+      return this.settings.getWeather()
+    },
+    geocodeWeatherLocation: async (name) => {
+      await this.session.geocodeWeatherLocation(name)
+      return this.settings.getWeather()
+    },
+    fetchWeatherNow: () => this.session.fetchWeatherNow()
   }
 
   readonly lorebooks: LorebooksApi = {
