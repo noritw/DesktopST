@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PersonaPreset, ScenePreset, WorldPreset } from '@core/types'
-import type { PresetListItem } from '@core/data'
+import { DataError, type PresetListItem } from '@core/data'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from '../settings/settingsErrors'
@@ -74,7 +74,12 @@ export function PresetEditor({ presetKey }: { presetKey: string }): JSX.Element 
       if (kind === 'persona') await api.removePersona(id); else if (kind === 'world') await api.removeWorld(id); else await api.removeScene(id)
       dirty.current = false; setIsDirty(false)
       await refresh(); toast('已刪除'); pop()
-    } catch (e) { toast(describeSettingsError(e, '刪除'), 'error') } finally { setBusy(false) }
+    } catch (e) {
+      // 這條路徑的 conflict 只有一種成因，直接講清楚 —— 共用文案會列出三種可能，
+      // 使用者得自己猜是哪一種。
+      const lastOne = e instanceof DataError && e.code === 'conflict' && kind !== 'scene'
+      toast(lastOne ? `至少要留一組${kind === 'persona' ? '使用者設定' : '世界觀'}，最後一組不能刪。` : describeSettingsError(e, '刪除'), 'error')
+    } finally { setBusy(false) }
   }
   if (!draft) return <div className="py-8 text-center text-sm text-[var(--text-sub)]">載入中⋯⋯</div>
   const lore = 'lorebookIds' in draft ? draft.lorebookIds ?? [] : []

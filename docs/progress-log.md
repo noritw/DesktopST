@@ -945,3 +945,39 @@ owner：「群組聊天要一直手打名字。」`character-menu` 加一項**�
 
 > ⚠️ 這條分隔線**只在除錯檢視裡**，沒有送給模型，所以縮短它不會省 token
 > （owner 原本以為會）。真正在省 token 的是上面第 1 項。
+
+---
+
+## 2026-08-08 獨立版缺口 #1：情境與設定組刪除
+
+owner：「手機上無法刪除使用者資料、無法修改情境很不方便。」
+`PresetsView`／`PresetEditor` 的畫面與按鈕**本來就都在**，缺的只是
+`LocalDataSource` 那六支 `pending`。接上之後不必動任何 UI。
+
+### 設定層套用抽到 `core/scene/apply.ts`
+
+桌面 `applySceneById` 有一段是純設定指派（persona／world／sceneId／配色／
+lastActiveConversationId），與手機一模一樣；剩下的開關角色視窗、搬視窗座標才是平台專屬。
+把共用那段抽成 `applySceneSettings()`，兩邊都改成呼叫它 —— 日後情境多一個欄位時
+不會只有一邊記得跟上。
+
+`colorTheme` 與 `lastActiveConversationId` **只有情境真的存了才覆蓋**：
+舊情境檔沒有這兩欄，拿 `undefined` 蓋下去會把使用者現在的配色洗成預設。
+
+### 手機專屬的兩個判斷
+
+- **情境帶著手機沒有的角色 id**（從電腦匯入的情境必然如此）：只留這台真的有的，
+  一個都沒有時維持原狀。照抄會讓聊天列出現一排點不開的空角色。
+- **`captureScene` 要保留** `newsKeywordGroupId`／`lorebookIds`／`moduleOverrides`：
+  它們不是「目前狀態」的一部分，一起清掉會讓使用者以為設定被吃了（桌面同樣保留）。
+
+### 其他
+
+- `getState().activeSceneDirty` 原本硬寫 `false`，改成真的用 `isActiveSceneDirty()` 算，
+  「存回目前狀態」那顆按鈕才會在該出現時出現。
+- 刪最後一組 persona／world 一律擋（`conflict`，與桌面同規則）。
+  `PresetEditor` 的刪除路徑自己翻這個代碼 —— 共用文案會列出三種可能成因，
+  使用者得自己猜是哪一種。
+- 刪掉正在用的情境只是「不再跟著任何情境」，身分與世界觀維持現狀。
+
+**驗過**：typecheck 綠、381 個測試綠（新增 6 個情境／設定組測試）。

@@ -1,5 +1,7 @@
 import type { PlatformAdapters } from '@core/adapters'
 import { hydrateSettings, toPersistedSettings } from '@core/store/settings'
+import { applySceneSettings } from '@core/scene/apply'
+import { isActiveSceneDirty } from '@core/scene/dirty'
 import * as keys from '@core/store/keys'
 import type {
   AppSettings,
@@ -266,8 +268,160 @@ export class StandaloneSession {
       activeSceneId: this.settings.activeSceneId || undefined,
       activePersonaId: this.settings.activePersonaId || undefined,
       activeWorldId: this.settings.activeWorldId || undefined,
-      activeSceneDirty: false
+      activeSceneDirty: this.isActiveSceneDirty()
     }
+  }
+
+  /** 使用中情境與目前狀態是否不一致（情境名稱旁的星號）。判定與桌面共用。 */
+  private isActiveSceneDirty(): boolean {
+    const id = this.settings.activeSceneId
+    if (!id) return false
+    const scene = this.scenes.find((s) => s.id === id)
+    if (!scene) return false
+    return isActiveSceneDirty(scene, {
+      activePersonaId: this.settings.activePersonaId,
+      activeWorldId: this.settings.activeWorldId,
+      colorTheme: this.settings.ui.colorTheme,
+      lastActiveConversationId: this.activeConversation?.id,
+      desktopCharacterIds: this.settings.ui.desktopCharacters.map((d) => d.characterId)
+    })
+  }
+
+  // ── 情境與設定組（缺口 #1；桌面對應 ipcHandlers 的 *Direct 那幾支）──────
+
+  /**
+   * 套用情境：換身分／世界觀／配色／在場角色，並切到該情境記著的那則對話。
+   *
+   * 與桌面的差別只有「沒有視窗要開關」——設定層那段共用 `applySceneSettings`。
+   * 切走之前**先把目前對話記回舊情境**，不然在 A 情境聊到一半跳去 B 再跳回來，
+   * A 會停在更早以前的那則對話。
+   */
+  async applyScene(id: string): Promise<void> {
+    const scene = this.scenes.find((s) => s.id === id)
+    if (!scene) throw new DataError('not-found', id)
+
+    const prevId = this.settings.activeSceneId
+    if (prevId && prevId !== id) {
+      const prev = this.scenes.find((s) => s.id === prevId)
+      if (prev && this.activeConversation) {
+        prev.lastActiveConversationId = this.activeConversation.id
+        prev.updatedAt = Date.now()
+        await this.adapters.storage.writeJson(keys.sceneKey(prev.id), prev)
+      }
+    }
+
+    const target = {
+      activePersonaId: this.settings.activePersonaId,
+      activeWorldId: this.settings.activeWorldId,
+      activeSceneId: this.settings.activeSceneId,
+      colorTheme: this.settings.ui.colorTheme,
+      lastActiveConversationId: this.settings.ui.lastActiveConversationId
+    }
+    applySceneSettings(scene, target)
+    this.settings.activePersonaId = target.activePersonaId
+    this.settings.activeWorldId = target.activeWorldId
+    this.settings.activeSceneId = target.activeSceneId
+    this.settings.ui.colorTheme = target.colorTheme
+    this.settings.ui.lastActiveConversationId = target.lastActiveConversationId
+
+    /*
+     * 在場角色直接換成情境記著的那組，但**只留這台手機真的有的角色**。
+     * 情境是從電腦匯入來的話會帶著手機沒有的 id，照抄會讓聊天列出現
+     * 一排點不開的「角色」。全部都不在時保持原狀，總比清空好。
+     */
+    const owned = new Set(this.characters.map((c) => c.id))
+    const next = scene.desktopCharacters.filter((d) => owned.has(d.characterId))
+    if (next.length > 0) {
+      this.settings.ui.desktopCharacters = next.map((d) => ({ ...d }))
+    }
+
+    const wantConv = scene.lastActiveConversationId
+    if (wantConv && this.conversationIndex.has(wantConv)) {
+      this.activeConversation = this.conversationIndex.get(wantConv)!
+    }
+
+    await this.saveSettings()
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  /**
+   * 「覆寫為目前狀態」：把現在的身分／世界觀／配色／在場角色／對話寫回情境。
+   *
+   * 新聞關鍵字組、用語解說綁定與模組覆蓋**要保留** —— 它們不是「目前狀態」的一部分，
+   * 覆寫時一起清掉會讓使用者以為那些設定被吃掉了（桌面 `captureSceneDirect` 同樣保留）。
+   */
+  async captureScene(id: string): Promise<void> {
+    const existing = this.scenes.find((s) => s.id === id)
+    if (!existing) throw new DataError('not-found', id)
+    const next: ScenePreset = {
+      ...existing,
+      activePersonaId: this.settings.activePersonaId,
+      activeWorldId: this.settings.activeWorldId,
+      desktopCharacters: this.settings.ui.desktopCharacters.map((d) => ({ ...d })),
+      lastActiveConversationId: this.activeConversation?.id,
+      colorTheme: this.settings.ui.colorTheme,
+      updatedAt: Date.now()
+    }
+    await this.saveScene(next)
+  }
+
+  async saveScene(preset: ScenePreset): Promise<void> {
+    const now = Date.now()
+    const existing = this.scenes.find((s) => s.id === preset.id)
+    const next: ScenePreset = {
+      ...preset,
+      name: preset.name.trim() || existing?.name || '未命名情境',
+      // 新建的情境以目前狀態當快照 —— 手機沒有視窗座標可存，那兩個欄位留空。
+      desktopCharacters:
+        preset.desktopCharacters ?? this.settings.ui.desktopCharacters.map((d) => ({ ...d })),
+      createdAt: existing?.createdAt ?? preset.createdAt ?? now,
+      updatedAt: now
+    }
+    const idx = this.scenes.findIndex((s) => s.id === next.id)
+    if (idx >= 0) this.scenes[idx] = next
+    else this.scenes.push(next)
+    await this.adapters.storage.writeJson(keys.sceneKey(next.id), next)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  async removeScene(id: string): Promise<void> {
+    if (!this.scenes.some((s) => s.id === id)) throw new DataError('not-found', id)
+    this.scenes = this.scenes.filter((s) => s.id !== id)
+    await this.adapters.storage.remove(keys.sceneKey(id))
+    // 刪掉正在用的那組只是「不再跟著任何情境」，身分／世界觀維持現狀不動。
+    if (this.settings.activeSceneId === id) {
+      this.settings.activeSceneId = undefined
+      await this.saveSettings()
+    }
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  /**
+   * 刪身分設定組。**最後一組不給刪**（與桌面 `removePersonaPresetDirect` 同一條規則）：
+   * 一組都沒有的話 prompt 組不出使用者是誰，畫面也沒有地方能新增回來。
+   */
+  async removePersona(id: string): Promise<void> {
+    if (!this.personas.some((p) => p.id === id)) throw new DataError('not-found', id)
+    if (this.personas.length <= 1) throw new DataError('conflict', 'last-preset')
+    this.personas = this.personas.filter((p) => p.id !== id)
+    await this.adapters.storage.remove(keys.personaKey(id))
+    if (this.settings.activePersonaId === id) {
+      this.settings.activePersonaId = this.personas[0]?.id ?? ''
+      await this.saveSettings()
+    }
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  async removeWorld(id: string): Promise<void> {
+    if (!this.worlds.some((w) => w.id === id)) throw new DataError('not-found', id)
+    if (this.worlds.length <= 1) throw new DataError('conflict', 'last-preset')
+    this.worlds = this.worlds.filter((w) => w.id !== id)
+    await this.adapters.storage.remove(keys.worldKey(id))
+    if (this.settings.activeWorldId === id) {
+      this.settings.activeWorldId = this.worlds[0]?.id ?? ''
+      await this.saveSettings()
+    }
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
   }
 
   llmSnapshot(): LlmSettingsSnapshot {

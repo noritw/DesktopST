@@ -77,8 +77,9 @@ src/mobile/ 手機 UI
 | **下一步** | **S1 初始化匯入**（掃 QR 從電腦單向拉角色／預設組／設定，3–5 天）→ 之後才是 S2 雙向同步。另：v0.4.0 真機煙測（配色／新聞泡泡／遙控） |
 | 延後／已排程 | 角色印象（B8）；系統通知（B5）；**飲食熱量模組（B9）** → `docs/future-nutrition-module.md`（owner 自用優先；含換機搬家包） |
 
-獨立模式**尚未實作**（會誠實擲 `not-supported`，不是 bug）：新聞、提醒、套用情境、
+獨立模式**尚未實作**（會誠實擲 `not-supported`，不是 bug）：新聞、提醒、
 角色卡匯出、Lorebook 編輯、天氣定位／即時查詢。Spotify／日曆授權仍只在桌面。
+（情境套用／擷取／刪除、設定組刪除 2026-08-08 已補上。）
 → 缺口總表與建議順序：`docs/mobile-standalone-gap-inventory.md`（不長，可整份讀）。
 
 分支：`feat/mobile-standalone`。

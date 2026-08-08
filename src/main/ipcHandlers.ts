@@ -11,6 +11,7 @@ import { summarizeConversation, countUncoveredMessages, listSummarizableMessages
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
 import { formatSystemTimeStamp } from '../core/prompt/systemTime'
 import { isActiveSceneDirty } from '../core/scene/dirty'
+import { applySceneSettings } from '../core/scene/apply'
 import { normalizeForCompare, escapeRegExp } from '../core/util/text'
 import { safeJsonParse } from '../core/util/json'
 import { characterAliases } from '../core/character'
@@ -2466,14 +2467,20 @@ export function applySceneById(id: string): { ok: true } | { error: string } {
     }
   }
 
-  // Apply persona / world / theme
-  settings.activePersonaId = scene.activePersonaId
-  settings.activeWorldId = scene.activeWorldId
-  settings.activeSceneId = scene.id
-  if (scene.colorTheme !== undefined) settings.ui.colorTheme = scene.colorTheme
-  if (scene.lastActiveConversationId !== undefined) {
-    settings.ui.lastActiveConversationId = scene.lastActiveConversationId
+  // Apply persona / world / theme（設定層那段與手機獨立版共用 `core/scene/apply`）
+  const sceneTarget = {
+    activePersonaId: settings.activePersonaId,
+    activeWorldId: settings.activeWorldId,
+    activeSceneId: settings.activeSceneId,
+    colorTheme: settings.ui.colorTheme,
+    lastActiveConversationId: settings.ui.lastActiveConversationId
   }
+  applySceneSettings(scene, sceneTarget)
+  settings.activePersonaId = sceneTarget.activePersonaId
+  settings.activeWorldId = sceneTarget.activeWorldId
+  settings.activeSceneId = sceneTarget.activeSceneId
+  settings.ui.colorTheme = sceneTarget.colorTheme
+  settings.ui.lastActiveConversationId = sceneTarget.lastActiveConversationId
 
   // Apply window bounds
   if (scene.inputWindowBounds) {

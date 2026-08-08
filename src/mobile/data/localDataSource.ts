@@ -125,8 +125,8 @@ export class LocalDataSource implements DataSource {
       await this.session.saveSettings()
       this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     },
-    applyScene: () => Promise.reject(pending('presets.applyScene', 5)),
-    captureScene: () => Promise.reject(pending('presets.captureScene', 5)),
+    applyScene: (id) => this.session.applyScene(id),
+    captureScene: (id) => this.session.captureScene(id),
     savePersona: async (preset) => {
       const idx = this.session.personas.findIndex((p) => p.id === preset.id)
       if (idx >= 0) this.session.personas[idx] = preset
@@ -141,10 +141,10 @@ export class LocalDataSource implements DataSource {
       await this.session.adapters.storage.writeJson(worldKey(preset.id), preset)
       this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     },
-    saveScene: () => Promise.reject(pending('presets.saveScene', 5)),
-    removePersona: () => Promise.reject(pending('presets.removePersona', 5)),
-    removeWorld: () => Promise.reject(pending('presets.removeWorld', 5)),
-    removeScene: () => Promise.reject(pending('presets.removeScene', 5))
+    saveScene: (preset) => this.session.saveScene(preset),
+    removePersona: (id) => this.session.removePersona(id),
+    removeWorld: (id) => this.session.removeWorld(id),
+    removeScene: (id) => this.session.removeScene(id)
   }
 
   readonly settings: SettingsApi = {
