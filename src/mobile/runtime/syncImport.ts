@@ -253,6 +253,14 @@ export async function runSyncImport(
     opts.onProgress && ((done) => opts.onProgress!(charTotal + done, grandTotal))
   )
 
+  /*
+   * 一定要等角色與對話都落地才能對 id。
+   * 處理**全部**情境而不只是剛匯入的那些 —— 之前版本匯進來的壞引用
+   * （星號永遠亮、套用沒反應）靠再匯入一次同名情境是修不到的（同名會略過）。
+   */
+  await remapSceneReferences(session, bundle)
+  await session.reloadPresets()
+
   session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
 
   return {
@@ -298,6 +306,10 @@ export async function pullSettingsFromDesktop(
   const usedSrc = upgraded?.src ?? src
 
   const apiKeysImported = applySettings(session, bundle)
+  // 順便把先前匯壞的情境引用修掉（見 remapSceneReferences）
+  await session.reloadPresets()
+  await remapSceneReferences(session, bundle)
+  await session.reloadPresets()
   await session.saveSettings()
   await session.rememberSyncHost(usedSrc)
   session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
@@ -470,6 +482,9 @@ function applyWeatherSettings(s: AppSettings, bundle: SyncInitBundle): number {
  * 預設組一律以**新 id** 落地，並保留電腦端的名字。
  * 用新 id 是因為手機上可能已經有同 id 的內建預設組（種子產生的 id 與電腦無關），
  * 直接沿用會蓋掉使用者自己改過的那份。
+ *
+ * ⚠️ 情境**內部**的引用（persona／世界觀／在場角色／對話）這時還是電腦端的 id ——
+ * 角色與對話都排在這一步後面才落地，現在還對不到。由 `remapSceneReferences` 收尾。
  */
 async function applyPresets(session: StandaloneSession, bundle: SyncInitBundle): Promise<number> {
   const keys = await import('@core/store/keys')
@@ -503,6 +518,89 @@ async function applyPresets(session: StandaloneSession, bundle: SyncInitBundle):
   }
 
   return count
+}
+
+/**
+ * 把情境裡的**電腦端 id** 換成這台手機的 id。
+ *
+ * 不做這件事的話，情境等於指向一堆不存在的東西，症狀有兩個而且都很難聯想到匯入
+ * （owner 2026-08-08 回報）：
+ *
+ * 1. **星號一直亮**：dirty 拿情境記的在場角色與目前的比，一邊是電腦 id、
+ *    一邊是手機 id，永遠不相等。
+ * 2. **套用沒反應**：`applyScene` 只留「這台手機真的有的角色」，全部對不到就
+ *    整組跳過；對話同理，`conversationIndex` 查不到就不切換。
+ *
+ * 一律**靠名字**對應（與對話匯入的 `characterIdRemap` 同一套作法）。
+ *
+ * 已是手機 id 的欄位（不在電腦端清單裡）**原樣留下**，否則會把使用者本機自建的
+ * 情境一起洗壞。電腦端 id 對不到本地名字的角色／對話則刪掉 —— 留著只會讓星號永遠亮。
+ *
+ * 可重複執行：S1 初次匯入、以及「從電腦重新拉設定」都會跑，用來修舊資料。
+ */
+async function remapSceneReferences(session: StandaloneSession, bundle: SyncInitBundle): Promise<void> {
+  if (session.scenes.length === 0) return
+  const keys = await import('@core/store/keys')
+
+  const nameBySourceId = <T extends { id: string; name: string }>(
+    source: readonly T[] | undefined
+  ): Map<string, string> => new Map((source ?? []).map((x) => [x.id, x.name]))
+
+  const personaName = nameBySourceId(bundle.personas)
+  const worldName = nameBySourceId(bundle.worlds)
+  const characterName = nameBySourceId(bundle.characters)
+  const localPersona = new Map(session.personas.map((p) => [p.name, p.id]))
+  const localWorld = new Map(session.worlds.map((w) => [w.name, w.id]))
+  const localCharacter = new Map(session.characters.map((c) => [c.name, c.id]))
+  const ownedChars = new Set(session.characters.map((c) => c.id))
+  const convIdBySourceId = session.importedConversationIds()
+  const localConvIds = new Set(session.listConversations().map((c) => c.id))
+
+  /** 在電腦清單裡 → 換成同名本地 id；不在清單裡 → 視為已是本地 id，不動。 */
+  const remapNamed = (
+    sourceId: string,
+    names: Map<string, string>,
+    localByName: Map<string, string>,
+    fallback: string
+  ): string => {
+    const name = names.get(sourceId)
+    if (!name) return sourceId
+    return localByName.get(name) ?? fallback
+  }
+
+  for (const scene of session.scenes) {
+    scene.activePersonaId = remapNamed(
+      scene.activePersonaId,
+      personaName,
+      localPersona,
+      session.settings.activePersonaId
+    )
+    scene.activeWorldId = remapNamed(
+      scene.activeWorldId,
+      worldName,
+      localWorld,
+      session.settings.activeWorldId
+    )
+
+    scene.desktopCharacters = scene.desktopCharacters.flatMap((d) => {
+      const name = characterName.get(d.characterId)
+      if (name) {
+        const local = localCharacter.get(name)
+        return local ? [{ ...d, characterId: local }] : []
+      }
+      // 不在電腦清單：保留本地已有的，丟掉幽靈 id
+      return ownedChars.has(d.characterId) ? [d] : []
+    })
+
+    const want = scene.lastActiveConversationId
+    if (want) {
+      const mapped = convIdBySourceId.get(want)
+      if (mapped) scene.lastActiveConversationId = mapped
+      else if (!localConvIds.has(want)) scene.lastActiveConversationId = undefined
+    }
+
+    await session.adapters.storage.writeJson(keys.sceneKey(scene.id), scene)
+  }
 }
 
 /**

@@ -225,13 +225,10 @@ export function PresetsView({ openParam }: { openParam?: string }): JSX.Element 
 }
 
 /**
- * 清單列版型與其餘四個清單畫面統一：左邊大按鈕做主要動作、右邊固定一顆編輯鍵、
- * 刪除收在編輯器裡不放清單列。
+ * 清單列：左邊點名稱編輯、右邊大標籤套用（owner 2026-08-08）。
  *
- * 用語解說沒有「套用」這個動作（一本書是否生效由角色卡／情境的勾選決定），
- * 所以它的左右兩邊都是進編輯 —— 這種情況下 `StatusChip` 只會寫一句廢話
- * （owner 2026-08-06：「只有編輯選項的話，那個『點此編輯內容』的標籤就顯得很多餘」），
- * 因此**不顯示 chip**。
+ * 套用／加入比編輯常用，所以動作標籤放右邊、做得稍大；編輯只留名稱可點＋小鉛筆。
+ * 用語解說沒有「套用」，整列都是進編輯，不顯示右側 chip（避免「點此編輯」廢話）。
  */
 function Row({
   kind,
@@ -250,6 +247,12 @@ function Row({
   onEdit: () => void
   onCapture?: () => void
 }): JSX.Element {
+  const applyLabel = isActive
+    ? dirty
+      ? '使用中 *'
+      : '使用中'
+    : '套用'
+
   return (
     <div
       className={`rounded-[14px] border px-3 py-2.5 ${
@@ -257,25 +260,22 @@ function Row({
       }`}
     >
       <div className="flex items-center gap-2">
-        <button type="button" className="min-w-0 flex-1 text-left" onClick={onPrimary}>
-          <p className="truncate text-sm text-[var(--text)]">
+        <button type="button" className="flex min-w-0 flex-1 items-center gap-1.5 text-left" onClick={onEdit}>
+          <span className="min-w-0 flex-1 truncate text-sm text-[var(--text)]">
             {item.name}
             {dirty ? ' *' : ''}
-          </p>
-          {kind !== 'lore' && (
-            <StatusChip active={isActive}>
-              {isActive ? (dirty ? '目前使用中（有未存回的變更）' : '目前使用中') : '點此套用'}
-            </StatusChip>
-          )}
+          </span>
+          <MonoIcon name="edit" className="h-3.5 w-3.5 shrink-0 text-[var(--text-sub)]" />
         </button>
-        <button
-          type="button"
-          aria-label={`編輯${item.name}`}
-          onClick={onEdit}
-          className="rounded-full p-2 text-[var(--text-sub)] active:bg-[var(--border)]"
-        >
-          <MonoIcon name="edit" className="h-4 w-4" />
-        </button>
+        {kind !== 'lore' && (
+          <StatusChip
+            active={isActive}
+            onClick={onPrimary}
+            ariaLabel={isActive ? `${item.name}目前使用中` : `套用${item.name}`}
+          >
+            {applyLabel}
+          </StatusChip>
+        )}
       </div>
       {onCapture && (
         <button

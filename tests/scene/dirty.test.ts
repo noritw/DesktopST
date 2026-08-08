@@ -38,10 +38,14 @@ describe('isActiveSceneDirty', () => {
     expect(isActiveSceneDirty(baseScene, { ...baseCurrent, colorTheme: 'forest' })).toBe(true)
   })
 
-  it('情境未寫 colorTheme 時視同 mint', () => {
+  /**
+   * 舊情境（配色功能之前存的）沒有這個欄位。套用時 `applySceneSettings` 會跳過不動配色，
+   * 所以這裡也不能算差異 —— 否則在非 mint 主題下星號會永遠亮著，而且**按套用也關不掉**。
+   */
+  it('情境未寫 colorTheme 時不比配色', () => {
     const { colorTheme: _omit, ...noTheme } = baseScene
     expect(isActiveSceneDirty(noTheme, { ...baseCurrent, colorTheme: 'mint' })).toBe(false)
-    expect(isActiveSceneDirty(noTheme, { ...baseCurrent, colorTheme: 'dark' })).toBe(true)
+    expect(isActiveSceneDirty(noTheme, { ...baseCurrent, colorTheme: 'dark' })).toBe(false)
   })
 
   it('使用者設定或世界觀不同時 dirty', () => {

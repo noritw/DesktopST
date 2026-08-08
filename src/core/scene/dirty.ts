@@ -41,7 +41,12 @@ function characterIds(chars: DesktopCharacterState[]): string[] {
 export function isActiveSceneDirty(scene: SceneDirtyFields, current: SceneRuntimeSnapshot): boolean {
   if (scene.activePersonaId !== current.activePersonaId) return true
   if (scene.activeWorldId !== current.activeWorldId) return true
-  if ((scene.colorTheme ?? 'mint') !== (current.colorTheme ?? 'mint')) return true
+  /*
+   * 情境沒記配色＝它對配色沒有意見，套用時也確實不會動配色（見 `applySceneSettings`）。
+   * 這裡若拿 mint 當預設，這種情境在非 mint 主題下會**永遠**亮著星號，
+   * 而且按下套用也關不掉 —— 星號的意義是「有沒有東西沒存」，不該指向存不了的差異。
+   */
+  if (scene.colorTheme !== undefined && scene.colorTheme !== (current.colorTheme ?? 'mint')) return true
   if ((scene.lastActiveConversationId ?? '') !== (current.lastActiveConversationId ?? '')) return true
   return !sameIdSet(characterIds(scene.desktopCharacters), current.desktopCharacterIds)
 }

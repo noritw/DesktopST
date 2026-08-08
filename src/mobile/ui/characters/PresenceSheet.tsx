@@ -104,24 +104,22 @@ export function PresenceSheet(): JSX.Element {
           >
             <button
               type="button"
-              disabled={busyId === item.id || !canRemove}
-              onClick={() => void toggle(item)}
-              className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:opacity-50"
-            >
-              <Avatar characterId={item.id} size={38} />
-              <span className="min-w-0 flex-1">
-                <p className="truncate text-[15px] text-[var(--text)]">{item.name}</p>
-                <StatusChip active={isPresent}>{isPresent ? '在場' : '加入對話'}</StatusChip>
-              </span>
-            </button>
-            <button
-              type="button"
               aria-label={`編輯${item.name}`}
               onClick={() => useUiStore.getState().push('character-editor', item.id)}
-              className="shrink-0 rounded-full p-2 text-[var(--text-sub)] active:bg-[var(--border)]"
+              className="flex min-w-0 flex-1 items-center gap-3 text-left"
             >
-              <MonoIcon name="edit" className="h-4 w-4" />
+              <Avatar characterId={item.id} size={38} />
+              <span className="min-w-0 flex-1 truncate text-[15px] text-[var(--text)]">{item.name}</span>
+              <MonoIcon name="edit" className="h-3.5 w-3.5 shrink-0 text-[var(--text-sub)]" />
             </button>
+            <StatusChip
+              active={isPresent}
+              disabled={busyId === item.id || !canRemove}
+              onClick={() => void toggle(item)}
+              ariaLabel={isPresent ? `將${item.name}移出對話` : `將${item.name}加入對話`}
+            >
+              {isPresent ? '在場' : '加入'}
+            </StatusChip>
           </div>
         )
       })}

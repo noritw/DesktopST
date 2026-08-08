@@ -52,9 +52,9 @@ export function DesktopPullSection(): JSX.Element | null {
       await loadHost()
       setMsg(
         r.apiKeysImported > 0
-          ? `已更新設定，並帶回 ${r.apiKeysImported} 把金鑰。`
+          ? `已更新設定，並帶回 ${r.apiKeysImported} 把金鑰。情境裡的角色／對話引用也一併對過了。`
           : r.lanDirect
-            ? '已更新設定。'
+            ? '已更新設定。情境裡的角色／對話引用也一併對過了。'
             : '已更新設定。這條連線不傳金鑰，回到跟電腦同一個網路時再拉一次就會帶過來。'
       )
     } catch (e) {

@@ -1227,3 +1227,39 @@ APK 重打後 `adb shell dumpsys package` 確認 `versionCode=400 versionName=0.
 這個視窗常開著不關、旁邊繼續重打 APK，所以踩到的機率不低。
 改成每次請求重新 stat；檔案不在（正在重打）時回 503 並說明原因，
 不要讓手機下載到一半的檔案。
+
+---
+
+## 2026-08-08 情境匯入 id 未重映射＋清單左右對調＋版號上移 header
+
+### 情境星號永遠亮、套用沒反應
+
+owner：「APK 版切情境都會顯示星號，而且角色和對話也沒跟著套用，是因為資料從電腦匯過來的關係嗎？」——**是。**
+
+S1 匯入預設組時只換了情境自己的 id，內部的 `activePersonaId`／`activeWorldId`／
+`desktopCharacters[].characterId`／`lastActiveConversationId` 仍是電腦端 id。
+角色與對話匯入時都會發新 id，所以套用時：
+
+- 在場角色過濾全滅 → roster 不變
+- 對話 lookup 失敗 → 不切換
+- dirty 比對永遠不相等 → 星號常亮
+
+修法：`remapSceneReferences`，靠名字對回本地 id（對話靠 `importedFrom.sourceId`）。
+對不到的角色／對話引用刪掉，不要留幽靈 id。
+**「從電腦重新拉設定」也會跑同一支**，用來修舊資料——同名情境再匯入會被略過，
+光重做 S1 修不到已經壞掉的那幾份。
+
+順手：情境沒記 `colorTheme` 時 dirty 不再視同 mint（與 `applySceneSettings` 一致），
+否則非 mint 主題下星號會永遠關不掉。
+
+### 清單：左邊編輯、右邊套用
+
+owner：「套用或者加入／移除會比編輯常用」。
+角色庫／在場／情境／使用者／世界觀／對話統一：點名稱（＋小鉛筆）進編輯，
+右側較大的 `StatusChip` 做套用／加入／開啟。
+
+### 版號移到 header 左上角
+
+模式標籤下方加 `v0.4.0 · 08-08 16:21`，一步看得到。
+HeaderChips 去掉 `overflow-x-auto`，改 `overflow-hidden`＋chip 可收縮，
+避免字一長右邊出現橫向捲軸。

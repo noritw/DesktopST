@@ -585,3 +585,141 @@ async function loadedConversation(session: StandaloneSession, id: string) {
   await session.loadConversation(id)
   return session.activeConversation!
 }
+
+/**
+ * 情境內部引用的重新對應。
+ *
+ * owner 2026-08-08 回報：APK 上切情境「星號一直亮，而且角色和對話也沒跟著套用」。
+ * 原因是匯入時只換了情境自己的 id，裡面指的 persona／世界觀／在場角色／對話
+ * 全都還是電腦端的 id —— 在這台手機上通通不存在。
+ */
+describe('S1 情境內部引用重新對應', () => {
+  const PC_SCENE = {
+    id: 'sc-pc',
+    name: '深夜',
+    activePersonaId: 'p1',
+    activeWorldId: 'w1',
+    desktopCharacters: [
+      {
+        characterId: 'pc0',
+        position: { x: 10, y: 20 },
+        size: 1,
+        flipped: false,
+        muted: false,
+        zIndex: 1
+      },
+      {
+        characterId: 'pc1',
+        position: { x: 30, y: 40 },
+        size: 1,
+        flipped: false,
+        muted: false,
+        zIndex: 2
+      }
+    ],
+    lastActiveConversationId: 'conv-a',
+    createdAt: 1,
+    updatedAt: 1
+  }
+
+  const PC_CONV = {
+    id: 'conv-a',
+    title: '深夜聊天',
+    participantIds: ['pc0'],
+    messages: [{ id: 'm1', role: 'user' as const, content: '在嗎', timestamp: 1 }],
+    summary: '',
+    createdAt: 1,
+    updatedAt: 200
+  }
+
+  function sceneFetch(packs: Map<string, Uint8Array>, characters: { id: string; name: string }[]) {
+    const init = bundle({
+      characters,
+      scenes: [PC_SCENE],
+      worlds: [
+        { id: 'w1', name: '電腦上的世界', worldSetting: '', interactionExample: '', createdAt: 1, updatedAt: 1 }
+      ]
+    })
+    return (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/sync-conversations')) {
+        return new Response(
+          JSON.stringify({
+            conversations: [
+              { id: PC_CONV.id, title: PC_CONV.title, updatedAt: PC_CONV.updatedAt, messageCount: 1, characterNames: [] }
+            ]
+          }),
+          { status: 200 }
+        )
+      }
+      if (url.includes('/api/sync-conversation?')) {
+        return new Response(JSON.stringify({ conversation: PC_CONV }), { status: 200 })
+      }
+      return fakeFetch(init, packs)(input)
+    }) as typeof fetch
+  }
+
+  it('在場角色、persona、世界觀都換成手機這邊的 id', async () => {
+    const session = await boot()
+    const { packs, characters } = await makePacks(['星離宸', '琉緋璃'])
+
+    await runSyncImport(SRC, session, { onConflict: 'skip' }, sceneFetch(packs, characters))
+
+    const scene = session.scenes.find((s) => s.name === '深夜')!
+    const local = (name: string) => session.characters.find((c) => c.name === name)!.id
+
+    expect(scene.desktopCharacters.map((d) => d.characterId)).toEqual([local('星離宸'), local('琉緋璃')])
+    // 座標之類的其他欄位不能在轉換過程中掉了
+    expect(scene.desktopCharacters[0]!.position.x).toBe(10)
+    expect(scene.activePersonaId).toBe(session.personas.find((p) => p.name === '電腦上的我')!.id)
+    expect(scene.activeWorldId).toBe(session.worlds.find((w) => w.name === '電腦上的世界')!.id)
+  })
+
+  it('對不到的角色直接刪掉，不留電腦端的 id', async () => {
+    const session = await boot()
+    // 只給一隻，情境裡的 pc1 在這台手機上永遠不會存在
+    const { packs, characters } = await makePacks(['星離宸'])
+
+    await runSyncImport(SRC, session, { onConflict: 'skip' }, sceneFetch(packs, characters))
+
+    const scene = session.scenes.find((s) => s.name === '深夜')!
+    expect(scene.desktopCharacters.map((d) => d.characterId)).toEqual([
+      session.characters.find((c) => c.name === '星離宸')!.id
+    ])
+  })
+
+  it('有勾選匯入的對話會對到新 id；沒勾就清掉', async () => {
+    const withConv = await boot()
+    const a = await makePacks(['星離宸', '琉緋璃'])
+    await runSyncImport(
+      SRC, withConv, { onConflict: 'skip', conversationIds: ['conv-a'] }, sceneFetch(a.packs, a.characters)
+    )
+    const imported = withConv.listConversations().find((c) => c.title === '深夜聊天')!
+    expect(imported.id).not.toBe('conv-a')
+    expect(withConv.scenes.find((s) => s.name === '深夜')!.lastActiveConversationId).toBe(imported.id)
+
+    const without = await boot()
+    const b = await makePacks(['星離宸', '琉緋璃'])
+    await runSyncImport(SRC, without, { onConflict: 'skip' }, sceneFetch(b.packs, b.characters))
+    expect(without.scenes.find((s) => s.name === '深夜')!.lastActiveConversationId).toBeUndefined()
+  })
+
+  /** owner 回報的那兩個症狀，一次驗完。 */
+  it('套用匯入的情境：真的換在場角色，而且星號不再亮著', async () => {
+    const session = await boot()
+    const { packs, characters } = await makePacks(['星離宸', '琉緋璃'])
+    await runSyncImport(
+      SRC, session, { onConflict: 'skip', conversationIds: ['conv-a'] }, sceneFetch(packs, characters)
+    )
+
+    const scene = session.scenes.find((s) => s.name === '深夜')!
+    await session.applyScene(scene.id)
+
+    const names = session
+      .getState()
+      .presentCharacters.map((c) => c.name)
+      .sort()
+    expect(names).toEqual(['星離宸', '琉緋璃'].sort())
+    expect(session.getState().activeSceneDirty).toBe(false)
+  })
+})

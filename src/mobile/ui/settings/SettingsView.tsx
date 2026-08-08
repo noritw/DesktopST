@@ -671,10 +671,8 @@ export function SettingsView(): JSX.Element {
 }
 
 /**
- * 頁尾的版本資訊。
- *
- * 不做成可收合的 `Section` —— 這行字存在的意義就是「捲到底一眼確認裝到新的了沒」，
- * 多一次點擊就失去意義了。
+ * 頁尾的完整建置資訊（含模式與 git 雜湊）。
+ * 日常「更新了沒」看 header 左上角那兩行就夠；這裡是想對 commit 時用的。
  */
 function AboutFooter({ standalone }: { standalone: boolean }): JSX.Element {
   const { title, detail } = buildInfoLines(standalone)

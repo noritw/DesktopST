@@ -25,6 +25,11 @@ export function formatBuildTime(iso: string = BUILD_TIME): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
+/** Header 用的短時間：`08-08 16:21`。省寬度，避免把右側標籤擠出捲軸。 */
+export function formatBuildTimeShort(iso: string = BUILD_TIME): string {
+  return formatBuildTime(iso).replace(/^\d{4}-/, '')
+}
+
 /** 「關於」要顯示的兩行字。第二行可能是空的（沒有 git、時間壞掉）。 */
 export function buildInfoLines(standalone: boolean): { title: string; detail: string } {
   const title = `DeST v${APP_VERSION} · ${standalone ? '獨立版' : '遙控（電腦提供）'}`

@@ -20,6 +20,7 @@ import { HeaderChips } from './context/HeaderChips'
 import { initCapacitorSecrets, capacitorAdapters } from '../adapters'
 import { bootStandaloneSession } from '../runtime/session'
 import { setStandaloneSession } from '../runtime/sessionHolder'
+import { APP_VERSION, formatBuildTimeShort } from '../buildInfo'
 
 /**
  * 手機 UI 的根元件。
@@ -126,13 +127,22 @@ export function App(): JSX.Element {
         className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--mint)] px-3 pb-2"
         style={{ paddingTop: 'calc(var(--safe-top) + 8px)' }}
       >
+        {/*
+          版本放這裡：一步就能看到，不用進設定。
+          建置時間才是「更新了沒」的依據（debug APK 版號不會變）。
+          shrink-0 + 固定兩行，不跟右側 chips 搶寬，避免把對話／情境標籤擠出橫向捲軸。
+        */}
         <span
-          className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--bg)] px-2 py-0.5 text-[11px] font-semibold text-[var(--text)]"
-          title="目前讀寫的資料來源"
+          className="flex shrink-0 flex-col items-start rounded-full border border-[var(--border)] bg-[var(--bg)] px-2 py-0.5 leading-tight"
+          title={`資料來源：${modeText}　DeST v${APP_VERSION}　建置 ${formatBuildTimeShort() || '—'}`}
         >
-          {modeText}
+          <span className="text-[11px] font-semibold text-[var(--text)]">{modeText}</span>
+          <span className="text-[10px] text-[var(--text-sub)]">
+            v{APP_VERSION}
+            {formatBuildTimeShort() ? ` · ${formatBuildTimeShort()}` : ''}
+          </span>
         </span>
-        {ready ? <HeaderChips /> : <span className="flex-1 text-[13px] font-semibold text-[var(--text)]">DeST</span>}
+        {ready ? <HeaderChips /> : <span className="min-w-0 flex-1 text-[13px] font-semibold text-[var(--text)]">DeST</span>}
         <button
           type="button"
           onClick={() => push('menu')}

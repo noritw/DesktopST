@@ -42,8 +42,13 @@ export function HeaderChips(): JSX.Element | null {
     ? `${labels.scene}${snapshot?.activeSceneDirty ? ' *' : ''}`
     : ''
 
+  /*
+   * ⚠️ 不要 `overflow-x-auto`。
+   * 標籤字一長右邊就會冒出橫向捲軸（owner 2026-08-08），看起來像壞掉。
+   * 改成 `overflow-hidden` + 每顆 chip 可收縮截斷，擠不下就省略號，不出現捲軸。
+   */
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+    <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
       {conversationTitle && (
         <Chip prefix="對話" value={conversationTitle} onClick={() => push('conversations')} />
       )}
@@ -81,7 +86,7 @@ function Chip({
       onClick={onClick}
       title={title}
       aria-label={`${prefix}：${value}，點此更換`}
-      className="flex max-w-[11rem] shrink-0 items-center gap-1 rounded-full bg-[var(--surface)]/70 px-2.5 py-1 text-[11px] active:bg-[var(--surface)]"
+      className="flex min-w-0 max-w-[9rem] shrink items-center gap-1 rounded-full bg-[var(--surface)]/70 px-2 py-1 text-[11px] active:bg-[var(--surface)]"
     >
       <span className="shrink-0 text-[var(--text-sub)]">{prefix}</span>
       <span className="truncate font-medium text-[var(--text)]">{value}</span>

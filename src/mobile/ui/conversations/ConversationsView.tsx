@@ -108,25 +108,26 @@ export function ConversationsView(): JSX.Element {
             >
               <button
                 type="button"
+                aria-label={`編輯${item.title || '未命名'}`}
+                onClick={() => push('conversation-editor', item.id)}
+                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+              >
+                <span className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-[var(--text)]">{item.title || '（未命名）'}</p>
+                  {!item.active && (
+                    <p className="mt-0.5 text-[11px] text-[var(--text-sub)]">{formatUpdatedAt(item.updatedAt)}</p>
+                  )}
+                </span>
+                <MonoIcon name="edit" className="h-3.5 w-3.5 shrink-0 text-[var(--text-sub)]" />
+              </button>
+              <StatusChip
+                active={item.active}
                 disabled={busyId === item.id}
                 onClick={() => void switchTo(item)}
-                className="min-w-0 flex-1 text-left disabled:opacity-50"
+                ariaLabel={item.active ? '目前對話' : `切換到${item.title || '未命名'}`}
               >
-                <p className="truncate text-sm text-[var(--text)]">{item.title || '（未命名）'}</p>
-                {item.active ? (
-                  <StatusChip active>目前對話</StatusChip>
-                ) : (
-                  <p className="mt-1 text-[11px] text-[var(--text-sub)]">{formatUpdatedAt(item.updatedAt)}</p>
-                )}
-              </button>
-              <button
-                type="button"
-                aria-label={`編輯${item.title}`}
-                onClick={() => push('conversation-editor', item.id)}
-                className="shrink-0 rounded-full p-2 text-[var(--text-sub)] active:bg-[var(--border)]"
-              >
-                <MonoIcon name="edit" className="h-4 w-4" />
-              </button>
+                {item.active ? '使用中' : '開啟'}
+              </StatusChip>
             </div>
           ))}
         </div>

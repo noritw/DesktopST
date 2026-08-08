@@ -256,15 +256,23 @@ export class StandaloneSession {
   }
 
   /**
-   * S1 對話匯入：已經帶過來的**電腦端** conversation id。
+   * S1 對話匯入：**電腦端** conversation id → 這台手機上對應那一則的 id。
+   * 匯入情境時要靠它把情境記著的對話換成本地的（見 `remapImportedScenes`）。
+   */
+  importedConversationIds(): Map<string, string> {
+    const out = new Map<string, string>()
+    for (const conv of this.conversationIndex.values()) {
+      if (conv.importedFrom) out.set(conv.importedFrom.sourceId, conv.id)
+    }
+    return out
+  }
+
+  /**
+   * 已經帶過來的**電腦端** conversation id。
    * 匯入畫面拿它把已匯入的那幾則標出來並停用勾選，避免重複拉一份。
    */
   importedConversationSourceIds(): Set<string> {
-    const out = new Set<string>()
-    for (const conv of this.conversationIndex.values()) {
-      if (conv.importedFrom) out.add(conv.importedFrom.sourceId)
-    }
-    return out
+    return new Set(this.importedConversationIds().keys())
   }
 
   /**
@@ -391,6 +399,12 @@ export class StandaloneSession {
     if (wantConv && this.conversationIndex.has(wantConv)) {
       this.activeConversation = this.conversationIndex.get(wantConv)!
     }
+    /*
+     * 記**真的切過去的**那則，不要照抄情境寫的。
+     * `applySceneSettings` 是共用的，它只會原封不動搬過來；情境指向一則這台手機
+     * 沒有的對話時（匯入來的、或那則被刪了），照抄會在設定裡留一個查不到的 id。
+     */
+    this.settings.ui.lastActiveConversationId = this.activeConversation?.id ?? ''
 
     await this.saveSettings()
     this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
