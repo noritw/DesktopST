@@ -45,6 +45,16 @@ export function stripImageData(prompt: string): string {
 }
 
 /**
+ * 分段標題。
+ *
+ * 尾巴的橫線刻意只有幾個字元：手機螢幕窄，長橫線會自己折成第二行，
+ * 反而看不出哪裡是分段。夠讓眼睛掃到就好。
+ */
+function sectionRule(role: string): string {
+  return `── [${role}] ────`
+}
+
+/**
  * 把 prompt JSON 攤成人看得懂的文字：先幾行後設資料，再依角色分段。
  *
  * 不是合法 JSON 就原樣回傳 —— 除錯時看到原始內容，比看到「格式錯誤」有用。
@@ -71,14 +81,14 @@ export function renderDebugPrompt(raw: string): string {
     const msgs = (obj.input ?? obj.messages) as Array<{ role: string; content: unknown }> | undefined
     if (msgs) {
       for (const msg of msgs) {
-        lines.push(`\n── [${msg.role}] ${'─'.repeat(Math.max(0, 44 - msg.role.length))}`)
+        lines.push(`\n${sectionRule(msg.role)}`)
         lines.push(renderContent(msg.content))
       }
     } else {
       // Claude / Gemini truncated format
       const systemText = (obj.system ?? obj.systemInstruction) as string | undefined
       if (systemText) {
-        lines.push(`\n── [system] ───────────────────────────────`)
+        lines.push(`\n${sectionRule('system')}`)
         lines.push(systemText)
       }
       if (obj.historyLength !== undefined) lines.push(`\nhistory: ${obj.historyLength} turns, current: ${obj.currentParts} parts`)

@@ -71,6 +71,7 @@ export type MonoIconName =
   | 'mute'
   | 'exit'
   | 'plug'
+  | 'at'
   // ── B3 階段 6（個人新聞報）新增 ──
   | 'refresh'
   | 'external-link'
@@ -411,6 +412,12 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <path {...common} d="M14.5 6V3" />
           <path {...common} d="M7 8h10v3a5 5 0 0 1-5 5" />
           <path {...common} d="M12 16v5" />
+        </>
+      )}
+      {name === 'at' && (
+        <>
+          <circle {...common} cx="12" cy="12" r="3.6" />
+          <path {...common} d="M15.6 8.4v4.8a2.6 2.6 0 0 0 5.2 0V12a8.8 8.8 0 1 0-3.4 6.95" />
         </>
       )}
       {name === 'refresh' && (

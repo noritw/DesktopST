@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { MessageDebug } from '@core/data'
+import type { MessageDebug, MessageSnapshot } from '@core/data'
 import { renderDebugPrompt, stripImageData } from '@core/prompt/debugPromptView'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
@@ -19,6 +19,31 @@ const TAB_LABEL: Record<TabKey, string> = {
   utility: '輔助模型',
   'conv-search': '新聞搜尋',
   news: '新聞抽選'
+}
+
+/**
+ * 這則訊息花掉的 token（與桌面 Log 視窗同一組欄位）。
+ *
+ * 舊訊息沒有這些欄位就整段不顯示 —— 顯示「0」會被讀成「這次沒花錢」，那是錯的。
+ */
+function TokenCounts({ message }: { message: MessageSnapshot }): JSX.Element | null {
+  const groups: { label: string; input?: number; output?: number }[] = [
+    { label: '主模型', input: message.inputTokens, output: message.outputTokens },
+    { label: '輔助', input: message.utilityInputTokens, output: message.utilityOutputTokens },
+    { label: '對話搜尋', input: message.convSearchInputTokens, output: message.convSearchOutputTokens }
+  ].filter((g) => g.input != null || g.output != null)
+
+  if (groups.length === 0) return null
+
+  return (
+    <div className="mb-2 flex flex-wrap gap-x-3 gap-y-1 px-1 text-[11px] text-[var(--text-sub)]">
+      {groups.map((g) => (
+        <span key={g.label}>
+          {g.label} in {g.input?.toLocaleString() ?? '—'} / out {g.output?.toLocaleString() ?? '—'}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 export function MessagePromptView({ messageId }: { messageId: string }): JSX.Element {
@@ -76,11 +101,15 @@ export function MessagePromptView({ messageId }: { messageId: string }): JSX.Ele
   }
 
   if (!body) {
+    // token 數存在訊息本體、不會被 prune 剝掉，所以 prompt 沒了它仍該看得到。
     return (
-      <div className="px-2 py-8 text-center text-sm leading-relaxed text-[var(--text-sub)]">
-        這則訊息沒有保留 prompt。
-        <br />
-        為了不讓對話檔變太大，只有最近幾則留著完整內容。
+      <div className="py-6">
+        {message && <TokenCounts message={message} />}
+        <p className="px-2 py-2 text-center text-sm leading-relaxed text-[var(--text-sub)]">
+          這則訊息沒有保留 prompt。
+          <br />
+          為了不讓對話檔變太大，只有最近幾則留著完整內容。
+        </p>
       </div>
     )
   }
@@ -92,6 +121,8 @@ export function MessagePromptView({ messageId }: { messageId: string }): JSX.Ele
           {message.content || '（沒有文字內容）'}
         </p>
       )}
+
+      {message && <TokenCounts message={message} />}
 
       {tabs.length > 1 && (
         <div className="mb-2 flex flex-wrap gap-1.5">

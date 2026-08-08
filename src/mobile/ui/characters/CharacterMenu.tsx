@@ -1,6 +1,7 @@
 import { DataError } from '@core/data'
 import MonoIcon, { type MonoIconName } from '@shared/MonoIcon'
 import { getData, useAppStore } from '../stores/appStore'
+import { useComposerStore } from '../stores/composerStore'
 import { useUiStore } from '../stores/uiStore'
 import { Avatar } from './Avatar'
 
@@ -49,6 +50,24 @@ export function CharacterMenu({ characterId }: { characterId: string }): JSX.Ele
     }
   }
 
+  /**
+   * 把角色名字插進輸入框（owner 2026-08-08：群組聊天時不想每次都手打名字）。
+   *
+   * 插的是**純名字沒有 `@`**：`isAddressed()` 直接比對別名，加了 `@` 也只是多一個字元，
+   * 而名字會原樣出現在送出的訊息裡 —— 多一個符號在對話記錄裡看起來很怪。
+   * 前後各補一個空白，但只在真的黏著別的字時補，避免一路點出「小明  小華 」。
+   */
+  const mention = (): void => {
+    const composer = useComposerStore.getState()
+    const at = composer.caret ?? composer.text.length
+    const before = composer.text.slice(0, at)
+    const after = composer.text.slice(at)
+    const lead = before && !/\s$/.test(before) ? ' ' : ''
+    const tail = after.startsWith(' ') ? '' : ' '
+    composer.insert(`${lead}${character.name}${tail}`)
+    pop()
+  }
+
   // D5「至少保留一個」：只剩一位時不給這顆按鈕，同 `PresenceSheet` 的判斷。
   const canRemove = presentCount > 1
 
@@ -76,6 +95,7 @@ export function CharacterMenu({ characterId }: { characterId: string }): JSX.Ele
         </div>
       </div>
 
+      <MenuItem icon="at" label="提及" hint="把名字插進輸入框，這則就會點名到他" onClick={mention} />
       <MenuItem icon="chat" label="說點什麼" hint="讓這個角色主動開口" onClick={() => void speak()} />
       <MenuItem
         icon={character.muted ? 'volume' : 'mute'}

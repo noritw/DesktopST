@@ -131,6 +131,14 @@ export type ChatLLMParams = {
   triggerDirective?: string
   /** 是否省略情緒輸出合約（由後續獨立情緒分類呼叫處理） */
   splitEmotion?: boolean
+  /**
+   * 呼叫端根本不需要情緒標籤，省略情緒輸出合約。
+   *
+   * 與 `splitEmotion` 的差別在於**沒有**後續的分類呼叫：手機獨立版是單張主圖、
+   * 不做表情差分，情緒合約（表情 id 清單＋逐項說明）送出去也沒有東西會用，
+   * 只是白花 token。角色卡帶著表情圖時那段可能長達數十行。
+   */
+  omitEmotionTag?: boolean
   /** 輕量工具 call（意圖萃取等）：跳過角色扮演規則、輸出格式、系統時間、輸入來源等與角色扮演相關的段落 */
   minimal?: boolean
   /** 可用於中途取消本次 LLM 請求 */

@@ -137,6 +137,9 @@ export async function sendStandaloneMessage(opts: {
     opts.settings.memory.keepRecentN
   )
 
+  // `omitEmotionTag`：獨立版是單張主圖、不做表情差分，沒有東西會用到情緒標籤。
+  // 角色卡若帶著表情圖，情緒合約會把每張圖的 id 與用途逐條寫進 system prompt
+  // （id 取自圖檔檔名），每則對話都白付這筆 token。
   try {
     const { content, emotion, debugPrompt, inputTokens, outputTokens } = await chatWithLLM(
       {
@@ -148,7 +151,8 @@ export async function sendStandaloneMessage(opts: {
         persona: opts.getPersona(),
         world: opts.getWorld(),
         desktopCharacterNames,
-        memorySummary: conv.summary
+        memorySummary: conv.summary,
+        omitEmotionTag: true
       },
       { http: opts.adapters.http }
     )
@@ -199,7 +203,8 @@ export async function sendStandaloneMessage(opts: {
             persona: opts.getPersona(),
             world: opts.getWorld(),
             desktopCharacterNames,
-            memorySummary: conv.summary
+            memorySummary: conv.summary,
+            omitEmotionTag: true
           },
           { http: opts.adapters.http }
         )

@@ -894,6 +894,54 @@ owner 實機使用後回報。三項都同時做在**獨立模式與遙控模式
 ### 3. 聊天串點角色頭像 → 角色卡
 
 原本要繞去角色庫再找一次。`Avatar` 外面包一層按鈕 push `character-editor`。
+（**2026-08-08 稍晚改掉**：改成 push `character-menu`，見下一則。）
 
 **驗過**：`?mode=standalone` 下發話、身分名顯示與開關即時生效、頭像進角色卡、
 沒留 prompt 的訊息不出現除錯入口。typecheck 與 375 個測試全綠。
+
+---
+
+## 2026-08-08 真機第二輪回饋（表情合約、Token、頭像選單、分隔線）
+
+owner 在 Pixel 10a 上用 debug APK 實測後回報。四項都是小改，但第一項省的是每則對話的錢。
+
+### 1. ⚠️ 獨立版 prompt 白白帶著整份表情合約
+
+owner 看到 `[Output Format]` 裡有一串「寫死的表情檔名」，追下去發現不是寫死的：
+`buildEmotionContract()` 會把角色卡每張表情圖的 **id（預設取自圖檔檔名）與用途**
+逐條寫進 system prompt，好讓模型第一行輸出 `[emotion_id]` 來選圖。
+
+問題是**手機獨立版是單張主圖、不做表情差分**（roadmap 定的範圍），
+`src/mobile/runtime/chat.ts` 也從來沒呼叫 `classifyEmotionWithLLM`。
+從桌面匯入的角色卡帶著十幾張表情圖時，那段可以長到數十行 —— 每則對話都白付。
+
+桌面靠 `splitEmotion`（`utilityEnabled && hasCustomSprites`）省掉這段，
+但它的語意是「稍後有獨立的分類呼叫接手」，手機沒有那個呼叫。
+所以另開 `ChatLLMParams.omitEmotionTag`：**呼叫端根本不需要情緒標籤**。
+三家 provider 都是 `splitEmotion: params.splitEmotion || params.omitEmotionTag`。
+
+> 之後手機若要做表情差分，改的是這個旗標，不是 `buildEmotionContract`。
+
+### 2. 完整 Prompt 顯示 Token 數
+
+與桌面 Log 視窗同樣三組（主模型／輔助／對話搜尋）。
+**沒留 prompt 的訊息也要顯示** —— token 數存在訊息本體，`prune` 不會剝掉它。
+欄位不存在就整組不顯示，不要印「0」（那會被讀成「這次沒花錢」）。
+
+### 3. 頭像點擊改成開角色選單
+
+owner：「群組聊天要一直手打名字。」`character-menu` 加一項**提及** ——
+把角色名插進輸入框（走 `composerStore.insert`，插在游標處）。
+插純名字**不加 `@`**：`isAddressed()` 直接比對別名，而名字會原樣留在送出的訊息裡，
+多一個符號在對話記錄看起來很怪。前後只在真的黏著別的字時才補空白。
+
+聊天串頭像改 push `character-menu`（與頂部 `AvatarBar` 同一個選單）
+而不是自己做一個兩項的小選單：同一顆頭像在兩個地方點出不同東西會很奇怪。
+
+### 4. debug prompt 分隔線縮短
+
+`── [system] ───⋯` 原本補到 44 字元，手機寬度不夠會折成兩行，反而看不出分段。
+縮成 `── [role] ────`。
+
+> ⚠️ 這條分隔線**只在除錯檢視裡**，沒有送給模型，所以縮短它不會省 token
+> （owner 原本以為會）。真正在省 token 的是上面第 1 項。

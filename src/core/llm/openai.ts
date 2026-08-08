@@ -63,7 +63,7 @@ export async function chatWithOpenAI(params: ChatLLMParams, deps: LLMDeps): Prom
     dangerouslyAllowBrowser: true
   })
 
-  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion, minimal: params.minimal, omitSystemTime: !params.isReminder, loreBlock: params.loreBlock })
+  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion || params.omitEmotionTag, minimal: params.minimal, omitSystemTime: !params.isReminder, loreBlock: params.loreBlock })
 
   const input: Array<{
     role: 'system' | 'user' | 'assistant'

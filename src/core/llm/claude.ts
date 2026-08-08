@@ -57,7 +57,7 @@ export async function chatWithClaude(params: ChatLLMParams, deps: LLMDeps): Prom
     fetch: deps.http.fetch,
     dangerouslyAllowBrowser: true
   })
-  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion, minimal: params.minimal, omitSystemTime: !params.isReminder, loreBlock: params.loreBlock })
+  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion || params.omitEmotionTag, minimal: params.minimal, omitSystemTime: !params.isReminder, loreBlock: params.loreBlock })
 
   type ClaudeMessage = { role: 'user' | 'assistant'; content: string | ClaudeContentBlock[] }
   const claudeMessages: ClaudeMessage[] = []

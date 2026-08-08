@@ -112,11 +112,14 @@ function MessageRow({ message, characterName }: { message: MessageSnapshot; char
   return (
     <div className={`mb-2.5 flex items-start gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && message.characterId && (
-        // 頭像＝角色卡入口。聊天時想確認設定不必繞去角色庫再找一次。
+        /* 頭像＝這個角色的操作選單（提及／說點什麼／禁言／編輯角色）。
+           原本是直接跳角色卡，但實機用下來最常想做的其實是「點名他」——
+           群組聊天要一直手打名字。與頂部 `AvatarBar` 共用同一個選單，
+           免得同一顆頭像在兩個地方點出不同東西。 */
         <button
           type="button"
-          aria-label={`${characterName || '角色'}的角色卡`}
-          onClick={() => useUiStore.getState().push('character-editor', message.characterId)}
+          aria-label={`${characterName || '角色'}的選單`}
+          onClick={() => useUiStore.getState().push('character-menu', message.characterId)}
           className="mt-4 shrink-0"
         >
           <Avatar characterId={message.characterId} size={30} />
