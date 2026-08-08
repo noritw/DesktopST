@@ -55,7 +55,8 @@ export class LocalDataSource implements DataSource {
   readonly messages: MessagesApi = {
     remove: (id) => this.session.removeMessage(id),
     edit: (id, content) => this.session.editMessage(id, content),
-    resend: (id) => this.session.resendMessage(id)
+    resend: (id) => this.session.resendMessage(id),
+    getDebug: async (id) => this.session.getMessageDebug(id)
   }
 
   readonly characters: CharactersApi = {
@@ -154,6 +155,11 @@ export class LocalDataSource implements DataSource {
     },
     setShowLlmBadge: async (show) => {
       this.session.settings.ui.showLlmBadge = show
+      await this.session.saveSettings()
+      this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    },
+    setShowPersonaName: async (show) => {
+      this.session.settings.ui.showPersonaName = show
       await this.session.saveSettings()
       this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     },

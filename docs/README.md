@@ -19,7 +19,8 @@
 | 檔 | 何時讀 | 怎麼讀 |
 |---|---|---|
 | [`b3-mobile-ui-plan.md`](b3-mobile-ui-plan.md) | 做 B3 手機 UI | 文首＋§4.9；再只開當下階段／落地筆記 |
-| [`mobile-html-feature-inventory.md`](mobile-html-feature-inventory.md) | 對照還缺哪些功能 | §6 勾選清單、§7 缺口總表 |
+| [`mobile-standalone-gap-inventory.md`](mobile-standalone-gap-inventory.md) | **問「獨立版還缺什麼」／要挑下一項來做** | 整份可讀（不長）；§2 缺口總表是重點 |
+| [`mobile-html-feature-inventory.md`](mobile-html-feature-inventory.md) | 對照還缺哪些功能（**歷史**：舊 mobile.html） | §6 勾選清單、§7 缺口總表 |
 | [`multi-device-platform-roadmap.md`](multi-device-platform-roadmap.md) | 提案架構／散布／同步 | **§2、§8**；必要時 §4.5–4.7。勿整份 |
 | [`DesktopST-Spec.md`](../DesktopST-Spec.md) | 實作某規格功能 | **對應章節**，勿整本 |
 | [`progress-log.md`](progress-log.md) | 查舊決策／已知坑 | **Grep 關鍵字**，勿整份 |

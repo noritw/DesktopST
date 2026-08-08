@@ -44,9 +44,17 @@ export async function sendStandaloneMessage(opts: {
     }
   }
 
+  // 發話當下的身分名字要跟訊息一起存（`Message.personaName`）：之後改名或刪掉身分，
+  // 舊記錄仍該顯示當時是誰說的。顯示名優先、其次暱稱，都空才退回設定組名稱 ——
+  // 與輸入框上方 `PersonaIdentity` 的取名規則一致。
+  const persona = opts.getPersona()
+  const personaName =
+    persona && (persona.displayName.trim() || persona.nickname.trim() || persona.name)
+
   const userMsg: Message = {
     id: newId(),
     role: 'user',
+    personaName: personaName || undefined,
     content: opts.input.content,
     images: opts.input.images,
     randomResults: opts.input.randomResults,

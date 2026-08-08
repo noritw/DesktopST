@@ -4,6 +4,7 @@ import MonoIcon from '@shared/MonoIcon'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from '../settings/settingsErrors'
+import { ToggleRow } from '../settings/SettingsView'
 import { StatusChip } from '../shell/StatusChip'
 
 /**
@@ -44,6 +45,17 @@ export function PresetsView({ openParam }: { openParam?: string }): JSX.Element 
   const toast = useUiStore((s) => s.toast)
   const refresh = useAppStore((s) => s.refresh)
   const activeSceneDirty = useAppStore((s) => s.snapshot?.activeSceneDirty === true)
+  // 未設定＝開啟，與 `showLlmBadge` 同一個慣例。
+  const showPersonaName = useAppStore((s) => s.snapshot?.showPersonaName !== false)
+
+  const toggleShowPersonaName = async (): Promise<void> => {
+    try {
+      await getData().settings.setShowPersonaName(!showPersonaName)
+      await refresh()
+    } catch (e) {
+      toast(describeSettingsError(e, '切換發話身分標示'), 'error')
+    }
+  }
 
   const [lists, setLists] = useState<Record<Kind, PresetListItem[]> | null>(null)
   const [active, setActive] = useState({ persona: '', world: '' })
@@ -142,6 +154,21 @@ export function PresetsView({ openParam }: { openParam?: string }): JSX.Element 
             {expanded && (
               <div className="space-y-2 border-t border-[var(--border)] bg-[var(--surface)]/30 px-3 py-3">
                 <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">{HINTS[kind]}</p>
+
+                {/* 顯示開關放這裡而不是設定頁：會想關掉它的人，正是在這頁切身分的人。
+                    真值住在快照（與電腦端共用 `ui.showPersonaName`），不另存本地 state。 */}
+                {kind === 'persona' && (
+                  <>
+                    <ToggleRow
+                      label="在對話裡標示發話身分"
+                      checked={showPersonaName}
+                      onChange={() => void toggleShowPersonaName()}
+                    />
+                    <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
+                      你的訊息上方會顯示當時是用哪個身分說的。切著好幾個身分玩角色扮演時才分得出誰是誰。
+                    </p>
+                  </>
+                )}
                 {kind === 'scene' && activeSceneDirty && (
                   <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
                     ＊ 目前狀態與使用中的情境不一致（例如改過配色）。可按「存回目前狀態」寫進情境。

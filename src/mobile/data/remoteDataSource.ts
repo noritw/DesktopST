@@ -8,6 +8,7 @@ import type {
   LlmSettingsSnapshot,
   LorebooksApi,
   MemorySettingsSnapshot,
+  MessageDebug,
   ModuleToggle,
   WeatherNowSnapshot,
   WeatherSettingsSnapshot,
@@ -81,6 +82,7 @@ export class RemoteDataSource implements DataSource {
       colorTheme: AppStateSnapshot['colorTheme']
       randomToolsEnabled: boolean
       showLlmBadge?: boolean
+      showPersonaName?: boolean
       maxImages: number
       activeSceneId?: string
       activePersonaId?: string
@@ -97,6 +99,7 @@ export class RemoteDataSource implements DataSource {
       randomToolsEnabled: d.randomToolsEnabled,
       // 舊版電腦端沒這個欄位；缺就當開啟（與 settings 的 `!== false` 同義）
       showLlmBadge: d.showLlmBadge !== false,
+      showPersonaName: d.showPersonaName !== false,
       maxImagesPerMessage: d.maxImages,
       activeSceneId: d.activeSceneId,
       activePersonaId: d.activePersonaId,
@@ -134,7 +137,18 @@ export class RemoteDataSource implements DataSource {
     // 會被端點當成缺參數擋下並回 400，而 UI 只會看到「操作失敗」。
     remove: async (id) => { await this.http.post('/api/messages/delete', { id }) },
     edit: async (id, content) => { await this.http.post('/api/messages/edit', { id, content }) },
-    resend: async (id) => { await this.http.post('/api/messages/resend', { id }) }
+    resend: async (id) => { await this.http.post('/api/messages/resend', { id }) },
+    // 舊版電腦端沒這支端點：當成「這則沒留 prompt」處理（回 null）而不是報錯，
+    // UI 顯示「找不到」總比丟一個看不懂的連線錯誤好。
+    getDebug: async (id) => {
+      try {
+        const d = await this.http.post<{ debug: MessageDebug | null }>('/api/messages/debug', { id })
+        return d.debug ?? null
+      } catch (e) {
+        if (e instanceof DataError && (e.code === 'not-found' || e.code === 'not-supported')) return null
+        throw e
+      }
+    }
   }
 
   readonly characters: CharactersApi = {
@@ -221,6 +235,7 @@ export class RemoteDataSource implements DataSource {
   readonly settings: SettingsApi = {
     setColorTheme: async (theme) => { await this.http.post('/api/settings/color-theme', { theme }) },
     setShowLlmBadge: async (show) => { await this.http.post('/api/settings/show-llm-badge', { show }) },
+    setShowPersonaName: async (show) => { await this.http.post('/api/settings/show-persona-name', { show }) },
 
     getLlm: async () => (await this.http.get<{ llm: LlmSettingsSnapshot }>('/api/settings/llm')).llm,
     setLlmProvider: async (provider) => { await this.http.post('/api/settings/llm-provider', { provider }) },

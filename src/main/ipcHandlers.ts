@@ -586,6 +586,36 @@ export function setShowLlmBadgeDirect(show: boolean): boolean {
   return true
 }
 
+export function setShowPersonaNameDirect(show: boolean): boolean {
+  if ((settings.ui.showPersonaName !== false) === show) return true
+  settings.ui.showPersonaName = show
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return true
+}
+
+/**
+ * 手機用：取某則訊息保留的完整 prompt（與 `conversation:get-message-debug` 同一份資料）。
+ *
+ * 找不到就回 `null` —— 超過保留則數的舊訊息會被 `prune` 剝掉 prompt，那是正常結果。
+ */
+export function getMessageDebugDirect(messageId: string): {
+  debugPrompt: string | null
+  utilityDebugPrompt: string | null
+  convSearchDebugPrompt: string | null
+  newsDebug: unknown
+} | null {
+  const conv = getActiveConversation()
+  const msg = conv?.messages.find(m => m.id === messageId)
+  if (!msg) return null
+  return {
+    debugPrompt: msg.debugPrompt ?? null,
+    utilityDebugPrompt: msg.utilityDebugPrompt ?? null,
+    convSearchDebugPrompt: msg.convSearchDebugPrompt ?? null,
+    newsDebug: msg.newsDebug ?? null
+  }
+}
+
 export function activateWorldDirect(id: string): boolean {
   const preset = fileStore.loadWorldPreset(id)
   if (!preset) return false
@@ -4102,9 +4132,17 @@ export function registerIpcHandlers() {
         : consumePendingUserNewsLink() ?? undefined) || undefined
 
     // Add user message
+    // 發話當下的身分名字跟訊息一起存：身分之後改名或刪掉，舊記錄仍要看得出是誰說的。
+    // 取名規則與手機輸入框上方的身分列一致（顯示名 → 暱稱 → 設定組名稱）。
+    const sendPersona = getActivePersona()
+    const sendPersonaName = sendPersona
+      ? sendPersona.displayName.trim() || sendPersona.nickname.trim() || sendPersona.name
+      : ''
+
     const userMsg: Message = {
       id: uuidv4(),
       role: 'user',
+      personaName: sendPersonaName || undefined,
       content: payload.content,
       images: payload.images,
       randomResult: payload.randomResult,

@@ -68,6 +68,14 @@ export interface Message {
   id: string
   role: 'user' | 'character' | 'system'
   characterId?: string
+  /**
+   * 這則使用者訊息是用哪個「使用者身分」發的（發話當下的顯示名，快照式保存）。
+   *
+   * 存名字而不是 id：身分可以被改名或刪除，但當時的對話記錄應該保持原樣 ——
+   * 玩角色扮演切了好幾個身分之後，回頭看要知道「這句是誰說的」。
+   * 舊訊息沒有這個欄位，UI 就不顯示（不要拿目前使用中的身分去補，那會是錯的）。
+   */
+  personaName?: string
   content: string
   llmProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
   llmModel?: string
@@ -399,6 +407,8 @@ export interface AppSettings {
     randomToolsEnabled?: boolean
     /** 每則角色回覆旁顯示生成它的模型小圖示（點一下看型號）。未設定＝開啟 */
     showLlmBadge?: boolean
+    /** 使用者訊息旁顯示發話身分的名字（切換身分玩角色扮演時才分得出誰是誰）。未設定＝開啟 */
+    showPersonaName?: boolean
     /** 低效能模式：保留角色透明，簡化對話泡泡並限制泡泡視窗數量 */
     lowPerformanceMode?: boolean
     /** 低效能模式下 Log 視窗初始顯示最近幾則訊息 */
@@ -512,6 +522,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     screenshotIncludeInputWindow: false,
     randomToolsEnabled: true,
     showLlmBadge: true,
+    showPersonaName: true,
     lowPerformanceMode: false,
     lowPerformanceLogMessageLimit: 50,
     eventDrivenHitTest: false

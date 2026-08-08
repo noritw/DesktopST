@@ -141,6 +141,8 @@ export interface AppStateSnapshot {
   randomToolsEnabled: boolean
   /** 訊息旁顯示生成模型的小圖示（`settings.ui.showLlmBadge`，未設定＝開） */
   showLlmBadge: boolean
+  /** 使用者訊息旁顯示發話身分名字（`settings.ui.showPersonaName`，未設定＝開） */
+  showPersonaName: boolean
   maxImagesPerMessage: number
   activeSceneId?: string
   activePersonaId?: string
@@ -179,6 +181,26 @@ export interface MessagesApi {
   edit(messageId: string, content: string): Promise<void>
   /** 重送：刪掉該則之後的內容並重新產生回覆。 */
   resend(messageId: string): Promise<void>
+  /**
+   * 取這則訊息保留的完整 prompt（除錯用，對應桌面 Log 視窗的「查看完整 Prompt」）。
+   *
+   * ⚠️ **只有最近幾則留著** —— `core/store/prune.ts` 會把更舊的剝掉，
+   * 不然對話檔會被 prompt 撐爆。所以要先看 `hasDebugPrompt` / `hasNewsDebug`
+   * 再決定要不要顯示入口，找不到就回 `null`，不要當成錯誤。
+   */
+  getDebug(messageId: string): Promise<MessageDebug | null>
+}
+
+/** 一則訊息保留的除錯資料（各欄位可能都是空的）。 */
+export interface MessageDebug {
+  /** 主要回覆那次 LLM 呼叫的完整 request。 */
+  debugPrompt?: string | null
+  /** 輔助模型（情緒判定等）那次呼叫。 */
+  utilityDebugPrompt?: string | null
+  /** 對話新聞搜尋的意圖萃取呼叫。 */
+  convSearchDebugPrompt?: string | null
+  /** 新聞陪聊的抽選記錄（結構化，非 prompt 字串）。 */
+  newsDebug?: unknown
 }
 
 /**
@@ -367,6 +389,8 @@ export interface SettingsApi {
   setColorTheme(theme: ColorTheme): Promise<void>
   /** 訊息旁的模型小圖示要不要顯示。 */
   setShowLlmBadge(show: boolean): Promise<void>
+  /** 使用者訊息旁的發話身分名字要不要顯示。 */
+  setShowPersonaName(show: boolean): Promise<void>
 
   getLlm(): Promise<LlmSettingsSnapshot>
   setLlmProvider(provider: LlmProvider): Promise<void>

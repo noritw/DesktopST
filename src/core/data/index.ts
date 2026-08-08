@@ -16,6 +16,7 @@ export type {
   DataErrorCode,
   DataSource,
   FullConversation,
+  MessageDebug,
   MessageSnapshot,
   MessagesApi,
   NewsApi,

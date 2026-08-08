@@ -77,6 +77,10 @@ export interface MobileBridge {
   getLanBaseUrl: () => string
   getShowLlmBadge: () => boolean
   setShowLlmBadge: (show: boolean) => boolean
+  getShowPersonaName: () => boolean
+  setShowPersonaName: (show: boolean) => boolean
+  /** 某則訊息保留的完整 prompt（除錯用）；太舊被剝掉就回 null。 */
+  getMessageDebug: (id: string) => unknown
   getMaxImagesPerMessage: () => number
   shouldIncludeDeviceNameInPrompt: () => boolean
   setColorTheme: (theme: import('./types').ColorTheme) => boolean
@@ -511,6 +515,7 @@ async function handleRequest(
       colorTheme: bridge.getColorTheme(),
       randomToolsEnabled: bridge.getRandomToolsEnabled(),
       showLlmBadge: bridge.getShowLlmBadge(),
+      showPersonaName: bridge.getShowPersonaName(),
       maxImages: bridge.getMaxImagesPerMessage(),
       activeSceneId: bridge.getActiveSceneId(),
       activePersonaId: bridge.getActivePersonaId(),
@@ -879,6 +884,20 @@ async function handleRequest(
     return
   }
 
+  // ── POST /api/settings/show-persona-name ──
+  // 使用者訊息旁的發話身分名字開關。同上，是電腦端設定的一部分。
+  if (method === 'POST' && url === '/api/settings/show-persona-name') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { show?: unknown }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (typeof payload.show !== 'boolean') { jsonError(res, 400, 'show must be boolean'); return }
+    bridge.setShowPersonaName(payload.show)
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, { ok: true })
+    return
+  }
+
   // ── POST /api/settings/color-theme ──
   // 主題是電腦端設定的一部分，手機改了要寫回來，否則重新整理就跳回舊的。
   if (method === 'POST' && url === '/api/settings/color-theme') {
@@ -1073,6 +1092,19 @@ async function handleRequest(
     const result = await bridge.resendMessage(payload.id)
     if ('error' in result) { jsonError(res, 400, result.error); return }
     jsonOk(res, { ok: true })
+    return
+  }
+
+  // ── POST /api/messages/debug ──
+  // 除錯用：取這則訊息保留的完整 prompt。太舊的訊息 prompt 已被 prune 剝掉，
+  // 那不是錯誤 —— 回 `{ debug: null }` 讓手機顯示「已經沒有保留」。
+  if (method === 'POST' && url === '/api/messages/debug') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { id?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    jsonOk(res, { debug: bridge.getMessageDebug(payload.id) ?? null })
     return
   }
 
@@ -1296,6 +1328,7 @@ async function handleRequest(
       lanUrl: lanDirect ? '' : bridge.getLanBaseUrl(),
       colorTheme: bridge.getColorTheme(),
       showLlmBadge: bridge.getShowLlmBadge(),
+      showPersonaName: bridge.getShowPersonaName(),
       randomToolsEnabled: bridge.getRandomToolsEnabled(),
       maxImagesPerMessage: bridge.getMaxImagesPerMessage(),
       llm: {

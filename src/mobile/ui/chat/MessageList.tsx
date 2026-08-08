@@ -97,6 +97,9 @@ function LlmBadge({ message }: { message: MessageSnapshot }): JSX.Element | null
 }
 
 function MessageRow({ message, characterName }: { message: MessageSnapshot; characterName: string }): JSX.Element {
+  // 未設定＝開啟，與 `showLlmBadge` 同一個慣例。
+  const showPersonaName = useAppStore((s) => s.snapshot?.showPersonaName !== false)
+
   if (message.role === 'system') {
     return (
       <div className="my-2 px-6 text-center text-xs leading-relaxed text-[var(--text-sub)]">
@@ -109,15 +112,29 @@ function MessageRow({ message, characterName }: { message: MessageSnapshot; char
   return (
     <div className={`mb-2.5 flex items-start gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && message.characterId && (
-        <div className="mt-4 shrink-0">
+        // 頭像＝角色卡入口。聊天時想確認設定不必繞去角色庫再找一次。
+        <button
+          type="button"
+          aria-label={`${characterName || '角色'}的角色卡`}
+          onClick={() => useUiStore.getState().push('character-editor', message.characterId)}
+          className="mt-4 shrink-0"
+        >
           <Avatar characterId={message.characterId} size={30} />
-        </div>
+        </button>
       )}
       <div className={`min-w-0 ${isUser ? 'max-w-[86%]' : 'flex-1'}`}>
         {!isUser && (characterName || message.llmModel) && (
           <div className="mb-0.5 ml-1 flex items-center gap-1 text-xs text-[var(--text-sub)]">
             {characterName}
             <LlmBadge message={message} />
+          </div>
+        )}
+        {/* 發話身分（清單 A1）。切著好幾個身分玩角色扮演時，回頭看要分得出這句是誰說的。
+            名字是**發話當下存進訊息的快照**，不是現在使用中的那個身分 ——
+            所以舊訊息（欄位還不存在的年代）沒有就不顯示，不拿目前的去補。 */}
+        {isUser && message.personaName && showPersonaName && (
+          <div className="mb-0.5 mr-1 text-right text-xs text-[var(--text-sub)]">
+            {message.personaName}
           </div>
         )}
 

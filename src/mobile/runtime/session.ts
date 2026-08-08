@@ -15,6 +15,7 @@ import { DataError } from '@core/data'
 import type {
   AppStateSnapshot,
   LlmSettingsSnapshot,
+  MessageDebug,
   ModuleToggle,
   PackConflictPolicy,
   SendMessageInput
@@ -260,6 +261,7 @@ export class StandaloneSession {
       colorTheme: this.settings.ui.colorTheme ?? 'mint',
       randomToolsEnabled: this.settings.ui.randomToolsEnabled !== false,
       showLlmBadge: this.settings.ui.showLlmBadge !== false,
+      showPersonaName: this.settings.ui.showPersonaName !== false,
       maxImagesPerMessage: this.settings.llm.maxImagesPerMessage ?? 3,
       activeSceneId: this.settings.activeSceneId || undefined,
       activePersonaId: this.settings.activePersonaId || undefined,
@@ -427,6 +429,23 @@ export class StandaloneSession {
     }
     this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     return { activeConversationId: this.activeConversation!.id }
+  }
+
+  /**
+   * 取這則訊息保留的完整 prompt（除錯用）。
+   *
+   * 找不到訊息、或訊息的 prompt 已被 `prune` 剝掉，都回 `null` 而不是丟錯 ——
+   * 「太舊所以沒留」是正常結果，不是失敗，UI 顯示對應說明就好。
+   */
+  getMessageDebug(messageId: string): MessageDebug | null {
+    const msg = this.activeConversation?.messages.find((m) => m.id === messageId)
+    if (!msg) return null
+    return {
+      debugPrompt: msg.debugPrompt ?? null,
+      utilityDebugPrompt: msg.utilityDebugPrompt ?? null,
+      convSearchDebugPrompt: msg.convSearchDebugPrompt ?? null,
+      newsDebug: msg.newsDebug ?? null
+    }
   }
 
   async removeMessage(messageId: string): Promise<void> {

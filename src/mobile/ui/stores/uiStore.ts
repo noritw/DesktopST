@@ -23,6 +23,8 @@ export type ViewKind =
   | 'presence'
   | 'character-menu'
   | 'message-menu'
+  /** 這則訊息送出去的完整 prompt（除錯用，從訊息選單進去）。 */
+  | 'message-prompt'
   | 'characters'
   | 'character-editor'
   | 'presets'

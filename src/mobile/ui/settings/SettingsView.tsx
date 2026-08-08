@@ -721,7 +721,8 @@ function NumberRow({
   )
 }
 
-function ToggleRow({
+/** 一行開關。`PresetsView` 的「使用者設定」區塊也用同一顆，不要另抄。 */
+export function ToggleRow({
   label,
   checked,
   onChange
