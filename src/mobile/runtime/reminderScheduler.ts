@@ -26,14 +26,16 @@ export async function initReminderScheduler(trigger: TriggerFn): Promise<void> {
   triggerFn = trigger
   initialized = true
 
-  // 請求通知權限
-  try {
-    const status = await LocalNotifications.requestPermissions()
-    if (status.display !== 'granted') {
-      console.warn('提醒通知權限未授予')
+  // 僅在 Web 環境請求通知權限
+  if (typeof window !== 'undefined') {
+    try {
+      const status = await LocalNotifications.requestPermissions()
+      if (status.display !== 'granted') {
+        console.warn('提醒通知權限未授予')
+      }
+    } catch (e) {
+      console.error('請求通知權限失敗:', e)
     }
-  } catch (e) {
-    console.error('請求通知權限失敗:', e)
   }
 }
 
@@ -87,19 +89,21 @@ async function fire(reminder: Reminder): Promise<void> {
       await triggerFn(reminder)
     }
 
-    // 發送本機通知（立即）
-    const notifId = hashStringToNumber(reminder.id)
-    await LocalNotifications.schedule({
-      notifications: [
-        {
-          title: reminder.label || '提醒',
-          body: reminder.prompt,
-          id: notifId,
-          smallIcon: 'ic_launcher_foreground',
-          autoCancel: true
-        }
-      ]
-    })
+    // 僅在 Web 環境發送本機通知
+    if (typeof window !== 'undefined') {
+      const notifId = hashStringToNumber(reminder.id)
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            title: reminder.label || '提醒',
+            body: reminder.prompt,
+            id: notifId,
+            smallIcon: 'ic_launcher_foreground',
+            autoCancel: true
+          }
+        ]
+      })
+    }
   } catch (e) {
     console.error('提醒觸發失敗:', e)
   }
