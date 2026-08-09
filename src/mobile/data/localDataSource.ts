@@ -288,11 +288,11 @@ export class LocalDataSource implements DataSource {
   }
 
   readonly reminders: RemindersApi = {
-    list: async () => [],
-    create: () => Promise.reject(pending('reminders.create', 4)),
-    save: () => Promise.reject(pending('reminders.save', 4)),
-    remove: () => Promise.reject(pending('reminders.remove', 4)),
-    toggle: () => Promise.reject(pending('reminders.toggle', 4))
+    list: async () => this.session.listReminders(),
+    create: async () => this.session.createReminder(),
+    save: async (reminder) => this.session.saveReminder(reminder),
+    remove: async (id) => this.session.removeReminder(id),
+    toggle: async (id, enabled) => this.session.toggleReminder(id, enabled)
   }
 
   readonly remoteControl: RemoteControlApi = {

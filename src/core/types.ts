@@ -473,6 +473,8 @@ export interface Reminder {
   injectNews?: boolean
   /** 觸發時附入接下來的行程（需先連結 Google 日曆） */
   injectCalendar?: boolean
+  /** 哪台裝置響：desktop（桌面）、mobile（手機）、both（兩者）。預設只在建立時所在的裝置。 */
+  notificationDevice?: 'desktop' | 'mobile' | 'both'
   lastTriggeredAt?: number
   createdAt: number
 }

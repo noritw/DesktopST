@@ -8,6 +8,7 @@ import type {
   Character,
   Conversation,
   PersonaPreset,
+  Reminder,
   WorldPreset,
   ScenePreset
 } from '@core/types'
@@ -47,6 +48,7 @@ import {
   seedDefaultPresetsIfEmpty
 } from './seedDefaults'
 import { sendStandaloneMessage } from './chat'
+import { initReminderScheduler, updateReminders, stopReminderScheduler } from './reminderScheduler'
 
 const MODULE_DEFS: ModuleToggle[] = [
   { id: 'desktopst.weather', label: '天氣', enabled: false },
@@ -82,6 +84,7 @@ export class StandaloneSession {
   personas: PersonaPreset[] = []
   worlds: WorldPreset[] = []
   scenes: ScenePreset[] = []
+  reminders: Reminder[] = []
   activeConversation: Conversation | null = null
   private conversationIndex = new Map<string, Conversation>()
   private sendAbort: AbortController | null = null
@@ -151,6 +154,14 @@ export class StandaloneSession {
 
     await this.saveSettings()
     await this.reloadConversations()
+    await this.reloadReminders()
+
+    // 啟動提醒排程器
+    await initReminderScheduler(async (reminder) => {
+      await this.recordReminderTriggered(reminder)
+    })
+    updateReminders(this.reminders)
+
     if (!this.activeConversation) {
       await this.createConversation('聊天')
     }
@@ -1145,6 +1156,73 @@ export class StandaloneSession {
     const entry: LoreEntry = { id: newId(), insertion_order: book.entries.length, ...generated }
     await this.saveLorebook({ ...book, entries: [...book.entries, entry] })
     return { ok: true, entry }
+  }
+
+  private async reloadReminders(): Promise<void> {
+    try {
+      const data = await this.adapters.storage.readJson(keys.REMINDERS_KEY)
+      this.reminders = Array.isArray(data) ? data : []
+    } catch {
+      this.reminders = []
+    }
+  }
+
+  async listReminders(): Promise<Reminder[]> {
+    return this.reminders
+  }
+
+  async createReminder(): Promise<Reminder> {
+    const now = Date.now()
+    const reminder: Reminder = {
+      id: newId(),
+      label: '新提醒',
+      prompt: '',
+      schedule: { type: 'daily', hour: 8, minute: 0 },
+      enabled: true,
+      notificationDevice: 'mobile',
+      createdAt: now
+    }
+    return reminder
+  }
+
+  async saveReminder(reminder: Reminder): Promise<Reminder> {
+    if (!reminder?.id) throw new DataError('invalid-input', 'reminder.id')
+    const idx = this.reminders.findIndex((r) => r.id === reminder.id)
+    const saved = { ...reminder, updatedAt: Date.now() }
+    if (idx >= 0) {
+      this.reminders[idx] = saved
+    } else {
+      this.reminders.push(saved)
+    }
+    await this.adapters.storage.writeJson(keys.REMINDERS_KEY, this.reminders)
+    updateReminders(this.reminders)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    return saved
+  }
+
+  async removeReminder(id: string): Promise<void> {
+    this.reminders = this.reminders.filter((r) => r.id !== id)
+    await this.adapters.storage.writeJson(keys.REMINDERS_KEY, this.reminders)
+    updateReminders(this.reminders)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  async toggleReminder(id: string, enabled: boolean): Promise<void> {
+    const reminder = this.reminders.find((r) => r.id === id)
+    if (reminder) {
+      reminder.enabled = enabled
+      await this.adapters.storage.writeJson(keys.REMINDERS_KEY, this.reminders)
+      updateReminders(this.reminders)
+      this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    }
+  }
+
+  private async recordReminderTriggered(reminder: Reminder): Promise<void> {
+    const idx = this.reminders.findIndex((r) => r.id === reminder.id)
+    if (idx >= 0) {
+      this.reminders[idx].lastTriggeredAt = Date.now()
+      await this.adapters.storage.writeJson(keys.REMINDERS_KEY, this.reminders)
+    }
   }
 }
 
