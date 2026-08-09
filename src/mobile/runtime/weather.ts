@@ -37,10 +37,26 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | null> {
  * vitest 裡，那些環境沒有原生 plugin。靜態 import 會讓整個模組在載入時就炸，
  * 連「退回 IP 定位」都走不到。
  */
-async function loadGeolocation(): Promise<typeof import('@capacitor/geolocation').Geolocation | null> {
+async function loadGeolocation(): Promise<{
+  plugin: typeof import('@capacitor/geolocation').Geolocation
+} | null> {
   try {
     const mod = await import('@capacitor/geolocation')
-    return mod.Geolocation
+    /*
+     * ⚠️ **一定要包在物件裡，不可以直接 `return mod.Geolocation`。**
+     *
+     * async function 回傳時，JS 會去摸回傳值的 `.then` 判斷它是不是 thenable；
+     * 而 Capacitor 的 plugin proxy **把任何屬性存取都當成原生方法呼叫**，
+     * 於是那一摸就變成呼叫原生的 `Geolocation.then()`：
+     *
+     *   Uncaught (in promise) Error: "Geolocation.then()" is not implemented on android
+     *
+     * 原生端沒有這個方法、也就不會回呼 resolve／reject，
+     * 外面那個 `await loadGeolocation()` 就**永遠卡住** ——
+     * 連權限對話框都跳不出來（owner 2026-08-09 實機回報「按抓取位置卡住」）。
+     * 包一層普通物件，`.then` 是 undefined，這條路才走得下去。
+     */
+    return { plugin: mod.Geolocation }
   } catch {
     return null
   }
@@ -53,8 +69,9 @@ async function loadGeolocation(): Promise<typeof import('@capacitor/geolocation'
  * 所以這裡一律吞掉例外，不往上拋。
  */
 async function locateByGps(deps: WeatherDeps): Promise<DetectedLocation | null> {
-  const Geolocation = await loadGeolocation()
-  if (!Geolocation) return null
+  const loaded = await loadGeolocation()
+  if (!loaded) return null
+  const Geolocation = loaded.plugin
 
   try {
     /*

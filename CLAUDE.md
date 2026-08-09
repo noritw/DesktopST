@@ -117,6 +117,13 @@ src/mobile/ 手機 UI
   `Promise.race` 把 signal 翻成 reject，**新的逾時邏輯照樣要走 signal，別自己 setTimeout**
 - **Capacitor plugin 的 `timeout` 選項不保證兌現**（`Geolocation.getCurrentPosition`
   沒權限時 Promise 可能永遠不 settle）。外面自己再包一層計時器
+- **絕對不要讓 async function 直接 `return` Capacitor 的 plugin 物件**
+  （`return mod.Geolocation`）。JS resolve 時會摸回傳值的 `.then` 判斷是不是
+  thenable，而 plugin proxy **把任何屬性存取都當成原生方法呼叫**，就變成呼叫
+  原生的 `Geolocation.then()`：原生沒這方法、不回呼 resolve／reject，
+  **外面的 `await` 永遠卡住**（天氣「抓取位置」按了沒反應就是這個，
+  錯誤只在 logcat 看得到：`"Geolocation.then()" is not implemented on android`）。
+  要回傳就包一層：`return { plugin: mod.Geolocation }`
 - **手機通知一定要自己建 channel**：Capacitor 預設頻道 importance=3，
   只會安靜躺進通知欄、**不會有橫幅彈出**，手機又常在震動模式 ——
   看起來就像「時間到了什麼都沒發生」。用 importance 4（`reminderScheduler.ts` 的
