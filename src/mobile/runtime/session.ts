@@ -523,6 +523,7 @@ export class StandaloneSession {
       hasApiKey[p] = !!this.settings.llm.apiKeys[p]?.trim()
     }
     const provider = this.settings.llm.provider
+    const utilityProvider = this.settings.llm.utilityProvider ?? provider
     return {
       provider,
       /*
@@ -536,7 +537,11 @@ export class StandaloneSession {
       hasApiKey,
       maxResponseTokens: this.settings.llm.maxResponseTokens ?? 360,
       maxGroupRounds: this.settings.llm.maxGroupRounds ?? 3,
-      maxImagesPerMessage: this.settings.llm.maxImagesPerMessage ?? 5
+      maxImagesPerMessage: this.settings.llm.maxImagesPerMessage ?? 5,
+      utilityEnabled: !!this.settings.llm.utilityEnabled,
+      utilityProvider,
+      utilityModel: this.settings.llm.utilityModels?.[utilityProvider] || '',
+      utilityModels: { ...(this.settings.llm.utilityModels ?? {}) }
     }
   }
 

@@ -85,7 +85,7 @@ function makeOpts(settings: AppSettings, fetchImpl: typeof globalThis.fetch, con
 }
 
 function emptyConv(): Conversation {
-  return { id: 'conv1', title: '聊天', messages: [], createdAt: 0, updatedAt: 0 }
+  return { id: 'conv1', title: '聊天', participantIds: ['c1'], messages: [], summary: '', createdAt: 0, updatedAt: 0 }
 }
 
 describe('提醒觸發時由角色發話（獨立模式）', () => {

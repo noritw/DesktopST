@@ -253,6 +253,9 @@ export class RemoteDataSource implements DataSource {
     setLlmProvider: async (provider) => { await this.http.post('/api/settings/llm-provider', { provider }) },
     setLlmModel: async (provider, model) => { await this.http.post('/api/settings/llm-model', { provider, model }) },
     setLlmEndpoint: async (endpoint) => { await this.http.post('/api/settings/llm-endpoint', { endpoint }) },
+    setLlmUtilityEnabled: async (enabled) => { await this.http.post('/api/settings/llm-utility-enabled', { enabled }) },
+    setLlmUtilityProvider: async (provider) => { await this.http.post('/api/settings/llm-utility-provider', { provider }) },
+    setLlmUtilityModel: async (provider, model) => { await this.http.post('/api/settings/llm-utility-model', { provider, model }) },
     setLlmApiKey: async (provider, apiKey) => { await this.http.post('/api/settings/llm-apikey', { provider, apiKey }) },
     setLlmChatLimits: async (limits) => { await this.http.post('/api/settings/llm-chat-limits', limits) },
 

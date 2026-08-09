@@ -143,10 +143,17 @@ export interface MobileBridge {
     maxResponseTokens: number
     maxGroupRounds: number
     maxImagesPerMessage: number
+    utilityEnabled: boolean
+    utilityProvider: string
+    utilityModel: string
+    utilityModels: Record<string, string | undefined>
   }
   setLlmProvider: (provider: string) => { ok: true } | { error: string }
   setLlmModel: (provider: string, model: string) => { ok: true } | { error: string }
   setLlmEndpoint: (endpoint: string) => { ok: true } | { error: string }
+  setLlmUtilityEnabled: (enabled: boolean) => { ok: true } | { error: string }
+  setLlmUtilityProvider: (provider: string) => { ok: true } | { error: string }
+  setLlmUtilityModel: (provider: string, model: string) => { ok: true } | { error: string }
   setLlmApiKey: (provider: string, apiKey: string) => { ok: true } | { error: string }
   setLlmChatLimits: (limits: {
     maxResponseTokens: number
@@ -1516,6 +1523,36 @@ async function handleRequest(
     const payload = await readJson<{ endpoint?: string }>(req, res)
     if (!payload) return
     const r = bridge.setLlmEndpoint(String(payload.endpoint ?? ''))
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-utility-enabled') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ enabled?: boolean }>(req, res)
+    if (!payload) return
+    const r = bridge.setLlmUtilityEnabled(!!payload.enabled)
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-utility-provider') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ provider?: string }>(req, res)
+    if (!payload) return
+    const r = bridge.setLlmUtilityProvider(String(payload.provider ?? ''))
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-utility-model') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ provider?: string; model?: string }>(req, res)
+    if (!payload) return
+    const r = bridge.setLlmUtilityModel(String(payload.provider ?? ''), String(payload.model ?? ''))
     if ('error' in r) { jsonError(res, 400, r.error); return }
     jsonOk(res, { ok: true })
     return

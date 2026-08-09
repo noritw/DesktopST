@@ -93,7 +93,7 @@ describe('StandaloneSession', () => {
     session.settings.llm.apiKeys.openai = 'test-key'
     session.settings.llm.models = { openai: 'gpt-4o-mini' }
     // 關掉天氣，否則會先卡在氣象 fetch
-    session.settings.weather = { ...session.settings.weather, enabled: false }
+    session.settings.weather = { ...session.settings.weather!, enabled: false }
 
     const before = session.activeConversation!.messages.length
     const sendPromise = session.sendMessage({ content: '打錯字了' })

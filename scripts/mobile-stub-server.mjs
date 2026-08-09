@@ -107,9 +107,16 @@ const llmSettings = {
   apiKeys: { openai: '', claude: '', gemini: '', grok: '' },
   maxResponseTokens: 400,
   maxGroupRounds: 3,
-  maxImagesPerMessage: 5
+  maxImagesPerMessage: 5,
+  utilityEnabled: false,
+  utilityProvider: 'openai',
+  utilityModels: {}
 }
 const PROVIDERS = ['openai', 'claude', 'gemini', 'grok']
+// 照抄 `core/llm/modelCatalog.ts` 的 DEFAULT_MODEL_BY_PROVIDER，只給輔助模型換供應商時補預設值用
+const DEFAULT_MODEL_BY_PROVIDER = {
+  openai: 'gpt-5.6-luna', claude: 'claude-haiku-4-5', gemini: 'gemini-3.1-flash-lite', grok: 'grok-4.3'
+}
 
 const memorySettings = { keepRecentN: 20, autoSummarizeAfter: 50, autoSummarizeEnabled: true }
 
@@ -605,6 +612,34 @@ const server = http.createServer(async (req, res) => {
     return json(res, { ok: true })
   }
 
+  if (url.startsWith('/api/settings/llm-utility-enabled')) {
+    const p = await readBody(req)
+    llmSettings.utilityEnabled = !!p.enabled
+    console.log(`[settings] utilityEnabled -> ${llmSettings.utilityEnabled}`)
+    return json(res, { ok: true })
+  }
+
+  if (url.startsWith('/api/settings/llm-utility-provider')) {
+    const p = await readBody(req)
+    if (!PROVIDERS.includes(p.provider)) return json(res, { error: '不支援的供應商' }, 400)
+    llmSettings.utilityProvider = p.provider
+    // 照抄 `setLlmUtilityProviderDirect`：沒選過型號就補目錄預設值，避免存出空模型
+    if (!llmSettings.utilityModels[p.provider]) {
+      llmSettings.utilityModels[p.provider] = DEFAULT_MODEL_BY_PROVIDER[p.provider] || ''
+    }
+    console.log(`[settings] utilityProvider -> ${p.provider}`)
+    return json(res, { ok: true })
+  }
+
+  if (url.startsWith('/api/settings/llm-utility-model')) {
+    const p = await readBody(req)
+    if (!PROVIDERS.includes(p.provider)) return json(res, { error: '不支援的供應商' }, 400)
+    if (!String(p.model || '').trim()) return json(res, { error: '模型名稱不可空白' }, 400)
+    llmSettings.utilityModels[p.provider] = p.model.trim()
+    console.log(`[settings] utilityModel[${p.provider}] -> ${p.model}`)
+    return json(res, { ok: true })
+  }
+
   if (url.startsWith('/api/settings/llm-apikey')) {
     const p = await readBody(req)
     // ⚠️ 照抄真伺服器：非區網直連一律拒絕（409），不是假裝存了。
@@ -648,7 +683,11 @@ const server = http.createServer(async (req, res) => {
         hasApiKey,
         maxResponseTokens: llmSettings.maxResponseTokens,
         maxGroupRounds: llmSettings.maxGroupRounds,
-        maxImagesPerMessage: llmSettings.maxImagesPerMessage
+        maxImagesPerMessage: llmSettings.maxImagesPerMessage,
+        utilityEnabled: llmSettings.utilityEnabled,
+        utilityProvider: llmSettings.utilityProvider,
+        utilityModel: llmSettings.utilityModels[llmSettings.utilityProvider] || '',
+        utilityModels: llmSettings.utilityModels
       }
     })
   }

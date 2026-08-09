@@ -53,7 +53,7 @@ export function SettingsView(): JSX.Element {
   const [weather, setWeather] = useState<WeatherSettingsSnapshot | null>(null)
   const [failed, setFailed] = useState(false)
   const [open, setOpen] = useState<
-    'chat' | 'weather' | 'memory' | 'modules' | 'desktop' | 'advanced' | null
+    'chat' | 'utility' | 'weather' | 'memory' | 'modules' | 'desktop' | 'advanced' | null
   >(null)
   const [apiKeyAccess, setApiKeyAccess] = useState(false)
   const [cityDraft, setCityDraft] = useState('')
@@ -66,6 +66,12 @@ export function SettingsView(): JSX.Element {
   const [savingModel, setSavingModel] = useState(false)
   const [savingKey, setSavingKey] = useState(false)
   const [savingEndpoint, setSavingEndpoint] = useState(false)
+
+  // 輔助模型（提醒發話、情緒分類；群組對話一律用扮演主模型）
+  const [utilityModelDraft, setUtilityModelDraft] = useState('')
+  const [utilityApiKeyDraft, setUtilityApiKeyDraft] = useState('')
+  const [savingUtilityModel, setSavingUtilityModel] = useState(false)
+  const [savingUtilityKey, setSavingUtilityKey] = useState(false)
 
   /*
    * 獨立模式但金鑰保險箱沒解封（＝瀏覽器煙測，沒有 Android Keystore）：
@@ -89,6 +95,8 @@ export function SettingsView(): JSX.Element {
       setModelDraft(llmData.model)
       setEndpointDraft(llmData.endpoint ?? '')
       setApiKeyDraft('')
+      setUtilityModelDraft(llmData.utilityModel)
+      setUtilityApiKeyDraft('')
     } catch {
       setFailed(true)
     }
@@ -192,6 +200,63 @@ export function SettingsView(): JSX.Element {
       toast(describeSettingsError(e, '儲存端點'), 'error')
     } finally {
       setSavingEndpoint(false)
+    }
+  }
+
+  const toggleUtilityEnabled = async (enabled: boolean): Promise<void> => {
+    if (!llm) return
+    const previous = llm
+    setLlm({ ...llm, utilityEnabled: enabled })
+    try {
+      await getData().settings.setLlmUtilityEnabled(enabled)
+      await load()
+    } catch (e) {
+      setLlm(previous)
+      toast(describeSettingsError(e, '切換輔助模型'), 'error')
+    }
+  }
+
+  const changeUtilityProvider = async (provider: LlmProvider): Promise<void> => {
+    if (!llm) return
+    const previous = llm
+    setLlm({ ...llm, utilityProvider: provider, utilityModel: llm.utilityModels[provider] ?? '' })
+    try {
+      await getData().settings.setLlmUtilityProvider(provider)
+      await load()
+    } catch (e) {
+      setLlm(previous)
+      toast(describeSettingsError(e, '切換輔助供應商'), 'error')
+    }
+  }
+
+  const saveUtilityModel = async (value: string): Promise<void> => {
+    if (!llm) return
+    const trimmed = value.trim()
+    if (!trimmed || trimmed === llm.utilityModel) return
+    setSavingUtilityModel(true)
+    try {
+      await getData().settings.setLlmUtilityModel(llm.utilityProvider, trimmed)
+      await load()
+      toast('已儲存輔助模型')
+    } catch (e) {
+      toast(describeSettingsError(e, '儲存輔助模型'), 'error')
+    } finally {
+      setSavingUtilityModel(false)
+    }
+  }
+
+  const saveUtilityApiKey = async (): Promise<void> => {
+    if (!llm || !utilityApiKeyDraft.trim()) return
+    setSavingUtilityKey(true)
+    try {
+      await getData().settings.setLlmApiKey(llm.utilityProvider, utilityApiKeyDraft.trim())
+      setUtilityApiKeyDraft('')
+      await load()
+      toast('已儲存 API Key')
+    } catch (e) {
+      toast(describeSettingsError(e, '儲存 API Key'), 'error')
+    } finally {
+      setSavingUtilityKey(false)
     }
   }
 
@@ -470,6 +535,112 @@ export function SettingsView(): JSX.Element {
         </p>
       </Section>
 
+      {/* ── 輔助模型：提醒發話、情緒分類、天氣潤飾可以改用另一組較便宜的模型 ── */}
+      <Section
+        title="輔助模型"
+        hint={llm.utilityEnabled ? `目前：${PROVIDER_LABELS[llm.utilityProvider]}` : '沿用扮演主模型'}
+        expanded={open === 'utility'}
+        onToggle={() => setOpen(open === 'utility' ? null : 'utility')}
+      >
+        <ToggleRow
+          label="提醒發話、情緒分類改用輔助模型"
+          checked={llm.utilityEnabled}
+          onChange={(v) => void toggleUtilityEnabled(v)}
+        />
+        <p className="mb-2 text-[11px] leading-relaxed text-[var(--text-sub)]">
+          群組對話中每位角色一律用上方扮演主模型；關閉時提醒與情緒分類也一樣。
+          開啟後可以另外挑一組較便宜的模型，省主模型的用量。
+        </p>
+
+        {llm.utilityEnabled && (
+          <div className="mt-2 space-y-3 border-l-2 border-[var(--border)] pl-3">
+            <Field label="輔助供應商">
+              <select
+                className="field"
+                value={llm.utilityProvider}
+                onChange={(e) => void changeUtilityProvider(e.target.value as LlmProvider)}
+              >
+                {PROVIDERS.map((p) => (
+                  <option key={p} value={p}>
+                    {PROVIDER_LABELS[p]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="輔助模型">
+              <select
+                className="field"
+                disabled={savingUtilityModel}
+                value={modelsFor(llm.utilityProvider).includes(utilityModelDraft) ? utilityModelDraft : ''}
+                onChange={(e) => {
+                  setUtilityModelDraft(e.target.value)
+                  void saveUtilityModel(e.target.value)
+                }}
+              >
+                {!modelsFor(llm.utilityProvider).includes(utilityModelDraft) && (
+                  <option value="">{utilityModelDraft || '（尚未選擇）'}</option>
+                )}
+                <optgroup label={NORMAL_PRICE_GROUP_LABEL}>
+                  {splitModelsByPrice(modelsFor(llm.utilityProvider)).normal.map((m) => (
+                    <option key={m} value={m}>
+                      {modelOptionLabel(m)}
+                    </option>
+                  ))}
+                </optgroup>
+                {splitModelsByPrice(modelsFor(llm.utilityProvider)).high.length > 0 && (
+                  <optgroup label={HIGH_PRICE_GROUP_LABEL}>
+                    {splitModelsByPrice(modelsFor(llm.utilityProvider)).high.map((m) => (
+                      <option key={m} value={m}>
+                        {modelOptionLabel(m)}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </Field>
+
+            {apiKeyAccess ? (
+              <Field
+                label={`API Key（${PROVIDER_LABELS[llm.utilityProvider]}）`}
+                hint={
+                  llm.hasApiKey[llm.utilityProvider]
+                    ? '已設定。輸入新的內容並儲存即可覆蓋，看不到舊金鑰。'
+                    : '尚未設定。'
+                }
+              >
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    className="field flex-1"
+                    placeholder={PROVIDER_KEY_PLACEHOLDER[llm.utilityProvider]}
+                    value={utilityApiKeyDraft}
+                    onChange={(e) => setUtilityApiKeyDraft(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    disabled={savingUtilityKey || !utilityApiKeyDraft.trim()}
+                    onClick={() => void saveUtilityApiKey()}
+                    className="btn-ghost px-4 disabled:opacity-40"
+                  >
+                    儲存
+                  </button>
+                </div>
+                {llm.utilityProvider === llm.provider && (
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--text-sub)]">
+                    輔助供應商跟扮演主模型同一家，金鑰是共用的，不必重填。
+                  </p>
+                )}
+              </Field>
+            ) : (
+              <div className="rounded-[14px] bg-[var(--bg)] p-3 text-[11px] leading-relaxed text-[var(--text-sub)]">
+                目前透過中繼伺服器連線，為保護金鑰安全，API Key 欄位不會顯示。改用同一個區網連線即可編輯。
+              </div>
+            )}
+          </div>
+        )}
+      </Section>
+
       {/* ── 天氣 ────────────────────────────────────────── */}
       <Section
         title="天氣"
@@ -555,7 +726,7 @@ export function SettingsView(): JSX.Element {
               />
               用輔助模型潤飾天氣描述
               {!weather.utilityEnabled && (
-                <span className="text-[11px] text-[var(--text-sub)]">（需先在電腦啟用輔助模型）</span>
+                <span className="text-[11px] text-[var(--text-sub)]">（需先在上方「輔助模型」開啟）</span>
               )}
             </label>
           </div>

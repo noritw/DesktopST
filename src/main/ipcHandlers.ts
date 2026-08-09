@@ -7,6 +7,7 @@ import type { AppSettings, Character, ColorTheme, Conversation, Message, Persona
 import { MESSAGE_REACTION_EMOJIS } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM, generateLoreEntryForCharacter } from './llm/index'
+import { DEFAULT_MODEL_BY_PROVIDER } from '../core/llm/modelCatalog'
 import { summarizeConversation, countUncoveredMessages, listSummarizableMessages } from './llm/summarizer'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
 import { formatSystemTimeStamp } from '../core/prompt/systemTime'
@@ -950,11 +951,16 @@ export function getLlmSettingsSummaryDirect(): {
   maxResponseTokens: number
   maxGroupRounds: number
   maxImagesPerMessage: number
+  utilityEnabled: boolean
+  utilityProvider: AppSettings['llm']['provider']
+  utilityModel: string
+  utilityModels: Partial<Record<AppSettings['llm']['provider'], string>>
 } {
   const hasApiKey = {} as Record<AppSettings['llm']['provider'], boolean>
   for (const p of MOBILE_LLM_PROVIDERS) {
     hasApiKey[p] = !!(settings.llm.apiKeys?.[p] ?? '').trim() || fileStore.encryptedApiKeyFallbacks.has(p)
   }
+  const utilityProvider = settings.llm.utilityProvider ?? settings.llm.provider
   return {
     provider: settings.llm.provider,
     model: settings.llm.models?.[settings.llm.provider] ?? settings.llm.model,
@@ -963,7 +969,11 @@ export function getLlmSettingsSummaryDirect(): {
     hasApiKey,
     maxResponseTokens: Math.max(100, Math.floor(Number(settings.llm.maxResponseTokens) || 400)),
     maxGroupRounds: Math.max(1, Math.floor(Number(settings.llm.maxGroupRounds) || 1)),
-    maxImagesPerMessage: Math.max(1, Math.floor(Number(settings.llm.maxImagesPerMessage) || 5))
+    maxImagesPerMessage: Math.max(1, Math.floor(Number(settings.llm.maxImagesPerMessage) || 5)),
+    utilityEnabled: !!settings.llm.utilityEnabled,
+    utilityProvider,
+    utilityModel: settings.llm.utilityModels?.[utilityProvider] ?? '',
+    utilityModels: { ...settings.llm.utilityModels }
   }
 }
 
@@ -984,6 +994,38 @@ export function setLlmModelDirect(provider: string, model: string): { ok: true }
   if (!settings.llm.models) settings.llm.models = {}
   settings.llm.models[provider] = trimmed
   if (settings.llm.provider === provider) settings.llm.model = trimmed
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+export function setLlmUtilityEnabledDirect(enabled: boolean): { ok: true } | { error: string } {
+  settings.llm.utilityEnabled = enabled
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+// 同 `setLlmProviderDirect`：換供應商時沒選過型號就補目錄預設值，避免存出空模型。
+export function setLlmUtilityProviderDirect(provider: string): { ok: true } | { error: string } {
+  if (!isMobileLlmProvider(provider)) return { error: '不支援的供應商' }
+  settings.llm.utilityProvider = provider
+  const model = settings.llm.utilityModels?.[provider] || DEFAULT_MODEL_BY_PROVIDER[provider] || ''
+  if (model) {
+    if (!settings.llm.utilityModels) settings.llm.utilityModels = {}
+    settings.llm.utilityModels[provider] = model
+  }
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+export function setLlmUtilityModelDirect(provider: string, model: string): { ok: true } | { error: string } {
+  if (!isMobileLlmProvider(provider)) return { error: '不支援的供應商' }
+  const trimmed = model.trim()
+  if (!trimmed) return { error: '模型名稱不可空白' }
+  if (!settings.llm.utilityModels) settings.llm.utilityModels = {}
+  settings.llm.utilityModels[provider] = trimmed
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return { ok: true }

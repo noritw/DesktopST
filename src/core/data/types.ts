@@ -342,6 +342,17 @@ export interface LlmSettingsSnapshot {
   maxGroupRounds: number
   /** 單則訊息圖片上限。 */
   maxImagesPerMessage: number
+  /**
+   * 提醒發話、情緒分類是否改用獨立的輔助模型（群組對話一律用扮演主模型，不受此影響）。
+   * 關閉時 `utilityProvider`／`utilityModel` 仍可能有值（記得上次選過什麼），
+   * 只是不生效——與桌面 `llm.utilityEnabled` 同一顆開關。
+   */
+  utilityEnabled: boolean
+  /** 輔助模型的供應商；未曾設定時預設跟隨 `provider`。 */
+  utilityProvider: LlmProvider
+  /** 目前輔助供應商生效的那個模型（等同 `utilityModels[utilityProvider]`，攤平方便顯示）。 */
+  utilityModel: string
+  utilityModels: Partial<Record<LlmProvider, string>>
 }
 
 export interface MemorySettingsSnapshot {
@@ -397,6 +408,11 @@ export interface SettingsApi {
   setLlmProvider(provider: LlmProvider): Promise<void>
   setLlmModel(provider: LlmProvider, model: string): Promise<void>
   setLlmEndpoint(endpoint: string): Promise<void>
+  /** 開關輔助模型（提醒發話、情緒分類；群組對話不受影響）。 */
+  setLlmUtilityEnabled(enabled: boolean): Promise<void>
+  /** 切輔助供應商；沒選過型號時比照 `setLlmProvider` 補一個目錄預設值。 */
+  setLlmUtilityProvider(provider: LlmProvider): Promise<void>
+  setLlmUtilityModel(provider: LlmProvider, model: string): Promise<void>
   /**
    * 覆寫金鑰。**只能寫、讀不到舊值**（見 `LlmSettingsSnapshot` 的說明）。
    * 遙控模式下電腦端會依來源 IP 拒絕非區網直連的請求

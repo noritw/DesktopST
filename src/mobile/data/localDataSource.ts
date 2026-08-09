@@ -194,6 +194,26 @@ export class LocalDataSource implements DataSource {
       this.session.settings.llm.endpoint = endpoint
       await this.session.saveSettings()
     },
+    setLlmUtilityEnabled: async (enabled) => {
+      this.session.settings.llm.utilityEnabled = enabled
+      await this.session.saveSettings()
+      this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    },
+    // 同 `setLlmProvider`：換供應商時沒選過型號就補目錄預設值，避免存出空模型。
+    setLlmUtilityProvider: async (provider) => {
+      const llm = this.session.settings.llm
+      llm.utilityProvider = provider
+      const model = llm.utilityModels?.[provider] || DEFAULT_MODEL_BY_PROVIDER[provider] || ''
+      if (model) llm.utilityModels = { ...llm.utilityModels, [provider]: model }
+      await this.session.saveSettings()
+      this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    },
+    setLlmUtilityModel: async (provider, model) => {
+      const llm = this.session.settings.llm
+      llm.utilityModels = { ...llm.utilityModels, [provider]: model }
+      await this.session.saveSettings()
+      this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    },
     setLlmApiKey: async (provider, apiKey) => {
       this.session.settings.llm.apiKeys = {
         ...this.session.settings.llm.apiKeys,
