@@ -155,7 +155,7 @@ describe('StandaloneSession：情境與設定組（缺口 #1）', () => {
     await session.saveScene({ ...scene, newsKeywordGroupId: 'kg1', lorebookIds: ['lb1'] })
 
     session.settings.ui.colorTheme = 'cyber'
-    await session.captureScene('sc1')
+    await session.captureScene('sc1', scene.name)
 
     const next = session.scenes.find((s) => s.id === 'sc1')!
     expect(next.colorTheme).toBe('cyber')

@@ -113,13 +113,20 @@ export class StandaloneSession {
 
     await this.loadSettings()
     this.seedActiveModel()
-    const seededPresets = await seedDefaultPresetsIfEmpty(this.adapters.storage)
+    await seedDefaultPresetsIfEmpty(this.adapters.storage)
     await this.reloadPresets()
-    if (seededPresets.personas[0] && !this.settings.activePersonaId) {
-      this.settings.activePersonaId = seededPresets.personas[0].id
+    /*
+     * 校正 active 三兄弟：指到不存在（含被 `applySceneSettings` 舊 bug 洗成空字串
+     * 存進 settings.json 的壞資料）就退回第一筆，不要放著讓標題列整排標籤消失。
+     */
+    if (!this.personas.some((p) => p.id === this.settings.activePersonaId) && this.personas[0]) {
+      this.settings.activePersonaId = this.personas[0].id
     }
-    if (seededPresets.worlds[0] && !this.settings.activeWorldId) {
-      this.settings.activeWorldId = seededPresets.worlds[0].id
+    if (!this.worlds.some((w) => w.id === this.settings.activeWorldId) && this.worlds[0]) {
+      this.settings.activeWorldId = this.worlds[0].id
+    }
+    if (!this.scenes.some((s) => s.id === this.settings.activeSceneId) && this.scenes[0]) {
+      this.settings.activeSceneId = this.scenes[0].id
     }
 
     const seededChars = await seedDefaultCharactersIfEmpty(this.adapters.storage, {
@@ -439,24 +446,35 @@ export class StandaloneSession {
   }
 
   /**
-   * 「覆寫為目前狀態」：把現在的身分／世界觀／配色／在場角色／對話寫回情境。
+   * 把目前狀態存成情境。
+   *
+   * `id` 給既有情境 id＝「覆寫為目前狀態」，不自動套用（沿用情境既有名稱／綁定）。
+   * `id` 給 `null`＝新增一個情境並直接套用 —— 手機版「新增情境」的定義本來就是
+   * 「把現在這樣存起來」，不該還要使用者存完再手動套用一次（owner 2026-08-10 回報）。
    *
    * 新聞關鍵字組、用語解說綁定與模組覆蓋**要保留** —— 它們不是「目前狀態」的一部分，
    * 覆寫時一起清掉會讓使用者以為那些設定被吃掉了（桌面 `captureSceneDirect` 同樣保留）。
    */
-  async captureScene(id: string): Promise<void> {
-    const existing = this.scenes.find((s) => s.id === id)
-    if (!existing) throw new DataError('not-found', id)
+  async captureScene(id: string | null, name: string): Promise<ScenePreset> {
+    const existing = id ? this.scenes.find((s) => s.id === id) : null
+    if (id && !existing) throw new DataError('not-found', id)
     const next: ScenePreset = {
-      ...existing,
+      id: id ?? newId(),
+      name: name.trim() || existing?.name || '未命名情境',
       activePersonaId: this.settings.activePersonaId,
       activeWorldId: this.settings.activeWorldId,
       desktopCharacters: this.settings.ui.desktopCharacters.map((d) => ({ ...d })),
       lastActiveConversationId: this.activeConversation?.id,
       colorTheme: this.settings.ui.colorTheme,
+      newsKeywordGroupId: existing?.newsKeywordGroupId,
+      lorebookIds: existing?.lorebookIds,
+      moduleOverrides: existing?.moduleOverrides,
+      createdAt: existing?.createdAt ?? Date.now(),
       updatedAt: Date.now()
     }
     await this.saveScene(next)
+    if (!id) await this.applyScene(next.id)
+    return this.scenes.find((s) => s.id === next.id) ?? next
   }
 
   async saveScene(preset: ScenePreset): Promise<void> {
@@ -464,6 +482,7 @@ export class StandaloneSession {
     const existing = this.scenes.find((s) => s.id === preset.id)
     const next: ScenePreset = {
       ...preset,
+      id: preset.id || newId(),
       name: preset.name.trim() || existing?.name || '未命名情境',
       // 新建的情境以目前狀態當快照 —— 手機沒有視窗座標可存，那兩個欄位留空。
       desktopCharacters:

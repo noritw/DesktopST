@@ -17,6 +17,7 @@ import type {
 import { DEFAULT_MODEL_BY_PROVIDER } from '@core/llm/modelCatalog'
 import { personaKey, worldKey } from '@core/store/keys'
 import type { StandaloneSession } from '../runtime/session'
+import { newId } from '../runtime/id'
 
 /**
  * 獨立模式的資料來源：呼叫 `StandaloneSession`（core ＋ Capacitor adapters）。
@@ -130,19 +131,21 @@ export class LocalDataSource implements DataSource {
       this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     },
     applyScene: (id) => this.session.applyScene(id),
-    captureScene: (id) => this.session.captureScene(id),
+    captureScene: (id, name) => this.session.captureScene(id, name),
     savePersona: async (preset) => {
-      const idx = this.session.personas.findIndex((p) => p.id === preset.id)
-      if (idx >= 0) this.session.personas[idx] = preset
-      else this.session.personas.push(preset)
-      await this.session.adapters.storage.writeJson(personaKey(preset.id), preset)
+      const next = preset.id ? preset : { ...preset, id: newId() }
+      const idx = this.session.personas.findIndex((p) => p.id === next.id)
+      if (idx >= 0) this.session.personas[idx] = next
+      else this.session.personas.push(next)
+      await this.session.adapters.storage.writeJson(personaKey(next.id), next)
       this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     },
     saveWorld: async (preset) => {
-      const idx = this.session.worlds.findIndex((w) => w.id === preset.id)
-      if (idx >= 0) this.session.worlds[idx] = preset
-      else this.session.worlds.push(preset)
-      await this.session.adapters.storage.writeJson(worldKey(preset.id), preset)
+      const next = preset.id ? preset : { ...preset, id: newId() }
+      const idx = this.session.worlds.findIndex((w) => w.id === next.id)
+      if (idx >= 0) this.session.worlds[idx] = next
+      else this.session.worlds.push(next)
+      await this.session.adapters.storage.writeJson(worldKey(next.id), next)
       this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     },
     saveScene: (preset) => this.session.saveScene(preset),

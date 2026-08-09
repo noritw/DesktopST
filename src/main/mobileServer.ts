@@ -807,16 +807,22 @@ async function handleRequest(
   }
 
   // ── POST /api/scenes/capture ──
-  // 對應桌面「覆寫為目前狀態」：把目前配色／Persona／世界觀／對話／在場角色寫回情境。
+  // id 有值：對應桌面「覆寫為目前狀態」，把目前配色／Persona／世界觀／對話／在場角色寫回情境。
+  // id 為 null：新增情境（手機版「新增情境」＝把當下狀態存成新情境並直接套用）。
   if (method === 'POST' && url === '/api/scenes/capture') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-    const payload = await readJson<{ id?: string; name?: string }>(req, res)
+    const payload = await readJson<{ id?: string | null; name?: string }>(req, res)
     if (!payload) return
-    if (!payload.id) { jsonError(res, 400, 'id required'); return }
-    const existing = bridge.getScenePreset(payload.id)
-    if (!existing) { jsonError(res, 404, 'Scene not found'); return }
-    const name = (payload.name?.trim() || existing.name)
-    const scene = bridge.captureScene(payload.id, name)
+    const isNew = !payload.id
+    const existing = payload.id ? bridge.getScenePreset(payload.id) : null
+    if (payload.id && !existing) { jsonError(res, 404, 'Scene not found'); return }
+    const name = payload.name?.trim() || existing?.name || ''
+    if (isNew && !name) { jsonError(res, 400, 'name required'); return }
+    const scene = bridge.captureScene(payload.id ?? null, name)
+    if (isNew) {
+      const applied = bridge.applyScene(scene.id)
+      if ('error' in applied) { jsonError(res, 400, applied.error); return }
+    }
     pushDesktopUpdate(bridge.getDesktopCharacterIds())
     jsonOk(res, { scene })
     return

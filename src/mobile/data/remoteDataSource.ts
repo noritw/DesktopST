@@ -234,7 +234,7 @@ export class RemoteDataSource implements DataSource {
     activatePersona: async (id) => { await this.http.post('/api/presets/activate-persona', { id }) },
     activateWorld: async (id) => { await this.http.post('/api/presets/activate-world', { id }) },
     applyScene: async (id) => { await this.http.post('/api/scenes/apply', { id }) },
-    captureScene: async (id) => { await this.http.post('/api/scenes/capture', { id }) },
+    captureScene: async (id, name) => (await this.http.post<{ scene: ScenePreset }>('/api/scenes/capture', { id, name })).scene,
 
     savePersona: async (preset): Promise<void> => { await this.http.post('/api/presets/persona/save', { preset }) },
     saveWorld: async (preset): Promise<void> => { await this.http.post('/api/presets/world/save', { preset }) },

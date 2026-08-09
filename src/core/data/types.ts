@@ -305,10 +305,11 @@ export interface PresetsApi {
   activateWorld(id: string): Promise<void>
   applyScene(id: string): Promise<void>
   /**
-   * 把目前桌面／設定狀態覆寫進既有情境（含配色）。
-   * 對應桌面「覆寫為目前狀態」；名稱沿用情境既有名稱。
+   * 把目前桌面／設定狀態存成情境（含配色）。
+   * `id` 給既有情境 id＝覆寫（對應桌面「覆寫為目前狀態」），不自動套用。
+   * `id` 給 `null`＝新增一個情境並直接套用（手機版「新增情境」＝當下狀態就是這個情境）。
    */
-  captureScene(id: string): Promise<void>
+  captureScene(id: string | null, name: string): Promise<ScenePreset>
 
   savePersona(preset: PersonaPreset): Promise<void>
   saveWorld(preset: WorldPreset): Promise<void>

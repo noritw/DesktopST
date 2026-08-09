@@ -7,6 +7,7 @@ import { newId } from './id'
 
 import defaultPersonaJson from '../../../assets/default-persona.json'
 import defaultWorldJson from '../../../assets/default-world.json'
+import type { ScenePreset } from '@core/types'
 
 /** 建置時抄到 `out/mobile/`；APK 可 fetch。網頁遙控不會跑這條。 */
 export const DEFAULT_CHARA_PACK_URL = './DesktopST_DefaultChara.dstpack'
@@ -14,11 +15,14 @@ export const DEFAULT_CHARA_PACK_URL = './DesktopST_DefaultChara.dstpack'
 export async function seedDefaultPresetsIfEmpty(storage: StorageAdapter): Promise<{
   personas: PersonaPreset[]
   worlds: WorldPreset[]
+  scenes: ScenePreset[]
 }> {
   const personaNames = await storage.list(keys.PERSONAS_DIR)
   const worldNames = await storage.list(keys.WORLDS_DIR)
+  const sceneNames = await storage.list(keys.SCENES_DIR)
   const personas: PersonaPreset[] = []
   const worlds: WorldPreset[] = []
+  const scenes: ScenePreset[] = []
 
   if (personaNames.length === 0) {
     const now = Date.now()
@@ -51,7 +55,32 @@ export async function seedDefaultPresetsIfEmpty(storage: StorageAdapter): Promis
     worlds.push(preset)
   }
 
-  return { personas, worlds }
+  if (sceneNames.length === 0) {
+    const now = Date.now()
+    const defaultPersonaId = personas[0]?.id ?? (await firstIdInDir(storage, personaNames))
+    const defaultWorldId = worlds[0]?.id ?? (await firstIdInDir(storage, worldNames))
+    if (defaultPersonaId && defaultWorldId) {
+      const preset: ScenePreset = {
+        id: newId(),
+        name: '預設情境',
+        activePersonaId: defaultPersonaId,
+        activeWorldId: defaultWorldId,
+        desktopCharacters: [],
+        createdAt: now,
+        updatedAt: now
+      }
+      await storage.writeJson(keys.sceneKey(preset.id), preset)
+      scenes.push(preset)
+    }
+  }
+
+  return { personas, worlds, scenes }
+}
+
+/** 舊資料（personas/worlds 早就存在，本次沒新建）時，從既有檔名清單取第一筆的 id。 */
+async function firstIdInDir(storage: StorageAdapter, listed: string[]): Promise<string | null> {
+  const name = listed[0]?.split('/').pop() ?? ''
+  return keys.idFromJsonName(name)
 }
 
 /**

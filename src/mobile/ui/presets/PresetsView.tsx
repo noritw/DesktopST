@@ -117,7 +117,8 @@ export function PresetsView({ id, openParam }: { id: number; openParam?: string 
   /** 把目前配色／Persona／世界觀等覆寫回使用中的情境（對應桌面「覆寫為目前狀態」）。 */
   const captureActive = async (id: string): Promise<void> => {
     try {
-      await getData().presets.captureScene(id)
+      const name = lists?.scene.find((s) => s.id === id)?.name ?? ''
+      await getData().presets.captureScene(id, name)
       await refresh()
       await load()
       toast('已把目前狀態存回情境')
@@ -126,8 +127,30 @@ export function PresetsView({ id, openParam }: { id: number; openParam?: string 
     }
   }
 
-  /** 用語解說沒有「套用」，新增後直接進編輯器；其餘三種是新增空白預設組。 */
+  /**
+   * 情境的「新增」＝把目前狀態直接存成一個新情境並套用 ——
+   * 情境本來就是「當下這組設定」的快照，不像使用者設定／世界觀是要另外手打內容，
+   * 存完還要使用者自己再按套用一次是多餘的一步（owner 2026-08-10 回報）。
+   */
+  const addScene = async (): Promise<void> => {
+    try {
+      const name = `情境 ${(lists?.scene.length ?? 0) + 1}`
+      const scene = await getData().presets.captureScene(null, name)
+      setActiveScene(scene.id)
+      await refresh()
+      await load()
+      toast('已新增並套用情境')
+    } catch (e) {
+      toast(describeSettingsError(e, '新增情境'), 'error')
+    }
+  }
+
+  /** 用語解說沒有「套用」，新增後直接進編輯器；使用者設定／世界觀是新增空白預設組。 */
   const add = async (kind: Kind): Promise<void> => {
+    if (kind === 'scene') {
+      await addScene()
+      return
+    }
     if (kind !== 'lore') {
       push('preset-editor', `${kind}:new`)
       return
