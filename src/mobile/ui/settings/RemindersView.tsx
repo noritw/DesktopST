@@ -53,6 +53,7 @@ export function RemindersView(): JSX.Element {
     setBusy(true)
     try {
       const reminder = await getData().reminders.create()
+      await getData().reminders.save(reminder)
       push('reminder-editor', reminder.id)
     } catch (e) {
       toast(describeSettingsError(e, '建立提醒'), 'error')
