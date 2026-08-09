@@ -13,7 +13,7 @@ import type {
   WeatherLocationSource,
   WorldPreset
 } from '../types'
-import type { Lorebook } from '../lore'
+import type { Lorebook, LoreEntry } from '../lore'
 import type { NewsItem, NewsKeywordGroup, NewsSource, SpeakMode } from '../news/types'
 
 /**
@@ -458,7 +458,16 @@ export interface LorebooksApi {
   save(book: Lorebook): Promise<Lorebook>
   remove(id: string): Promise<void>
   create(name?: string): Promise<Lorebook>
+  /**
+   * 從角色卡自動生成一條用語（規格 §8）：輔助模型只寫 `content` 一句話，
+   * `keys` 由呼叫端用角色名字＋暱稱填。**沒 API Key／模型吐空這類是常見的預期失敗**，
+   * 不是連線層級的錯誤，所以跟 `NewsFetchResult` 同一個理由走 `{ ok: false, error }`
+   * 而不是丟 `DataError`——`error` 是電腦端／獨立版產生的字串，UI 直接顯示。
+   */
+  generateEntry(characterId: string, lorebookId: string): Promise<LoreGenerateResult>
 }
+
+export type LoreGenerateResult = { ok: true; entry: LoreEntry } | { ok: false; error: string }
 
 /**
  * 個人新聞報（清單 F1–F13，B3 階段 6）。

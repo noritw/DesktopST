@@ -79,6 +79,8 @@ export interface SyncResult {
   conversationsImported: number
   /** 個別下載失敗的則數。同樣不中斷整批。 */
   conversationsFailed: number
+  /** 隨角色卡與世界觀一起帶下來的用語解說本數（缺口 #2，用同 id 落地，見 `importLorebooksFromPack`） */
+  lorebooksImported: number
 }
 
 /** 電腦上一則對話的後設資料（勾選畫面用，不含訊息內容）。 */
@@ -239,7 +241,7 @@ export async function runSyncImport(
   const charTotal = (bundle.characters ?? []).length
   const grandTotal = charTotal + wantedConvs.length
 
-  const { imported, skipped, failed } = await importCharacters(
+  const { imported, skipped, failed, lorebooksImported } = await importCharacters(
     src,
     session,
     bundle,
@@ -278,7 +280,8 @@ export async function runSyncImport(
     apiKeysImported,
     settingsApplied: true,
     conversationsImported: conv.imported,
-    conversationsFailed: conv.failed
+    conversationsFailed: conv.failed,
+    lorebooksImported
   }
 }
 
@@ -674,7 +677,7 @@ async function importCharacters(
   onConflict: SyncConflictPolicy,
   fetchImpl: FetchImpl,
   onProgress?: (done: number, total: number) => void
-): Promise<{ imported: number; skipped: number; failed: number }> {
+): Promise<{ imported: number; skipped: number; failed: number; lorebooksImported: number }> {
   const keys = await import('@core/store/keys')
   const wanted = bundle.characters ?? []
   const total = wanted.length
@@ -682,6 +685,7 @@ async function importCharacters(
   let imported = 0
   let skipped = 0
   let failed = 0
+  const lorebookIds = new Set<string>()  // 去重用 Set，最後轉回 .size
 
   for (let i = 0; i < total; i++) {
     const entry = wanted[i]!
@@ -702,7 +706,12 @@ async function importCharacters(
         failed++
         continue
       }
-      chars = (await importCharactersFromDstPack(session.adapters.storage, bytes)).chars
+      const result = await importCharactersFromDstPack(session.adapters.storage, bytes)
+      chars = result.chars
+      // 多隻角色都掛同一本書時，Set 會自動去重（同 id 只加一次）
+      for (const id of result.lorebookIds) {
+        lorebookIds.add(id)
+      }
     } catch {
       // 單隻失敗不中斷整批 —— 十隻抓到第七隻斷線時，前六隻不該一起沒有
       failed++
@@ -724,7 +733,7 @@ async function importCharacters(
   }
 
   onProgress?.(total, total)
-  return { imported, skipped, failed }
+  return { imported, skipped, failed, lorebooksImported: lorebookIds.size }
 }
 
 async function getJson<T>(src: SyncSource, path: string, fetchImpl: FetchImpl): Promise<T> {

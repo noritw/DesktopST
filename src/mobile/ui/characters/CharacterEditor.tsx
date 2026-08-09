@@ -33,6 +33,8 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
   const [busy, setBusy] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [lorebooks, setLorebooks] = useState<PresetListItem[]>([])
+  const [generatingLoreId, setGeneratingLoreId] = useState<string | null>(null)
+  const [loreMsg, setLoreMsg] = useState<string | null>(null)
 
   // guard 讀的是「當下」的狀態，所以走 ref —— 用 state 會被 closure 鎖在註冊當時那一刻。
   const dirtyRef = useRef(false)
@@ -148,6 +150,23 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
     }
   }
 
+  /**
+   * 從這張角色卡生成一條「這個角色是誰」的用語條目（docs/future-lorebook.md §8）。
+   * 讀的是**電腦上已存的那份**（跟桌面版同一個限制），還沒儲存的改動不會被拿去生成。
+   */
+  const generateLoreEntry = async (lorebookId: string): Promise<void> => {
+    setLoreMsg(null)
+    setGeneratingLoreId(lorebookId)
+    try {
+      const r = await getData().lorebooks.generateEntry(characterId, lorebookId)
+      setLoreMsg(r.ok ? `已加入：${r.entry.content}` : r.error)
+    } catch (e) {
+      setLoreMsg(describeCharacterError(e, '生成用語條目'))
+    } finally {
+      setGeneratingLoreId(null)
+    }
+  }
+
   const remove = async (): Promise<void> => {
     if (!draft) return
     const ok = await confirm({
@@ -258,7 +277,8 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
           <div className="mb-4">
             <p className="text-xs font-semibold text-[var(--text)]">用語解說</p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-sub)]">
-              這個角色要額外帶上哪幾本（會疊加在世界觀那份之前）。內容目前只能在電腦上編輯。
+              這個角色要額外帶上哪幾本（會疊加在世界觀那份之前）。內容在「情境與設定組 → 用語解說」編輯；
+              「生成用語條目」會用輔助模型從這張角色卡（已儲存的那份）寫一句「這個角色是誰」，加進該本，之後可自行修改。
             </p>
             {lorebooks.length === 0 ? (
               <p className="mt-1 text-[11px] text-[var(--text-sub)]">還沒有任何用語解說。</p>
@@ -267,26 +287,37 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
                 {lorebooks.map((b) => {
                   const checked = (draft.lorebookIds ?? []).includes(b.id)
                   return (
-                    <label key={b.id} className="flex items-center gap-2 py-1">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        className="h-4 w-4 accent-[var(--mint2)]"
-                        onChange={(e) =>
-                          set(
-                            'lorebookIds',
-                            e.target.checked
-                              ? [...(draft.lorebookIds ?? []), b.id]
-                              : (draft.lorebookIds ?? []).filter((x) => x !== b.id)
-                          )
-                        }
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm text-[var(--text)]">{b.name}</span>
-                    </label>
+                    <div key={b.id} className="flex items-center gap-2 py-1">
+                      <label className="flex min-w-0 flex-1 items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          className="h-4 w-4 accent-[var(--mint2)]"
+                          onChange={(e) =>
+                            set(
+                              'lorebookIds',
+                              e.target.checked
+                                ? [...(draft.lorebookIds ?? []), b.id]
+                                : (draft.lorebookIds ?? []).filter((x) => x !== b.id)
+                            )
+                          }
+                        />
+                        <span className="min-w-0 flex-1 truncate text-sm text-[var(--text)]">{b.name}</span>
+                      </label>
+                      <button
+                        type="button"
+                        disabled={generatingLoreId !== null}
+                        onClick={() => void generateLoreEntry(b.id)}
+                        className="shrink-0 rounded-full border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--text)] disabled:opacity-50"
+                      >
+                        {generatingLoreId === b.id ? '生成中…' : '生成用語條目'}
+                      </button>
+                    </div>
                   )
                 })}
               </div>
             )}
+            {loreMsg && <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--text-sub)]">{loreMsg}</p>}
           </div>
 
           <Field label="額外系統指示" hint="一般不需填寫；主要留給 SillyTavern 卡片的 system_prompt 欄位。">

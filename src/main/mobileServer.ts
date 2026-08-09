@@ -121,6 +121,10 @@ export interface MobileBridge {
   createLorebook: (name?: string) => import('../core/lore').Lorebook
   saveLorebook: (book: import('../core/lore').Lorebook) => { ok: true; book: import('../core/lore').Lorebook } | { error: string }
   removeLorebook: (id: string) => { ok: true }
+  generateLoreEntry: (
+    characterId: string,
+    lorebookId: string
+  ) => Promise<{ ok: true; entry: import('../core/lore').LoreEntry } | { error: string }>
   getRemoteControlSettings: () => import('./types').RemoteControlSettings | undefined
   setRemoteControlEnabled: (enabled: boolean) => { ok: true } | { error: string }
   touchAllowedRemoteDevice?: (device: { id: string; nickname: string; label?: string }) => void
@@ -1330,6 +1334,24 @@ async function handleRequest(
     bridge.removeLorebook(payload.id)
     pushDesktopUpdate(bridge.getDesktopCharacterIds())
     jsonOk(res, { ok: true })
+    return
+  }
+
+  /*
+   * ── POST /api/lorebooks/generate-entry ── 從角色卡自動生成一條用語（規格 §8）
+   *
+   * 生成失敗（無 API Key／逾時／模型吐空）用 HTTP 200 ＋ `{ error }` 表示——
+   * 這是常見的預期情況，不是連線層級的錯誤，比照新聞模組既有慣例。
+   */
+  if (method === 'POST' && url === '/api/lorebooks/generate-entry') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ characterId?: string; lorebookId?: string }>(req, res)
+    if (!payload) return
+    if (!payload.characterId || !payload.lorebookId) { jsonError(res, 400, 'characterId and lorebookId required'); return }
+    const result = await bridge.generateLoreEntry(payload.characterId, payload.lorebookId)
+    if ('error' in result) { jsonOk(res, { ok: false, error: result.error }); return }
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, result)
     return
   }
 

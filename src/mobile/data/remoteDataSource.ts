@@ -7,6 +7,7 @@ import type {
   CharactersApi,
   LlmSettingsSnapshot,
   LorebooksApi,
+  LoreGenerateResult,
   MemorySettingsSnapshot,
   MessageDebug,
   ModuleToggle,
@@ -276,7 +277,9 @@ export class RemoteDataSource implements DataSource {
     get: async (id) => (await this.http.get<{ book: Lorebook }>(`/api/lorebooks/${encodeURIComponent(id)}`)).book,
     save: async (book) => (await this.http.post<{ book: Lorebook }>('/api/lorebooks/save', { book })).book,
     remove: async (id) => { await this.http.post('/api/lorebooks/delete', { id }) },
-    create: async (name) => (await this.http.post<{ book: Lorebook }>('/api/lorebooks/create', { name })).book
+    create: async (name) => (await this.http.post<{ book: Lorebook }>('/api/lorebooks/create', { name })).book,
+    generateEntry: (characterId, lorebookId) =>
+      this.http.post<LoreGenerateResult>('/api/lorebooks/generate-entry', { characterId, lorebookId })
   }
 
   /**

@@ -33,7 +33,8 @@ import {
   extractCharacterBook,
   LoreError,
   DEFAULT_SCAN_DEPTH,
-  DEFAULT_TOKEN_BUDGET
+  DEFAULT_TOKEN_BUDGET,
+  type LoreEntry
 } from '../core/lore'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
 import { importStJson, exportToStJson } from './stCardMapper'
@@ -878,6 +879,32 @@ export function removeLorebookDirect(id: string): { ok: true } {
   broadcastToAll('characters:updated', characters)
   broadcastToAll('scenes:updated', null)
   return { ok: true }
+}
+
+/**
+ * 從角色卡生成一條用語解說並加進指定的書（規格 §8）。
+ * 桌面 IPC（`lorebook:generate-entry`）與手機 `mobileServer` 都薄轉呼叫這支，邏輯只有一份。
+ */
+export async function generateLoreEntryDirect(
+  characterId: string,
+  lorebookId: string
+): Promise<{ ok: true; entry: LoreEntry } | { error: string }> {
+  const char = getCharacter(characterId)
+  if (!char) return { error: '找不到角色' }
+  const book = fileStore.loadLorebook(lorebookId)
+  if (!book) return { error: '找不到這本用語解說' }
+  const generated = await generateLoreEntryForCharacterSafe(char)
+  if (!generated) return { error: '生成失敗，請確認 API Key 與模型設定' }
+  const entry: LoreEntry = {
+    id: uuidv4(),
+    insertion_order: book.entries.length,
+    ...generated
+  }
+  book.entries.push(entry)
+  book.updatedAt = Date.now()
+  fileStore.saveLorebook(book)
+  broadcastToAll('lorebooks:updated', null)
+  return { ok: true, entry }
 }
 
 // ── 手機端設定（B3 階段 4）──────────────────────────────
@@ -5042,25 +5069,10 @@ export function registerIpcHandlers() {
   /**
    * 從角色卡生成一條用語解說並加進指定的書（規格 §8）。
    * 失敗一律回錯誤字串讓 UI 顯示；匯入流程另有靜默略過的呼叫點。
+   * 邏輯在 `generateLoreEntryDirect`，手機 `mobileServer` 共用同一份。
    */
-  ipcMain.handle('lorebook:generate-entry', async (_, payload: { characterId: string; lorebookId: string }) => {
-    const char = getCharacter(payload?.characterId)
-    if (!char) return { error: '找不到角色' }
-    const book = fileStore.loadLorebook(payload?.lorebookId)
-    if (!book) return { error: '找不到這本用語解說' }
-    const generated = await generateLoreEntryForCharacterSafe(char)
-    if (!generated) return { error: '生成失敗，請確認 API Key 與模型設定' }
-    const entry = {
-      id: uuidv4(),
-      insertion_order: book.entries.length,
-      ...generated
-    }
-    book.entries.push(entry)
-    book.updatedAt = Date.now()
-    fileStore.saveLorebook(book)
-    broadcastToAll('lorebooks:updated', null)
-    return { ok: true as const, entry }
-  })
+  ipcMain.handle('lorebook:generate-entry', async (_, payload: { characterId: string; lorebookId: string }) =>
+    generateLoreEntryDirect(payload?.characterId, payload?.lorebookId))
 
   // 已註冊模組清單（情境模組開關 UI 用；排除遠端遙控等基礎設施由 renderer 決定）
   ipcMain.handle('modules:list', () => listRegisteredModules())

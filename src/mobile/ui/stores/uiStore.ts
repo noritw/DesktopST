@@ -109,6 +109,14 @@ interface UiState {
    * 而不是回到選單再按一次。用 `push` 的話選單會留在堆疊裡變成多一層。
    */
   replace: (kind: ViewKind, param?: string) => void
+  /**
+   * 改寫堆疊中某一層（不一定是最上層）的 `param`，畫面本身不重推。
+   *
+   * 用途：畫面把「目前展開哪一分頁」這類 component-local state 寫回自己在堆疊裡
+   * 的 entry，這樣被上層畫面蓋住又卸載（`ViewStack` 只畫最上層）、返回時重新掛載，
+   * 也能從 `param` 讀回原本展開的分頁，而不是重置成預設值。
+   */
+  setEntryParam: (id: number, param: string | undefined) => void
   pop: () => void
   /**
    * 使用者要求關閉最上層畫面（✕、點遮罩、返回鍵三者共用）。
@@ -165,6 +173,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   push: (kind, param) => set((s) => ({ stack: [...s.stack, { id: nextId(), kind, param }], closeGuard: null })),
   replace: (kind, param) =>
     set((s) => ({ stack: [...s.stack.slice(0, -1), { id: nextId(), kind, param }], closeGuard: null })),
+  setEntryParam: (id, param) =>
+    set((s) => ({ stack: s.stack.map((e) => (e.id === id ? { ...e, param } : e)) })),
   pop: () => set((s) => ({ stack: s.stack.slice(0, -1), closeGuard: null })),
   popAll: () => set({ stack: [], closeGuard: null }),
 

@@ -257,11 +257,16 @@ export class LocalDataSource implements DataSource {
   }
 
   readonly lorebooks: LorebooksApi = {
-    list: async () => [],
-    get: () => Promise.reject(pending('lorebooks.get', 9)),
-    save: () => Promise.reject(pending('lorebooks.save', 9)),
-    remove: () => Promise.reject(pending('lorebooks.remove', 9)),
-    create: () => Promise.reject(pending('lorebooks.create', 9))
+    list: () => this.session.listLorebooks(),
+    get: async (id) => {
+      const book = await this.session.getLorebook(id)
+      if (!book) throw new DataError('not-found', id)
+      return book
+    },
+    save: (book) => this.session.saveLorebook(book),
+    remove: (id) => this.session.removeLorebook(id),
+    create: (name) => this.session.createLorebook(name),
+    generateEntry: (characterId, lorebookId) => this.session.generateLoreEntry(characterId, lorebookId)
   }
 
   readonly news: NewsApi = {

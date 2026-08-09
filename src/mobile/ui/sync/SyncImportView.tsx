@@ -170,6 +170,11 @@ export function SyncImportView(): JSX.Element {
           </li>
           <li>設定組：新增 {result.presetsImported} 組</li>
           <li>
+            {result.lorebooksImported > 0
+              ? `用語解說：帶回 ${result.lorebooksImported} 本`
+              : '用語解說：這次角色／世界觀沒有掛任何一本'}
+          </li>
+          <li>
             {result.conversationsImported > 0 || result.conversationsFailed > 0
               ? `對話：帶回 ${result.conversationsImported} 則${
                   result.conversationsFailed > 0

@@ -11,11 +11,57 @@ import { normalizeCharacterDialogue } from '@core/prompt/dialogue'
 import { formatRandomResultForPrompt } from '@core/prompt/randomResult'
 import { messageLlmMeta, resolveModel } from '@core/prompt/promptUtils'
 import { getWeatherContextString } from '@core/weather'
-import type { Character, Conversation, Message } from '@core/types'
+import {
+  buildScanText,
+  formatLoreBlock,
+  orderLorebooks,
+  resolveLorebookIds,
+  resolveScanDepth,
+  selectLoreEntries,
+  type Lorebook
+} from '@core/lore'
+import type { Character, Conversation, Message, ScenePreset } from '@core/types'
 import type { SendMessageInput } from '@core/data'
 import type { LocalEventSource } from '../events/localEventSource'
 import { newId } from './id'
 import { contextMessages } from './messages'
+
+/**
+ * 組出這一輪的 `[Glossary]` 注入區塊；沒有命中任何條目時回傳 `undefined`
+ * （連空標籤都不出現，規格 §6.1）。比照桌面 `buildLoreBlockFor()`，只是
+ * 獨立版沒有情境模組總開關（資料為空本來就不影響 prompt，視為預設開啟）。
+ *
+ * `cache` 由呼叫端傳入、整輪訊息共用——群組回覆時每個角色都會呼叫一次，
+ * 同一本書不必重複讀檔。
+ */
+export async function buildLoreBlockFor(
+  char: Character | null | undefined,
+  world: import('@core/types').WorldPreset | null | undefined,
+  scene: ScenePreset | null | undefined,
+  scan: { summary?: string; recentContents?: string[]; currentInput?: string },
+  loadLorebook: (id: string) => Promise<Lorebook | null>,
+  cache: Map<string, Lorebook | null>
+): Promise<string | undefined> {
+  const ids = resolveLorebookIds({
+    characterIds: char?.lorebookIds,
+    worldIds: world?.lorebookIds,
+    sceneIds: scene?.lorebookIds
+  })
+  if (ids.length === 0) return undefined
+
+  const loaded = new Map<string, Lorebook>()
+  for (const id of ids) {
+    if (!cache.has(id)) cache.set(id, await loadLorebook(id).catch(() => null))
+    const book = cache.get(id)
+    if (book) loaded.set(id, book)
+  }
+  const books = orderLorebooks(ids, loaded)
+  if (books.length === 0) return undefined
+
+  const scanText = buildScanText(scan, resolveScanDepth(books))
+  const block = formatLoreBlock(selectLoreEntries(books, scanText))
+  return block || undefined
+}
 
 /**
  * 獨立模式精簡聊天：對齊桌面 `sendMsgBody` 的主幹，
@@ -30,6 +76,9 @@ export async function sendStandaloneMessage(opts: {
   saveConversation: (conv: Conversation) => Promise<void>
   getPersona: () => import('@core/types').PersonaPreset | null
   getWorld: () => import('@core/types').WorldPreset | null
+  getActiveScene: () => ScenePreset | null
+  /** 讀失敗（檔案損壞／不存在）一律回 `null`，靜默略過該本（規格 §6.6） */
+  loadLorebook: (id: string) => Promise<Lorebook | null>
   input: SendMessageInput
   /** 停止生成時 abort；中止後會撤回尚未得到回覆的使用者訊息 */
   signal?: AbortSignal
@@ -148,6 +197,10 @@ export async function sendStandaloneMessage(opts: {
     opts.settings.memory.keepRecentN
   )
 
+  const world = opts.getWorld()
+  const activeScene = opts.getActiveScene()
+  const loreCache = new Map<string, Lorebook | null>()
+
   /*
    * 天氣（`[Weather]`）。附 30 分鐘快取，所以不是每則訊息都真的打外部服務。
    *
@@ -172,10 +225,18 @@ export async function sendStandaloneMessage(opts: {
         images: opts.input.images,
         speakerNameById: Object.fromEntries(opts.characters.map((c) => [c.id, c.name])),
         persona: opts.getPersona(),
-        world: opts.getWorld(),
+        world,
         desktopCharacterNames,
         memorySummary: conv.summary,
         extraSystemContext: weatherContext ?? undefined,
+        loreBlock: await buildLoreBlockFor(
+          primaryChar,
+          world,
+          activeScene,
+          { summary: conv.summary, recentContents: recentMessagesBase.map((m) => m.content ?? '') },
+          opts.loadLorebook,
+          loreCache
+        ),
         omitEmotionTag: true,
         signal: opts.signal
       },
@@ -230,10 +291,18 @@ export async function sendStandaloneMessage(opts: {
             messages: recent,
             speakerNameById: Object.fromEntries(opts.characters.map((c) => [c.id, c.name])),
             persona: opts.getPersona(),
-            world: opts.getWorld(),
+            world,
             desktopCharacterNames,
             memorySummary: conv.summary,
             extraSystemContext: weatherContext ?? undefined,
+            loreBlock: await buildLoreBlockFor(
+              och,
+              world,
+              activeScene,
+              { summary: conv.summary, recentContents: recent.map((m) => m.content ?? '') },
+              opts.loadLorebook,
+              loreCache
+            ),
             omitEmotionTag: true,
             signal: opts.signal
           },

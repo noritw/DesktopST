@@ -76,12 +76,13 @@ src/mobile/ 手機 UI
 | **手機獨立版 W1–W3** | 完成。**debug APK 已在 Pixel 10a 實測通過**（聊天、落地、金鑰加密、重開保留）。建置流程與陷阱：`src/mobile/README.md` |
 | **S1 初始化匯入** | 完成（掃 QR 單向拉角色／預設組／設定／**對話**；對話勾選匯入，預設全不選）。另有可重複執行的「從電腦重新拉設定」 |
 | **獨立版天氣** | 完成（缺口 #4）。邏輯在 `core/weather/`，定位 GPS 優先退回 IP，聊天會帶 `[Weather]`。地震／颱風關鍵詞查詢仍桌面限定 |
-| **下一步** | Lorebook 編輯（缺口 #2）→ 角色卡匯出（#3）→ 提醒（#5，**要連「哪台裝置響」一起做**）。S2 雙向同步再往後。另：v0.4.0 真機煙測（配色／新聞泡泡／遙控） |
+| **獨立版 Lorebook 編輯** | 完成（缺口 #2，2026-08-09）。`StandaloneSession` 接上 CRUD＋參照清理；`chat.ts` 補了原本沒接的 `[Glossary]` 注入（桌面版本來就有，獨立版聊天管線之前完全沒有） |
+| **下一步** | owner 2026-08-09 排序：① Persona 清單切分頁 UI bug（已修，見 `docs/mobile-standalone-gap-inventory.md` §0）→ ② Lorebook 編輯（已完成）→ ③ 提醒（缺口 #5，**要連「哪台裝置響」一起做**；owner：切獨立版的主因就是這個）→ ④ 新聞報（缺口 #6，外出常用）。角色卡匯出（#3）與模式切換／S2 同步（`mobile-mode-switch-sync.md`）**排在這批之後**，先求獨立版功能完整。另：v0.4.0 真機煙測（配色／新聞泡泡／遙控） |
 | 延後／已排程 | 角色印象（B8）；系統通知（B5）；**飲食熱量模組（B9）** → `docs/future-nutrition-module.md`（owner 自用優先；含換機搬家包） |
 
 獨立模式**尚未實作**（會誠實擲 `not-supported`，不是 bug）：新聞、提醒、
-角色卡匯出、Lorebook 編輯、天氣的地震／颱風關鍵詞查詢。Spotify／日曆授權仍只在桌面。
-（情境套用／擷取／刪除、設定組刪除、天氣 2026-08-08 已補上。）
+角色卡匯出、天氣的地震／颱風關鍵詞查詢。Spotify／日曆授權仍只在桌面。
+（情境套用／擷取／刪除、設定組刪除、天氣 2026-08-08 已補上；Lorebook 編輯 2026-08-09 已補上。）
 → 缺口總表與建議順序：`docs/mobile-standalone-gap-inventory.md`（不長，可整份讀）。
 
 分支：`feat/mobile-standalone`。
@@ -123,6 +124,7 @@ src/mobile/ 手機 UI
 | B3 手機 UI（階段 7 等） | `b3-mobile-ui-plan.md` **文首＋§4.9**；該階段正文；對應落地筆記（如新聞→§4.21） | 整份計畫、舊階段筆記 |
 | 改 QR／relay／手機建置 | 計畫書 **只讀 §4.20** | §4.10–4.18 |
 | S1／S2 同步 | roadmap **§4.7**（模式、S1–S3 分層、API Key 判定、星狀拓樸） | 整份 roadmap |
+| 手機模式切換／切換時帶資料走 | `mobile-mode-switch-sync.md`（整份，S2 第一階段的實作設計） | 整份 roadmap |
 | 打 APK／改 Capacitor | `src/mobile/README.md` | 一切長文 |
 | 動天氣（兩邊共用） | `core/weather/`（四個小檔，直接讀原始碼）＋ `progress-log.md` 搜「獨立版天氣」 | 舊的 `weather-realtime-query-spec.md`（那是桌面 CWA 規格） |
 | 問「獨立版還缺什麼」／挑下一項做 | `mobile-standalone-gap-inventory.md`（整份，不長） | 舊的 `mobile-html-feature-inventory.md` |

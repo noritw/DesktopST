@@ -17,6 +17,7 @@ import { DataError } from '@core/data'
 import type {
   AppStateSnapshot,
   LlmSettingsSnapshot,
+  LoreGenerateResult,
   MessageDebug,
   ModuleToggle,
   PackConflictPolicy,
@@ -25,6 +26,14 @@ import type {
 } from '@core/data'
 import { extractCharaJson, PngCardError } from '@core/card/pngCard'
 import { importStJson } from '@core/card/stCardMapper'
+import {
+  DEFAULT_SCAN_DEPTH,
+  DEFAULT_TOKEN_BUDGET,
+  generateLoreEntryForCharacter,
+  normalizeLorebook,
+  type Lorebook,
+  type LoreEntry
+} from '@core/lore'
 import { bytesToBase64 } from '@core/util/base64'
 import { fetchWeather, geocodeCity, invalidateWeatherCache, type WeatherData } from '@core/weather'
 import { LocalEventSource } from '../events/localEventSource'
@@ -646,6 +655,8 @@ export class StandaloneSession {
       saveConversation: (c) => this.saveConversation(c),
       getPersona: () => this.personas.find((p) => p.id === this.settings.activePersonaId) ?? null,
       getWorld: () => this.worlds.find((w) => w.id === this.settings.activeWorldId) ?? null,
+      getActiveScene: () => this.scenes.find((s) => s.id === this.settings.activeSceneId) ?? null,
+      loadLorebook: (id) => this.getLorebook(id),
       input,
       signal: abort.signal
     }).finally(() => {
@@ -1015,6 +1026,125 @@ export class StandaloneSession {
     await this.adapters.storage.writeJson(keys.characterCardKey(id), char)
     this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     return path
+  }
+
+  // ── 用語解說（Lorebook，缺口 #2）────────────────────────
+  // 桌面對應 `ipcHandlers.ts` 的 `*LorebookDirect`，邏輯只有一份（規格見
+  // docs/future-lorebook.md）。清單不快取——本數不多，逐檔讀成本可忽略，
+  // 也省得再維護一份陣列跟角色／設定組的更新事件對帳。
+
+  async listLorebooks(): Promise<{ id: string; name: string }[]> {
+    const listed = await this.adapters.storage.list(keys.LOREBOOKS_DIR)
+    const out: { id: string; name: string }[] = []
+    for (const entry of listed) {
+      const name = entry.split('/').pop() ?? ''
+      const id = keys.idFromJsonName(name)
+      if (!id) continue
+      const book = await this.getLorebook(id)
+      if (book) out.push({ id: book.id, name: book.name })
+    }
+    return out
+  }
+
+  async getLorebook(id: string): Promise<Lorebook | null> {
+    const raw = await this.adapters.storage.readJson<Lorebook>(keys.lorebookKey(id))
+    if (!raw) return null
+    try {
+      return normalizeLorebook(raw)
+    } catch {
+      return null
+    }
+  }
+
+  async createLorebook(name?: string): Promise<Lorebook> {
+    const now = Date.now()
+    const book: Lorebook = {
+      id: newId(),
+      name: (name ?? '').trim() || '用語解說',
+      entries: [],
+      scan_depth: DEFAULT_SCAN_DEPTH,
+      token_budget: DEFAULT_TOKEN_BUDGET,
+      createdAt: now,
+      updatedAt: now
+    }
+    await this.adapters.storage.writeJson(keys.lorebookKey(book.id), book)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    return book
+  }
+
+  async saveLorebook(incoming: Lorebook): Promise<Lorebook> {
+    if (!incoming?.id) throw new DataError('invalid-input', 'lorebook.id')
+    const book: Lorebook = { ...incoming, updatedAt: Date.now() }
+    await this.adapters.storage.writeJson(keys.lorebookKey(book.id), book)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    return book
+  }
+
+  /** 刪本體，並清掉角色卡／世界觀／情境上指向它的參照（比照桌面 `removeLorebookDirect`）。 */
+  async removeLorebook(id: string): Promise<void> {
+    await this.adapters.storage.remove(keys.lorebookKey(id))
+
+    for (const c of this.characters) {
+      if (c.lorebookIds?.includes(id)) {
+        c.lorebookIds = c.lorebookIds.filter((x) => x !== id)
+        await this.adapters.storage.writeJson(keys.characterCardKey(c.id), c)
+      }
+    }
+    for (const w of this.worlds) {
+      if (w.lorebookIds?.includes(id)) {
+        w.lorebookIds = w.lorebookIds.filter((x) => x !== id)
+        w.updatedAt = Date.now()
+        await this.adapters.storage.writeJson(keys.worldKey(w.id), w)
+      }
+    }
+    for (const s of this.scenes) {
+      if (s.lorebookIds?.includes(id)) {
+        s.lorebookIds = s.lorebookIds.filter((x) => x !== id)
+        s.updatedAt = Date.now()
+        await this.adapters.storage.writeJson(keys.sceneKey(s.id), s)
+      }
+    }
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  /**
+   * 從角色卡生成一條用語並加進指定的書（規格 §8）。桌面對應
+   * `ipcHandlers.ts` 的 `lorebook:generate-entry`，邏輯共用 `core/lore/generate.ts`，
+   * 這裡只是換一個 `LLMDeps`（獨立版用自己的 `adapters.http`，不是桌面的 Node fetch）。
+   *
+   * 找不到角色／書是程式錯誤（呼叫端傳錯 id），照其他方法的慣例丟 `DataError`。
+   * **生成本身失敗（無 API Key／逾時／模型吐空）是常見的預期情況**，走
+   * `{ ok: false, error }` 而不是丟例外——比照 `NewsFetchResult` 的理由。
+   */
+  async generateLoreEntry(characterId: string, lorebookId: string): Promise<LoreGenerateResult> {
+    const char = this.characters.find((c) => c.id === characterId)
+    if (!char) throw new DataError('not-found', characterId)
+    const book = await this.getLorebook(lorebookId)
+    if (!book) throw new DataError('not-found', lorebookId)
+
+    let generated: Awaited<ReturnType<typeof generateLoreEntryForCharacter>>
+    try {
+      generated = await generateLoreEntryForCharacter(
+        {
+          settings: this.settings,
+          character: {
+            name: char.name,
+            nicknames: char.nicknames,
+            description: char.description,
+            personality: char.personality,
+            scenario: char.scenario
+          }
+        },
+        { http: this.adapters.http }
+      )
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+    if (!generated) return { ok: false, error: '生成失敗，請確認 API Key 與模型設定' }
+
+    const entry: LoreEntry = { id: newId(), insertion_order: book.entries.length, ...generated }
+    await this.saveLorebook({ ...book, entries: [...book.entries, entry] })
+    return { ok: true, entry }
   }
 }
 

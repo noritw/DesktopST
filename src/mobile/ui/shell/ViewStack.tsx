@@ -92,7 +92,7 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'about') return <AboutView />
   if (entry.kind === 'menu') return <MainMenu />
   // param 選填：header 的狀態標籤點「情境」就帶 'scene' 進來直接展開那一組。
-  if (entry.kind === 'presets') return <PresetsView openParam={entry.param} />
+  if (entry.kind === 'presets') return <PresetsView id={entry.id} openParam={entry.param} />
   if (entry.kind === 'preset-editor' && entry.param) return <PresetEditor presetKey={entry.param} />
   if (entry.kind === 'reminders') return <RemindersView />
   if (entry.kind === 'reminder-editor' && entry.param) return <ReminderEditor reminderId={entry.param} />

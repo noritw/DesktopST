@@ -195,3 +195,85 @@ describe('StandaloneSession：情境與設定組（缺口 #1）', () => {
     expect(session.settings.activePersonaId).toBe('p2')
   })
 })
+
+describe('StandaloneSession：用語解說（缺口 #2）', () => {
+  it('create／get／save／remove 走完整輪，list 只回摘要', async () => {
+    const session = await bootStandaloneSession(testAdapters(), { skipPackFetch: true })
+
+    const created = await session.createLorebook('我的世界觀')
+    expect(created.entries).toEqual([])
+    expect(created.name).toBe('我的世界觀')
+
+    expect(await session.listLorebooks()).toEqual([{ id: created.id, name: '我的世界觀' }])
+
+    const fetched = await session.getLorebook(created.id)
+    expect(fetched).toEqual(created)
+
+    const saved = await session.saveLorebook({
+      ...created,
+      name: '改名了',
+      entries: [{ id: 'e1', keys: ['DeST'], content: 'DeST 是桌面程式', enabled: true, constant: true, insertion_order: 0 }]
+    })
+    expect(saved.name).toBe('改名了')
+    expect(saved.updatedAt).toBeGreaterThanOrEqual(created.updatedAt)
+    expect((await session.getLorebook(created.id))!.entries).toHaveLength(1)
+
+    await session.removeLorebook(created.id)
+    expect(await session.getLorebook(created.id)).toBeNull()
+    expect(await session.listLorebooks()).toEqual([])
+  })
+
+  it('沒有這本回 null，不是丟例外', async () => {
+    const session = await bootStandaloneSession(testAdapters(), { skipPackFetch: true })
+    expect(await session.getLorebook('沒這本')).toBeNull()
+  })
+
+  it('刪除時一併清掉角色卡／世界觀／情境上的參照', async () => {
+    const session = await bootStandaloneSession(testAdapters(), { skipPackFetch: true })
+    const book = await session.createLorebook('待刪')
+
+    const char = session.characters[0]!
+    await session.saveCharacter({ ...char, lorebookIds: [book.id] })
+
+    const world = session.worlds[0]!
+    await session.saveScene({
+      id: 'sc1',
+      name: '深夜',
+      activePersonaId: session.personas[0]!.id,
+      activeWorldId: world.id,
+      desktopCharacters: session.settings.ui.desktopCharacters.map((d) => ({ ...d })),
+      lorebookIds: [book.id],
+      colorTheme: 'mint',
+      createdAt: 0,
+      updatedAt: 0
+    })
+    session.worlds[0] = { ...world, lorebookIds: [book.id] }
+
+    await session.removeLorebook(book.id)
+
+    expect(session.characters.find((c) => c.id === char.id)!.lorebookIds).toEqual([])
+    expect(session.worlds[0]!.lorebookIds).toEqual([])
+    expect(session.scenes.find((s) => s.id === 'sc1')!.lorebookIds).toEqual([])
+  })
+
+  /*
+   * 生成本身（呼叫輔助模型）不進自動測試——同 tests/lore/generate.test.ts 的既有原則。
+   * 這裡只測接線：id 找不到要丟 DataError（呼叫端傳錯，是程式錯誤）；
+   * 生成失敗（這裡的測試環境本來就沒有網路）要收斂成 `{ ok: false, error }`，
+   * 不能讓例外整個往上炸穿到 UI。
+   */
+  it('generateLoreEntry：角色或書找不到丟 DataError；生成失敗收斂成 ok:false', async () => {
+    const session = await bootStandaloneSession(testAdapters(), { skipPackFetch: true })
+    const book = await session.createLorebook('待生成')
+    const char = session.characters[0]!
+
+    await expect(session.generateLoreEntry('沒這個角色', book.id)).rejects.toMatchObject({ code: 'not-found' })
+    await expect(session.generateLoreEntry(char.id, '沒這本書')).rejects.toMatchObject({ code: 'not-found' })
+
+    const result = await session.generateLoreEntry(char.id, book.id)
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(typeof result.error).toBe('string')
+    // 失敗不該留下半條資料
+    expect((await session.getLorebook(book.id))!.entries).toEqual([])
+  })
+})

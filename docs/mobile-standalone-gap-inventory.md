@@ -1,4 +1,4 @@
-# 手機獨立版 —— 功能缺口盤點（2026-08-08）
+# 手機獨立版 —— 功能缺口盤點（2026-08-08，2026-08-09 排序更新）
 
 > 對照基準：**行動版 UI（B3）已經做出來的畫面** vs **獨立模式（Capacitor／`LocalDataSource`）實際能不能用**。
 > 只列「預定內、行動版有畫面、獨立版還沒接上」的項目。遙控電腦不在此列 —— 那是**永久**不支援。
@@ -21,6 +21,28 @@
 
 情境整組、天氣（含定位與 CWA）2026-08-08 已補上。
 
+> **2026-08-09 owner 重新排序**：獨立版是最大宗使用情境（帶出門／躺著用），
+> 遙控版需要電腦開著、不一定隨時能用。因此**優先把獨立版功能補完整**，
+> 模式切換／S2 同步（`mobile-mode-switch-sync.md`）排到這批之後。
+> 提醒被拉到新聞報前面：owner 當初切獨立版的主因就是主動提醒，先做這個才驗證得到獨立版的核心價值。
+
+---
+
+## 0. 額外發現：Persona 清單分頁切換 bug（非缺口，是既有 bug）
+
+**現象**：在「情境與設定組」展開「使用者設定」分頁、編輯或刪除一筆 persona 後，
+畫面會跳回「情境」分頁，而不是留在「使用者設定」。
+
+**根因**：[`ViewStack.tsx:65-79`](../src/mobile/ui/shell/ViewStack.tsx) 只渲染堆疊最上層的
+`<Sheet key={top.id}>`。推入 `PresetEditor` 時 `PresetsView` 整棵被卸載（不是疊在上層），
+返回時用新的 `top.id` **重新掛載**，而「目前展開哪一分頁」是
+[`PresetsView.tsx:63-65`](../src/mobile/ui/presets/PresetsView.tsx) 的 component-local `useState`
+（`KINDS.includes(openParam as Kind) ? openParam : 'scene'`），重新掛載就重置回預設值 `'scene'`。
+
+**修法方向**：`open` 不能留在 local state，要在使用者切換分頁時同步寫回
+`uiStore` 堆疊裡 `presets` 那個 entry 的 `param`（`openParam` 機制本來就有，
+目前只在「進入時讀一次」，缺「離開時寫回」那一半）。
+
 ---
 
 ## 2. 缺口總表
@@ -28,12 +50,12 @@
 | # | 功能 | 行動版 UI | 獨立版狀態 | 卡在哪 | 建議順序 |
 |---|---|---|---|---|---|
 | ~~1~~ | ~~情境（scene）套用／存檔／擷取／刪除~~ | `PresetsView` 有完整清單與按鈕 | **2026-08-08 完成** | — | 已做 |
-| 2 | **Lorebook（用語解說）編輯** | `LorebookEditor` 已存在 | `lorebooks.list` 回空陣列；`get`／`save`／`remove`／`create` pending | 純檔案讀寫，沒有平台阻礙 | ② |
-| 3 | **角色卡／設定包匯出** | 角色編輯器有匯出入口 | `characters.exportCard`／`exportPack` pending（匯入**已可用**） | 需要 Capacitor Filesystem 寫檔 ＋ 分享 intent | ③ |
+| ~~2~~ | ~~Lorebook（用語解說）編輯~~ | `LorebookEditor` 已存在 | **2026-08-09 完成**：CRUD 接上 `StandaloneSession`；另外把 `[Glossary]` 注入也接進 `chat.ts`（原本連桌面都沒有的那段獨立版聊天管線，光有編輯 UI 不會影響對話） | — | 已做 |
+| 3 | **角色卡／設定包匯出** | 角色編輯器有匯出入口 | `characters.exportCard`／`exportPack` pending（匯入**已可用**） | 需要 Capacitor Filesystem 寫檔 ＋ 分享 intent | ④（owner 這輪未特別點名，暫緩後排） |
 | ~~4~~ | ~~天氣定位／即時查詢~~ | 設定頁有天氣區塊 | **2026-08-08 完成**（背景 `[Weather]` 含 CWA；地震／颱風關鍵詞查詢仍桌面限定） | — | 已做 |
-| 5 | **提醒** | `RemindersView`／`ReminderEditor` 完整 | `reminders.list` 回空；`create`／`save`／`remove`／`toggle` pending | **不只是資料**：要排程與本機通知（Capacitor LocalNotifications），且 roadmap 已否決「Relay 代排程」「RTC 半夜喚醒」。**同步要連著做**，見 §3.1 | ⑤ |
-| 6 | **個人新聞報** | `NewsView`／設定／關鍵字面板完整 | `news.*` 全 pending（15 支） | 抓 RSS／解析／配額／排程，量最大；還牽涉 CORS 與背景抓取 | ⑥ |
-| 7 | **對話與電腦同步（S2）** | 只有 S1「從電腦匯入」 | 未開工 | roadmap §4.7 已定分層與星狀拓樸 | ⑦（獨立議題） |
+| 5 | **提醒** | `RemindersView`／`ReminderEditor` 完整 | `reminders.list` 回空；`create`／`save`／`remove`／`toggle` pending | **不只是資料**：要排程與本機通知（Capacitor LocalNotifications），且 roadmap 已否決「Relay 代排程」「RTC 半夜喚醒」。**同步要連著做**，見 §3.1 | **②**（owner 2026-08-09：切獨立版的主因就是這個） |
+| 6 | **個人新聞報** | `NewsView`／設定／關鍵字面板完整 | `news.*` 全 pending（15 支） | 抓 RSS／解析／配額／排程，量最大；還牽涉 CORS 與背景抓取 | **③**（owner：外出時常用） |
+| 7 | **對話與電腦同步（S2）** | 只有 S1「從電腦匯入」 | 未開工 | roadmap §4.7 已定分層與星狀拓樸；**實作設計見 `mobile-mode-switch-sync.md`**（改成「切換模式時帶資料走」） | ⑤（owner 2026-08-09：排在獨立版功能補完之後） |
 
 **永久不支援（不是 bug，不要修）**：`remoteControl.*` 全部 —— 獨立模式沒有電腦可控。
 Spotify／日曆授權同樣只在桌面。
@@ -42,11 +64,16 @@ Spotify／日曆授權同樣只在桌面。
 
 ## 3. 排序理由
 
-2–3 是**純資料操作**，跟已完成的情境／persona／world 存檔走同一條路（讀寫 `adapters.storage` ＋
-`events.push({ kind: 'state-invalidated' })`），做完就能用，風險最低。
+2 是**純資料操作**，跟已完成的情境／persona／world 存檔走同一條路（讀寫 `adapters.storage` ＋
+`events.push({ kind: 'state-invalidated' })`），做完就能用，風險最低，且用語解說是 owner
+日常聊天實際在用、每次都得跟角色重講一次的痛點，排第一。
 
 5–6 都要**引進新的平台能力**（通知／排程），且兩者都碰到「手機不是常駐主機」
 這個根本限制 —— 開工前先回頭讀 roadmap §2 的四大目標，別把已否決的方案再提一次。
+提醒排在新聞報前面是 owner 明確排序（見文首），不是難度或風險考量。
+
+3（角色卡匯出）與 7（S2 同步）這輪都沒被 owner 點名重新排序，
+暫時維持在補完獨立版功能之後；下一輪對話若要調整順序可以再確認。
 
 ### 3.1 提醒要連同步一起做（owner 2026-08-08 決議）
 
@@ -77,7 +104,14 @@ owner：「天氣和提醒希望也可以和電腦同步，這樣我不用設定
 
 ---
 
-## 5. 2026-08-08 這一輪已完成（不在缺口內）
+## 5. 2026-08-09 這一輪已完成
+
+| 項目 | 說明 |
+|---|---|
+| Persona 清單分頁切換 bug（§0） | `open` 改寫回 `uiStore` 堆疊 entry 的 `param`（`setEntryParam`），重新掛載時讀回，不再跳回「情境」 |
+| **缺口 #2 用語解說編輯** | `StandaloneSession` 加 `listLorebooks`／`getLorebook`／`createLorebook`／`saveLorebook`／`removeLorebook`（刪除時清角色卡／世界觀／情境的參照）；`LocalDataSource.lorebooks` 接上。**另外補了原本完全沒接的一段**：`chat.ts` 新增 `buildLoreBlockFor()`，解析角色／世界觀／情境的 `lorebookIds`（情境取代式、其餘疊加）、掃描近期訊息、組出 `[Glossary]` 區塊餵給 `chatWithLLM` 的 `loreBlock` 參數——這段桌面版原本就有（`ipcHandlers.ts` 的 `buildLoreBlockFor`），獨立版聊天管線（`chat.ts`）之前完全沒有，只做 CRUD 的話編輯了也不會影響對話 |
+
+## 5.1 2026-08-08 這一輪已完成（不在缺口內）
 
 | 項目 | 說明 |
 |---|---|

@@ -20,6 +20,14 @@ import { StatusChip } from '../shell/StatusChip'
  *
  * `openParam` 由 header 的狀態標籤帶進來（點「情境」就直接展開情境那組），
  * 沒帶就展開第一組。
+ *
+ * ## 2026-08-09 展開狀態要撐過重新掛載
+ *
+ * 點某一列的「編輯」會 push 一層 `preset-editor` 蓋上來，`ViewStack` 只畫最上層，
+ * 所以這個元件會整個卸載；存檔／取消返回時再重新掛載，component-local 的 `open`
+ * state 早就沒了，畫面就會跳回展開「情境」（第一組）。
+ * 修法：`open` 改變時同步寫回 uiStore 堆疊裡自己這層 entry 的 `param`，
+ * 重新掛載時用它取代預設值，就能回到離開前展開的那一組。
  */
 
 type Kind = 'scene' | 'persona' | 'world' | 'lore'
@@ -40,9 +48,10 @@ const HINTS: Record<Kind, string> = {
 
 const KINDS: Kind[] = ['scene', 'persona', 'world', 'lore']
 
-export function PresetsView({ openParam }: { openParam?: string }): JSX.Element {
+export function PresetsView({ id, openParam }: { id: number; openParam?: string }): JSX.Element {
   const push = useUiStore((s) => s.push)
   const toast = useUiStore((s) => s.toast)
+  const setEntryParam = useUiStore((s) => s.setEntryParam)
   const refresh = useAppStore((s) => s.refresh)
   const activeSceneDirty = useAppStore((s) => s.snapshot?.activeSceneDirty === true)
   // 未設定＝開啟，與 `showLlmBadge` 同一個慣例。
@@ -63,6 +72,9 @@ export function PresetsView({ openParam }: { openParam?: string }): JSX.Element 
   const [open, setOpen] = useState<Kind>(
     KINDS.includes(openParam as Kind) ? (openParam as Kind) : 'scene'
   )
+  useEffect(() => {
+    setEntryParam(id, open || undefined)
+  }, [id, open, setEntryParam])
 
   const load = useCallback(async () => {
     try {

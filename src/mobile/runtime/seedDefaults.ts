@@ -2,6 +2,7 @@ import JSZip from 'jszip'
 import type { StorageAdapter } from '@core/adapters'
 import * as keys from '@core/store/keys'
 import type { Character, DesktopCharacterState, PersonaPreset, WorldPreset } from '@core/types'
+import { normalizeLorebook, type Lorebook } from '@core/lore'
 import { newId } from './id'
 
 import defaultPersonaJson from '../../../assets/default-persona.json'
@@ -129,7 +130,7 @@ async function tryFetchPack(url: string): Promise<Uint8Array | null> {
 export async function importCharactersFromDstPack(
   storage: StorageAdapter,
   bytes: Uint8Array
-): Promise<{ chars: Character[]; desktopState: DesktopCharacterState[] }> {
+): Promise<{ chars: Character[]; desktopState: DesktopCharacterState[]; lorebookIds: Set<string> }> {
   const zip = await JSZip.loadAsync(bytes)
   const mf = zip.file('manifest.json')
   if (!mf) throw new Error('missing manifest.json')
@@ -156,6 +157,8 @@ export async function importCharactersFromDstPack(
   }
   if (created.length === 0) throw new Error('no characters extracted')
 
+  const lorebookIds = await importLorebooksFromPack(storage, zip)
+
   const desktopState: DesktopCharacterState[] = created.map((c, i) => ({
     characterId: c.id,
     position: { x: 80 + i * 220, y: 400 },
@@ -164,7 +167,38 @@ export async function importCharactersFromDstPack(
     muted: false,
     zIndex: i + 1
   }))
-  return { chars: created, desktopState }
+  return { chars: created, desktopState, lorebookIds }
+}
+
+/**
+ * 落地 `.dstpack` 裡帶的用語解說（規格 §7.3／§4.2）。
+ *
+ * **用原本的 id 存**，不像角色那樣重發新 id——角色卡的 `lorebookIds` 與世界觀的
+ * `lorebookIds`（隨 `/api/sync-init` 一起帶來的 `WorldPreset`）都還是電腦端原本
+ * 那個 id，只要本機用同一個 id 落地，兩邊立刻對得上，不必再補一道 remap。
+ * 同 id 已存在就覆蓋——重新同步時內容要能跟著電腦更新。
+ *
+ * 單本壞掉（JSON 解析失敗）靜默略過，不擋角色匯入（規格 §6.6 同一原則）。
+ * 回傳已落地的 id 集合（不是計數）—— 多隻角色都掛同一本書時，外面要去重。
+ */
+async function importLorebooksFromPack(storage: StorageAdapter, zip: JSZip): Promise<Set<string>> {
+  const ids = new Set<string>()
+  for (const p of Object.keys(zip.files)) {
+    const norm = p.replace(/\\/g, '/')
+    if (!/^lorebooks\/[^/]+\.json$/.test(norm)) continue
+    const zf = zip.files[p]
+    if (!zf || zf.dir) continue
+    try {
+      const raw = JSON.parse(await zf.async('string')) as Lorebook
+      if (!raw?.id) continue
+      const book = normalizeLorebook(raw)
+      await storage.writeJson(keys.lorebookKey(book.id), book)
+      ids.add(book.id)
+    } catch {
+      continue
+    }
+  }
+  return ids
 }
 
 async function extractOneCharacter(

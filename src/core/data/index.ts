@@ -5,6 +5,7 @@ export type {
   CharacterListItem,
   CharactersApi,
   LorebooksApi,
+  LoreGenerateResult,
   LlmProvider,
   LlmSettingsSnapshot,
   MemorySettingsSnapshot,
