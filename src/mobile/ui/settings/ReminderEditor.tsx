@@ -4,6 +4,7 @@ import type { Reminder, ReminderSchedule } from '@core/types'
 import { getData } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from './settingsErrors'
+import { formatRelative } from './reminderFormat'
 
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const
 
@@ -251,7 +252,14 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
       )}
 
       {draft.schedule.type === 'once' && (
-        <Field label="在什麼時候">
+        <Field
+          label="在什麼時候"
+          hint={
+            formatRelative(draft.schedule.at)
+              ? `目前設定：${formatRelative(draft.schedule.at)}`
+              : '這個時間已經過了，提醒不會觸發。'
+          }
+        >
           <input
             type="datetime-local"
             className="field"

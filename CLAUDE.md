@@ -111,6 +111,18 @@ src/mobile/ 手機 UI
   外掛一律用**動態 `import()`** 載，否則瀏覽器煙測與 vitest 會在載入時就炸
 - core 裡要打外部 API 就**注入 `HttpAdapter`**（比照 `core/llm`、`core/weather`），
   不要用全域 `fetch` —— 手機那邊要 CapacitorHttp patch 過才繞得過 CORS
+- **手機通知一定要自己建 channel**：Capacitor 預設頻道 importance=3，
+  只會安靜躺進通知欄、**不會有橫幅彈出**，手機又常在震動模式 ——
+  看起來就像「時間到了什麼都沒發生」。用 importance 4（`reminderScheduler.ts` 的
+  `dest-reminders-v1`）。**channel 建好後 importance 改不動**，要調就換 id
+- **手機時間顯示一律走 `toLocaleTimeString()`**（`ui/settings/reminderFormat.ts`）：
+  `<input type="time">`／`datetime-local` 是照裝置語系畫的（zh-TW ＝「下午4:43」），
+  清單若自己 `padStart` 拼 24 小時制，同一則提醒兩邊長不一樣，使用者會以為存錯
+- 真機除錯提醒／通知：`adb logcat | grep Reminder` 看排程；
+  `adb shell run-as tw.nori.dest cat files/reminders.json` 直接讀資料（debug build 才行）；
+  `adb shell dumpsys notification` 看通知有沒有真的送出。
+  ⚠️ **配對的 Wear OS 手錶會把通知轉走並連帶清掉手機那則**（`WearNotifRemoval`），
+  通知欄看不到不代表沒發出去
 - 動 LLM 供應商設定時注意 `llm.model` 是早期單一供應商的遺留欄位，
   `resolveModel()` 仍會拿它墊底 —— 不同步會把 A 家型號送去 B 家
 

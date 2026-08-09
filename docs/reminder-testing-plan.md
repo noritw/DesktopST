@@ -1,172 +1,89 @@
-# 手機獨立版提醒功能測試計劃
+# 手機獨立版提醒 —— 實機驗證記錄
 
-實作完成時間：2026-08-09  
-測試裝置：Pixel 10a (Android 15)  
-狀態：**功能實裝完成，待實機驗證**
-
----
-
-## 1. 功能清單
-
-### 1.1 資料層（CRUD）
-- [x] `listReminders()` — 讀取所有提醒
-- [x] `createReminder()` — 建立空白提醒（預設：每日 08:00，mobile 裝置）
-- [x] `saveReminder()` — 儲存提醒（新增或更新）
-- [x] `removeReminder()` — 刪除提醒
-- [x] `toggleReminder()` — 啟用/禁用提醒
-
-### 1.2 排程層
-- [x] `nextFireDelayMs()` — 計算下一次觸發時間（純邏輯，與桌面版共用）
-  - [x] 一次性排程（`type: 'once'`）
-  - [x] 日排程（`type: 'daily'`）
-  - [x] 週排程（`type: 'weekly'`）
-  - [x] 間隔排程（`type: 'interval'`）
-
-### 1.3 本機通知
-- [x] Capacitor LocalNotifications 外掛集成
-- [x] Android 通知權限（`POST_NOTIFICATIONS`）
-- [x] 通知標題、內容、ID 配置
-- [x] 自動取消選項
-
-### 1.4 新增欄位
-- [x] `Reminder.notificationDevice` — 決定在哪台裝置響
-  - 值：`'desktop'` | `'mobile'` | `'both'`
-  - 預設：新提醒在手機建立時為 `'mobile'`
+實作：2026-08-09 · 裝置：Pixel 10a（Android 15，`tw.nori.dest` debug build）
+狀態：**端對端驗證通過**（排程 → 觸發 → 系統通知）
 
 ---
 
-## 2. 測試環境設置
+## 1. 驗證結果
 
-### 2.1 單元測試（已通過）
-```bash
-npm test -- tests/mobile/reminderScheduling.test.ts
+用 `adb` 把一則提醒改成 70 秒後觸發，重啟 app 觀察完整鏈路：
+
 ```
-結果：13/13 ✓
-
-### 2.2 手機開發伺服器
-```bash
-npm run dev:mobile
-# 或用批次檔：MobileST.bat [3]
+[Reminder] 通知頻道已就緒
+[Reminder] 更新 2 個提醒
+[Reminder] 排程 "馬上提醒測試" - 63272ms 後 (下午4:06:56)
+[Reminder] 觸發 "馬上提醒測試"
+[Reminder] 發送通知: "馬上提醒測試" (ID: 1287788010)
+[Reminder] 通知已發送
 ```
 
-### 2.3 APK 構建與安裝
+`dumpsys notification` 同時確認：
+
+```
+NotificationRecord(pkg=tw.nori.dest id=1287788010 importance=4
+  Notification(channel=dest-reminders-v1 flags=ONLY_ALERT_ONCE|AUTO_CANCEL))
+```
+
+排程計算、觸發、通知送出全部正常。
+
+---
+
+## 2. owner 回報的三個現象，各自的真正原因
+
+| 回報 | 真正原因 |
+|---|---|
+| 「設 2 分鐘後沒跳」 | 提醒**實際上設在 45 分鐘後**。切到「一次性」時預設是 `Date.now() + 1 小時`，沒改到就會是一小時後。已加「目前設定：約 N 分鐘後」提示，設錯當下就看得出來 |
+| 「編輯器 16:43，清單變 4:43」 | 原生 `datetime-local`／`time` 選擇器照**裝置語系**畫（zh-TW ＝「下午4:43」），清單卻自己 `padStart` 拼 24 小時制。**資料沒錯**，是兩邊格式不一致。已統一走 `toLocaleTimeString()` |
+| 「通知欄什麼都沒有」 | 兩個疊在一起：① 用 Capacitor 預設頻道 importance=3，不會有橫幅彈出，只會安靜躺進通知欄 ② **配對的 Wear OS 手錶把通知轉走後連帶清掉手機那則**（見下） |
+
+### 2.1 手錶會把通知吃掉
+
+```
+16:06:57.080 WearNotifPipeline: Processing new notification: tw.nori.dest|1287788010
+16:06:57.238 WearNotifPipeline: [Sender] Putting notification data item ...
+16:07:06.718 WearNotifRemoval: Received dismissal from watch, now dismissing on phone
+```
+
+發出 0.3 秒後轉發到手錶，10 秒後手錶端被清掉，手機通知欄的也跟著消失。
+**手機通知欄看不到 ≠ 沒發出去** —— 之後查這類問題要先看 `dumpsys notification` 與
+`WearNotif*` 的 logcat，不要只看通知欄。
+
+---
+
+## 3. 這次改了什麼
+
+| 檔案 | 改動 |
+|---|---|
+| `src/mobile/runtime/reminderScheduler.ts` | 專屬頻道 `dest-reminders-v1`（importance 4 ＋震動），通知帶 `channelId`；排程／觸發／發送各留一行 log |
+| `src/mobile/ui/settings/reminderFormat.ts` | 新檔。時間格式統一走 `toLocaleTimeString()`；`formatRelative()` 算「還有多久」 |
+| `src/mobile/ui/settings/RemindersView.tsx` | 改用共用的 `scheduleLabel`；一次性提醒的敘述帶「（約 N 分鐘後）」 |
+| `src/mobile/ui/settings/ReminderEditor.tsx` | 一次性的時間欄位下方顯示「目前設定：約 N 分鐘後」／「這個時間已經過了」 |
+
+⚠️ **channel 的 importance 建好就改不動**（Android 限制），要調整得換一個 channel id。
+
+---
+
+## 4. 真機除錯手法（下次照做）
+
 ```bash
-npm run build:mobile      # 構建
-MobileST.bat [1]          # 打包 APK 並裝機
+adb logcat -c && adb shell am start -n tw.nori.dest/.MainActivity
+adb logcat -d | grep -a Reminder                      # 排程與觸發
+adb shell run-as tw.nori.dest cat files/reminders.json # 直接讀資料（debug build 限定）
+adb shell dumpsys notification --noredact | grep -a tw.nori.dest
+```
+
+改裝置上的資料來測特定時間（記得先備份、測完還原）：
+
+```bash
+adb shell "run-as tw.nori.dest sh -c 'echo <base64> | base64 -d > files/reminders.json'"
 ```
 
 ---
 
-## 3. 手動測試清單
+## 5. 尚未做
 
-### 3.1 UI 基礎操作
-- [ ] 進入「設定」→「提醒」
-- [ ] 點「新增提醒」
-- [ ] 輸入標題（例：「吃藥」）
-- [ ] 輸入提示內容（例：「記得吃早上的維他命」）
-- [ ] 選擇排程類型：
-  - [ ] 一次性（指定日期時間）
-  - [ ] 每天（時分）
-  - [ ] 每週（勾選星期、時分）
-  - [ ] 每 N 分鐘
-- [ ] 檢查「裝置響應」選項（預設 mobile）
-- [ ] 儲存提醒
-- [ ] 確認列表中出現新提醒
-
-### 3.2 提醒觸發
-- [ ] 建立「1 分鐘後」的一次性提醒
-- [ ] 等待觸發
-- [ ] **核驗：手機收到本機通知**
-- [ ] 點開通知
-- [ ] 確認提醒標題與內容正確
-
-### 3.3 日排程測試
-- [ ] 建立「今日 XX:00（5 分鐘後）」每日提醒
-- [ ] 等待觸發
-- [ ] **核驗：收到通知**
-- [ ] 檢查通知內容正確
-
-### 3.4 週排程測試
-- [ ] 建立「今日（如果是該星期）下午 14:00 重複」
-- [ ] 勾選「一、三、五」
-- [ ] 儲存
-- [ ] 等待下一個符合條件的時間點
-- [ ] **核驗：收到通知**
-
-### 3.5 間隔排程測試
-- [ ] 建立「每 5 分鐘」排程
-- [ ] 儲存
-- [ ] 等待第一次觸發
-- [ ] **核驗：收到通知**
-- [ ] 再等 5 分鐘
-- [ ] **核驗：再次收到通知**
-
-### 3.6 啟用/禁用
-- [ ] 建立提醒並儲存
-- [ ] 列表中看到該提醒
-- [ ] 勾選「啟用」以開啟
-- [ ] 取消勾選禁用
-- [ ] **核驗：禁用時不應收到通知**
-
-### 3.7 編輯提醒
-- [ ] 點提醒列表項目進編輯
-- [ ] 修改標題、內容、排程
-- [ ] 儲存
-- [ ] **核驗：修改後的排程時間生效**
-
-### 3.8 刪除提醒
-- [ ] 建立臨時提醒
-- [ ] 編輯器內點「刪除」
-- [ ] **核驗：從列表消失**
-
-### 3.9 裝置設定測試
-建立三個提醒，分別設為：
-- [ ] `notificationDevice: 'mobile'` 
-  - **應在手機響**（可在此裝置驗證）
-- [ ] `notificationDevice: 'desktop'`
-  - **應在桌面響**（需兩台裝置同步測試，暫放）
-- [ ] `notificationDevice: 'both'`
-  - **應在兩者響**（需同步測試）
-
----
-
-## 4. 已知限制
-
-### 4.1 測試環境
-- vitest 無 window 物件，故通知不在測試中發出
-- 環境偵測 (`typeof window !== 'undefined'`) 使測試順利通過
-
-### 4.2 尚未實作
-- [ ] 桌面版與手機版的提醒同步（S2，排在此批之後）
-- [ ] 提醒觸發時開啟 app 或導向對話
-- [ ] 提醒音設定
-- [ ] 振動反饋
-
----
-
-## 5. 預期表現
-
-### 成功指標
-1. ✓ 新增、編輯、刪除提醒無異常
-2. **✓ 手機收到正確時機的本機通知**（需實機）
-3. ✓ 通知標題、內容正確顯示
-4. ✓ 排程邏輯與桌面版一致
-5. ✓ 禁用提醒後不再觸發
-
-### 故障排查
-若通知未顯示：
-- 確認手機通知權限已授予
-- 檢查 app 是否有「展開」提醒功能切換
-- 查閱 Android logcat 錯誤日誌
-
----
-
-## 6. 測試進度記錄
-
-| 日期 | 項目 | 狀態 | 備註 |
-|------|------|------|------|
-| 2026-08-09 | 單元測試 | ✓ 通過 | 13/13 排程測試 |
-| 2026-08-09 | 代碼實裝 | ✓ 完成 | CRUD + 排程器 + 通知 |
-| —— | **實機測試** | 待進行 | Pixel 10a |
-| —— | 跨裝置同步 | 排程中 | S2 同步（後續） |
-
+- 桌面 ↔ 手機提醒同步（S2，排在獨立版功能補完之後）
+- `notificationDevice` 的 `desktop`／`both` 需要兩台裝置才驗得到，目前只驗過 `mobile`
+- 點通知開啟 app 並導向對話
+- 提醒音量／自訂音效（桌面有 `ui.reminderNotificationSound`，手機還沒接）

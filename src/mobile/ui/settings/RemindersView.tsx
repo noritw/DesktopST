@@ -1,34 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Reminder, ReminderSchedule } from '@core/types'
+import type { Reminder } from '@core/types'
 import MonoIcon from '@shared/MonoIcon'
 import { getData } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from './settingsErrors'
+import { scheduleLabel } from './reminderFormat'
 
-const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const
-
-/** 對齊桌面版 `RemindersManagerWindow.tsx` 的措辭，同一個排程在兩邊看到的敘述要一樣。 */
-function scheduleLabel(s: ReminderSchedule): string {
-  if (s.type === 'startup') return '每次啟動'
-  if (s.type === 'daily') return `每天 ${pad(s.hour)}:${pad(s.minute)}`
-  if (s.type === 'weekly') {
-    const names = [...s.days].sort((a, b) => a - b).map((d) => WEEKDAY_LABELS[d] ?? '?').join('、')
-    return `每週 ${names} ${pad(s.hour)}:${pad(s.minute)}`
-  }
-  if (s.type === 'interval') {
-    const mins = Math.round(s.intervalMs / 60_000)
-    if (mins >= 60 && mins % 60 === 0) return `每 ${mins / 60} 小時`
-    return `每 ${mins} 分鐘`
-  }
-  const d = new Date(s.at)
-  return `一次性 ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function pad(n: number): string {
-  return String(n).padStart(2, '0')
-}
-
-/** 提醒清單（B3 階段 4，資料面；排程本身是 B5）。 */
+/** 提醒清單。時間格式與編輯器的原生選擇器共用 `reminderFormat`，見那支的說明。 */
 export function RemindersView(): JSX.Element {
   const push = useUiStore((s) => s.push)
   const toast = useUiStore((s) => s.toast)
