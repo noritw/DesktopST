@@ -15,9 +15,11 @@ import { PersonaIdentity } from '../context/PersonaIdentity'
  *
  *   - **自動長高**：固定一行的話打長訊息看不到自己在寫什麼；
  *     但要設上限，否則鍵盤一彈出來畫面就只剩輸入框
- *   - **Enter 送出／Shift+Enter 換行**：實體鍵盤與外接鍵盤才有意義，
- *     手機軟體鍵盤的 Enter 一律是換行（`enterKeyHint` 也設成 enter），
- *     送出靠按鈕 —— 否則想換行的人會不小心送出半句話
+ *   - **Enter 一律換行，送出靠按鈕**：owner 2026-08-10 實機回報「打長訊息不知道
+ *     怎麼換行」——原本設計假設軟體鍵盤的 Enter 不會觸發 `keydown`，實機上
+ *     Gboard 等鍵盤其實會，導致打字打到一半被送出去。`enterKeyHint` 仍設成
+ *     enter（純粹是鍵盤上顯示的圖示提示，不影響行為）。外接鍵盤留
+ *     Ctrl/Cmd+Enter 當送出捷徑，純 Enter／Shift+Enter 都只換行
  */
 
 const MAX_HEIGHT_PX = 140
@@ -289,8 +291,8 @@ export function Composer(): JSX.Element {
           onClick={(e) => setCaret(e.currentTarget.selectionStart)}
           onKeyUp={(e) => setCaret(e.currentTarget.selectionStart)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              // 只有實體鍵盤會走到這裡；軟體鍵盤送的是換行不是 Enter 鍵事件。
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+              // 純 Enter／Shift+Enter 都是換行；只有外接鍵盤的 Ctrl/Cmd+Enter 送出。
               // isComposing 檢查是注音／拼音選字中，不可攔截。
               e.preventDefault()
               void submit()

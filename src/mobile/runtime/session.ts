@@ -47,7 +47,7 @@ import {
   seedDefaultCharactersIfEmpty,
   seedDefaultPresetsIfEmpty
 } from './seedDefaults'
-import { sendStandaloneMessage } from './chat'
+import { forceSpeakStandalone, sendStandaloneMessage } from './chat'
 import { speakStandaloneReminder, type ReminderSpeakResult } from './reminderSpeak'
 import { initReminderScheduler, updateReminders, stopReminderScheduler } from './reminderScheduler'
 
@@ -91,6 +91,8 @@ export class StandaloneSession {
   private sendAbort: AbortController | null = null
   private sendDraft: { content: string; images?: string[] } | null = null
   private sendInFlight: Promise<void> | null = null
+  private speakAbort: AbortController | null = null
+  private speakInFlight: Promise<void> | null = null
 
   private constructor(readonly adapters: PlatformAdapters) {}
 
@@ -688,15 +690,27 @@ export class StandaloneSession {
   }
 
   async stopGenerating(): Promise<StopGeneratingResult> {
-    if (!this.sendAbort) return null
-    const draft = this.sendDraft
-    this.sendAbort.abort()
-    try {
-      await this.sendInFlight
-    } catch {
-      // 中止路徑不往上拋；草稿仍還給 UI
+    if (this.sendAbort) {
+      const draft = this.sendDraft
+      this.sendAbort.abort()
+      try {
+        await this.sendInFlight
+      } catch {
+        // 中止路徑不往上拋；草稿仍還給 UI
+      }
+      return draft ? { content: draft.content, images: draft.images } : { content: '' }
     }
-    return draft ? { content: draft.content, images: draft.images } : { content: '' }
+    if (this.speakAbort) {
+      this.speakAbort.abort()
+      try {
+        await this.speakInFlight
+      } catch {
+        // 中止路徑不往上拋
+      }
+      // 「說點什麼」沒有使用者訊息可撤回，草稿留 null 讓輸入框維持原樣
+      return null
+    }
+    return null
   }
 
   listConversations() {
@@ -890,14 +904,33 @@ export class StandaloneSession {
   }
 
   async speak(id: string): Promise<void> {
-    // 獨立模式沒有「強制說話」桌寵流程；當作解除禁言後的輕提示
     const d = this.settings.ui.desktopCharacters.find((x) => x.characterId === id)
     if (!d) throw new DataError('not-found', id)
-    if (d.muted) {
-      d.muted = false
-      await this.saveSettings()
-    }
-    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    // 同時間只允許一個進行中的生成（對齊 sendMessage 的 sendInFlight 序列化）
+    if (this.speakInFlight) await this.speakInFlight.catch(() => undefined)
+
+    const abort = new AbortController()
+    this.speakAbort = abort
+    this.speakInFlight = forceSpeakStandalone({
+      adapters: this.adapters,
+      events: this.events,
+      settings: this.settings,
+      characters: this.characters,
+      getActiveConversation: () => this.activeConversation,
+      saveConversation: (c) => this.saveConversation(c),
+      getPersona: () => this.personas.find((p) => p.id === this.settings.activePersonaId) ?? null,
+      getWorld: () => this.worlds.find((w) => w.id === this.settings.activeWorldId) ?? null,
+      getActiveScene: () => this.scenes.find((s) => s.id === this.settings.activeSceneId) ?? null,
+      loadLorebook: (id) => this.getLorebook(id),
+      characterId: id,
+      signal: abort.signal
+    }).finally(() => {
+      if (this.speakAbort === abort) {
+        this.speakAbort = null
+        this.speakInFlight = null
+      }
+    })
+    await this.speakInFlight
   }
 
   async saveCharacter(char: Character): Promise<void> {

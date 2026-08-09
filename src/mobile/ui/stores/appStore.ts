@@ -51,6 +51,11 @@ interface AppState {
   attach: (deps: { data: DataSource; events: EventSource }) => () => void
   refresh: () => Promise<void>
   send: (input: SendMessageInput) => Promise<void>
+  /**
+   * 「說點什麼」：強制角色主動發話。跟 `send` 共用 `sending` 鎖與同一顆
+   * 停止按鈕 —— 沒有使用者訊息可撤回，但生成中途一樣該能按停止。
+   */
+  speak: (characterId: string) => Promise<void>
   /** 中止進行中的生成，並把草稿還給輸入框。 */
   stop: () => Promise<void>
 }
@@ -161,6 +166,19 @@ export const useAppStore = create<AppState>((set, get) => ({
         // 圖片由呼叫端放回附件列（清單 B5），這裡不再重複顯示在錯誤泡泡上。
         localImages: pruneKey(s.localImages, optimistic.id)
       }))
+      throw e
+    }
+    // 若使用者中途按了停止，sending 已被 stop() 清掉；勿再蓋掉 restoreDraft。
+    if (get().sending) set({ sending: false })
+  },
+
+  speak: async (characterId) => {
+    if (!deps) return
+    set({ sending: true })
+    try {
+      await deps.data.characters.speak(characterId)
+    } catch (e) {
+      if (get().sending) set({ sending: false })
       throw e
     }
     // 若使用者中途按了停止，sending 已被 stop() 清掉；勿再蓋掉 restoreDraft。

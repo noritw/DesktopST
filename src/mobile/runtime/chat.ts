@@ -64,6 +64,138 @@ export async function buildLoreBlockFor(
 }
 
 /**
+ * 獨立模式「說點什麼」（強制發話）：對齊桌面 `forceSpeakDirect` 的主幹，
+ * 砍掉新聞／Spotify／日曆等獨立版還沒接的素材，天氣兩邊共用 `core/weather` 所以有留。
+ *
+ * 不是在回一則使用者訊息，所以不新增 user Message；直接把既有對話當 context
+ * 餵給 LLM，用 `[發話重點]` 指令引導它主動開口而不是等著回覆。
+ */
+export async function forceSpeakStandalone(opts: {
+  adapters: PlatformAdapters
+  events: LocalEventSource
+  settings: import('@core/types').AppSettings
+  characters: Character[]
+  getActiveConversation: () => Conversation | null
+  saveConversation: (conv: Conversation) => Promise<void>
+  getPersona: () => import('@core/types').PersonaPreset | null
+  getWorld: () => import('@core/types').WorldPreset | null
+  getActiveScene: () => ScenePreset | null
+  loadLorebook: (id: string) => Promise<Lorebook | null>
+  characterId: string
+  /** 停止生成時 abort；沒有使用者訊息可撤回，中止就單純不落話 */
+  signal?: AbortSignal
+}): Promise<void> {
+  const conv = opts.getActiveConversation()
+  const char = opts.characters.find((c) => c.id === opts.characterId)
+  if (!conv || !char) throw new Error('Not found')
+
+  const hasApiKey = !!opts.settings.llm.apiKeys[opts.settings.llm.provider]?.trim()
+  if (!hasApiKey) {
+    const noKeyText = '（系統提示：尚未設定 API Key，我沒辦法回應你喔。請到設定填入 API Key，就可以開始聊天囉！）'
+    const msg: Message = {
+      id: newId(),
+      role: 'character',
+      characterId: char.id,
+      content: noKeyText,
+      timestamp: Date.now()
+    }
+    conv.messages.push(msg)
+    conv.updatedAt = Date.now()
+    await opts.saveConversation(conv)
+    opts.events.push({ kind: 'message', message: msg })
+    return
+  }
+
+  const world = opts.getWorld()
+  const activeScene = opts.getActiveScene()
+  const recentMessages = contextMessages(conv.messages, opts.settings.memory.keepRecentN)
+  const desktopCharacterNames = opts.settings.ui.desktopCharacters
+    .map((d) => opts.characters.find((c) => c.id === d.characterId)?.name ?? '')
+    .filter(Boolean)
+
+  const ctxParts: string[] = []
+  if (conv.messages.length === 0 && char.firstMessage?.trim()) {
+    ctxParts.push(`[角色開場白]\n${char.firstMessage.trim()}\n\n請基於這個開場白的人格和語氣，自由發揮回應。`)
+  }
+  opts.events.push({ kind: 'thinking', characterId: char.id })
+
+  const weatherContext = await getWeatherContextString(opts.settings, { http: opts.adapters.http })
+  if (opts.signal?.aborted) {
+    opts.events.push({ kind: 'thinking-done', characterId: char.id })
+    return
+  }
+  if (weatherContext) ctxParts.push(weatherContext)
+  ctxParts.push(
+    '[發話重點]\n這是你主動找使用者聊聊，不是在回覆訊息；換個新鮮的開場，別跟你最近說過的雷同。'
+  )
+  if (desktopCharacterNames.length > 0) {
+    ctxParts.push(
+      ['[Desktop Characters]', `- ${char.name} (you)`, ...desktopCharacterNames.filter((n) => n !== char.name).map((n) => `- ${n}`)].join('\n')
+    )
+  }
+  const extraSystemContext = ctxParts.join('\n\n') || undefined
+
+  try {
+    const { content, emotion, debugPrompt, inputTokens, outputTokens } = await chatWithLLM(
+      {
+        settings: opts.settings,
+        character: char,
+        messages: recentMessages,
+        speakerNameById: Object.fromEntries(opts.characters.map((c) => [c.id, c.name])),
+        persona: opts.getPersona(),
+        world,
+        desktopCharacterNames,
+        extraSystemContext,
+        memorySummary: conv.summary,
+        loreBlock: await buildLoreBlockFor(
+          char,
+          world,
+          activeScene,
+          { summary: conv.summary, recentContents: recentMessages.map((m) => m.content ?? '') },
+          opts.loadLorebook,
+          new Map()
+        ),
+        omitEmotionTag: true,
+        signal: opts.signal
+      },
+      { http: opts.adapters.http }
+    )
+
+    const reply = stripOtherCharacterSpeakerLines(normalizeCharacterDialogue(content, char), char.id, opts.characters)
+    if (!reply) {
+      opts.events.push({ kind: 'thinking-done', characterId: char.id })
+      return
+    }
+
+    const llm = messageLlmMeta(debugPrompt, opts.settings)
+    const msg: Message = {
+      id: newId(),
+      role: 'character',
+      characterId: char.id,
+      content: reply,
+      llmProvider: llm.provider,
+      llmModel: llm.model,
+      debugPrompt,
+      emotion,
+      inputTokens,
+      outputTokens,
+      hasDebugPrompt: !!debugPrompt,
+      timestamp: Date.now()
+    }
+    conv.messages.push(msg)
+    conv.updatedAt = Date.now()
+    await opts.saveConversation(conv)
+    opts.events.push({ kind: 'thinking-done', characterId: char.id })
+    opts.events.push({ kind: 'message', message: msg })
+  } catch (e) {
+    opts.events.push({ kind: 'thinking-done', characterId: char.id })
+    // 中止是使用者主動按停止；不落話、不當錯誤處理（沒有使用者訊息需要撤回）
+    if (opts.signal?.aborted) return
+    throw e
+  }
+}
+
+/**
  * 獨立模式精簡聊天：對齊桌面 `sendMsgBody` 的主幹，
  * 砍掉桌寵泡泡、Spotify／日曆／新聞斜線、災害補搜等平台專屬枝節。
  */
