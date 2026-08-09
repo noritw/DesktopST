@@ -48,6 +48,7 @@ import {
   seedDefaultPresetsIfEmpty
 } from './seedDefaults'
 import { sendStandaloneMessage } from './chat'
+import { speakStandaloneReminder, type ReminderSpeakResult } from './reminderSpeak'
 import { initReminderScheduler, updateReminders, stopReminderScheduler } from './reminderScheduler'
 
 const MODULE_DEFS: ModuleToggle[] = [
@@ -156,9 +157,10 @@ export class StandaloneSession {
     await this.reloadConversations()
     await this.reloadReminders()
 
-    // 啟動提醒排程器
+    // 啟動提醒排程器：觸發時讓角色用自己的口吻把提醒講出來
     await initReminderScheduler(async (reminder) => {
       await this.recordReminderTriggered(reminder)
+      return this.speakReminder(reminder)
     })
     updateReminders(this.reminders)
 
@@ -1223,6 +1225,26 @@ export class StandaloneSession {
       this.reminders[idx].lastTriggeredAt = Date.now()
       await this.adapters.storage.writeJson(keys.REMINDERS_KEY, this.reminders)
     }
+  }
+
+  /**
+   * 提醒觸發 → 角色發話。訊息會進目前的對話，回傳講出來的內容給排程器當通知文案。
+   * 詳見 `reminderSpeak.ts`：提醒是「角色來提醒你」，不是行事曆通知。
+   */
+  private speakReminder(reminder: Reminder): Promise<ReminderSpeakResult | null> {
+    return speakStandaloneReminder({
+      adapters: this.adapters,
+      events: this.events,
+      settings: this.settings,
+      characters: this.characters,
+      getActiveConversation: () => this.activeConversation,
+      saveConversation: (c) => this.saveConversation(c),
+      getPersona: () => this.personas.find((p) => p.id === this.settings.activePersonaId) ?? null,
+      getWorld: () => this.worlds.find((w) => w.id === this.settings.activeWorldId) ?? null,
+      getActiveScene: () => this.scenes.find((s) => s.id === this.settings.activeSceneId) ?? null,
+      loadLorebook: (id) => this.getLorebook(id),
+      reminder
+    })
   }
 }
 

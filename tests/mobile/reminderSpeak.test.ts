@@ -1,0 +1,159 @@
+import { describe, expect, it } from 'vitest'
+import { DEFAULT_SETTINGS } from '@core/types'
+import type { AppSettings, Character, Conversation, Reminder } from '@core/types'
+import { speakStandaloneReminder } from '../../src/mobile/runtime/reminderSpeak'
+import { LocalEventSource } from '../../src/mobile/events/localEventSource'
+
+/**
+ * 提醒觸發 → 角色發話（獨立模式）。
+ *
+ * owner 2026-08-09：「提醒就只是內容照用，我要的是走 LLM 用角色語氣提醒我，
+ * 不然這功能跟一般行事曆沒有差異。」所以這裡的重點不是「有沒有發通知」，
+ * 而是**通知內容到底是誰寫的**——`reminder.prompt` 是給角色的指令，
+ * 不是要給使用者看的文案。
+ */
+
+const CHAR: Character = {
+  id: 'c1',
+  name: '小綠',
+  avatar: '',
+  description: '',
+  personality: '',
+  firstMessage: '',
+  exampleDialogue: '',
+  emotions: {},
+  createdAt: 0,
+  updatedAt: 0
+}
+
+const REMINDER: Reminder = {
+  id: 'r1',
+  label: '喝水',
+  prompt: '提醒我喝水',
+  schedule: { type: 'daily', hour: 8, minute: 0 },
+  enabled: true,
+  notificationDevice: 'mobile',
+  createdAt: 0
+}
+
+function makeSettings(apiKey: string): AppSettings {
+  return {
+    ...DEFAULT_SETTINGS,
+    llm: {
+      ...DEFAULT_SETTINGS.llm,
+      provider: 'openai',
+      models: { openai: 'gpt-4o' },
+      model: 'gpt-4o',
+      apiKeys: { ...DEFAULT_SETTINGS.llm.apiKeys, openai: apiKey }
+    },
+    ui: {
+      ...DEFAULT_SETTINGS.ui,
+      desktopCharacters: [
+        { characterId: 'c1', position: { x: 0, y: 0 }, size: 1, flipped: false, muted: false, zIndex: 1 }
+      ]
+    }
+  }
+}
+
+/** 攔下送出去的 request body，並回一個 Responses API 形狀的假回應。 */
+function stubLlm(reply: string): { fetch: typeof globalThis.fetch; bodies: string[] } {
+  const bodies: string[] = []
+  const fetch = (async (_input: unknown, init?: { body?: unknown }) => {
+    if (typeof init?.body === 'string') bodies.push(init.body)
+    return new Response(JSON.stringify({ output_text: reply, usage: { input_tokens: 10, output_tokens: 5 } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    })
+  }) as unknown as typeof globalThis.fetch
+  return { fetch, bodies }
+}
+
+function makeOpts(settings: AppSettings, fetchImpl: typeof globalThis.fetch, conv: Conversation) {
+  return {
+    adapters: { http: { fetch: fetchImpl, supportsStreaming: false } } as never,
+    events: new LocalEventSource(),
+    settings,
+    characters: [CHAR],
+    getActiveConversation: () => conv,
+    saveConversation: async () => undefined,
+    getPersona: () => null,
+    getWorld: () => null,
+    getActiveScene: () => null,
+    loadLorebook: async () => null,
+    reminder: REMINDER
+  }
+}
+
+function emptyConv(): Conversation {
+  return { id: 'conv1', title: '聊天', messages: [], createdAt: 0, updatedAt: 0 }
+}
+
+describe('提醒觸發時由角色發話（獨立模式）', () => {
+  it('走 LLM：通知內容是角色講的話，不是 reminder.prompt', async () => {
+    const conv = emptyConv()
+    const { fetch, bodies } = stubLlm('欸，記得喝水啦，你都盯著螢幕多久了。')
+    const result = await speakStandaloneReminder(makeOpts(makeSettings('sk-test'), fetch, conv))
+
+    expect(result).not.toBeNull()
+    expect(result?.characterName).toBe('小綠')
+    expect(result?.text).toBe('欸，記得喝水啦，你都盯著螢幕多久了。')
+    // 最關鍵的一條：不可以直接照搬指令
+    expect(result?.text).not.toBe(REMINDER.prompt)
+    expect(bodies.length).toBe(1)
+  })
+
+  it('提醒內容是當成「給角色的指令」餵進 system prompt', async () => {
+    const conv = emptyConv()
+    const { fetch, bodies } = stubLlm('好啦好啦，喝水。')
+    await speakStandaloneReminder(makeOpts(makeSettings('sk-test'), fetch, conv))
+
+    const sent = bodies[0]
+    expect(sent).toContain('[提醒指令]')
+    expect(sent).toContain('提醒我喝水')
+    // 沒有這段，模型會把提醒當成普通對話接下去聊
+    expect(sent).toContain('[發話重點]')
+  })
+
+  it('發話會寫進目前的對話（之後回頭看得到角色說了什麼）', async () => {
+    const conv = emptyConv()
+    const { fetch } = stubLlm('該喝水囉。')
+    await speakStandaloneReminder(makeOpts(makeSettings('sk-test'), fetch, conv))
+
+    expect(conv.messages).toHaveLength(1)
+    expect(conv.messages[0].role).toBe('character')
+    expect(conv.messages[0].characterId).toBe('c1')
+    expect(conv.messages[0].content).toBe('該喝水囉。')
+  })
+
+  it('沒有 API Key：退回提醒原文，該響的還是要響', async () => {
+    const conv = emptyConv()
+    const { fetch, bodies } = stubLlm('不該被呼叫')
+    const result = await speakStandaloneReminder(makeOpts(makeSettings(''), fetch, conv))
+
+    expect(bodies).toHaveLength(0)
+    expect(result?.text).toBe('提醒我喝水')
+  })
+
+  it('LLM 掛掉：不要靜靜吞掉，退回提醒原文', async () => {
+    const conv = emptyConv()
+    const failing = (async () => {
+      throw new Error('network down')
+    }) as unknown as typeof globalThis.fetch
+    const result = await speakStandaloneReminder(makeOpts(makeSettings('sk-test'), failing, conv))
+
+    expect(result).not.toBeNull()
+    expect(result?.text).toBe('提醒我喝水')
+    expect(conv.messages).toHaveLength(1)
+  })
+
+  it('全部角色都禁言時回 null（不發通知）', async () => {
+    const conv = emptyConv()
+    const settings = makeSettings('sk-test')
+    settings.ui.desktopCharacters[0].muted = true
+    const { fetch } = stubLlm('不該被呼叫')
+    const result = await speakStandaloneReminder(makeOpts(settings, fetch, conv))
+
+    expect(result).toBeNull()
+    expect(conv.messages).toHaveLength(0)
+  })
+})

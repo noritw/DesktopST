@@ -15,7 +15,11 @@ import {
  * 提醒觸發時發送本機通知。排程計算邏輯與桌面版一致（共用 `core/reminder/nextFire.ts`）。
  */
 
-type TriggerFn = (reminder: Reminder) => Promise<void>
+/**
+ * 觸發時要做的事：讓角色用自己的口吻把提醒講出來，
+ * 回傳講出來的那句話當通知內容。回 `null` 代表沒有角色可發話（就不發通知）。
+ */
+type TriggerFn = (reminder: Reminder) => Promise<{ characterName: string; text: string } | null>
 
 /**
  * 提醒專用的通知頻道。
@@ -125,19 +129,34 @@ function clearTimerFor(id: string): void {
 
 async function fire(reminder: Reminder): Promise<void> {
   try {
-    if (triggerFn) {
-      await triggerFn(reminder)
+    /*
+     * 先讓角色說話，再拿它講的內容當通知。
+     *
+     * ⚠️ **通知內容不可以是 `reminder.prompt`**——那是「給角色的指令」
+     * （例：「提醒我喝水」），不是要給使用者看的文案。直接照搬的話
+     * 這功能就跟一般行事曆沒兩樣，而提醒的賣點正是角色用自己的口吻講。
+     * 桌面版一直都是走 LLM，手機得一致（owner 2026-08-09）。
+     *
+     * 這裡會等 LLM 回來（數秒），通知因此比排定時間晚一點點跳，
+     * 這是刻意的取捨：寧可晚幾秒也要是角色的話。
+     */
+    const spoken = triggerFn ? await triggerFn(reminder) : null
+    if (!spoken) {
+      console.log(`[Reminder] "${reminder.label}" 沒有可發話的角色，不發通知`)
+      return
     }
 
     // 僅在 Web 環境發送本機通知
     if (typeof window !== 'undefined') {
       const notifId = hashStringToNumber(reminder.id)
-      console.log(`[Reminder] 發送通知: "${reminder.label}" (ID: ${notifId})`)
+      console.log(`[Reminder] 發送通知: ${spoken.characterName}「${spoken.text.slice(0, 30)}…」`)
       await LocalNotifications.schedule({
         notifications: [
           {
-            title: reminder.label || '提醒',
-            body: reminder.prompt,
+            title: spoken.characterName,
+            body: spoken.text,
+            largeBody: spoken.text,
+            summaryText: reminder.label || '提醒',
             id: notifId,
             channelId: CHANNEL_ID,
             smallIcon: 'ic_launcher_foreground',
