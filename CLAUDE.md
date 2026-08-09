@@ -111,6 +111,12 @@ src/mobile/ 手機 UI
   外掛一律用**動態 `import()`** 載，否則瀏覽器煙測與 vitest 會在載入時就炸
 - core 裡要打外部 API 就**注入 `HttpAdapter`**（比照 `core/llm`、`core/weather`），
   不要用全域 `fetch` —— 手機那邊要 CapacitorHttp patch 過才繞得過 CORS
+- **CapacitorHttp 完全忽略 `init.signal`**：core 裡那些 `AbortController` ＋
+  `setTimeout(abort)` 的逾時在手機上等於不存在，原生請求一慢就無限等
+  （天氣「抓取位置」卡住就是這個）。`mobile/adapters/httpAdapter.ts` 已用
+  `Promise.race` 把 signal 翻成 reject，**新的逾時邏輯照樣要走 signal，別自己 setTimeout**
+- **Capacitor plugin 的 `timeout` 選項不保證兌現**（`Geolocation.getCurrentPosition`
+  沒權限時 Promise 可能永遠不 settle）。外面自己再包一層計時器
 - **手機通知一定要自己建 channel**：Capacitor 預設頻道 importance=3，
   只會安靜躺進通知欄、**不會有橫幅彈出**，手機又常在震動模式 ——
   看起來就像「時間到了什麼都沒發生」。用 importance 4（`reminderScheduler.ts` 的

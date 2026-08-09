@@ -5,6 +5,7 @@ import { getData } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from './settingsErrors'
 import { formatRelative } from './reminderFormat'
+import { getStandaloneSession } from '../../runtime/sessionHolder'
 
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const
 
@@ -36,6 +37,7 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
   const pop = useUiStore((s) => s.pop)
   const setCloseGuard = useUiStore((s) => s.setCloseGuard)
 
+  const standalone = getStandaloneSession() !== null
   const [draft, setDraft] = useState<Reminder | null>(null)
   const [characters, setCharacters] = useState<CharacterListItem[]>([])
   const [failed, setFailed] = useState(false)
@@ -273,12 +275,32 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
         <textarea className="field min-h-[64px]" value={draft.prompt} onChange={(e) => set('prompt', e.target.value)} placeholder="例：提醒我喝水" />
       </Field>
 
+      {/*
+        獨立版沒接的注入來源要灰掉、而且講清楚為什麼。
+        勾了卻什麼都不會發生比不能勾更糟——使用者會以為提醒壞了。
+        （遙控模式讀的是電腦那份資料，這三項都正常可用。）
+      */}
       <div className="space-y-1.5">
-        <ToggleRow label="參考桌面上的便利貼內容" checked={!!draft.injectPinnedNotes} onChange={(v) => set('injectPinnedNotes', v)} />
+        <ToggleRow
+          label="參考便利貼內容"
+          checked={!!draft.injectPinnedNotes}
+          onChange={(v) => set('injectPinnedNotes', v)}
+          disabledNote={standalone ? '手機版還沒有便利貼' : undefined}
+        />
         <ToggleRow label="參考對話上下文內容" checked={!!draft.injectConversationContext} onChange={(v) => set('injectConversationContext', v)} />
         <ToggleRow label="加入天氣資訊" checked={!!draft.injectWeather} onChange={(v) => set('injectWeather', v)} />
-        <ToggleRow label="抓一則新聞當話題" checked={!!draft.injectNews} onChange={(v) => set('injectNews', v)} />
-        <ToggleRow label="加入接下來的行程" checked={!!draft.injectCalendar} onChange={(v) => set('injectCalendar', v)} />
+        <ToggleRow
+          label="抓一則新聞當話題"
+          checked={!!draft.injectNews}
+          onChange={(v) => set('injectNews', v)}
+          disabledNote={standalone ? '獨立版還沒接新聞來源' : undefined}
+        />
+        <ToggleRow
+          label="加入接下來的行程"
+          checked={!!draft.injectCalendar}
+          onChange={(v) => set('injectCalendar', v)}
+          disabledNote={standalone ? 'Google 日曆授權只在電腦上' : undefined}
+        />
       </div>
 
       <button
@@ -319,11 +341,33 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   )
 }
 
-function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }): JSX.Element {
+function ToggleRow({
+  label,
+  checked,
+  onChange,
+  disabledNote
+}: {
+  label: string
+  checked: boolean
+  onChange: (v: boolean) => void
+  /** 有值＝這項在目前模式下用不到；顯示原因並鎖住。 */
+  disabledNote?: string
+}): JSX.Element {
   return (
-    <label className="flex items-center justify-between gap-3 py-0.5">
-      <span className="text-sm text-[var(--text)]">{label}</span>
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4 accent-[var(--mint2)]" />
+    <label className={`flex items-center justify-between gap-3 py-0.5 ${disabledNote ? 'opacity-45' : ''}`}>
+      <span className="min-w-0">
+        <span className="block text-sm text-[var(--text)]">{label}</span>
+        {disabledNote && (
+          <span className="mt-0.5 block text-[11px] leading-relaxed text-[var(--text-sub)]">{disabledNote}</span>
+        )}
+      </span>
+      <input
+        type="checkbox"
+        checked={checked && !disabledNote}
+        disabled={!!disabledNote}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-4 w-4 shrink-0 accent-[var(--mint2)]"
+      />
     </label>
   )
 }

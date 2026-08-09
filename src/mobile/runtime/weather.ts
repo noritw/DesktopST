@@ -15,6 +15,22 @@ export interface DetectedLocation {
 const GPS_TIMEOUT_MS = 10000
 
 /**
+ * 不要相信 plugin 自己的 `timeout`。
+ *
+ * `Geolocation.getCurrentPosition({ timeout })` 在 Android 上不保證會兌現——
+ * 沒有定位權限或定位服務關閉時，那個 Promise 可能永遠不 settle，
+ * 於是 `detectMobileLocation` 連「退回 IP」都走不到，UI 就一直轉圈
+ * （owner 2026-08-09 回報「按抓取位置卡在那邊很久」）。
+ * 外面再包一層自己控的計時器，逾時就當作定位失敗往下走。
+ */
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([
+    work,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))
+  ])
+}
+
+/**
  * 讀取 Capacitor 的 Geolocation plugin。
  *
  * **動態 import 是刻意的。** 手機 UI 也跑在瀏覽器（`dev:mobile` 煙測）與
@@ -46,16 +62,23 @@ async function locateByGps(deps: WeatherDeps): Promise<DetectedLocation | null> 
      * 而且 Android 會多跳一層「精確／大概」讓使用者猶豫。
      * AndroidManifest 也只宣告了 `ACCESS_COARSE_LOCATION`，兩邊要一致。
      */
-    const status = await Geolocation.checkPermissions()
+    const status = await withTimeout(Geolocation.checkPermissions(), GPS_TIMEOUT_MS)
+    if (!status) return null
     if (status.coarseLocation !== 'granted' && status.location !== 'granted') {
-      const asked = await Geolocation.requestPermissions({ permissions: ['coarseLocation'] })
+      // 權限對話框要等使用者按，給寬一點；不回應就當作沒給。
+      const asked = await withTimeout(
+        Geolocation.requestPermissions({ permissions: ['coarseLocation'] }),
+        GPS_TIMEOUT_MS * 3
+      )
+      if (!asked) return null
       if (asked.coarseLocation !== 'granted' && asked.location !== 'granted') return null
     }
 
-    const pos = await Geolocation.getCurrentPosition({
-      enableHighAccuracy: false,
-      timeout: GPS_TIMEOUT_MS
-    })
+    const pos = await withTimeout(
+      Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: GPS_TIMEOUT_MS }),
+      GPS_TIMEOUT_MS
+    )
+    if (!pos) return null
     const lat = pos.coords.latitude
     const lon = pos.coords.longitude
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null
