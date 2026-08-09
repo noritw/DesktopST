@@ -36,10 +36,11 @@ const KNOWN_EMOTION_MARKERS = new Set([
   'neutral', 'calm', 'normal'
 ])
 
-function renderInline(text: string): ReactNode[] {
+export function renderInline(text: string): ReactNode[] {
   const nodes: ReactNode[] = []
-  // Combined regex: **bold** or ｛random result｝
-  const re = /\*\*([^*]+)\*\*|｛([^｝]+)｝/g
+  // Combined regex: **bold**、*italic*（角色扮演常見的動作／旁白標記）、或 ｛random result｝
+  // ** 要排在 * 前面，同一個起始位置 regex 引擎才會優先吃掉整組 **bold** 而不是拆成兩個 *
+  const re = /\*\*([^*]+)\*\*|\*([^*]+)\*|｛([^｝]+)｝/g
   let lastIndex = 0
   let match: RegExpExecArray | null
 
@@ -49,13 +50,16 @@ function renderInline(text: string): ReactNode[] {
       // **bold**
       nodes.push(<strong key={`b-${match.index}`}>{match[1]}</strong>)
     } else if (match[2] != null) {
+      // *italic*
+      nodes.push(<em key={`i-${match.index}`}>{match[2]}</em>)
+    } else if (match[3] != null) {
       // ｛random result｝ — inline badge using theme-aware CSS variables
       nodes.push(
         <span
           key={`r-${match.index}`}
           className="inline-flex items-center rounded px-1 py-0.5 text-[0.85em] italic leading-tight bg-surface border border-border text-secondary"
         >
-          {match[2]}
+          {match[3]}
         </span>
       )
     }

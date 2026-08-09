@@ -49,6 +49,11 @@ export interface MobileBridge {
   createConversation: (title?: string) => { id: string; title: string; updatedAt: number; active: boolean }
   renameConversation: (id: string, title: string) => { ok: true; conversation: { id: string; title: string; updatedAt: number; active: boolean } } | { error: string }
   deleteConversation: (id: string) => { ok: true; activeConversationId: string } | { error: string }
+  /** 記憶摘要（清單 A11）：依 id 操作任一對話，不限「目前使用中」那個。 */
+  getConversationMemory: (id: string) => { ok: true; summary: string; coversTs: number; coveredCount: number } | { ok: false; error: string }
+  summarizeConversationNow: (id: string) => Promise<{ ok: boolean; noNew?: boolean; error?: string; summary?: string; coveredCount?: number }>
+  updateConversationSummary: (id: string, summary: string) => { ok: true } | { ok: false; error: string }
+  clearConversationSummary: (id: string) => { ok: true } | { ok: false; error: string }
   forceSpeak: (characterId: string) => Promise<{ ok: true } | { error: string }>
   toggleMute: (characterId: string) => boolean
   getScenes: () => import('./types').ScenePreset[]
@@ -753,6 +758,57 @@ async function handleRequest(
     if (!payload.id) { jsonError(res, 400, 'id required'); return }
     const result = bridge.deleteConversation(payload.id)
     if ('error' in result) { jsonError(res, 400, result.error); return }
+    jsonOk(res, result)
+    return
+  }
+
+  // ── POST /api/conversations/summary/get ──
+  if (method === 'POST' && url === '/api/conversations/summary/get') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { id?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const result = bridge.getConversationMemory(payload.id)
+    if (!result.ok) { jsonError(res, 400, result.error); return }
+    jsonOk(res, result)
+    return
+  }
+
+  // ── POST /api/conversations/summary/generate ──
+  if (method === 'POST' && url === '/api/conversations/summary/generate') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { id?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const result = await bridge.summarizeConversationNow(payload.id)
+    jsonOk(res, result)
+    return
+  }
+
+  // ── POST /api/conversations/summary/update ──
+  if (method === 'POST' && url === '/api/conversations/summary/update') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { id?: string; summary?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const result = bridge.updateConversationSummary(payload.id, String(payload.summary ?? ''))
+    if (!result.ok) { jsonError(res, 400, result.error); return }
+    jsonOk(res, result)
+    return
+  }
+
+  // ── POST /api/conversations/summary/clear ──
+  if (method === 'POST' && url === '/api/conversations/summary/clear') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { id?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const result = bridge.clearConversationSummary(payload.id)
+    if (!result.ok) { jsonError(res, 400, result.error); return }
     jsonOk(res, result)
     return
   }

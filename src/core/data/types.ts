@@ -175,6 +175,14 @@ export interface ConversationsApi {
   create(title?: string): Promise<ConversationListItem>
   rename(id: string, title: string): Promise<ConversationListItem>
   remove(id: string): Promise<{ activeConversationId: string }>
+  /** 記憶摘要：目前存的內容、涵蓋到哪個時間點、已涵蓋幾則舊訊息。 */
+  getMemory(id: string): Promise<{ summary: string; coversTs: number; coveredCount: number }>
+  /** 手動觸發：忽略自動閾值，立即把視窗外未涵蓋的舊訊息濃縮進摘要。 */
+  summarizeMemoryNow(id: string): Promise<{ ok: boolean; noNew?: boolean; error?: string; summary?: string; coveredCount?: number }>
+  /** 使用者手動編輯／改寫摘要內容（不動涵蓋點，下次增量摘要以此為基礎）。 */
+  updateMemory(id: string, summary: string): Promise<void>
+  /** 清除摘要（連涵蓋點一起重設，之後重新摘要會從頭讀舊訊息）。 */
+  clearMemory(id: string): Promise<void>
 }
 
 export interface MessagesApi {

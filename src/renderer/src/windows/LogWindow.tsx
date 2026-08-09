@@ -4,7 +4,7 @@ import type { Message, NewsDebugInfo, NewsLinkInfo } from '../types'
 // 排版與圖片剝除跟手機版共用同一份（`core/prompt/debugPromptView`），不要在這裡另抄。
 import { renderDebugPrompt, stripImageData } from '@core/prompt/debugPromptView'
 import { MESSAGE_REACTION_EMOJIS } from '../types'
-import MessageText from '../components/MessageText'
+import MessageText from '@shared/MessageText'
 import NewsContextPanel from '../components/NewsContextPanel'
 import MonoIcon, { type MonoIconName } from '../components/MonoIcon'
 import { buildSpriteEntries, EMOTION_OPTIONS, stemFromFilename } from '../utils/emotionUtils'

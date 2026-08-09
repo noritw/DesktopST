@@ -3247,6 +3247,50 @@ function maybeAutoSummarize(conv: Conversation): void {
   })
 }
 
+/** 手機（獨立／遙控）用：依 id 操作任一對話的記憶摘要，不限「目前使用中」那個。 */
+export function getConversationMemoryDirect(id: string): { ok: true; summary: string; coversTs: number; coveredCount: number } | { ok: false; error: string } {
+  const conv = getOrLoadConversation(id)
+  if (!conv) return { ok: false, error: '找不到這個對話' }
+  const coversTs = conv.summaryCoversTs ?? 0
+  return {
+    ok: true,
+    summary: conv.summary ?? '',
+    coversTs,
+    coveredCount: coversTs ? conv.messages.filter(m => m.timestamp <= coversTs).length : 0
+  }
+}
+
+export async function summarizeConversationNowDirect(id: string): Promise<{ ok: boolean; noNew?: boolean; error?: string; summary?: string; coveredCount?: number }> {
+  const conv = getOrLoadConversation(id)
+  if (!conv) return { ok: false, error: '找不到這個對話' }
+  if (!settings.llm.apiKeys[settings.llm.provider]?.trim()) return { ok: false, error: '尚未設定 API Key' }
+  const r = await runConversationSummarize(conv)
+  if (!r.ok || r.noNew) return r
+  const coversTs = conv.summaryCoversTs ?? 0
+  return { ok: true, summary: conv.summary, coveredCount: coversTs ? conv.messages.filter(m => m.timestamp <= coversTs).length : 0 }
+}
+
+export function updateConversationSummaryDirect(id: string, summary: string): { ok: true } | { ok: false; error: string } {
+  const conv = getOrLoadConversation(id)
+  if (!conv) return { ok: false, error: '找不到這個對話' }
+  conv.summary = String(summary ?? '').trim()
+  conv.updatedAt = Date.now()
+  fileStore.saveConversation(conv)
+  broadcastConversationUpdate(conv)
+  return { ok: true }
+}
+
+export function clearConversationSummaryDirect(id: string): { ok: true } | { ok: false; error: string } {
+  const conv = getOrLoadConversation(id)
+  if (!conv) return { ok: false, error: '找不到這個對話' }
+  conv.summary = ''
+  conv.summaryCoversTs = undefined
+  conv.updatedAt = Date.now()
+  fileStore.saveConversation(conv)
+  broadcastConversationUpdate(conv)
+  return { ok: true }
+}
+
 export function registerIpcHandlers() {
   // Store: get initial snapshot for any renderer
   ipcMain.handle('store:get-all', (event) => {

@@ -1,4 +1,5 @@
 import { chatWithLLM } from '@core/llm'
+import { countUncoveredMessages, summarizeConversation } from '@core/llm/summarizer'
 import type { PlatformAdapters } from '@core/adapters'
 import {
   isAddressed,
@@ -20,11 +21,52 @@ import {
   selectLoreEntries,
   type Lorebook
 } from '@core/lore'
-import type { Character, Conversation, Message, ScenePreset } from '@core/types'
+import type { AppSettings, Character, Conversation, Message, PersonaPreset, ScenePreset } from '@core/types'
 import type { SendMessageInput } from '@core/data'
 import type { LocalEventSource } from '../events/localEventSource'
 import { newId } from './id'
 import { contextMessages } from './messages'
+
+/** 摘要進行中的對話 id（防止同一本對話重複觸發，比照桌面 `summarizingConvIds`） */
+const summarizingConvIds = new Set<string>()
+
+/**
+ * 自動記憶摘要（fire-and-forget）：對齊桌面 `ipcHandlers.ts` 的 `maybeAutoSummarize`。
+ * 獨立版聊天送完訊息之後從沒呼叫過這個 —— `conv.summary` 永遠停在初始值，
+ * 舊訊息被 `keepRecentN` 視窗切掉後就此從 prompt 消失，看起來像角色失憶。
+ */
+function maybeAutoSummarize(opts: {
+  adapters: PlatformAdapters
+  events: LocalEventSource
+  settings: AppSettings
+  conv: Conversation
+  persona: PersonaPreset | null
+  speakerNameById: Record<string, string>
+  saveConversation: (conv: Conversation) => Promise<void>
+}): void {
+  const { settings, conv } = opts
+  if (!settings.memory.autoSummarizeEnabled) return
+  if (!settings.llm.apiKeys[settings.llm.provider]?.trim()) return
+  if (summarizingConvIds.has(conv.id)) return
+  const threshold = Math.max(1, Number(settings.memory.autoSummarizeAfter) || 50)
+  if (countUncoveredMessages(conv) < threshold) return
+
+  summarizingConvIds.add(conv.id)
+  void summarizeConversation(
+    { settings, conv, persona: opts.persona, speakerNameById: opts.speakerNameById },
+    { http: opts.adapters.http }
+  )
+    .then(async (result) => {
+      if (!result) return
+      conv.summary = result.summary
+      conv.summaryCoversTs = result.coversTs
+      conv.updatedAt = Date.now()
+      await opts.saveConversation(conv)
+      opts.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    })
+    .catch((e) => console.warn('[standalone] auto summarize failed', e))
+    .finally(() => summarizingConvIds.delete(conv.id))
+}
 
 /**
  * 組出這一輪的 `[Glossary]` 注入區塊；沒有命中任何條目時回傳 `undefined`
@@ -187,6 +229,15 @@ export async function forceSpeakStandalone(opts: {
     await opts.saveConversation(conv)
     opts.events.push({ kind: 'thinking-done', characterId: char.id })
     opts.events.push({ kind: 'message', message: msg })
+    maybeAutoSummarize({
+      adapters: opts.adapters,
+      events: opts.events,
+      settings: opts.settings,
+      conv,
+      persona: opts.getPersona(),
+      speakerNameById: Object.fromEntries(opts.characters.map((c) => [c.id, c.name])),
+      saveConversation: opts.saveConversation
+    })
   } catch (e) {
     opts.events.push({ kind: 'thinking-done', characterId: char.id })
     // 中止是使用者主動按停止；不落話、不當錯誤處理（沒有使用者訊息需要撤回）
@@ -475,6 +526,16 @@ export async function sendStandaloneMessage(opts: {
         console.warn('[standalone] secondary reply failed', oid, e)
       }
     }
+
+    maybeAutoSummarize({
+      adapters: opts.adapters,
+      events: opts.events,
+      settings: opts.settings,
+      conv,
+      persona: opts.getPersona(),
+      speakerNameById: Object.fromEntries(opts.characters.map((c) => [c.id, c.name])),
+      saveConversation: opts.saveConversation
+    })
   } catch (e) {
     if (opts.signal?.aborted) {
       await undoUserMessage()

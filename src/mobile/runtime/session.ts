@@ -48,6 +48,7 @@ import {
   seedDefaultPresetsIfEmpty
 } from './seedDefaults'
 import { forceSpeakStandalone, sendStandaloneMessage } from './chat'
+import { listSummarizableMessages, summarizeConversation } from '@core/llm/summarizer'
 import { speakStandaloneReminder, type ReminderSpeakResult } from './reminderSpeak'
 import { initReminderScheduler, updateReminders, stopReminderScheduler } from './reminderScheduler'
 
@@ -803,6 +804,75 @@ export class StandaloneSession {
     }
     this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     return { activeConversationId: this.activeConversation!.id }
+  }
+
+  /** 記憶摘要（清單 A11）：依 id 操作任一對話，不限「目前使用中」那個。 */
+  async getConversationMemory(id: string): Promise<{ summary: string; coversTs: number; coveredCount: number }> {
+    const conv = this.conversationIndex.get(id)
+    if (!conv) throw new DataError('not-found', id)
+    const coversTs = conv.summaryCoversTs ?? 0
+    return {
+      summary: conv.summary ?? '',
+      coversTs,
+      coveredCount: coversTs ? conv.messages.filter((m) => m.timestamp <= coversTs).length : 0
+    }
+  }
+
+  async summarizeConversationNow(
+    id: string
+  ): Promise<{ ok: boolean; noNew?: boolean; error?: string; summary?: string; coveredCount?: number }> {
+    const conv = this.conversationIndex.get(id)
+    if (!conv) throw new DataError('not-found', id)
+    if (!this.settings.llm.apiKeys[this.settings.llm.provider]?.trim()) {
+      return { ok: false, error: '尚未設定 API Key' }
+    }
+    if (listSummarizableMessages(conv, this.settings.memory.keepRecentN).length === 0) {
+      return { ok: true, noNew: true }
+    }
+    try {
+      const result = await summarizeConversation(
+        {
+          settings: this.settings,
+          conv,
+          persona: this.personas.find((p) => p.id === this.settings.activePersonaId) ?? null,
+          speakerNameById: Object.fromEntries(this.characters.map((c) => [c.id, c.name]))
+        },
+        { http: this.adapters.http }
+      )
+      if (!result) return { ok: true, noNew: true }
+      conv.summary = result.summary
+      conv.summaryCoversTs = result.coversTs
+      conv.updatedAt = Date.now()
+      await this.saveConversation(conv)
+      this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+      const coversTs = conv.summaryCoversTs ?? 0
+      return {
+        ok: true,
+        summary: conv.summary,
+        coveredCount: coversTs ? conv.messages.filter((m) => m.timestamp <= coversTs).length : 0
+      }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
+  async updateConversationSummary(id: string, summary: string): Promise<void> {
+    const conv = this.conversationIndex.get(id)
+    if (!conv) throw new DataError('not-found', id)
+    conv.summary = String(summary ?? '').trim()
+    conv.updatedAt = Date.now()
+    await this.saveConversation(conv)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  async clearConversationSummary(id: string): Promise<void> {
+    const conv = this.conversationIndex.get(id)
+    if (!conv) throw new DataError('not-found', id)
+    conv.summary = ''
+    conv.summaryCoversTs = undefined
+    conv.updatedAt = Date.now()
+    await this.saveConversation(conv)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
   }
 
   /**

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { MessageSnapshot } from '@core/data'
 import { formatLlmHoverTitle, llmBadgeGlyph } from '@shared/llmBadge'
+import { renderInline } from '@shared/MessageText'
 import { isOptimistic, useAppStore, getData } from '../stores/appStore'
 import { MessageImages } from './MessageImages'
 import { formatRandomBadge } from './randomLabels'
@@ -186,7 +187,7 @@ function MessageRow({ message, characterName }: { message: MessageSnapshot; char
                 </div>
               )
             )}
-            {message.content}
+            {renderInline(message.content)}
             {message.newsLink?.title && (
               <button
                 type="button"

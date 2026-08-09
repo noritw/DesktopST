@@ -54,7 +54,11 @@ export class LocalDataSource implements DataSource {
     load: (id) => this.session.loadConversation(id),
     create: (title) => this.session.createConversation(title),
     rename: (id, title) => this.session.renameConversation(id, title),
-    remove: (id) => this.session.removeConversation(id)
+    remove: (id) => this.session.removeConversation(id),
+    getMemory: (id) => this.session.getConversationMemory(id),
+    summarizeMemoryNow: (id) => this.session.summarizeConversationNow(id),
+    updateMemory: (id, summary) => this.session.updateConversationSummary(id, summary),
+    clearMemory: (id) => this.session.clearConversationSummary(id)
   }
 
   readonly messages: MessagesApi = {

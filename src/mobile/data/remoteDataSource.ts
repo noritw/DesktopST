@@ -140,7 +140,18 @@ export class RemoteDataSource implements DataSource {
     load: async (id) => { await this.http.post('/api/conversations/load', { id }) },
     create: async (title) => (await this.http.post<{ conversation: ConversationListItem }>('/api/conversations/new', { title })).conversation,
     rename: async (id, title) => (await this.http.post<{ conversation: ConversationListItem }>('/api/conversations/rename', { id, title })).conversation,
-    remove: async (id) => this.http.post<{ activeConversationId: string }>('/api/conversations/delete', { id })
+    remove: async (id) => this.http.post<{ activeConversationId: string }>('/api/conversations/delete', { id }),
+    getMemory: async (id) => {
+      const r = await this.http.post<{ summary: string; coversTs: number; coveredCount: number }>('/api/conversations/summary/get', { id })
+      return { summary: r.summary, coversTs: r.coversTs, coveredCount: r.coveredCount }
+    },
+    summarizeMemoryNow: async (id) =>
+      this.http.post<{ ok: boolean; noNew?: boolean; error?: string; summary?: string; coveredCount?: number }>(
+        '/api/conversations/summary/generate',
+        { id }
+      ),
+    updateMemory: async (id, summary) => { await this.http.post('/api/conversations/summary/update', { id, summary }) },
+    clearMemory: async (id) => { await this.http.post('/api/conversations/summary/clear', { id }) }
   }
 
   readonly messages: MessagesApi = {
