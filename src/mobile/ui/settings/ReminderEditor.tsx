@@ -206,6 +206,26 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
         </select>
       </Field>
 
+      {/*
+        notificationDevice：決定這則提醒在哪台裝置響。
+        預設是 'mobile'（手機上建的就只在手機響），S2 同步後才會出現需要選 'both' 的場景。
+        但現在就要讓使用者能選，這樣從電腦拉過來的 'desktop' 提醒才能在手機上改響。
+        只在獨立模式顯示：遙控模式的提醒是電腦那份，在電腦設定就好。
+      */}
+      {standalone && (
+        <Field label="在哪台裝置提醒你">
+          <select
+            className="field"
+            value={draft.notificationDevice ?? 'mobile'}
+            onChange={(e) => set('notificationDevice', e.target.value as 'desktop' | 'mobile' | 'both')}
+          >
+            <option value="mobile">只在手機</option>
+            <option value="desktop">只在電腦</option>
+            <option value="both">手機和電腦都響</option>
+          </select>
+        </Field>
+      )}
+
       <Field label="觸發時機">
         <select className="field" value={draft.schedule.type} onChange={(e) => setScheduleType(e.target.value as ReminderSchedule['type'])}>
           <option value="startup">每次啟動程式</option>

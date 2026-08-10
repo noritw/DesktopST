@@ -1,5 +1,5 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useRef, useState } from 'react'
-import type { ReactElement } from 'react'
+import type { ReactElement, TextareaHTMLAttributes } from 'react'
 import type { Character } from '@core/types'
 import type { PresetListItem } from '@core/data'
 import MonoIcon from '@shared/MonoIcon'
@@ -232,19 +232,19 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
       />
 
       <Field label="簡介" hint="角色的基本資料，例如外觀、背景、身份。">
-        <textarea className="field min-h-[72px]" value={draft.description} onChange={(e) => set('description', e.target.value)} />
+        <AutoTextarea minHeight={72} value={draft.description} onChange={(e) => set('description', e.target.value)} />
       </Field>
 
       <Field label="個性">
-        <textarea className="field min-h-[88px]" placeholder="角色的性格特質、說話方式..." value={draft.personality} onChange={(e) => set('personality', e.target.value)} />
+        <AutoTextarea minHeight={88} placeholder="角色的性格特質、說話方式..." value={draft.personality} onChange={(e) => set('personality', e.target.value)} />
       </Field>
 
       <Field label="招呼語">
-        <textarea className="field min-h-[72px]" placeholder="開場白，角色第一句話會說什麼" value={draft.firstMessage} onChange={(e) => set('firstMessage', e.target.value)} />
+        <AutoTextarea minHeight={72} placeholder="開場白，角色第一句話會說什麼" value={draft.firstMessage} onChange={(e) => set('firstMessage', e.target.value)} />
       </Field>
 
       <Field label="對話範例" hint="可用標籤：{{user}}、{{char}}">
-        <textarea className="field min-h-[88px]" value={draft.exampleDialogue} onChange={(e) => set('exampleDialogue', e.target.value)} />
+        <AutoTextarea minHeight={88} value={draft.exampleDialogue} onChange={(e) => set('exampleDialogue', e.target.value)} />
       </Field>
 
       <button
@@ -259,11 +259,11 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
       {showAdvanced && (
         <div className="mt-2">
           <Field label="場景" hint="角色當下的處境、與使用者的關係。可用標籤：{{user}}、{{char}}">
-            <textarea className="field min-h-[72px]" value={draft.scenario ?? ''} onChange={(e) => set('scenario', e.target.value)} />
+            <AutoTextarea minHeight={72} value={draft.scenario ?? ''} onChange={(e) => set('scenario', e.target.value)} />
           </Field>
 
           <Field label="作者備註" hint="給模型的額外提示，例如「常忘記今天星期幾」。">
-            <textarea className="field min-h-[64px]" value={draft.creatorNotes ?? ''} onChange={(e) => set('creatorNotes', e.target.value)} />
+            <AutoTextarea minHeight={64} value={draft.creatorNotes ?? ''} onChange={(e) => set('creatorNotes', e.target.value)} />
           </Field>
 
           <ChipField
@@ -321,8 +321,8 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
           </div>
 
           <Field label="額外系統指示" hint="一般不需填寫；主要留給 SillyTavern 卡片的 system_prompt 欄位。">
-            <textarea
-              className="field min-h-[72px]"
+            <AutoTextarea
+              minHeight={72}
               value={draft.systemPromptOverride ?? ''}
               onChange={(e) => set('systemPromptOverride', e.target.value)}
             />
@@ -374,6 +374,39 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       <span className="text-xs font-semibold text-[var(--text)]">{label}</span>
       <span className="mt-1 block">{field}</span>
     </label>
+  )
+}
+
+/**
+ * 自動撐高的 textarea：內容增加時高度跟著長，不需要使用者手動拖拉。
+ * 最低高度由 `minHeight` 決定（對齊原本 min-h-[Npx] 設計）。
+ */
+function AutoTextarea({
+  minHeight = 72,
+  className = '',
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & { minHeight?: number }): JSX.Element {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  const grow = (): void => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.max(el.scrollHeight, minHeight)}px`
+  }
+
+  // value 改變時重算高度（受控模式）
+  useEffect(() => { grow() })
+
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      style={{ minHeight, resize: 'none', overflow: 'hidden' }}
+      className={`field ${className}`}
+      onInput={grow}
+      {...props}
+    />
   )
 }
 

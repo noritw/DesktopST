@@ -87,3 +87,10 @@ adb shell "run-as tw.nori.dest sh -c 'echo <base64> | base64 -d > files/reminder
 - `notificationDevice` 的 `desktop`／`both` 需要兩台裝置才驗得到，目前只驗過 `mobile`
 - 點通知開啟 app 並導向對話
 - 提醒音量／自訂音效（桌面有 `ui.reminderNotificationSound`，手機還沒接）
+
+## 6. 2026-08-10 補修
+
+| 項目 | 說明 |
+|---|---|
+| `startup` 排程在手機靜默失效 | `scheduleOne` 補 `startup` 分支（3 秒後觸發，觸發後不重排），對齊桌面版 `src/main/reminderScheduler.ts` |
+| `ReminderEditor` 缺 `notificationDevice` UI | 補「在哪台裝置提醒你」select（只在手機／只在電腦／兩邊都響），只在獨立模式顯示 |

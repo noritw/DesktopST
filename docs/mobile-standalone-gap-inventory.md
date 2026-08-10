@@ -53,7 +53,7 @@
 | ~~2~~ | ~~Lorebook（用語解說）編輯~~ | `LorebookEditor` 已存在 | **2026-08-09 完成**：CRUD 接上 `StandaloneSession`；另外把 `[Glossary]` 注入也接進 `chat.ts`（原本連桌面都沒有的那段獨立版聊天管線，光有編輯 UI 不會影響對話） | — | 已做 |
 | 3 | **角色卡／設定包匯出** | 角色編輯器有匯出入口 | `characters.exportCard`／`exportPack` pending（匯入**已可用**） | 需要 Capacitor Filesystem 寫檔 ＋ 分享 intent | ④（owner 這輪未特別點名，暫緩後排） |
 | ~~4~~ | ~~天氣定位／即時查詢~~ | 設定頁有天氣區塊 | **2026-08-08 完成**（背景 `[Weather]` 含 CWA；地震／颱風關鍵詞查詢仍桌面限定） | — | 已做 |
-| ~~5~~ | ~~**提醒**~~ | `RemindersView`／`ReminderEditor` 完整 | **2026-08-09 完成**：CRUD 接上 `StandaloneSession`；手機端排程器（`reminderScheduler.ts`）與 Capacitor LocalNotifications；新增 `notificationDevice` 欄位（desktop/mobile/both，預設 mobile）；測試通過 13/13 排程邏輯 | — | 已做 |
+| ~~5~~ | ~~**提醒**~~ | `RemindersView`／`ReminderEditor` 完整 | **2026-08-09 完成**：CRUD 接上 `StandaloneSession`；手機端排程器（`reminderScheduler.ts`）與 Capacitor LocalNotifications；新增 `notificationDevice` 欄位（desktop/mobile/both，預設 mobile）；測試通過 13/13 排程邏輯。**2026-08-10 補齊**：① `startup` 排程在手機版靜默失效（`nextFireDelayMs` 明確不處理 startup，手機 `scheduleOne` 補對應分支）；② `ReminderEditor` 補 `notificationDevice` 選擇 UI（獨立模式才顯示）| — | 已做 |
 | 6 | **個人新聞報** | `NewsView`／設定／關鍵字面板完整 | `news.*` 全 pending（15 支） | 抓 RSS／解析／配額／排程，量最大；還牽涉 CORS 與背景抓取 | **③**（owner：外出時常用） |
 | 7 | **對話與電腦同步（S2）** | 只有 S1「從電腦匯入」 | 未開工 | roadmap §4.7 已定分層與星狀拓樸；**實作設計見 `mobile-mode-switch-sync.md`**（改成「切換模式時帶資料走」） | ⑤（owner 2026-08-09：排在獨立版功能補完之後） |
 

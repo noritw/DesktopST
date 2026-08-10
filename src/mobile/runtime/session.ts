@@ -288,7 +288,12 @@ export class StandaloneSession {
       this.conversationIndex.set(conv.id, conv)
       if (!newest || conv.updatedAt > newest.updatedAt) newest = conv
     }
-    this.activeConversation = newest
+    // 優先還原上次關 app 時的對話（`lastActiveConversationId` 在每次切換時都會存進 settings）。
+    // 純按 `updatedAt` 選的話，關 app 前切到日常情境、但 TRPG 對話 updatedAt 較新，
+    // 重開後 active 就跑回 TRPG——startup 提醒若在 3 秒後觸發，訊息會說進錯的對話（owner 2026-08-10）。
+    const lastId = this.settings.ui.lastActiveConversationId
+    this.activeConversation =
+      (lastId ? this.conversationIndex.get(lastId) : null) ?? newest
   }
 
   /**
@@ -749,7 +754,29 @@ export class StandaloneSession {
     const conv = this.conversationIndex.get(id)
     if (!conv) throw new DataError('not-found', id)
     this.activeConversation = conv
+    // 切對話時同步更新當前場景記的 lastActiveConversationId，
+    // 否則場景的 dirty 判定會一直顯示「修改過」（owner 2026-08-10）。
+    await this.updateActiveSceneConversation()
+    // 也要寫進 settings，否則重啟後 reloadConversations 讀不到正確的 id
+    // （owner 2026-08-10：開啟提醒一直跳到最後有更新的對話）。
+    this.settings.ui.lastActiveConversationId = conv.id
+    await this.saveSettings()
     this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  /**
+   * 把當前對話 id 寫進使用中的場景。
+   * `applyScene` 只會在「切走時」更新之前那個場景，
+   * 所以場景內切對話時得自己寫回去，不然場景會一直 dirty。
+   */
+  private async updateActiveSceneConversation(): Promise<void> {
+    const sceneId = this.settings.activeSceneId
+    if (!sceneId || !this.activeConversation) return
+    const scene = this.scenes.find((s) => s.id === sceneId)
+    if (!scene) return
+    scene.lastActiveConversationId = this.activeConversation.id
+    scene.updatedAt = Date.now()
+    await this.adapters.storage.writeJson(keys.sceneKey(scene.id), scene)
   }
 
   async createConversation(title?: string) {
@@ -765,6 +792,9 @@ export class StandaloneSession {
     }
     await this.saveConversation(conv)
     this.activeConversation = conv
+    await this.updateActiveSceneConversation()
+    this.settings.ui.lastActiveConversationId = conv.id
+    await this.saveSettings()
     this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     return {
       id: conv.id,

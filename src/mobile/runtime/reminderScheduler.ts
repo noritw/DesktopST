@@ -95,6 +95,21 @@ function scheduleAll(): void {
 
 function scheduleOne(r: Reminder): void {
   clearTimerFor(r.id)
+
+  // startup 是「程式啟動後幾秒」，屬於平台生命週期，nextFireDelayMs 刻意不處理它。
+  // 桌面版在 src/main/reminderScheduler.ts 也是分開處理，這裡照同樣邏輯。
+  if (r.schedule.type === 'startup') {
+    console.log(`[Reminder] 排程 "${r.label}" - 啟動後 3 秒觸發`)
+    const t = setTimeout(() => {
+      timers.delete(r.id)
+      console.log(`[Reminder] 觸發 "${r.label}"（startup）`)
+      void fire(r)
+      // startup 是重複型，觸發後不需要重新排程（下次啟動 scheduleAll 會再來一遍）
+    }, 3000)
+    timers.set(r.id, t)
+    return
+  }
+
   const delay = nextFireDelayMs(r.schedule, r.lastTriggeredAt)
 
   if (delay === null || delay <= 0) {
