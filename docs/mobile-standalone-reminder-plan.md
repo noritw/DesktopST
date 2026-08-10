@@ -1,6 +1,6 @@
 # 手機獨立版 —— 精準鬧鐘與沉浸式提醒實作計畫 (Mobile Standalone Reminder Plan)
 
-> **建立時間**：2026-08-10 (2026-08-10 補充情境綁定)
+> **建立時間**：2026-08-10 (2026-08-10 補充 Token 省流優化)
 > **狀態**：規格與架構已定案，待實作
 > **目標**：解決獨立版手機 App 劃掉（Force Closed）或休眠時提醒無法觸發的問題，並提供低耗電、雙喚醒模式、沉浸式離線開關、情境綁定與通知歷史紀錄功能。
 
@@ -14,6 +14,7 @@
 * **日常閒聊情境**：生活作息提醒（例：提醒睡覺、吃飯、喝水）。
 * **TRPG 跑團 / 冒險情境**：劇情推進提醒（例：「巨龍正在逼近！」、「勇者該回歸冒險了」）。
 * **防止 OOC 破壞體驗**：若使用者正在玩 TRPG，日常生活提醒（如「去洗澡」）若以 TRPG 角色或世界觀跳出會嚴重破壞沉浸感；因此需支援**選擇性綁定特定情境 / 對話**。
+* **Token 省流優化**：若發話角色**未設定任何表情圖片** (`emotions` / `spriteIds` 為空），背景提醒發話時直接略過情緒標籤與情緒分類 LLM 呼叫，節省寶貴的 Token 資源。
 
 ---
 
@@ -49,14 +50,15 @@
       [ReminderWorker 背景作業]
                │
                ├─> 檢查 sceneConstraint（若設為限該情境且當前情境不符則略過）
-               ├─> 讀取指定的 sceneId / conversationId 之對話歷史、角色卡與 API Key
+               ├─> 讀取指定的 sceneId / conversationId 之對話歷史與角色卡
+               ├─> 檢查角色有無表情圖檔：無圖檔則略過情緒分類 API 呼叫 (省 Token)
                ├─> 現場請求 LLM API 生成當下情境的角色台詞
                │
-               ├─> [LLM 成功] ──> 發送 High-Priority 通知
+               ├─> [LLM 成功] ──> 發送 High-Priority 通知與更新小工具
                │
                └─> [LLM 失敗/離線]
                         │
-                        ├─> allowOfflineFallback == true  ──> 發送預設通知 (帶離線小字提示)
+                        ├─> allowOfflineFallback == true  ──> 發送預設通知 (帶離线小字提示)
                         └─> allowOfflineFallback == false ──> 安靜略過 (維護 100% RP 沉浸感)
                                │
                                ▼
@@ -154,7 +156,7 @@ export interface ReminderHistoryItem {
 
 ### 5.2 Java/Kotlin 原生類別
 * `ReminderAlarmReceiver.java`: 廣播接收器，處理休眠判定與 `sceneConstraint` 當前情境比對。
-* `ReminderWorker.java`: 背景 Worker，根據 `sceneId` 與 `conversationId` 讀取指定 JSON 脈絡發送 LLM 請求、記錄歷史並發出通知。
+* `ReminderWorker.java`: 背景 Worker，根據 `sceneId` 與 `conversationId` 讀取指定 JSON 脈絡，若角色無表情圖片提前略過情緒分類 LLM 呼叫 (省 Token)，發送 LLM 請求、記錄歷史並發出通知與刷新 Widget。
 * `ReminderNativeBridge.java`: Capacitor Bridge，提供前後端溝通方法。
 
 ---
@@ -162,16 +164,16 @@ export interface ReminderHistoryItem {
 ## 6. 接手 AI 實作步驟順序
 
 1. **第一步（核心資料型別）**：
-   修改 `src/core/types.ts`，擴充 `Reminder` 介面（新增 `sceneId`、`sceneConstraint`、`conversationId`）與 `ReminderHistoryItem` 介面。
+   修改 `src/core/types.ts`，擴充 `Reminder` 介面與 `ReminderHistoryItem` 介面。
 
 2. **第二步（Android 原生層廣播與 Worker）**：
-   在 `android/app/src/main/java/tw/nori9/dest/` 新增 Receiver 與 Worker，支援綁定情境讀取與 `match_scene_only` 比對判定。
+   在 `android/app/src/main/java/tw/nori9/dest/` 新增 Receiver 與 Worker，支援綁定情境讀取、`match_scene_only` 比對判定與無表情圖檔時略過情緒分類。
 
 3. **第三步（Capacitor Bridge）**：
    連通前端與 Android `AlarmManager` 介面。
 
 4. **第四步（UI 編輯器擴充）**：
-   在 `ReminderEditModal` 進階摺疊區增加「指定情境 (`sceneId`)」、「僅限目前情境時才響 (`sceneConstraint`)」與「指定對話 (`conversationId`)」選單。
+   在 `ReminderEditModal` 進階摺疊區增加「綁定情境 (`sceneId`)」、「僅限目前情境時才響 (`sceneConstraint`)」與「綁定對話 (`conversationId`)」選單。
 
 5. **第五步（歷史紀錄 UI 與操作）**：
    在 `ReminderSettingsSection.tsx` 實作歷史紀錄視窗、狀態標籤顯示、單則刪除與一鍵清空功能。
