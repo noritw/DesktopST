@@ -1279,3 +1279,53 @@ owner：「從電腦拉資料，但切情境時都沒有切到和電腦一樣的
 修法：同名情境改為覆寫綁定欄位；S1 與「重新拉設定」都會自動帶上
 **情境綁定的那幾則對話**（使用者沒勾也會帶）。套用時若情境有記在場角色，
 對不到也不再「靜靜保持原狀」。
+
+---
+
+## 2026-08-11 提醒：台詞生成策略定案 ＋ 進階選項與歷史紀錄（原生化前的 TS 部分）
+
+### 為什麼不預先生成台詞
+
+owner：「我有可能先設完提醒、然後再大量跟角色互動、之後才關掉 App，
+如果預先生成的話，設定提醒之後的互動會被略過。」
+
+所以**建立提醒時就把台詞生好是明確否決的做法**，不要再提。
+「劃掉 App 的當下生成」也不成立——從最近工作清單上滑劃掉之前 App 早就
+`pause` 過了，`onTaskRemoved` 不保證跑得完一次 LLM 往返。可攔截的是
+「離開前景」，不是「劃掉」。
+
+**定案：現場生成為主、快取為底**（詳見 `mobile-standalone-reminder-plan.md` §2.1）：
+
+- 主線＝AlarmManager 到點 → short foreground service → **隱藏 WebView 載入既有
+  手機版 HTML（headless 旗標）** → `reminderSpeak.ts` 原封不動跑一遍。
+  好處是 **TS 邏輯零重寫**、**API Key 直接可用**（同一個 App 的 WebView，
+  secure storage 正常）。
+- **不要用 `@capacitor/background-runner`**：獨立 QuickJS context，拿不到
+  secure storage（＝拿不到金鑰）也讀不到資料層，等於被迫重造一套。
+- 底線＝快取台詞，只在現場生成失敗且 `allowOfflineFallback !== false` 時使用。
+
+### 這一輪做完的（純 TS，原生層尚未開工）
+
+| 項目 | 說明 |
+|---|---|
+| 型別 | `Reminder` 加 `wakeMode`／`inactiveBehavior`／`allowOfflineFallback`／`sceneId`／`sceneConstraint`／`conversationId`；新增 `ReminderHistoryItem`／`ReminderHistoryStatus` |
+| `core/reminder/gate.ts` | 「該不該響」的單一真相。手機 JS 排程器、日後原生喚醒、桌面三條路徑共用，否則同一則提醒在不同路徑上結果會不一樣。**情境比對排在螢幕判定前面**——情境不符是「根本不該出現」，不該被 `notify_on_unlock` 補發 |
+| `core/reminder/cache.ts` | 快取的保鮮期（24h）與「對話沒動過就不重生」的判斷（省 Token 的主要閘） |
+| `core/reminder/history.ts` | 歷史的組裝／上限（100）／刪除。`reminderLabel` 是觸發當下的快照，提醒改名或刪掉後舊紀錄仍讀得懂 |
+| 排程器 | `fire()` 前先過 gate；`defer` 的進 `deferred` set，`flushDeferredReminders()` 在回前景時補發（**只留 id 不留內容**，補發時要重新生成當下的台詞） |
+| `reminderSpeak.ts` | **不再退回 `reminder.prompt` 原文**（那是給角色的指令，照搬等於降級成行事曆）。改成退回快取台詞；沒有快取或使用者關掉降級就回 `null`。新增 `mode: 'cache-refresh'`（只回台詞、不進對話、不推事件） |
+| 生命週期 | `visibilitychange`：hidden → `refreshReminderCache()`（唯一吃得到「剛剛那輪互動」的時機）；visible → 補發押後的提醒 |
+| UI | `ReminderEditor` 進階摺疊區（預設收起，設過的話自動展開）；`ReminderHistoryView` 新畫面，入口在提醒清單底下 |
+| 測試 | `tests/core/reminderGate.test.ts` 14 條；`reminderSpeak.test.ts` 改寫成新契約（原本斷言「退回提醒原文」的兩條已不成立） |
+
+### 順手修正
+
+計畫書原本寫 package 是 `tw.nori9.dest`，實際是 **`tw.nori.dest`**
+（`android/app/src/main/java/tw/nori/dest/`，目前只有 `MainActivity.java`）。
+
+### 已知未完成
+
+`screenLikelyOn()` 目前**一律回 true** —— 純 JS 側無法判定螢幕狀態
+（App 在背景不等於螢幕暗），保守回 true 寧可多響。真正的判定要等原生層的
+`PowerManager.isInteractive()`。因此 `screen_on_only` 現階段等同 `always`，
+欄位存得下、UI 選得到，但要等第②步原生化才會真的生效。

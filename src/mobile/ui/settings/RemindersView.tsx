@@ -103,6 +103,18 @@ export function RemindersView(): JSX.Element {
         <MonoIcon name="plus" className="h-3.5 w-3.5" />
         新增提醒
       </button>
+
+      {/*
+        紀錄入口放在清單底下：平常不會用到，但「它到底有沒有響」發生時
+        使用者第一個會來的就是提醒這一頁。
+      */}
+      <button
+        type="button"
+        onClick={() => push('reminder-history')}
+        className="mt-2 w-full rounded-full border border-[var(--border)] py-2.5 text-sm text-[var(--text-sub)]"
+      >
+        查看提醒紀錄
+      </button>
     </div>
   )
 }

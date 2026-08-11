@@ -8,6 +8,7 @@ import type {
   PersonaPreset,
   RandomResult,
   Reminder,
+  ReminderHistoryItem,
   ReminderSchedule,
   ScenePreset,
   WeatherLocationSource,
@@ -467,6 +468,16 @@ export interface RemindersApi {
   save(reminder: Reminder): Promise<Reminder>
   remove(id: string): Promise<void>
   toggle(id: string, enabled: boolean): Promise<void>
+  /**
+   * 觸發歷史（新到舊）。
+   *
+   * 提醒是「背景發生的事」——沒響、響了沒看到、被手錶轉走，
+   * 使用者都只會得到同一個結論「它壞了」。歷史是唯一查得出差別的地方。
+   * 遙控模式桌面端還沒記錄，回空陣列即可（不是錯誤）。
+   */
+  history(): Promise<ReminderHistoryItem[]>
+  removeHistoryItem(id: string): Promise<void>
+  clearHistory(): Promise<void>
 }
 
 /**

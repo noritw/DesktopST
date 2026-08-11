@@ -1,6 +1,6 @@
 # 手機獨立版 —— 精準鬧鐘與沉浸式提醒實作計畫 (Mobile Standalone Reminder Plan)
 
-> **建立時間**：2026-08-10 (2026-08-10 補充 Token 省流優化)
+> **建立時間**：2026-08-10 (2026-08-10 補充 Token 省流優化；**2026-08-11 台詞生成策略改為 headless WebView，見 §2.1**)
 > **狀態**：規格與架構已定案，待實作
 > **目標**：解決獨立版手機 App 劃掉（Force Closed）或休眠時提醒無法觸發的問題，並提供低耗電、雙喚醒模式、沉浸式離線開關、情境綁定與通知歷史紀錄功能。
 
@@ -47,23 +47,88 @@
                                                             │
                ┌────────────────────────────────────────────┘
                ▼
-      [ReminderWorker 背景作業]
+      [ReminderForegroundService 起 headless WebView]
+               │  （原生層只負責喚醒與發通知，不碰 prompt 組裝）
+               ▼
+      [WebView 載入手機版 HTML（headless 旗標）→ 既有 TS 跑一遍]
                │
                ├─> 檢查 sceneConstraint（若設為限該情境且當前情境不符則略過）
                ├─> 讀取指定的 sceneId / conversationId 之對話歷史與角色卡
                ├─> 檢查角色有無表情圖檔：無圖檔則略過情緒分類 API 呼叫 (省 Token)
-               ├─> 現場請求 LLM API 生成當下情境的角色台詞
+               ├─> 現場請求 LLM API 生成當下情境的角色台詞（reminderSpeak.ts）
                │
-               ├─> [LLM 成功] ──> 發送 High-Priority 通知與更新小工具
+               ├─> [LLM 成功] ──> 回傳原生 ──> 發送 High-Priority 通知與更新小工具
                │
-               └─> [LLM 失敗/離線]
+               └─> [LLM 失敗/離線/逾時]
                         │
-                        ├─> allowOfflineFallback == true  ──> 發送預設通知 (帶離线小字提示)
+                        ├─> allowOfflineFallback == true  ──> 發送**快取台詞**
+                        │                                    （見 §2.1 底線機制，帶離線小字提示）
                         └─> allowOfflineFallback == false ──> 安靜略過 (維護 100% RP 沉浸感)
                                │
                                ▼
                [將結果寫入 files/reminder_history.json]
 ```
+
+---
+
+## 2.1 台詞生成策略（2026-08-11 決議）
+
+**結論：現場生成為主、快取為底。原生層不重寫任何 prompt 邏輯。**
+
+### 為什麼不預先生成
+
+owner 的實際用法是「先設好提醒 → 之後才大量跟角色互動 → 再離開 App」。
+若在**建立提醒時**就把台詞生好，這段互動全部不會反映在台詞裡，等於提醒永遠停在
+設定當下的脈絡。因此預先生成不能當主線。
+
+### 為什麼不是「劃掉 App 的當下生成」
+
+Android 沒有可靠的「使用者上滑劃掉」回呼。從最近工作清單劃掉之前 App
+**早就已經 `pause`**（按 home／叫出多工那一刻就 pause 了），`onTaskRemoved`
+也不保證能跑完一次 LLM 往返。可攔截的是「離開前景」，不是「劃掉」。
+
+### 主線：到點現場生成（headless WebView）
+
+```
+AlarmManager (setExactAndAllowWhileIdle)
+  → ReminderAlarmReceiver
+  → startForegroundService（short service）
+  → 隱藏 WebView 載入既有手機版 HTML + headless 旗標
+  → 既有 reminderSpeak.ts / chat.ts 原封不動執行
+  → 結果經 Bridge 回傳原生 → 發通知 → stopSelf
+```
+
+採這條路的理由：
+
+| 好處 | 說明 |
+|---|---|
+| **TS 邏輯零重寫** | `core/` 那套照用，桌面與手機仍是同一份，不會漂 |
+| **API Key 直接可用** | 同一個 App 的 WebView，`@aparajita/capacitor-secure-storage` 正常運作 |
+| 資料層一致 | 對話歷史從 `Filesystem` 讀，與前景時完全相同 |
+
+**不要用 `@capacitor/background-runner`**：它是獨立的 QuickJS context，
+拿不到 secure storage（＝拿不到 API Key），也讀不到現有資料層，等於被迫在
+那個 context 裡重造一套——正是本計畫要避開的事。
+
+時間預算：exact alarm 觸發時系統給暫時白名單豁免，允許從廣播啟動前景服務；
+WebView 冷啟 1–3 秒 ＋ LLM 2–5 秒，short service 上限 3 分鐘，很寬裕。
+
+**已知代價**：前景服務會在通知欄短暫出現一則「正在準備提醒…」（Android 規定，
+避不掉）。做得低調即可，幾秒後就被角色的話取代。
+
+### 底線：快取台詞只當 fallback
+
+另存一份「最近一次生成的台詞」，在**離開前景時**（`appStateChange` → inactive）
+與**對話閒置一段時間後**刷新。只在現場生成失敗（離線／API 掛掉／逾時）
+且該則提醒 `allowOfflineFallback === true` 時才拿出來用；設 `false` 就安靜略過。
+沿用 §3 已設計好的開關，不另發明機制。
+
+### 另外兩個限制（要寫進 UI 說明，不能靜默失敗）
+
+1. **從系統設定按「強制停止」會清掉所有 alarm**，要重開 App 才會重註冊。
+   從多工上滑劃掉則不受影響（那是主要使用情境，沒問題）。
+2. Android 12+ 的 `SCHEDULE_EXACT_ALARM` **要引導使用者去系統設定開**，
+   不是宣告就有。第一次建立提醒時要有說明頁。
 
 ---
 
@@ -154,10 +219,21 @@ export interface ReminderHistoryItem {
 * `POST_NOTIFICATIONS` (Android 13+)
 * `RECEIVE_BOOT_COMPLETED` (手機重開機時重新註冊鬧鐘)
 
+* `FOREGROUND_SERVICE` ＋ `FOREGROUND_SERVICE_SHORT_SERVICE`（Android 14+）
+
 ### 5.2 Java/Kotlin 原生類別
-* `ReminderAlarmReceiver.java`: 廣播接收器，處理休眠判定與 `sceneConstraint` 當前情境比對。
-* `ReminderWorker.java`: 背景 Worker，根據 `sceneId` 與 `conversationId` 讀取指定 JSON 脈絡，若角色無表情圖片提前略過情緒分類 LLM 呼叫 (省 Token)，發送 LLM 請求、記錄歷史並發出通知與刷新 Widget。
-* `ReminderNativeBridge.java`: Capacitor Bridge，提供前後端溝通方法。
+
+> package 是 **`tw.nori.dest`**（不是 `tw.nori9.dest`；以 `android/app/src/main/java/tw/nori/dest/` 現況為準）。
+> 原生層**只做喚醒、生命週期與發通知**，所有 prompt 組裝與 LLM 呼叫都留在 TS（見 §2.1）。
+
+* `ReminderAlarmReceiver.java`: 廣播接收器。處理 `wakeMode` 的休眠判定
+  （`PowerManager.isInteractive()`），決定略過／補發／啟動服務。
+* `ReminderForegroundService.java`: short foreground service。建立隱藏 WebView、
+  載入手機版 HTML 並帶 headless 旗標、等 TS 回傳結果、發通知、`stopSelf()`。
+  逾時（建議 45 秒）則走 §2.1 的快取 fallback。
+* `ReminderBootReceiver.java`: `RECEIVE_BOOT_COMPLETED`，開機後重新註冊所有 alarm。
+* `ReminderNativeBridge.java`: Capacitor Bridge。前端註冊／取消 alarm、查詢
+  `SCHEDULE_EXACT_ALARM` 授權狀態並導向系統設定、headless 端回傳生成結果。
 
 ---
 
@@ -166,11 +242,16 @@ export interface ReminderHistoryItem {
 1. **第一步（核心資料型別）**：
    修改 `src/core/types.ts`，擴充 `Reminder` 介面與 `ReminderHistoryItem` 介面。
 
-2. **第二步（Android 原生層廣播與 Worker）**：
-   在 `android/app/src/main/java/tw/nori9/dest/` 新增 Receiver 與 Worker，支援綁定情境讀取、`match_scene_only` 比對判定與無表情圖檔時略過情緒分類。
+   同時在 `reminderSpeak.ts` 側加入「快取台詞」的寫入與讀取（§2.1 底線機制），
+   並在 `appStateChange → inactive` 與對話閒置時刷新。
+
+2. **第二步（Android 原生層：Receiver 與前景服務）**：
+   在 `android/app/src/main/java/tw/nori/dest/` 新增 `ReminderAlarmReceiver`、
+   `ReminderForegroundService`（headless WebView）、`ReminderBootReceiver`。
+   `sceneConstraint` 比對與略過情緒分類等判斷**都在 TS 那側做**，原生只負責喚醒與發通知。
 
 3. **第三步（Capacitor Bridge）**：
-   連通前端與 Android `AlarmManager` 介面。
+   連通前端與 Android `AlarmManager` 介面，含 `SCHEDULE_EXACT_ALARM` 授權引導。
 
 4. **第四步（UI 編輯器擴充）**：
    在 `ReminderEditModal` 進階摺疊區增加「綁定情境 (`sceneId`)」、「僅限目前情境時才響 (`sceneConstraint`)」與「綁定對話 (`conversationId`)」選單。

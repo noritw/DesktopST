@@ -57,6 +57,13 @@
 | 6 | **個人新聞報** | `NewsView`／設定／關鍵字面板完整 | `news.*` 全 pending（15 支） | 抓 RSS／解析／配額／排程，量最大；還牽涉 CORS 與背景抓取 | **③**（owner：外出時常用） |
 | 7 | **對話與電腦同步（S2）** | 只有 S1「從電腦匯入」 | 未開工 | roadmap §4.7 已定分層與星狀拓樸；**實作設計見 `mobile-mode-switch-sync.md`**（改成「切換模式時帶資料走」） | ⑤（owner 2026-08-09：排在獨立版功能補完之後） |
 
+> **2026-08-11 提醒補強（缺口 #5 的延伸，非新缺口）**：台詞生成策略定案為
+> 「現場生成為主、快取為底」（`mobile-standalone-reminder-plan.md` §2.1），
+> 並完成 TS 部分——進階選項（喚醒模式／情境綁定／對話綁定／離線沉浸開關）、
+> 觸發歷史紀錄畫面、`core/reminder/{gate,cache,history}.ts`。
+> **Android 原生層（AlarmManager ＋ headless WebView）尚未開工**，
+> 所以 App 被劃掉後仍然不會響，`screen_on_only` 目前也等同 `always`。
+
 **永久不支援（不是 bug，不要修）**：`remoteControl.*` 全部 —— 獨立模式沒有電腦可控。
 Spotify／日曆授權同樣只在桌面。
 

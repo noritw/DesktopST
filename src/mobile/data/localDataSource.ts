@@ -319,7 +319,10 @@ export class LocalDataSource implements DataSource {
     create: async () => this.session.createReminder(),
     save: async (reminder) => this.session.saveReminder(reminder),
     remove: async (id) => this.session.removeReminder(id),
-    toggle: async (id, enabled) => this.session.toggleReminder(id, enabled)
+    toggle: async (id, enabled) => this.session.toggleReminder(id, enabled),
+    history: async () => this.session.listReminderHistory(),
+    removeHistoryItem: async (id) => this.session.removeReminderHistoryItem(id),
+    clearHistory: async () => this.session.clearReminderHistory()
   }
 
   readonly remoteControl: RemoteControlApi = {

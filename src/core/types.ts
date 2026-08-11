@@ -475,8 +475,62 @@ export interface Reminder {
   injectCalendar?: boolean
   /** 哪台裝置響：desktop（桌面）、mobile（手機）、both（兩者）。預設只在建立時所在的裝置。 */
   notificationDevice?: 'desktop' | 'mobile' | 'both'
+  /**
+   * 喚醒模式（手機限定）：'always'=待機依然背景喚醒；'screen_on_only'=僅手機使用中才提醒。
+   * 預設 'always'。
+   */
+  wakeMode?: 'always' | 'screen_on_only'
+  /**
+   * 當 wakeMode 為 screen_on_only 而觸發時螢幕是暗的：
+   * 'skip'=直接略過（預設）；'notify_on_unlock'=下次亮屏時補發。
+   */
+  inactiveBehavior?: 'skip' | 'notify_on_unlock'
+  /**
+   * 連線失敗或離線時，是否允許改發「最近一次生成的快取台詞」。
+   * false＝安靜略過，維持角色扮演沉浸感。預設 true。
+   */
+  allowOfflineFallback?: boolean
+  /** 綁定特定情境 id（可選）；未設定則跟隨當前使用中情境 */
+  sceneId?: string
+  /**
+   * 情境限制（需先設 sceneId）：
+   * 'any_scene'=不論當前情境為何，都用綁定情境的人設發話（預設）；
+   * 'match_scene_only'=只有當前作用中情境就是 sceneId 時才響（避免日常提醒打斷 TRPG）。
+   */
+  sceneConstraint?: 'any_scene' | 'match_scene_only'
+  /** 綁定特定對話 id（可選）；指定要讀哪一則對話的歷史當脈絡 */
+  conversationId?: string
   lastTriggeredAt?: number
   createdAt: number
+}
+
+/** 提醒觸發後的處置結果 */
+export type ReminderHistoryStatus =
+  /** LLM 現場生成成功 */
+  | 'success'
+  /** 現場生成失敗，改發快取台詞 */
+  | 'offline_fallback'
+  /** 現場生成失敗且 allowOfflineFallback=false，安靜略過 */
+  | 'skipped_offline'
+  /** screen_on_only 且觸發時螢幕是暗的 */
+  | 'skipped_idle'
+  /** match_scene_only 但當前情境不符 */
+  | 'skipped_scene_mismatch'
+
+/** 提醒通知歷史紀錄的單筆（存 files/reminder_history.json） */
+export interface ReminderHistoryItem {
+  id: string
+  reminderId: string
+  /** 觸發當下的快照——提醒之後被改名或刪除，歷史仍讀得懂 */
+  reminderLabel: string
+  characterId?: string
+  characterName?: string
+  characterAvatar?: string
+  /** 實際發出去的台詞；略過類的狀態為空字串 */
+  text: string
+  status: ReminderHistoryStatus
+  timestamp: number
+  errorMessage?: string
 }
 
 /** Legacy shape — used only for migration detection */

@@ -3,6 +3,7 @@ import type { PlatformAdapters } from '@core/adapters'
 import { stripOtherCharacterSpeakerLines } from '@core/group/dialogueCleanup'
 import { normalizeCharacterDialogue } from '@core/prompt/dialogue'
 import { messageLlmMeta } from '@core/prompt/promptUtils'
+import { offlineFallbackAllowed as allowOfflineFallback } from '@core/reminder/gate'
 import { getWeatherContextString } from '@core/weather'
 import type { Lorebook } from '@core/lore'
 import type {
@@ -39,6 +40,8 @@ export interface ReminderSpeakResult {
   characterId: string
   characterName: string
   text: string
+  /** 這句話怎麼來的：現場生成成功，或是退回快取台詞 */
+  status: 'success' | 'offline_fallback'
 }
 
 export async function speakStandaloneReminder(opts: {
@@ -53,8 +56,41 @@ export async function speakStandaloneReminder(opts: {
   getActiveScene: () => ScenePreset | null
   loadLorebook: (id: string) => Promise<Lorebook | null>
   reminder: Reminder
+  /**
+   * 現場生成失敗時可用的快取台詞（見 §2.1 底線機制）。
+   * 沒有可用快取時傳 undefined。
+   */
+  cachedText?: string
+  /**
+   * `'live'`（預設）＝真的要發話：訊息會進對話、會推 thinking 事件。
+   * `'cache-refresh'` ＝只為了刷新快取而先生一句起來放，
+   * **不進對話、不推事件**——否則使用者每次切走 App 都會憑空多一則訊息。
+   */
+  mode?: 'live' | 'cache-refresh'
 }): Promise<ReminderSpeakResult | null> {
   const { reminder, settings } = opts
+  const isLive = (opts.mode ?? 'live') === 'live'
+
+  /**
+   * 現場生成失敗時的共同出口。
+   *
+   * ⚠️ **不要退回 `reminder.prompt` 原文**——那是「給角色的指令」
+   * （例：「提醒我喝水」），不是要給使用者看的文案；直接照搬的話這功能
+   * 就退化成普通行事曆。2026-08-11 起改成退回快取台詞，沒有快取就不發。
+   */
+  const useFallback = async (
+    char: Character,
+    conv: Conversation | null
+  ): Promise<ReminderSpeakResult | null> => {
+    if (!allowOfflineFallback(reminder)) return null
+    const cached = opts.cachedText?.trim()
+    if (!cached) return null
+    if (isLive && conv) {
+      const msg = await appendReminderMessage(opts, conv, { characterId: char.id, content: cached })
+      return { characterId: char.id, characterName: char.name, text: msg.content, status: 'offline_fallback' }
+    }
+    return { characterId: char.id, characterName: char.name, text: cached, status: 'offline_fallback' }
+  }
   const charById = (id: string): Character | undefined => opts.characters.find((c) => c.id === id)
 
   // ── 挑發話角色 ─────────────────────────────────────────
@@ -116,14 +152,10 @@ export async function speakStandaloneReminder(opts: {
   const extraSystemContext = ctxParts.join('\n\n') || undefined
   const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
 
-  // ── 沒有 API Key：退回提醒原文（與桌面同樣的離線行為）──
-  if (!hasApiKey) {
-    const fallback = reminder.prompt?.trim() || `📢 ${reminder.label || '提醒'}`
-    const msg = await appendReminderMessage(opts, conv, { characterId: char.id, content: fallback })
-    return { characterId: char.id, characterName: char.name, text: msg.content }
-  }
+  // ── 沒有 API Key：生不出東西，走底線 ──
+  if (!hasApiKey) return useFallback(char, conv)
 
-  opts.events.push({ kind: 'thinking', characterId: char.id })
+  if (isLive) opts.events.push({ kind: 'thinking', characterId: char.id })
   try {
     const world = opts.getWorld()
     const { content, emotion, debugPrompt, inputTokens, outputTokens } = await chatWithLLM(
@@ -160,8 +192,13 @@ export async function speakStandaloneReminder(opts: {
       opts.characters
     )
     if (!reply) {
-      opts.events.push({ kind: 'thinking-done', characterId: char.id })
+      if (isLive) opts.events.push({ kind: 'thinking-done', characterId: char.id })
       return null
+    }
+
+    // 只是刷快取：拿到句子就好，不進對話也不推事件
+    if (!isLive) {
+      return { characterId: char.id, characterName: char.name, text: reply, status: 'success' }
     }
 
     const llm = messageLlmMeta(debugPrompt, settings)
@@ -177,17 +214,16 @@ export async function speakStandaloneReminder(opts: {
       hasDebugPrompt: !!debugPrompt
     })
     opts.events.push({ kind: 'thinking-done', characterId: char.id })
-    return { characterId: char.id, characterName: char.name, text: msg.content }
+    return { characterId: char.id, characterName: char.name, text: msg.content, status: 'success' }
   } catch (e) {
-    opts.events.push({ kind: 'thinking-done', characterId: char.id })
+    if (isLive) opts.events.push({ kind: 'thinking-done', characterId: char.id })
     console.error('[Reminder] 角色發話失敗:', e)
     /*
-     * 發話失敗**不要**靜靜吞掉——提醒的重點是使用者要被提醒到。
-     * 退回提醒原文，至少該響的還是會響（比照無 API Key 的路徑）。
+     * 走底線：有快取就用快取（帶離線標記），沒有就安靜略過。
+     * `allowOfflineFallback === false` 的提醒連快取都不用——
+     * 使用者明確選了「寧可不響也不要出戲」。
      */
-    const fallback = reminder.prompt?.trim() || `📢 ${reminder.label || '提醒'}`
-    const msg = await appendReminderMessage(opts, conv, { characterId: char.id, content: fallback })
-    return { characterId: char.id, characterName: char.name, text: msg.content }
+    return useFallback(char, conv)
   }
 }
 

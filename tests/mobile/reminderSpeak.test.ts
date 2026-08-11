@@ -125,25 +125,80 @@ describe('提醒觸發時由角色發話（獨立模式）', () => {
     expect(conv.messages[0].content).toBe('該喝水囉。')
   })
 
-  it('沒有 API Key：退回提醒原文，該響的還是要響', async () => {
+  /*
+   * 2026-08-11 起，生不出來時**不再退回 `reminder.prompt` 原文**。
+   * 原文是「給角色的指令」（「提醒我喝水」），照搬出去等於把這功能降級成
+   * 普通行事曆通知——正是這整支檔案在防的事。改成退回「最近一次生成的
+   * 快取台詞」（見 docs/mobile-standalone-reminder-plan.md §2.1）。
+   */
+  it('沒有 API Key：改用快取台詞，不照搬提醒原文', async () => {
     const conv = emptyConv()
     const { fetch, bodies } = stubLlm('不該被呼叫')
-    const result = await speakStandaloneReminder(makeOpts(makeSettings(''), fetch, conv))
+    const result = await speakStandaloneReminder({
+      ...makeOpts(makeSettings(''), fetch, conv),
+      cachedText: '欸，記得喝水喔。'
+    })
 
     expect(bodies).toHaveLength(0)
-    expect(result?.text).toBe('提醒我喝水')
+    expect(result?.text).toBe('欸，記得喝水喔。')
+    expect(result?.text).not.toBe(REMINDER.prompt)
+    expect(result?.status).toBe('offline_fallback')
   })
 
-  it('LLM 掛掉：不要靜靜吞掉，退回提醒原文', async () => {
+  it('LLM 掛掉且有快取：用快取台詞，該響的還是要響', async () => {
+    const conv = emptyConv()
+    const failing = (async () => {
+      throw new Error('network down')
+    }) as unknown as typeof globalThis.fetch
+    const result = await speakStandaloneReminder({
+      ...makeOpts(makeSettings('sk-test'), failing, conv),
+      cachedText: '欸，記得喝水喔。'
+    })
+
+    expect(result).not.toBeNull()
+    expect(result?.text).toBe('欸，記得喝水喔。')
+    expect(result?.status).toBe('offline_fallback')
+    expect(conv.messages).toHaveLength(1)
+  })
+
+  it('LLM 掛掉又沒有快取：安靜略過，不硬擠一則通知出來', async () => {
     const conv = emptyConv()
     const failing = (async () => {
       throw new Error('network down')
     }) as unknown as typeof globalThis.fetch
     const result = await speakStandaloneReminder(makeOpts(makeSettings('sk-test'), failing, conv))
 
-    expect(result).not.toBeNull()
-    expect(result?.text).toBe('提醒我喝水')
-    expect(conv.messages).toHaveLength(1)
+    expect(result).toBeNull()
+    expect(conv.messages).toHaveLength(0)
+  })
+
+  it('allowOfflineFallback=false：有快取也不用，維持沉浸感', async () => {
+    const conv = emptyConv()
+    const failing = (async () => {
+      throw new Error('network down')
+    }) as unknown as typeof globalThis.fetch
+    const base = makeOpts(makeSettings('sk-test'), failing, conv)
+    const result = await speakStandaloneReminder({
+      ...base,
+      reminder: { ...base.reminder, allowOfflineFallback: false },
+      cachedText: '欸，記得喝水喔。'
+    })
+
+    expect(result).toBeNull()
+    expect(conv.messages).toHaveLength(0)
+  })
+
+  it('cache-refresh 模式：只回台詞，不寫進對話也不推事件', async () => {
+    const conv = emptyConv()
+    const { fetch } = stubLlm('該喝水囉。')
+    const result = await speakStandaloneReminder({
+      ...makeOpts(makeSettings('sk-test'), fetch, conv),
+      mode: 'cache-refresh'
+    })
+
+    expect(result?.text).toBe('該喝水囉。')
+    // 每次切走 App 都憑空多一則訊息的話，對話會被刷爆
+    expect(conv.messages).toHaveLength(0)
   })
 
   it('全部角色都禁言時回 null（不發通知）', async () => {

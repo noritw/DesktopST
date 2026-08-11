@@ -342,7 +342,15 @@ export class RemoteDataSource implements DataSource {
     create: async () => (await this.http.post<{ reminder: Reminder }>('/api/reminders/create')).reminder,
     save: async (reminder) => (await this.http.post<{ reminder: Reminder }>('/api/reminders/save', { reminder })).reminder,
     remove: async (id) => { await this.http.post('/api/reminders/delete', { id }) },
-    toggle: async (id, enabled) => { await this.http.post('/api/reminders/toggle', { id, enabled }) }
+    toggle: async (id, enabled) => { await this.http.post('/api/reminders/toggle', { id, enabled }) },
+    /*
+     * 遙控模式下歷史紀錄是**手機獨立版才有**的東西——桌面端目前沒有記錄
+     * 觸發歷史。回空陣列而不是擲錯：UI 會顯示「還沒有紀錄」，比一個紅色
+     * 錯誤誠實也不礙事。桌面補上記錄後再接端點。
+     */
+    history: async () => [],
+    removeHistoryItem: async () => {},
+    clearHistory: async () => {}
   }
 
   /**

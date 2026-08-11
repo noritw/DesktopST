@@ -12,6 +12,16 @@
 export const SETTINGS_KEY = 'settings.json'
 export const PINNED_NOTES_KEY = 'pinned-notes.json'
 export const REMINDERS_KEY = 'reminders.json'
+/** 提醒觸發的歷史紀錄（見 `core/reminder/history.ts`）。 */
+export const REMINDER_HISTORY_KEY = 'reminder-history.json'
+/**
+ * 每則提醒「最近一次生成的台詞」快取。
+ *
+ * 只在現場生成失敗（離線／API 掛掉／逾時）時當 fallback 用，
+ * 見 `docs/mobile-standalone-reminder-plan.md` §2.1。
+ * 這是**衍生資料**，刪掉不影響任何設定，因此不進同步也不進搬家包。
+ */
+export const REMINDER_CACHE_KEY = 'reminder-cache.json'
 /**
  * 手機記住的「同步主機」（roadmap §4.7 星狀拓樸：只綁定一台）。
  *

@@ -12,6 +12,7 @@ import { CharacterEditor } from '../characters/CharacterEditor'
 import { SettingsView } from '../settings/SettingsView'
 import { RemindersView } from '../settings/RemindersView'
 import { ReminderEditor } from '../settings/ReminderEditor'
+import { ReminderHistoryView } from '../settings/ReminderHistoryView'
 import { PresetsView } from '../presets/PresetsView'
 import { PresetEditor } from '../presets/PresetEditor'
 import { ConversationsView } from '../conversations/ConversationsView'
@@ -45,6 +46,7 @@ const TITLES: Record<ViewKind, string> = {
   settings: '設定',
   reminders: '提醒',
   'reminder-editor': '編輯提醒',
+  'reminder-history': '提醒紀錄',
   news: '個人新聞報',
   'news-settings': '新聞設定',
   'random-tools': '隨機工具',
@@ -96,6 +98,7 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'preset-editor' && entry.param) return <PresetEditor presetKey={entry.param} />
   if (entry.kind === 'reminders') return <RemindersView />
   if (entry.kind === 'reminder-editor' && entry.param) return <ReminderEditor reminderId={entry.param} />
+  if (entry.kind === 'reminder-history') return <ReminderHistoryView />
   if (entry.kind === 'lorebook-editor' && entry.param) return <LorebookEditor bookId={entry.param} />
   if (entry.kind === 'news') return <NewsView />
   if (entry.kind === 'news-settings') return <NewsSettingsView />

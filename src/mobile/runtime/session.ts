@@ -9,9 +9,25 @@ import type {
   Conversation,
   PersonaPreset,
   Reminder,
+  ReminderHistoryItem,
   WorldPreset,
   ScenePreset
 } from '@core/types'
+import {
+  appendHistory,
+  buildHistoryItem,
+  normalizeHistory,
+  removeHistoryItem,
+  type ReminderHistoryDraft
+} from '@core/reminder/history'
+import { nextFireDelayMs } from '@core/reminder/nextFire'
+import {
+  isCacheUsable,
+  needsRefresh,
+  normalizeCache,
+  pruneCache,
+  type ReminderCache
+} from '@core/reminder/cache'
 import { DEFAULT_SETTINGS } from '@core/types'
 import { DEFAULT_MODEL_BY_PROVIDER, MODELS_BY_PROVIDER } from '@core/llm/modelCatalog'
 import { DataError } from '@core/data'
@@ -50,7 +66,12 @@ import {
 import { forceSpeakStandalone, sendStandaloneMessage } from './chat'
 import { listSummarizableMessages, summarizeConversation } from '@core/llm/summarizer'
 import { speakStandaloneReminder, type ReminderSpeakResult } from './reminderSpeak'
-import { initReminderScheduler, updateReminders, stopReminderScheduler } from './reminderScheduler'
+import {
+  initReminderScheduler,
+  updateReminders,
+  stopReminderScheduler,
+  flushDeferredReminders
+} from './reminderScheduler'
 
 const MODULE_DEFS: ModuleToggle[] = [
   { id: 'desktopst.weather', label: '天氣', enabled: false },
@@ -87,6 +108,9 @@ export class StandaloneSession {
   worlds: WorldPreset[] = []
   scenes: ScenePreset[] = []
   reminders: Reminder[] = []
+  reminderHistory: ReminderHistoryItem[] = []
+  /** 每則提醒最近一次生成的台詞；只在現場生成失敗時當底線 */
+  private reminderCache: ReminderCache = {}
   activeConversation: Conversation | null = null
   private conversationIndex = new Map<string, Conversation>()
   private sendAbort: AbortController | null = null
@@ -166,12 +190,22 @@ export class StandaloneSession {
     await this.saveSettings()
     await this.reloadConversations()
     await this.reloadReminders()
+    await this.reloadReminderHistory()
+    await this.reloadReminderCache()
 
     // 啟動提醒排程器：觸發時讓角色用自己的口吻把提醒講出來
-    await initReminderScheduler(async (reminder) => {
-      await this.recordReminderTriggered(reminder)
-      return this.speakReminder(reminder)
-    })
+    await initReminderScheduler(
+      async (reminder) => {
+        await this.recordReminderTriggered(reminder)
+        return this.speakReminder(reminder)
+      },
+      {
+        getActiveSceneId: () => this.settings.activeSceneId ?? null,
+        recordHistory: (reminder, draft) => {
+          void this.appendReminderHistory(reminder, draft)
+        }
+      }
+    )
     updateReminders(this.reminders)
 
     if (!this.activeConversation) {
@@ -1376,6 +1410,127 @@ export class StandaloneSession {
     }
   }
 
+  // ── 提醒歷史紀錄 ─────────────────────────────────────────
+
+  private async reloadReminderHistory(): Promise<void> {
+    try {
+      this.reminderHistory = normalizeHistory(await this.adapters.storage.readJson(keys.REMINDER_HISTORY_KEY))
+    } catch {
+      this.reminderHistory = []
+    }
+  }
+
+  async listReminderHistory(): Promise<ReminderHistoryItem[]> {
+    return this.reminderHistory
+  }
+
+  private async appendReminderHistory(reminder: Reminder, draft: ReminderHistoryDraft): Promise<void> {
+    const char = draft.characterId
+      ? this.characters.find((c) => c.id === draft.characterId)
+      : reminder.characterId
+        ? this.characters.find((c) => c.id === reminder.characterId)
+        : undefined
+    const item = buildHistoryItem(
+      reminder,
+      {
+        ...draft,
+        characterId: draft.characterId ?? char?.id,
+        characterName: draft.characterName ?? char?.name,
+        characterAvatar: draft.characterAvatar ?? char?.avatar
+      },
+      newId()
+    )
+    this.reminderHistory = appendHistory(this.reminderHistory, item)
+    await this.adapters.storage.writeJson(keys.REMINDER_HISTORY_KEY, this.reminderHistory)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  async removeReminderHistoryItem(id: string): Promise<void> {
+    this.reminderHistory = removeHistoryItem(this.reminderHistory, id)
+    await this.adapters.storage.writeJson(keys.REMINDER_HISTORY_KEY, this.reminderHistory)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  async clearReminderHistory(): Promise<void> {
+    this.reminderHistory = []
+    await this.adapters.storage.writeJson(keys.REMINDER_HISTORY_KEY, this.reminderHistory)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  // ── 快取台詞（離線底線，見 reminder-plan §2.1）──────────────
+
+  private async reloadReminderCache(): Promise<void> {
+    try {
+      this.reminderCache = normalizeCache(await this.adapters.storage.readJson(keys.REMINDER_CACHE_KEY))
+    } catch {
+      this.reminderCache = {}
+    }
+  }
+
+  private async persistReminderCache(): Promise<void> {
+    this.reminderCache = pruneCache(
+      this.reminderCache,
+      this.reminders.map((r) => r.id)
+    )
+    await this.adapters.storage.writeJson(keys.REMINDER_CACHE_KEY, this.reminderCache)
+  }
+
+  /**
+   * 刷新「最近一次生成的台詞」。
+   *
+   * **時機是離開前景與對話閒置時**，不是建立提醒時——owner 的用法是先設好
+   * 提醒、之後才大量互動，建立當下生成的話那段互動全都不會被吃進去
+   * （見 `docs/mobile-standalone-reminder-plan.md` §2.1）。
+   *
+   * 省 Token 的兩道閘：只處理「已啟用、會在手機響、24 小時內會觸發」的提醒，
+   * 且對話自上次生成後沒動過就跳過。
+   */
+  async refreshReminderCache(): Promise<void> {
+    const convUpdatedAt = this.activeConversation?.updatedAt
+    const horizonMs = 24 * 60 * 60 * 1000
+    let dirty = false
+
+    for (const r of this.reminders) {
+      if (!r.enabled) continue
+      if (r.notificationDevice === 'desktop') continue
+      const delay = nextFireDelayMs(r.schedule, r.lastTriggeredAt)
+      if (delay === null || delay > horizonMs) continue
+      if (!needsRefresh(this.reminderCache[r.id], convUpdatedAt)) continue
+
+      try {
+        const spoken = await speakStandaloneReminder({
+          ...this.reminderSpeakDeps(r),
+          mode: 'cache-refresh'
+        })
+        if (!spoken?.text) continue
+        this.reminderCache[r.id] = {
+          reminderId: r.id,
+          characterId: spoken.characterId,
+          characterName: spoken.characterName,
+          text: spoken.text,
+          generatedAt: Date.now(),
+          basedOnConversationUpdatedAt: convUpdatedAt
+        }
+        dirty = true
+      } catch (e) {
+        // 刷快取失敗不是錯誤情境——它本來就只是底線，下次再試
+        console.warn(`[Reminder] 快取台詞刷新失敗 "${r.label}":`, e)
+      }
+    }
+
+    if (dirty) await this.persistReminderCache()
+  }
+
+  /** 回到前景：補發押後的提醒（`notify_on_unlock`）。 */
+  onAppResumed(): void {
+    flushDeferredReminders()
+  }
+
+  /** 離開前景：把接下來要響的提醒台詞先生一句起來當底線。 */
+  onAppBackgrounded(): void {
+    void this.refreshReminderCache()
+  }
+
   private async recordReminderTriggered(reminder: Reminder): Promise<void> {
     const idx = this.reminders.findIndex((r) => r.id === reminder.id)
     if (idx >= 0) {
@@ -1389,19 +1544,37 @@ export class StandaloneSession {
    * 詳見 `reminderSpeak.ts`：提醒是「角色來提醒你」，不是行事曆通知。
    */
   private speakReminder(reminder: Reminder): Promise<ReminderSpeakResult | null> {
-    return speakStandaloneReminder({
+    return speakStandaloneReminder(this.reminderSpeakDeps(reminder))
+  }
+
+  /** `speakStandaloneReminder` 的相依組裝（現場發話與刷快取共用）。 */
+  private reminderSpeakDeps(reminder: Reminder): Parameters<typeof speakStandaloneReminder>[0] {
+    const cached = this.reminderCache[reminder.id]
+    return {
       adapters: this.adapters,
       events: this.events,
       settings: this.settings,
       characters: this.characters,
-      getActiveConversation: () => this.activeConversation,
+      /*
+       * 綁定對話（`reminder.conversationId`）優先——TRPG 的劇情推進提醒要讀
+       * 那條故事線的歷史，不是使用者剛好開著的那則對話。綁定的對話被刪掉時
+       * 退回當前對話，不要整個不響。
+       */
+      getActiveConversation: () =>
+        (reminder.conversationId ? this.conversationIndex.get(reminder.conversationId) : null) ??
+        this.activeConversation,
       saveConversation: (c) => this.saveConversation(c),
       getPersona: () => this.personas.find((p) => p.id === this.settings.activePersonaId) ?? null,
       getWorld: () => this.worlds.find((w) => w.id === this.settings.activeWorldId) ?? null,
-      getActiveScene: () => this.scenes.find((s) => s.id === this.settings.activeSceneId) ?? null,
+      /* 同理：綁定情境優先，用它的人設與世界觀脈絡發話 */
+      getActiveScene: () =>
+        (reminder.sceneId ? this.scenes.find((s) => s.id === reminder.sceneId) : null) ??
+        this.scenes.find((s) => s.id === this.settings.activeSceneId) ??
+        null,
       loadLorebook: (id) => this.getLorebook(id),
-      reminder
-    })
+      reminder,
+      cachedText: isCacheUsable(cached) ? cached.text : undefined
+    }
   }
 }
 

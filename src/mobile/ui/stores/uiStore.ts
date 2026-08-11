@@ -32,6 +32,7 @@ export type ViewKind =
   | 'settings'
   | 'reminders'
   | 'reminder-editor'
+  | 'reminder-history'
   | 'news'
   | 'news-settings'
   | 'random-tools'

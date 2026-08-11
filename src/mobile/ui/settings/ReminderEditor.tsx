@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { CharacterListItem } from '@core/data'
+import type { CharacterListItem, ConversationListItem, PresetListItem } from '@core/data'
 import type { Reminder, ReminderSchedule } from '@core/types'
 import { getData } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
@@ -40,6 +40,9 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
   const standalone = getStandaloneSession() !== null
   const [draft, setDraft] = useState<Reminder | null>(null)
   const [characters, setCharacters] = useState<CharacterListItem[]>([])
+  const [scenes, setScenes] = useState<PresetListItem[]>([])
+  const [conversations, setConversations] = useState<ConversationListItem[]>([])
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -53,11 +56,22 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
   const load = useCallback(async (): Promise<void> => {
     setFailed(false)
     try {
-      const [list, chars] = await Promise.all([getData().reminders.list(), getData().characters.list()])
+      const [list, chars, sceneList, convList] = await Promise.all([
+        getData().reminders.list(),
+        getData().characters.list(),
+        getData().presets.listScenes(),
+        getData().conversations.list()
+      ])
       const found = list.find((r) => r.id === reminderId)
       if (!found) { setFailed(true); return }
       setDraft(found)
       setCharacters(chars)
+      setScenes(sceneList)
+      setConversations(convList)
+      // 已經設過進階選項的提醒，一進來就展開——不然使用者找不到自己設過的東西
+      if (found.sceneId || found.conversationId || found.wakeMode === 'screen_on_only' || found.allowOfflineFallback === false) {
+        setAdvancedOpen(true)
+      }
     } catch {
       setFailed(true)
     }
@@ -322,6 +336,118 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
           disabledNote={standalone ? 'Google 日曆授權只在電腦上' : undefined}
         />
       </div>
+
+      {/*
+        進階選項。預設收起來：這些是「已經在用提醒、開始覺得它吵或出戲」之後才會想調的東西，
+        第一次建立提醒的人不該被它們擋住（CLAUDE.md 分層原則：進階勿擠第一層）。
+        全部只在獨立模式顯示——遙控模式的提醒由電腦端排程，這些欄位還沒有人讀。
+      */}
+      {standalone && (
+        <div className="mb-4 rounded-2xl border border-[var(--border)]">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((v) => !v)}
+            className="flex w-full items-center justify-between px-3.5 py-2.5 text-sm text-[var(--text)]"
+          >
+            <span>進階</span>
+            <span className="text-[var(--text-sub)]">{advancedOpen ? '收起' : '展開'}</span>
+          </button>
+
+          {advancedOpen && (
+            <div className="border-t border-[var(--border)] px-3.5 pt-3">
+              <Field
+                label="待機時要不要叫醒手機"
+                hint="「只在使用中」適合提醒休息、喝水這類事——手機放著沒在用就別吵。"
+              >
+                <select
+                  className="field"
+                  value={draft.wakeMode ?? 'always'}
+                  onChange={(e) => set('wakeMode', e.target.value as 'always' | 'screen_on_only')}
+                >
+                  <option value="always">一律提醒（待機也叫醒）</option>
+                  <option value="screen_on_only">只在使用中提醒</option>
+                </select>
+              </Field>
+
+              {draft.wakeMode === 'screen_on_only' && (
+                <Field label="待機時錯過了怎麼辦">
+                  <select
+                    className="field"
+                    value={draft.inactiveBehavior ?? 'skip'}
+                    onChange={(e) => set('inactiveBehavior', e.target.value as 'skip' | 'notify_on_unlock')}
+                  >
+                    <option value="skip">跳過這次</option>
+                    <option value="notify_on_unlock">下次拿起手機時補提醒</option>
+                  </select>
+                </Field>
+              )}
+
+              <Field
+                label="綁定情境（選填）"
+                hint="綁了之後，這則提醒會用該情境的人設與世界觀來講話。"
+              >
+                <select
+                  className="field"
+                  value={draft.sceneId ?? ''}
+                  onChange={(e) => {
+                    const v = e.target.value || undefined
+                    setDraft((d) => (d ? { ...d, sceneId: v, sceneConstraint: v ? (d.sceneConstraint ?? 'any_scene') : undefined } : d))
+                    markDirty()
+                  }}
+                >
+                  <option value="">不綁定（跟著目前情境）</option>
+                  {scenes.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </Field>
+
+              {draft.sceneId && (
+                <Field
+                  label="什麼時候才響"
+                  hint="選「只在這個情境時」，跑團跑到一半就不會被日常提醒打斷。"
+                >
+                  <select
+                    className="field"
+                    value={draft.sceneConstraint ?? 'any_scene'}
+                    onChange={(e) => set('sceneConstraint', e.target.value as 'any_scene' | 'match_scene_only')}
+                  >
+                    <option value="any_scene">任何時候都響</option>
+                    <option value="match_scene_only">只在這個情境時才響</option>
+                  </select>
+                </Field>
+              )}
+
+              <Field
+                label="綁定對話（選填）"
+                hint="指定要讀哪一則對話的近期紀錄當脈絡，適合推進特定故事線。"
+              >
+                <select
+                  className="field"
+                  value={draft.conversationId ?? ''}
+                  onChange={(e) => set('conversationId', e.target.value || undefined)}
+                >
+                  <option value="">不綁定（用目前的對話）</option>
+                  {conversations.map((c) => (
+                    <option key={c.id} value={c.id}>{c.title}</option>
+                  ))}
+                </select>
+              </Field>
+
+              <div className="space-y-1.5 pb-3">
+                <ToggleRow
+                  label="連不上網時仍要提醒"
+                  checked={draft.allowOfflineFallback !== false}
+                  onChange={(v) => set('allowOfflineFallback', v)}
+                />
+                <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
+                  關掉的話，連不上網就安靜跳過這次，不會用舊的話搪塞你。
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <button
         type="button"

@@ -19,7 +19,7 @@ import { RemoteEventSource } from '../events/remoteEventSource'
 import { HeaderChips } from './context/HeaderChips'
 import { initCapacitorSecrets, capacitorAdapters } from '../adapters'
 import { bootStandaloneSession } from '../runtime/session'
-import { setStandaloneSession } from '../runtime/sessionHolder'
+import { getStandaloneSession, setStandaloneSession } from '../runtime/sessionHolder'
 
 /**
  * 手機 UI 的根元件。
@@ -113,7 +113,25 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     const onVisible = (): void => {
-      if (document.visibilityState === 'visible') useAppStore.getState().refresh()
+      const session = getStandaloneSession()
+      if (document.visibilityState === 'visible') {
+        useAppStore.getState().refresh()
+        // 亮屏／回到前景：補發押後的提醒（inactiveBehavior: notify_on_unlock）
+        session?.onAppResumed()
+      } else {
+        /*
+         * 離開前景＝把接下來要響的提醒台詞先生一句起來當離線底線
+         * （見 docs/mobile-standalone-reminder-plan.md §2.1）。
+         *
+         * ⚠️ 這裡是**唯一**能吃到「使用者剛剛那一輪互動」的時機。
+         * 不要改成建立提醒時就生——那樣設完提醒之後的對話全都不會被算進去，
+         * 正是 owner 2026-08-11 明確否決的做法。
+         *
+         * 從最近工作清單上滑劃掉之前，App 早就已經 pause 過了，
+         * 所以這個時機也涵蓋「劃掉」的情況。
+         */
+        session?.onAppBackgrounded()
+      }
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)

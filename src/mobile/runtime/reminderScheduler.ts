@@ -1,5 +1,6 @@
 import { LocalNotifications } from '@capacitor/local-notifications'
-import type { Reminder } from '@core/types'
+import type { Reminder, ReminderHistoryStatus } from '@core/types'
+import { decideReminderFire } from '@core/reminder/gate'
 import {
   nextDailyMs,
   nextWeeklyMs,
@@ -19,7 +20,23 @@ import {
  * 觸發時要做的事：讓角色用自己的口吻把提醒講出來，
  * 回傳講出來的那句話當通知內容。回 `null` 代表沒有角色可發話（就不發通知）。
  */
-type TriggerFn = (reminder: Reminder) => Promise<{ characterName: string; text: string } | null>
+type TriggerFn = (
+  reminder: Reminder
+) => Promise<{ characterName: string; text: string; status?: 'success' | 'offline_fallback' } | null>
+
+/**
+ * 排程器問外界「現在的狀態」用的鉤子（由 session 注入）。
+ * 抽成注入是為了讓排程器本身仍可在瀏覽器煙測與 vitest 裡跑。
+ */
+export interface ReminderSchedulerHooks {
+  /** 目前作用中的情境 id（給 `match_scene_only` 比對） */
+  getActiveSceneId: () => string | null
+  /** 記一筆歷史（含被略過的） */
+  recordHistory: (
+    reminder: Reminder,
+    draft: { status: ReminderHistoryStatus; text?: string; characterName?: string; errorMessage?: string }
+  ) => void
+}
 
 /**
  * 提醒專用的通知頻道。
@@ -36,12 +53,25 @@ type TriggerFn = (reminder: Reminder) => Promise<{ characterName: string; text: 
 const CHANNEL_ID = 'dest-reminders-v1'
 
 let triggerFn: TriggerFn | null = null
+let hooks: ReminderSchedulerHooks | null = null
 let reminders: Reminder[] = []
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 let initialized = false
 
-export async function initReminderScheduler(trigger: TriggerFn): Promise<void> {
+/**
+ * `notify_on_unlock` 押後的提醒 id。
+ *
+ * 只留 id 不留內容：補發時要重新生成當下的台詞，
+ * 押後那一刻生的話等使用者亮屏時已經過時了。
+ */
+const deferred = new Set<string>()
+
+export async function initReminderScheduler(
+  trigger: TriggerFn,
+  schedulerHooks?: ReminderSchedulerHooks
+): Promise<void> {
   triggerFn = trigger
+  hooks = schedulerHooks ?? null
   initialized = true
 
   // 僅在 Web 環境請求通知權限
@@ -142,7 +172,59 @@ function clearTimerFor(id: string): void {
   }
 }
 
-async function fire(reminder: Reminder): Promise<void> {
+/**
+ * 螢幕是否亮著。
+ *
+ * 純 JS 排程器只能看 `document.visibilityState`——App 在前景就代表螢幕亮著。
+ * 反過來不成立（App 在背景不等於螢幕暗），所以背景時**保守回報 true**，
+ * 寧可多響也不要該響的沒響。真正精準的判定要等原生層的
+ * `PowerManager.isInteractive()`（計畫書 §5.2 的 `ReminderAlarmReceiver`）。
+ */
+function screenLikelyOn(): boolean {
+  // 目前一律回 true（見上方註解）。原生層接上後改成問 PowerManager。
+  return true
+}
+
+/**
+ * 亮屏／回到前景時補發押後的提醒（`inactiveBehavior: 'notify_on_unlock'`）。
+ * 由 session 在 `appStateChange → active` 時呼叫。
+ */
+export function flushDeferredReminders(): void {
+  if (deferred.size === 0) return
+  const ids = [...deferred]
+  deferred.clear()
+  for (const id of ids) {
+    const r = reminders.find((x) => x.id === id)
+    if (r?.enabled) {
+      console.log(`[Reminder] 補發押後的提醒 "${r.label}"`)
+      void fire(r, { skipGate: true })
+    }
+  }
+}
+
+async function fire(reminder: Reminder, opts?: { skipGate?: boolean }): Promise<void> {
+  /*
+   * 該不該響的判定集中在 `core/reminder/gate.ts`——
+   * 手機 JS 排程器、原生喚醒後的 headless 執行、桌面三條路徑共用同一份判斷，
+   * 否則同一則提醒會在不同路徑上得到不同結果。
+   */
+  if (!opts?.skipGate) {
+    const decision = decideReminderFire(reminder, {
+      activeSceneId: hooks?.getActiveSceneId() ?? null,
+      screenOn: screenLikelyOn()
+    })
+    if (decision.action === 'skip') {
+      console.log(`[Reminder] 略過 "${reminder.label}"（${decision.status}）`)
+      hooks?.recordHistory(reminder, { status: decision.status })
+      return
+    }
+    if (decision.action === 'defer') {
+      console.log(`[Reminder] 押後 "${reminder.label}"，等亮屏時補發`)
+      deferred.add(reminder.id)
+      return
+    }
+  }
+
   try {
     /*
      * 先讓角色說話，再拿它講的內容當通知。
@@ -157,7 +239,13 @@ async function fire(reminder: Reminder): Promise<void> {
      */
     const spoken = triggerFn ? await triggerFn(reminder) : null
     if (!spoken) {
-      console.log(`[Reminder] "${reminder.label}" 沒有可發話的角色，不發通知`)
+      /*
+       * 兩種情況會走到這：沒有可發話的角色，或者現場生成失敗又沒有可用的
+       * 快取／使用者關掉了離線降級。後者是**刻意安靜**（維持沉浸感），
+       * 但仍要留一筆歷史，否則使用者只會覺得「它就是沒響」而查不出原因。
+       */
+      console.log(`[Reminder] "${reminder.label}" 無台詞可發，不發通知`)
+      hooks?.recordHistory(reminder, { status: 'skipped_offline' })
       return
     }
 
@@ -180,11 +268,20 @@ async function fire(reminder: Reminder): Promise<void> {
         ]
       })
       console.log(`[Reminder] 通知已發送`)
+      hooks?.recordHistory(reminder, {
+        status: spoken.status ?? 'success',
+        text: spoken.text,
+        characterName: spoken.characterName
+      })
     } else {
       console.log(`[Reminder] 跳過通知（非 Web 環境）`)
     }
   } catch (e) {
     console.error('[Reminder] 觸發失敗:', e)
+    hooks?.recordHistory(reminder, {
+      status: 'skipped_offline',
+      errorMessage: e instanceof Error ? e.message : String(e)
+    })
   }
 }
 
