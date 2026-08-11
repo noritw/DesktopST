@@ -1358,3 +1358,38 @@ owner：「我有可能先設完提醒、然後再大量跟角色互動、之後
 
 驗證：`gradlew assembleDebug` 通過，合併後的 manifest 確認兩個 receiver 與
 三個新權限都在。**尚未實機測試**（手邊沒有連著的裝置）。
+
+### 同日：②b headless 現場生成完成
+
+提醒到點 → `ReminderForegroundService`（shortService）起隱藏 WebView →
+載 `index.html?headless=reminder` → 既有 `reminderSpeak.ts` 原封不動跑一遍 →
+結果回原生發通知。**TS 邏輯零重寫**，桌面／前景／背景三處同一份 prompt 組裝。
+
+關鍵是三個 adapter（`src/mobile/headless/bridgeAdapters.ts`）：headless 沒有
+Capacitor Bridge，Filesystem／SecureStorage／CapacitorHttp 都用不了，
+改用 `HeadlessBridge.java` 注入的 `window.DestHeadless` 補回同樣形狀。
+檔案根目錄用 `getFilesDir()`——實測 `@capacitor/filesystem` 的
+`Directory.Data` 就是它，不一致的話 headless 會讀到空資料夾然後安靜地什麼都不做。
+
+`SecureStoreReader.java` 解 master key，**與外掛內部格式綁定**
+（`WSSecureStorageSharedPreferences`、U+0010 分隔的 ciphertext∥iv、
+KeyStore alias ＝ prefixedKey）。升級 `@aparajita/capacitor-secure-storage` 要回頭確認。
+拿不到就回 null，headless 退回快取台詞，不會崩。
+
+實作時推翻的兩個原計畫假設：
+
+1. **「②b 之後就能拿掉 15 秒偏移」不成立**。兩條路徑各自都會生成，
+   同時跑＝兩次 LLM ＋ 兩個 session 寫同一個對話檔（後寫的蓋掉先寫的）。
+   偏移要留，而且 `cancelNativeAlarm` 必須在**開始生成之前**呼叫，
+   不能等發完通知——生成一慢就來不及。
+2. **回到前景一定要重讀對話**。背景那句話是另一個 session 寫進檔案的；
+   前景記憶體是舊的，不重讀就會在下次存檔時把它蓋掉，看起來像提醒沒觸發。
+   `onAppResumed()` 現在會重讀對話／提醒／歷史並推 `state-invalidated`。
+
+`useCache` 旗標：只有 TS 整條路壞掉時才讓原生補快取台詞。「情境不符」
+「關掉離線降級」是判定結果，TS 已考慮過快取——原生再補會讓「安靜略過」失效。
+
+驗證：瀏覽器煙測（假 bridge ＋ 記憶體檔案系統）跑過四條路徑——
+找不到提醒、快取降級（訊息有進對話、歷史有紀錄）、情境不符略過、
+關掉降級時安靜略過；`assembleDebug` 通過、manifest 確認 shortService 與兩個權限。
+**仍未實機測試。**

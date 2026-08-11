@@ -21,6 +21,7 @@ import {
   type ReminderHistoryDraft
 } from '@core/reminder/history'
 import { nextFireDelayMs } from '@core/reminder/nextFire'
+import { decideReminderFire } from '@core/reminder/gate'
 import {
   isCacheUsable,
   needsRefresh,
@@ -95,6 +96,15 @@ export interface BootStandaloneOptions {
   packBytes?: Uint8Array | null
   /** 測試用：不要去 fetch 預設包 */
   skipPackFetch?: boolean
+  /**
+   * headless 模式（提醒到點時由原生起的隱藏 WebView）。
+   *
+   * 這一趟只為了生一句話就結束，所以**不要啟動提醒排程器**——
+   * 那會在背景排一堆 setTimeout、還會去要通知權限（headless 沒有
+   * Capacitor Bridge，要不到），純屬浪費而且會拖慢啟動。
+   * 通知由原生發，下一輪排程等使用者下次打開 App 時再算。
+   */
+  headless?: boolean
 }
 
 /**
@@ -195,6 +205,8 @@ export class StandaloneSession {
     await this.reloadReminderCache()
 
     // 啟動提醒排程器：觸發時讓角色用自己的口吻把提醒講出來
+    // （headless 那一趟不需要——見 BootStandaloneOptions.headless）
+    if (opts.headless) return
     await initReminderScheduler(
       async (reminder) => {
         await this.recordReminderTriggered(reminder)
@@ -1534,14 +1546,87 @@ export class StandaloneSession {
     }
   }
 
-  /** 回到前景：補發押後的提醒（`notify_on_unlock`）。 */
+  /**
+   * 回到前景。
+   *
+   * ⚠️ **一定要從磁碟重讀對話**。提醒在背景觸發時是由 headless WebView
+   * （另一個 session）把角色的話寫進對話檔的；這邊記憶體裡那份是它寫入**之前**
+   * 的舊狀態。不重讀的話，使用者回來隨便送一則訊息就會把整個對話存回舊版本，
+   * 提醒講的那句話就這樣消失了——而且看起來像「提醒根本沒觸發」。
+   *
+   * 順便重讀提醒與歷史（headless 也會更新 `lastTriggeredAt` 與歷史紀錄）。
+   */
   onAppResumed(): void {
-    flushDeferredReminders()
+    void (async () => {
+      try {
+        await this.reloadConversations()
+        await this.reloadReminders()
+        await this.reloadReminderHistory()
+        this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+        updateReminders(this.reminders)
+      } catch (e) {
+        console.warn('[Reminder] 回到前景時重讀資料失敗:', e)
+      }
+      flushDeferredReminders()
+    })()
   }
 
   /** 離開前景：把接下來要響的提醒台詞先生一句起來當底線。 */
   onAppBackgrounded(): void {
     void this.refreshReminderCache()
+  }
+
+  /**
+   * headless 那一趟的完整流程（提醒到點、原生把我們叫起來）。
+   *
+   * 放在 session 而不是 headless 入口，是因為判定／發話／歷史所需的東西
+   * 全都在這裡；入口只負責把結果交回原生。**與前景走的是同一組函式**
+   * （`decideReminderFire` ＋ `speakStandaloneReminder` ＋ `appendReminderHistory`），
+   * 不是另一條平行實作——那正是計畫書 §2.1 要避免的事。
+   *
+   * `screenOn` 由原生的 `PowerManager.isInteractive()` 得來，
+   * 比前景的 `screenLikelyOn()`（一律 true）準。
+   */
+  async runReminderHeadless(
+    reminderId: string,
+    screenOn: boolean
+  ): Promise<{ notify: boolean; title?: string; body?: string; reason: string }> {
+    const reminder = this.reminders.find((r) => r.id === reminderId)
+    if (!reminder) return { notify: false, reason: 'not-found' }
+    if (!reminder.enabled) return { notify: false, reason: 'disabled' }
+
+    const decision = decideReminderFire(reminder, {
+      activeSceneId: this.settings.activeSceneId ?? null,
+      screenOn
+    })
+    if (decision.action === 'skip') {
+      await this.appendReminderHistory(reminder, { status: decision.status })
+      return { notify: false, reason: decision.status }
+    }
+    if (decision.action === 'defer') {
+      // 原生那側已經把它留在 store 裡等亮屏補發，這裡不必再做什麼
+      return { notify: false, reason: 'deferred' }
+    }
+
+    await this.recordReminderTriggered(reminder)
+    const spoken = await this.speakReminder(reminder)
+    if (!spoken) {
+      await this.appendReminderHistory(reminder, { status: 'skipped_offline' })
+      return { notify: false, reason: 'no-speech' }
+    }
+
+    await this.appendReminderHistory(reminder, {
+      status: spoken.status,
+      text: spoken.text,
+      characterId: spoken.characterId,
+      characterName: spoken.characterName
+    })
+    return {
+      notify: true,
+      title: spoken.characterName,
+      body: spoken.text,
+      reason: spoken.status
+    }
   }
 
   private async recordReminderTriggered(reminder: Reminder): Promise<void> {

@@ -6,12 +6,14 @@ import android.content.Intent;
 import android.os.PowerManager;
 import android.util.Log;
 
+import androidx.core.content.ContextCompat;
+
 /**
  * 鬧鐘到點時的廣播接收器。
  *
- * ⚠️ **這裡只有大約 10 秒**（BroadcastReceiver 的執行上限），
- * 不可以在這裡打網路。目前的做法是直接用「離開前景時生好的快取台詞」發通知，
- * 不需要網路；現場生成（headless WebView）是下一步，屆時改成在這裡啟動前景服務。
+ * ⚠️ **這裡只有大約 10 秒**（BroadcastReceiver 的執行上限），不可以在這裡打網路。
+ * 所以真正的工作交給 `ReminderForegroundService`：它起一個隱藏 WebView
+ * 現場生成當下的台詞（§2.1 主線）。服務起不來時才退回這裡直接用快取台詞發通知。
  *
  * 螢幕狀態判定放在這裡，是因為只有原生層問得到 `PowerManager.isInteractive()`——
  * JS 側的 `screenLikelyOn()` 一律回 true（App 在背景不等於螢幕暗）。
@@ -36,9 +38,6 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
       return;
     }
 
-    // 響過就不留了。下一次由 JS 在前景重新排（interval／daily 的下一輪）。
-    store.remove(id);
-
     if ("screen_on_only".equals(entry.wakeMode) && !screenOn(context)) {
       if ("notify_on_unlock".equals(entry.inactiveBehavior)) {
         /*
@@ -50,11 +49,39 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
         store.put(entry);
         Log.i(TAG, "螢幕暗著，押後等亮屏補發: " + id);
       } else {
+        store.remove(id);
         Log.i(TAG, "螢幕暗著，略過: " + id);
       }
       return;
     }
 
+    /*
+     * 主線：交給前景服務現場生成。
+     *
+     * 這裡**不能**先把 store 的紀錄刪掉——服務要靠它拿快取台詞當底線，
+     * 由服務自己在結束時清（`ReminderForegroundService.finish()`）。
+     */
+    try {
+      ContextCompat.startForegroundService(
+        context,
+        ReminderForegroundService.intentFor(context, id, true)
+      );
+      Log.i(TAG, "已交給前景服務現場生成: " + id);
+      return;
+    } catch (Exception e) {
+      /*
+       * 起不來的情況：系統沒給白名單豁免、或 Android 15+ 的
+       * shortService 限制。退回直接用快取台詞——晚一點、舊一點，
+       * 但至少該響的響了。
+       */
+      Log.w(TAG, "前景服務起不來，退回快取台詞: " + e.getMessage());
+    }
+
+    store.remove(id);
+    notifyFromCache(context, id, entry);
+  }
+
+  private void notifyFromCache(Context context, String id, ReminderAlarmStore.Entry entry) {
     String body = entry.body == null ? "" : entry.body.trim();
     if (body.isEmpty()) {
       /*
@@ -69,7 +96,7 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
 
     String title = entry.title == null || entry.title.isEmpty() ? "提醒" : entry.title;
     ReminderNotifier.notify(context, id, title, body);
-    Log.i(TAG, "已發出提醒通知: " + id);
+    Log.i(TAG, "已發出提醒通知（快取台詞）: " + id);
   }
 
   private boolean screenOn(Context context) {

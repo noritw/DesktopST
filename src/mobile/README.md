@@ -139,8 +139,15 @@ android/app/src/main/java/tw/nori/dest/
   reminder/ReminderAlarmReceiver.java  到點；判螢幕、發通知
   reminder/ReminderBootReceiver.java   BOOT_COMPLETED／MY_PACKAGE_REPLACED
   reminder/ReminderNotifier.java       通知頻道與發送
-android/app/src/main/AndroidManifest.xml   receiver 與權限
+  reminder/ReminderForegroundService.java  headless WebView（現場生成台詞）
+  reminder/HeadlessBridge.java             window.DestHeadless：檔案／金鑰／HTTP
+  reminder/SecureStoreReader.java          解出 master key（與 secure-storage 外掛格式綁定）
+android/app/src/main/AndroidManifest.xml   receiver、service 與權限
 ```
+
+對應的 TS 在 `src/mobile/headless/`：`bridge.ts`（介面與 `?headless=reminder` 旗標）、
+`bridgeAdapters.ts`（把原生介面包成 `core/adapters` 的形狀）、
+`reminderHeadless.ts`（入口）。`main.tsx` 看到 headless 旗標時**不掛 React**。
 
 這幾個檔案 **有進版控**（`.gitignore` 逐層 un-ignore，其餘 android/ 仍忽略）。
 

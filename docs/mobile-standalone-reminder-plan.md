@@ -133,16 +133,40 @@ headless 那側必須先拿到 master key 才解得開。這讓完整的 headles
 | 階段 | 內容 | 狀態 |
 |---|---|---|
 | **②a** | AlarmManager ＋ 開機重註冊 ＋ 發通知，內容用**離開前景時生好的快取台詞** | **已完成** |
-| **②b** | headless WebView 現場生成，把台詞升級成「當下的」 | 待做 |
+| **②b** | headless WebView 現場生成，把台詞升級成「當下的」 | **已完成** |
 
 ②a 已經解掉最核心的問題（App 劃掉之後不會響），而且完全不碰 prompt 邏輯——
 原生只拿 JS 交給它的字串去發通知。
 
-**雙路徑防重複**：JS 計時器與原生鬧鐘會在同一刻到期。若同時響，使用者會先看到
-快取的舊句子、幾秒後被新句子蓋掉（同一個通知 id 重發還會再彈一次橫幅）。
-所以原生鬧鐘刻意慢 15 秒（`NATIVE_ALARM_GRACE_MS`），App 活著時 JS 來得及先發完
-並呼叫 `cancelNativeAlarm`；App 死著時就是晚這幾秒。**②b 接上後這個偏移要拿掉**，
-屆時原生才是主路徑。
+**雙路徑防重複**：JS 計時器與原生鬧鐘會在同一刻到期。原生鬧鐘刻意慢 15 秒
+（`NATIVE_ALARM_GRACE_MS`），而且 JS 在**開始生成之前**就會 `cancelNativeAlarm`。
+
+> ⚠️ 原本寫「②b 接上後這個偏移要拿掉」，**實作後發現不成立**（2026-08-11）。
+> ②b 之後兩條路徑各自都會生成，同時跑的話是兩次 LLM 呼叫，
+> 而且兩個 session 會同時寫同一個對話檔、後寫的蓋掉先寫的。
+> 偏移必須留著，取消也必須在生成**之前**（不是成功之後，否則生成一慢就來不及）。
+
+### ②b 的落地重點（2026-08-11）
+
+| 元件 | 做什麼 |
+|---|---|
+| `ReminderForegroundService.java` | shortService ＋ 隱藏 WebView，載 `index.html?headless=reminder&reminderId=…&screenOn=…`；45 秒逾時退回快取台詞 |
+| `HeadlessBridge.java` | `window.DestHeadless`：檔案（`getFilesDir()`，與 `Directory.Data` 同一處）、master key、原生 HTTP、`complete()`、`log()` |
+| `SecureStoreReader.java` | 解出 master key。**與 `@aparajita/capacitor-secure-storage` 的內部格式綁定**（`WSSecureStorageSharedPreferences`、U+0010 分隔、KeyStore alias ＝ prefixedKey），升級外掛時要回頭確認 |
+| `src/mobile/headless/` | `bridge.ts`（介面與旗標）、`bridgeAdapters.ts`（Storage／Http／Secret 三個 adapter）、`reminderHeadless.ts`（入口） |
+| `main.tsx` | `?headless=reminder` 時**不掛 React**，改動態 import headless 入口 |
+| `session.runReminderHeadless()` | 判定→發話→歷史，與前景**共用同一組函式**，不是平行實作 |
+
+其他決定：
+
+- **`useCache` 旗標**：只有 TS 整條路壞掉（拿不到 adapters、例外）時才讓原生補一則快取台詞。
+  「情境不符」「使用者關掉離線降級」是判定結果，TS 已經把快取考慮進去了——
+  原生再自作主張補一則會讓「安靜略過」失效。
+- **回到前景一定要重讀對話**（`onAppResumed`）。背景那句話是 headless 那個 session
+  寫進檔案的；前景記憶體裡是舊的，不重讀的話使用者隨便送一則訊息就會存回舊版本，
+  提醒講的話就消失了，看起來像「根本沒觸發」。
+- headless boot 用 `{ headless: true }`：不啟動排程器、不建立對話。
+  背景跑的程式碼不該默默改動使用者的資料。
 
 ### 另外兩個限制（要寫進 UI 說明，不能靜默失敗）
 

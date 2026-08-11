@@ -44,6 +44,16 @@
             android:name=".reminder.ReminderAlarmReceiver"
             android:exported="false" />
 
+        <!--
+            提醒到點時跑「現場生成台詞」的前景服務（隱藏 WebView）。
+            shortService：Android 14+ 起前景服務必須宣告型別，
+            這一種上限 3 分鐘、不需要額外權限，正好符合「醒來做一件事就走」。
+        -->
+        <service
+            android:name=".reminder.ReminderForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
+
         <receiver
             android:name=".reminder.ReminderBootReceiver"
             android:exported="false">
@@ -70,6 +80,9 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!-- 重開機後要重新註冊鬧鐘，否則所有提醒會靜靜地永遠不再響 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 提醒到點時起前景服務現場生成台詞（BroadcastReceiver 只有約 10 秒，不夠打 LLM） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SHORT_SERVICE" />
 
     <!--
         天氣定位只要**粗略位置**（@capacitor/geolocation 的 coarseLocation）。

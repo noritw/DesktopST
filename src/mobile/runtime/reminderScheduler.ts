@@ -192,8 +192,10 @@ function scheduleOne(r: Reminder): void {
  * 所以讓原生慢一點，App 活著時 JS 來得及先發完並把它取消掉；
  * App 死著時就是晚這幾秒，換掉一次雙重通知很划算。
  *
- * 現場生成（headless WebView，②b）接上之後這個偏移就會拿掉——
- * 屆時原生才是主路徑。
+ * ②b（headless 現場生成）接上之後這個偏移**仍然要留著**，而且更重要：
+ * 沒有它的話，App 活著時 JS 與原生會各自生成一次，兩個 session
+ * 同時寫同一個對話檔——後寫的把先寫的蓋掉。原計畫寫「②b 後拿掉偏移」，
+ * 實作時發現不成立（2026-08-11）。
  */
 const NATIVE_ALARM_GRACE_MS = 15_000
 
@@ -300,6 +302,18 @@ async function fire(reminder: Reminder, opts?: { skipGate?: boolean }): Promise<
     }
   }
 
+  /*
+   * **在開始生成之前**就把原生鬧鐘取消掉。
+   *
+   * 不能等發完通知才取消：生成慢（網路差）超過 15 秒的話，原生鬧鐘會醒來
+   * 另起一個 headless WebView，變成同一則提醒**兩次 LLM 呼叫**，
+   * 而且兩個 session 會同時寫同一個對話檔——後寫的把先寫的蓋掉。
+   *
+   * 代價是 App 剛好在生成途中被殺掉時這次就沒了；下次回到前景會重排。
+   * 比起雙重生成與掉訊息，這個代價小得多。
+   */
+  void cancelNativeAlarm(reminder.id)
+
   try {
     /*
      * 先讓角色說話，再拿它講的內容當通知。
@@ -343,11 +357,6 @@ async function fire(reminder: Reminder, opts?: { skipGate?: boolean }): Promise<
         ]
       })
       console.log(`[Reminder] 通知已發送`)
-      /*
-       * JS 這條路徑已經發出了當下生成的台詞，
-       * 那顆晚 15 秒、內容是舊快取的原生鬧鐘就不需要了（見 NATIVE_ALARM_GRACE_MS）。
-       */
-      void cancelNativeAlarm(reminder.id)
       hooks?.recordHistory(reminder, {
         status: spoken.status ?? 'success',
         text: spoken.text,
