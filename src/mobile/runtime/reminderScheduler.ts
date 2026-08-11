@@ -2,6 +2,12 @@ import { LocalNotifications } from '@capacitor/local-notifications'
 import type { Reminder, ReminderHistoryStatus } from '@core/types'
 import { decideReminderFire } from '@core/reminder/gate'
 import {
+  cancelAllNativeAlarms,
+  cancelNativeAlarm,
+  scheduleNativeAlarm,
+  takeDeferredNativeAlarms
+} from '../adapters/nativeAlarms'
+import {
   nextDailyMs,
   nextWeeklyMs,
   nextIntervalMs,
@@ -31,6 +37,11 @@ type TriggerFn = (
 export interface ReminderSchedulerHooks {
   /** 目前作用中的情境 id（給 `match_scene_only` 比對） */
   getActiveSceneId: () => string | null
+  /**
+   * 這則提醒的快取台詞（離開前景時生成的離線底線）。
+   * 交給原生鬧鐘當「App 已經被劃掉時要發什麼」，沒有就回 null。
+   */
+  getCachedSpeech: (reminderId: string) => { title: string; body: string } | null
   /** 記一筆歷史（含被略過的） */
   recordHistory: (
     reminder: Reminder,
@@ -112,6 +123,12 @@ export function updateReminders(newReminders: Reminder[]): void {
   reminders = newReminders
   for (const t of timers.values()) clearTimeout(t)
   timers.clear()
+  /*
+   * 原生鬧鐘整批清掉重排。逐一比對哪些變了不划算——
+   * 提醒通常只有個位數，而漏刪一個已刪除的提醒會在使用者手機上
+   * 憑空響一次，那是最難查的一種 bug。
+   */
+  void cancelAllNativeAlarms()
   scheduleAll()
 }
 
@@ -162,6 +179,53 @@ function scheduleOne(r: Reminder): void {
   }, delay)
 
   timers.set(r.id, t)
+  armNativeAlarm(r, Date.now() + delay)
+}
+
+/**
+ * 原生鬧鐘比 JS 計時器晚 `NATIVE_ALARM_GRACE_MS` 觸發。
+ *
+ * 兩條路徑會在同一刻到期：App 活著時是 JS 生成當下的台詞，
+ * App 被劃掉時只有原生鬧鐘還在。若兩者同時響，使用者會先看到快取的舊句子、
+ * 幾秒後又被新句子蓋掉（同一個通知 id 重發還會再彈一次橫幅）。
+ *
+ * 所以讓原生慢一點，App 活著時 JS 來得及先發完並把它取消掉；
+ * App 死著時就是晚這幾秒，換掉一次雙重通知很划算。
+ *
+ * 現場生成（headless WebView，②b）接上之後這個偏移就會拿掉——
+ * 屆時原生才是主路徑。
+ */
+const NATIVE_ALARM_GRACE_MS = 15_000
+
+function armNativeAlarm(r: Reminder, fireAtMs: number): void {
+  const cached = hooks?.getCachedSpeech(r.id)
+  void scheduleNativeAlarm({
+    id: r.id,
+    triggerAtMs: fireAtMs + NATIVE_ALARM_GRACE_MS,
+    title: cached?.title ?? '提醒',
+    /*
+     * 沒有快取就送空字串：原生層看到空的會**不發通知**。
+     * 這是刻意的——硬發一則「提醒：喝水」等於把功能降級成行事曆。
+     */
+    body: cached?.body ?? '',
+    wakeMode: r.wakeMode ?? 'always',
+    inactiveBehavior: r.inactiveBehavior ?? 'skip'
+  })
+}
+
+/**
+ * 重新註冊所有原生鬧鐘（快取台詞刷新後呼叫）。
+ * 原生那邊存的是「App 死掉時要發的話」，刷了快取沒同步過去就等於沒刷。
+ */
+export function rearmNativeAlarms(): void {
+  for (const r of reminders) {
+    if (!r.enabled) continue
+    if (r.notificationDevice === 'desktop') continue
+    if (r.schedule.type === 'startup') continue
+    const delay = nextFireDelayMs(r.schedule, r.lastTriggeredAt)
+    if (delay === null || delay <= 0) continue
+    armNativeAlarm(r, Date.now() + delay)
+  }
 }
 
 function clearTimerFor(id: string): void {
@@ -190,6 +254,17 @@ function screenLikelyOn(): boolean {
  * 由 session 在 `appStateChange → active` 時呼叫。
  */
 export function flushDeferredReminders(): void {
+  // 原生層押後的（螢幕暗著時鬧鐘響過）也在這裡一起撈回來補發
+  void takeDeferredNativeAlarms().then((nativeIds) => {
+    for (const id of nativeIds) {
+      const r = reminders.find((x) => x.id === id)
+      if (r?.enabled) {
+        console.log(`[Reminder] 補發原生押後的提醒 "${r.label}"`)
+        void fire(r, { skipGate: true })
+      }
+    }
+  })
+
   if (deferred.size === 0) return
   const ids = [...deferred]
   deferred.clear()
@@ -268,6 +343,11 @@ async function fire(reminder: Reminder, opts?: { skipGate?: boolean }): Promise<
         ]
       })
       console.log(`[Reminder] 通知已發送`)
+      /*
+       * JS 這條路徑已經發出了當下生成的台詞，
+       * 那顆晚 15 秒、內容是舊快取的原生鬧鐘就不需要了（見 NATIVE_ALARM_GRACE_MS）。
+       */
+      void cancelNativeAlarm(reminder.id)
       hooks?.recordHistory(reminder, {
         status: spoken.status ?? 'success',
         text: spoken.text,

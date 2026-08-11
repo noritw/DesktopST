@@ -123,6 +123,27 @@ WebView 冷啟 1–3 秒 ＋ LLM 2–5 秒，short service 上限 3 分鐘，很
 且該則提醒 `allowOfflineFallback === true` 時才拿出來用；設 `false` 就安靜略過。
 沿用 §3 已設計好的開關，不另發明機制。
 
+### 實作切成 ②a／②b（2026-08-11）
+
+headless WebView 要能生成台詞，得先解決一件事：**API Key 是用 AndroidKeyStore 的
+master key 加密後存在 `settings.json` 裡的**（`secretAdapter.ts` ＋ `secretCrypto.ts`），
+headless 那側必須先拿到 master key 才解得開。這讓完整的 headless 比預期重，
+所以拆成兩段：
+
+| 階段 | 內容 | 狀態 |
+|---|---|---|
+| **②a** | AlarmManager ＋ 開機重註冊 ＋ 發通知，內容用**離開前景時生好的快取台詞** | **已完成** |
+| **②b** | headless WebView 現場生成，把台詞升級成「當下的」 | 待做 |
+
+②a 已經解掉最核心的問題（App 劃掉之後不會響），而且完全不碰 prompt 邏輯——
+原生只拿 JS 交給它的字串去發通知。
+
+**雙路徑防重複**：JS 計時器與原生鬧鐘會在同一刻到期。若同時響，使用者會先看到
+快取的舊句子、幾秒後被新句子蓋掉（同一個通知 id 重發還會再彈一次橫幅）。
+所以原生鬧鐘刻意慢 15 秒（`NATIVE_ALARM_GRACE_MS`），App 活著時 JS 來得及先發完
+並呼叫 `cancelNativeAlarm`；App 死著時就是晚這幾秒。**②b 接上後這個偏移要拿掉**，
+屆時原生才是主路徑。
+
 ### 另外兩個限制（要寫進 UI 說明，不能靜默失敗）
 
 1. **從系統設定按「強制停止」會清掉所有 alarm**，要重開 App 才會重註冊。

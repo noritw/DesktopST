@@ -5,6 +5,7 @@ import { getData } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from './settingsErrors'
 import { scheduleLabel } from './reminderFormat'
+import { exactAlarmPermission, openExactAlarmSettings } from '../../adapters/nativeAlarms'
 
 /** 提醒清單。時間格式與編輯器的原生選擇器共用 `reminderFormat`，見那支的說明。 */
 export function RemindersView(): JSX.Element {
@@ -13,6 +14,8 @@ export function RemindersView(): JSX.Element {
   const [reminders, setReminders] = useState<Reminder[] | null>(null)
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
+  /** Android 12+ 的「鬧鐘與提醒」授權；null＝這台裝置沒有這個開關或還沒查到 */
+  const [exactAlarm, setExactAlarm] = useState<{ granted: boolean; applicable: boolean } | null>(null)
 
   const load = useCallback(async (): Promise<void> => {
     setFailed(false)
@@ -26,6 +29,16 @@ export function RemindersView(): JSX.Element {
   useEffect(() => {
     void load()
   }, [load])
+
+  /*
+   * 精準鬧鐘權限：**不能靜默失敗**。
+   * 沒授權的話鬧鐘會退回不精準模式（誤差可能數分鐘），
+   * 使用者只會覺得「提醒不準」而完全查不出原因。
+   * 每次進這一頁都重查——使用者可能剛從系統設定回來。
+   */
+  useEffect(() => {
+    void exactAlarmPermission().then(setExactAlarm)
+  }, [])
 
   const create = async (): Promise<void> => {
     setBusy(true)
@@ -67,6 +80,22 @@ export function RemindersView(): JSX.Element {
 
   return (
     <div className="pb-2">
+      {exactAlarm?.applicable && !exactAlarm.granted && (
+        <div className="mb-3 rounded-[14px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+          <p className="text-sm text-[var(--text)]">提醒可能會晚幾分鐘</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-sub)]">
+            系統還沒允許這個 App 設定精準鬧鐘。開啟之後提醒才會準時響。
+          </p>
+          <button
+            type="button"
+            onClick={() => void openExactAlarmSettings()}
+            className="mt-2 w-full rounded-full bg-[var(--mint)] py-2 text-sm text-[var(--text)]"
+          >
+            前往系統設定開啟
+          </button>
+        </div>
+      )}
+
       {reminders.length === 0 ? (
         <p className="py-6 text-center text-sm text-[var(--text-sub)]">還沒有任何提醒。</p>
       ) : (

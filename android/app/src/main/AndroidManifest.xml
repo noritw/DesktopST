@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:usesCleartextTraffic="true"
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+
+        <!--
+            提醒鬧鐘。App 被劃掉之後 WebView 連同 JS 計時器都會消失，
+            所以真正的排程走 AlarmManager，由這兩個 receiver 接手。
+            兩個都 exported="false"：只有自己的 PendingIntent 與系統廣播會叫到。
+        -->
+        <receiver
+            android:name=".reminder.ReminderAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".reminder.ReminderBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <!-- 更新 App 同樣會清掉已註冊的鬧鐘 -->
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+        精準鬧鐘。SCHEDULE_EXACT_ALARM 在 Android 12–13 是「宣告即取得，
+        但使用者可在系統設定關掉」；Android 14+ 起一般 App 拿不到，
+        要改用 USE_EXACT_ALARM（適用於使用者自己設定的鬧鐘／提醒，正是這個情境）。
+        兩個都宣告，讓各版本各取所需；沒拿到時 ReminderScheduler 會退回不精準模式。
+    -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- 重開機後要重新註冊鬧鐘，否則所有提醒會靜靜地永遠不再響 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!--
+        天氣定位只要**粗略位置**（@capacitor/geolocation 的 coarseLocation）。
+        天氣看的是縣市層級，沒必要為此索取 ACCESS_FINE_LOCATION——
+        多一層「精確位置」的授權對話只會讓使用者猶豫。
+
+        ⚠️ 這個外掛的 AndroidManifest 是空的，權限**不會**自動合併進來，
+        所以必須寫在這裡（Capacitor 8 實測如此）。
+    -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+</manifest>

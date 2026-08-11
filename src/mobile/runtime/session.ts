@@ -70,7 +70,8 @@ import {
   initReminderScheduler,
   updateReminders,
   stopReminderScheduler,
-  flushDeferredReminders
+  flushDeferredReminders,
+  rearmNativeAlarms
 } from './reminderScheduler'
 
 const MODULE_DEFS: ModuleToggle[] = [
@@ -201,6 +202,10 @@ export class StandaloneSession {
       },
       {
         getActiveSceneId: () => this.settings.activeSceneId ?? null,
+        getCachedSpeech: (id) => {
+          const c = this.reminderCache[id]
+          return isCacheUsable(c) ? { title: c.characterName, body: c.text } : null
+        },
         recordHistory: (reminder, draft) => {
           void this.appendReminderHistory(reminder, draft)
         }
@@ -1518,7 +1523,15 @@ export class StandaloneSession {
       }
     }
 
-    if (dirty) await this.persistReminderCache()
+    if (dirty) {
+      await this.persistReminderCache()
+      /*
+       * 原生鬧鐘存的是「App 已經被劃掉時要發什麼」。
+       * 只更新檔案而不重新註冊鬧鐘的話，快取等於白刷——
+       * 真的響的時候用的還是上一輪的句子。
+       */
+      rearmNativeAlarms()
+    }
   }
 
   /** 回到前景：補發押後的提醒（`notify_on_unlock`）。 */

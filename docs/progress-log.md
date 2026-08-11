@@ -1329,3 +1329,32 @@ owner：「我有可能先設完提醒、然後再大量跟角色互動、之後
 （App 在背景不等於螢幕暗），保守回 true 寧可多響。真正的判定要等原生層的
 `PowerManager.isInteractive()`。因此 `screen_on_only` 現階段等同 `always`，
 欄位存得下、UI 選得到，但要等第②步原生化才會真的生效。
+
+### 同日：②a 原生鬧鐘完成
+
+`android/app/src/main/java/tw/nori/dest/reminder/` 新增五個類別：
+`ReminderPlugin`（Capacitor 介面）、`ReminderScheduler`（AlarmManager）、
+`ReminderAlarmStore`（SharedPreferences 落地，開機重註冊靠它）、
+`ReminderAlarmReceiver`（到點；`PowerManager.isInteractive()` 判定螢幕）、
+`ReminderBootReceiver`（BOOT_COMPLETED ＋ MY_PACKAGE_REPLACED）、
+`ReminderNotifier`（頻道 id 與 JS 側同一個 `dest-reminders-v1`）。
+
+要點：
+
+- **原生完全不碰 prompt**。JS 在註冊鬧鐘時就把「App 死掉時要發什麼」
+  （快取台詞）一起交過去，原生只負責發出來。快取一刷新就 `rearmNativeAlarms()`
+  重註冊，否則刷了等於白刷。
+- **快取是空的就不發通知**。硬擠一則「提醒：喝水」等於降級成行事曆。
+- **原生鬧鐘刻意慢 15 秒**（`NATIVE_ALARM_GRACE_MS`）。JS 計時器與原生會同刻到期，
+  同時響的話使用者會看到舊句子被新句子蓋掉、橫幅彈兩次。App 活著時 JS 發完會
+  `cancelNativeAlarm`；App 死著時就晚這幾秒。②b 接上後要拿掉。
+- **權限**：Android 14+ 一般 App 拿不到 `SCHEDULE_EXACT_ALARM`，要用
+  `USE_EXACT_ALARM`（本來就是「使用者自己設的鬧鐘」情境）。兩個都宣告；
+  真的沒拿到時 `ReminderScheduler` 退回 `setAndAllowWhileIdle`（誤差數分鐘），
+  且提醒清單頁會出現引導banner——**不能靜默失敗**，不然使用者只覺得「提醒不準」。
+- **PendingIntent 要用 `setData` 區分**：extras 不參與比對，只靠 requestCode
+  不夠，會互相覆蓋。
+- 順手修好 `AndroidManifest.xml` 裡位置權限那段被寫成亂碼的中文註解。
+
+驗證：`gradlew assembleDebug` 通過，合併後的 manifest 確認兩個 receiver 與
+三個新權限都在。**尚未實機測試**（手邊沒有連著的裝置）。

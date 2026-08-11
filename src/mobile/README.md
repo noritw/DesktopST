@@ -125,3 +125,28 @@ cd android && ./gradlew.bat assembleDebug
 - 新聞／提醒完整本機實作、角色卡 export
 - S2 雙向同步（S1 單向匯入與「從電腦重新拉設定」已完成）
 - 簽章 keystore（不要自行產生）
+
+## 原生層（提醒鬧鐘）
+
+`android/` 整包是 `npx cap add android` 的產生物，**但底下有手寫的原始碼**：
+
+```
+android/app/src/main/java/tw/nori/dest/
+  MainActivity.java              註冊 ReminderPlugin（要在 super.onCreate 之前）
+  reminder/ReminderPlugin.java   Capacitor 介面
+  reminder/ReminderScheduler.java   AlarmManager 註冊／取消
+  reminder/ReminderAlarmStore.java  SharedPreferences 落地（開機重註冊靠它）
+  reminder/ReminderAlarmReceiver.java  到點；判螢幕、發通知
+  reminder/ReminderBootReceiver.java   BOOT_COMPLETED／MY_PACKAGE_REPLACED
+  reminder/ReminderNotifier.java       通知頻道與發送
+android/app/src/main/AndroidManifest.xml   receiver 與權限
+```
+
+這幾個檔案 **有進版控**（`.gitignore` 逐層 un-ignore，其餘 android/ 仍忽略）。
+
+⚠️ **`npx cap add android` 會覆寫 `MainActivity.java` 與 `AndroidManifest.xml`。**
+重建原生樹之後記得 `git checkout android/` 把手寫的部分救回來，
+否則提醒鬧鐘會安靜地失效（編得過、就是不會響）。
+
+分工原則見 `docs/mobile-standalone-reminder-plan.md` §2.1：
+**原生只負責喚醒與發通知，prompt 組裝與「該不該響」的判定都在 TS。**
