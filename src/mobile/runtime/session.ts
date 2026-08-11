@@ -219,6 +219,7 @@ export class StandaloneSession {
           const c = this.reminderCache[id]
           return isCacheUsable(c) ? { title: c.characterName, body: c.text } : null
         },
+        lastFailureReason: () => this.lastSpeakFailure,
         recordHistory: (reminder, draft) => {
           void this.appendReminderHistory(reminder, draft)
         }
@@ -1628,7 +1629,10 @@ export class StandaloneSession {
     await this.recordReminderTriggered(reminder)
     const spoken = await this.speakReminder(reminder)
     if (!spoken) {
-      await this.appendReminderHistory(reminder, { status: 'skipped_offline' })
+      await this.appendReminderHistory(reminder, {
+        status: 'skipped_offline',
+        errorMessage: this.lastSpeakFailure
+      })
       return { notify: false, reason: 'no-speech' }
     }
 
@@ -1663,10 +1667,23 @@ export class StandaloneSession {
     return speakStandaloneReminder(this.reminderSpeakDeps(reminder))
   }
 
+  /**
+   * 最近一次發話失敗的原因。
+   *
+   * `speakStandaloneReminder` 失敗時可能回 `null`（沒有可用快取、
+   * 或使用者關掉了離線降級），那條路徑本來什麼都沒留下——
+   * 提醒紀錄只寫得出「跳過」，看不出是沒網路、沒金鑰還是 SDK 炸了。
+   */
+  private lastSpeakFailure: string | undefined
+
   /** `speakStandaloneReminder` 的相依組裝（現場發話與刷快取共用）。 */
   private reminderSpeakDeps(reminder: Reminder): Parameters<typeof speakStandaloneReminder>[0] {
     const cached = this.reminderCache[reminder.id]
+    this.lastSpeakFailure = undefined
     return {
+      onFailure: (reason) => {
+        this.lastSpeakFailure = reason
+      },
       adapters: this.adapters,
       events: this.events,
       settings: this.settings,

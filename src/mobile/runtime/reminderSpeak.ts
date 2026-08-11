@@ -79,6 +79,14 @@ export async function speakStandaloneReminder(opts: {
    * **不進對話、不推事件**——否則使用者每次切走 App 都會憑空多一則訊息。
    */
   mode?: 'live' | 'cache-refresh'
+  /**
+   * 生成失敗時回報原因（即使最後回 `null`）。
+   *
+   * 回 `null` 的路徑本來什麼都沒留下，於是提醒紀錄只寫得出「跳過」，
+   * 使用者與我們都看不出是沒網路、沒金鑰、還是 SDK 炸了
+   * （owner 2026-08-11 第二輪實機：10:17 那筆就是一片空白）。
+   */
+  onFailure?: (reason: string) => void
 }): Promise<ReminderSpeakResult | null> {
   const { reminder, settings } = opts
   const isLive = (opts.mode ?? 'live') === 'live'
@@ -95,6 +103,7 @@ export async function speakStandaloneReminder(opts: {
     conv: Conversation | null,
     reason: string
   ): Promise<ReminderSpeakResult | null> => {
+    opts.onFailure?.(reason)
     if (!allowOfflineFallback(reminder)) return null
     const cached = opts.cached
     const text = cached?.text?.trim()
@@ -139,13 +148,19 @@ export async function speakStandaloneReminder(opts: {
       .filter((d) => !d.muted)
       .map((d) => d.characterId)
       .filter((id) => charById(id))
-    if (candidates.length === 0) return null
+    if (candidates.length === 0) {
+      opts.onFailure?.('這次對話沒有可以發話的角色（都不在場或被禁言）')
+      return null
+    }
     charId = candidates[Math.floor(Math.random() * candidates.length)]
   }
 
   const char = charById(charId)
   const conv = opts.getActiveConversation()
-  if (!char || !conv) return null
+  if (!char || !conv) {
+    opts.onFailure?.(char ? '找不到要發話的對話' : '找不到要發話的角色')
+    return null
+  }
 
   // ── 組 context（順序與桌面一致）─────────────────────────
   const ctxParts: string[] = []
@@ -228,6 +243,7 @@ export async function speakStandaloneReminder(opts: {
     )
     if (!reply) {
       if (isLive) opts.events.push({ kind: 'thinking-done', characterId: char.id })
+      opts.onFailure?.('模型回了空訊息')
       return null
     }
 

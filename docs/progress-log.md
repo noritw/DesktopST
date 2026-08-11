@@ -1423,3 +1423,50 @@ headless 改用專屬的 `undecryptableSecrets`（密文一律回空字串，
 
 順帶：降級原因（`fallbackReason`）現在會一路寫進提醒紀錄並顯示在畫面上。
 在此之前「現場生成一直失敗」與「本來就沒網路」長得一模一樣，只能翻 logcat。
+
+### 同日：實機第二輪——headless HTTP 沒帶回應標頭
+
+owner 實測兩次：10:17 完全沒通知、紀錄寫「連不上網，跳過」；
+10:23 有通知但紀錄底下吐出一大片錯誤。**兩次同一個根因。**
+
+紀錄裡的錯誤訊息是關鍵：
+
+```
+Cannot use 'in' operator to search for 'object' in {…整包 API 回應…}
+```
+
+OpenAI SDK 用 `content-type` 決定要不要 `JSON.parse`（`openai/core.mjs` 的
+`isJSON`）。headless 的 `httpRequest` 只回了 status 與 body、**沒帶回應標頭**，
+於是 SDK 把整包回應當純文字字串回傳，接著在 `'object' in text` 炸掉。
+**LLM 其實每次都正常回話了**（紀錄裡看得到 `usage.total_tokens: 2437`
+與生成好的中文台詞），卻整趟被判定失敗而退回快取。
+
+- 10:23：有快取 → 用了 10:22 生成的舊句子（所以「看起來正常」）
+- 10:17：快取還不存在 → 沒有底線可用 → 完全不發
+
+修法：`HeadlessBridge.httpRequest` 把 `conn.getHeaderFields()` 一併回傳
+（key 為 null 的 status line 那筆要跳過），TS 端 `new Response(body, { status, headers })`。
+
+順帶修的三件事：
+
+| 問題 | 修法 |
+|---|---|
+| 回 `null` 的路徑什麼都沒留下，紀錄只寫得出「跳過」 | `speakStandaloneReminder` 加 `onFailure` 回呼；沒角色／沒對話／空回覆／生成失敗都會回報，session 收進 `lastSpeakFailure` 寫進歷史 |
+| 錯誤訊息把整包 API 回應存進 `reminder-history.json` | `history.ts` 加 `ERROR_MESSAGE_LIMIT = 200`，存之前壓成單行並截斷 |
+| 狀態標籤寫死「連不上網，跳過」會誤導 | 改成「沒有可用的台詞，跳過」——實際上常常是生成失敗／沒金鑰／沒角色 |
+
+**實機驗證（這次是自己在裝置上跑完的）**：
+推一則 `once` 提醒進 `reminders.json`、開 App 讓它註冊鬧鐘
+（`shared_prefs/dest_reminder_alarms.xml` 確認 `body: ""`＝**故意不給快取**），
+`am kill` 殺掉進程模擬劃掉，等鬧鐘。結果：
+
+```
+headless 驗證 | success | 22:33:37
+角色：琉緋璃
+台詞：欸，背景生成正常運作，今天也順利把我蹦出來了。
+```
+
+沒有快取還能發出通知且 `status: success`，證明走的是現場生成。
+
+> 之後要重現這個測法：`am force-stop` 會**清掉鬧鐘**，不能用；
+> 要先按 HOME 讓 App 進背景，再 `am kill`（只殺得掉背景進程）。

@@ -12,6 +12,21 @@ import type { Reminder, ReminderHistoryItem, ReminderHistoryStatus } from '../ty
 /** 最多保留幾筆。超過就丟最舊的——這是紀錄不是資料，不值得無限長。 */
 export const REMINDER_HISTORY_LIMIT = 100
 
+/**
+ * 錯誤訊息的長度上限。
+ *
+ * SDK 的例外訊息可能**整包 API 回應都塞在裡面**（實測有 4KB 以上，
+ * 連 reasoning 的加密內容都在）。原樣存進去會把 `reminder-history.json`
+ * 撐爆，畫面也只會看到一大片亂碼。前 200 字就足以認出是哪種錯。
+ */
+export const ERROR_MESSAGE_LIMIT = 200
+
+function truncateError(msg: string | undefined): string | undefined {
+  if (!msg) return undefined
+  const flat = msg.replace(/\s+/g, ' ').trim()
+  return flat.length <= ERROR_MESSAGE_LIMIT ? flat : `${flat.slice(0, ERROR_MESSAGE_LIMIT)}…`
+}
+
 export interface ReminderHistoryDraft {
   status: ReminderHistoryStatus
   /** 實際發出去的台詞；略過類的狀態留空字串 */
@@ -44,7 +59,7 @@ export function buildHistoryItem(
     text: draft.text ?? '',
     status: draft.status,
     timestamp: now,
-    errorMessage: draft.errorMessage
+    errorMessage: truncateError(draft.errorMessage)
   }
 }
 

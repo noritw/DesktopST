@@ -112,11 +112,17 @@ function headlessHttp(bridge: HeadlessNativeBridge): HttpAdapter {
     const signal = init?.signal ?? (input instanceof Request ? input.signal : null)
     const raw = await withAbort(native, signal, () => pending.delete(id))
     const res = JSON.parse(raw) as
-      | { ok: true; status: number; body: string }
+      | { ok: true; status: number; body: string; headers?: Record<string, string> }
       | { ok: false; error: string }
 
     if (!res.ok) throw new Error(`headless http failed: ${res.error}`)
-    return new Response(res.body, { status: res.status })
+    /*
+     * ⚠️ **標頭要原樣帶上**。OpenAI SDK 看 `content-type` 決定要不要
+     * `JSON.parse`（`core.mjs` 的 `isJSON`）；少了它，SDK 回傳的是字串，
+     * 之後 `'object' in text` 直接 TypeError——LLM 明明已經正常回話，
+     * 整趟卻被當成失敗而退回快取台詞。
+     */
+    return new Response(res.body, { status: res.status, headers: res.headers ?? {} })
   }
 
   return { fetch: doFetch, supportsStreaming: false }

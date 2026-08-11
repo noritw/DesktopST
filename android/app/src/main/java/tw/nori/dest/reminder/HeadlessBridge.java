@@ -177,8 +177,25 @@ public class HeadlessBridge {
         InputStream in = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
         String text = in == null ? "" : new String(readAll(in), StandardCharsets.UTF_8);
 
+        /*
+         * ⚠️ **回應標頭一定要帶回去**，尤其是 content-type。
+         * OpenAI SDK 用它決定要不要 JSON.parse（`core.mjs` 的 `isJSON`）；
+         * 少了標頭，SDK 會把整包回應當成純文字字串回傳，
+         * 接著在 `'object' in text` 炸成
+         * 「Cannot use 'in' operator to search for 'object' in {…}」——
+         * LLM 其實已經正常回話了，卻整趟被判定失敗而退回快取台詞
+         * （owner 2026-08-11 實機第二輪回報的就是這個）。
+         */
+        JSONObject resHeaders = new JSONObject();
+        for (java.util.Map.Entry<String, java.util.List<String>> e : conn.getHeaderFields().entrySet()) {
+          // status line 那筆的 key 是 null，跳過
+          if (e.getKey() == null || e.getValue() == null || e.getValue().isEmpty()) continue;
+          resHeaders.put(e.getKey(), e.getValue().get(0));
+        }
+
         res.put("ok", true);
         res.put("status", status);
+        res.put("headers", resHeaders);
         res.put("body", text);
       } catch (Exception e) {
         try {

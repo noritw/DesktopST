@@ -47,6 +47,8 @@ export interface ReminderSchedulerHooks {
    * 交給原生鬧鐘當「App 已經被劃掉時要發什麼」，沒有就回 null。
    */
   getCachedSpeech: (reminderId: string) => { title: string; body: string } | null
+  /** 最近一次發話失敗的原因（沒有就回 undefined），寫進歷史用 */
+  lastFailureReason?: () => string | undefined
   /** 記一筆歷史（含被略過的） */
   recordHistory: (
     reminder: Reminder,
@@ -339,7 +341,10 @@ async function fire(reminder: Reminder, opts?: { skipGate?: boolean }): Promise<
        * 但仍要留一筆歷史，否則使用者只會覺得「它就是沒響」而查不出原因。
        */
       console.log(`[Reminder] "${reminder.label}" 無台詞可發，不發通知`)
-      hooks?.recordHistory(reminder, { status: 'skipped_offline' })
+      hooks?.recordHistory(reminder, {
+        status: 'skipped_offline',
+        errorMessage: hooks.lastFailureReason?.()
+      })
       return
     }
 
