@@ -29,6 +29,7 @@
 | [`progress-log.md`](progress-log.md) | 查舊決策／已知坑 | **Grep 關鍵字**，勿整份 |
 | [`future-lorebook.md`](future-lorebook.md) | Lorebook 規格細節 | 整份可讀（不長） |
 | [`future-nutrition-module.md`](future-nutrition-module.md) | 飲食熱量模組 B9（含換機搬家包） | 開工該模組時整份讀 |
+| `news-standalone-kickoff.md` | **獨立版新聞報開工指令**（缺口 #6，接手 AI 照這份做） | 選讀 |
 | [`news-reader-mobile-plan.md`](news-reader-mobile-plan.md) | B3 階段 6 個人新聞報 | 開工階段 6 時 |
 | [`news-article-context-design.md`](news-article-context-design.md) | 新聞進 prompt 上下文補強（摘要／全文） | 實作該功能前 |
 | [`../scripts/README-mobile-stub.md`](../scripts/README-mobile-stub.md) | 假 mobileServer 驗證 | 驗手機 API 時 |
