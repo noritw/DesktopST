@@ -49,6 +49,8 @@ public class ReminderPlugin extends Plugin {
     ReminderAlarmStore.Entry e = new ReminderAlarmStore.Entry();
     e.id = id;
     e.triggerAtMs = at;
+    Long occurrence = call.getLong("occurrenceAtMs");
+    e.occurrenceAtMs = occurrence == null ? at : occurrence;
     e.title = call.getString("title", "提醒");
     e.body = call.getString("body", "");
     e.wakeMode = call.getString("wakeMode", "always");

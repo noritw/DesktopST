@@ -21,7 +21,7 @@ import {
   type ReminderHistoryDraft
 } from '@core/reminder/history'
 import { nextFireDelayMs } from '@core/reminder/nextFire'
-import { decideReminderFire } from '@core/reminder/gate'
+import { decideReminderFire, occurrenceAlreadyHandled } from '@core/reminder/gate'
 import {
   isCacheUsable,
   needsRefresh,
@@ -218,6 +218,16 @@ export class StandaloneSession {
         getCachedSpeech: (id) => {
           const c = this.reminderCache[id]
           return isCacheUsable(c) ? { title: c.characterName, body: c.text } : null
+        },
+        occurrenceHandled: async (id, fireAtMs) => {
+          /*
+           * 一定要**重讀磁碟**。背景那條（headless）跑完會把 lastTriggeredAt
+           * 寫進 reminders.json，但前景記憶體裡的還是舊的——
+           * 拿記憶體比對等於沒比對。檔案很小，這個成本可以接受。
+           */
+          const list = await this.adapters.storage.readJson<Reminder[]>(keys.REMINDERS_KEY)
+          const fresh = Array.isArray(list) ? list.find((r) => r.id === id) : undefined
+          return occurrenceAlreadyHandled(fresh?.lastTriggeredAt, fireAtMs)
         },
         lastFailureReason: () => this.lastSpeakFailure,
         recordHistory: (reminder, draft) => {
@@ -1607,11 +1617,24 @@ export class StandaloneSession {
    */
   async runReminderHeadless(
     reminderId: string,
-    screenOn: boolean
+    screenOn: boolean,
+    occurrenceAtMs = 0
   ): Promise<{ notify: boolean; title?: string; body?: string; reason: string }> {
     const reminder = this.reminders.find((r) => r.id === reminderId)
     if (!reminder) return { notify: false, reason: 'not-found' }
     if (!reminder.enabled) return { notify: false, reason: 'disabled' }
+
+    /*
+     * 前景那條是不是已經把這一次做掉了？
+     *
+     * 前景服務會**把整個 App 進程解凍**，於是原本被凍住的 JS 計時器可能
+     * 搶在我們前面補跑。反向的防重複（JS 問磁碟）擋不住這個方向，
+     * 所以兩邊都要問一次。`occurrenceAtMs` 是原本預定的觸發時刻，
+     * 不是鬧鐘實際響的時間（那個刻意晚了 15 秒）。
+     */
+    if (occurrenceAtMs > 0 && occurrenceAlreadyHandled(reminder.lastTriggeredAt, occurrenceAtMs)) {
+      return { notify: false, reason: 'already-handled' }
+    }
 
     const decision = decideReminderFire(reminder, {
       activeSceneId: this.settings.activeSceneId ?? null,
@@ -1653,10 +1676,18 @@ export class StandaloneSession {
 
   private async recordReminderTriggered(reminder: Reminder): Promise<void> {
     const idx = this.reminders.findIndex((r) => r.id === reminder.id)
-    if (idx >= 0) {
-      this.reminders[idx].lastTriggeredAt = Date.now()
-      await this.adapters.storage.writeJson(keys.REMINDERS_KEY, this.reminders)
+    if (idx < 0) return
+    this.reminders[idx].lastTriggeredAt = Date.now()
+    /*
+     * 一次性提醒響過就關掉，而且要**寫進檔案**。
+     *
+     * 排程器原本只在記憶體裡把 `enabled` 設 false，重開 App 之後
+     * 那則用過的一次性提醒在清單上還是開著的，看起來像還會再響。
+     */
+    if (this.reminders[idx].schedule.type === 'once') {
+      this.reminders[idx].enabled = false
     }
+    await this.adapters.storage.writeJson(keys.REMINDERS_KEY, this.reminders)
   }
 
   /**

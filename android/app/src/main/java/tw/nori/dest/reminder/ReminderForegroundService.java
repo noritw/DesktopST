@@ -39,6 +39,7 @@ public class ReminderForegroundService extends Service {
 
   public static final String EXTRA_ID = "reminderId";
   public static final String EXTRA_SCREEN_ON = "screenOn";
+  public static final String EXTRA_OCCURRENCE_AT = "occurrenceAtMs";
 
   /** 準備中的那則低調通知，用獨立頻道（IMPORTANCE_LOW＝不出聲、不彈橫幅）。 */
   private static final String PREP_CHANNEL_ID = "dest-reminder-prep-v1";
@@ -72,13 +73,14 @@ public class ReminderForegroundService extends Service {
 
     reminderId = intent.getStringExtra(EXTRA_ID);
     boolean screenOn = intent.getBooleanExtra(EXTRA_SCREEN_ON, true);
+    long occurrenceAtMs = intent.getLongExtra(EXTRA_OCCURRENCE_AT, 0L);
     if (reminderId == null) {
       stopSelf();
       return START_NOT_STICKY;
     }
 
     startForegroundCompat();
-    startHeadless(reminderId, screenOn);
+    startHeadless(reminderId, screenOn, occurrenceAtMs);
 
     timeout = () -> {
       Log.w(TAG, "headless 逾時，改用快取台詞: " + reminderId);
@@ -119,7 +121,7 @@ public class ReminderForegroundService extends Service {
     }
   }
 
-  private void startHeadless(String id, boolean screenOn) {
+  private void startHeadless(String id, boolean screenOn, long occurrenceAtMs) {
     bridge = new HeadlessBridge(this, new HeadlessBridge.Callback() {
       @Override
       public void onComplete(String resultJson) {
@@ -153,7 +155,9 @@ public class ReminderForegroundService extends Service {
       "file:///android_asset/public/index.html?headless=reminder&reminderId=" +
       android.net.Uri.encode(id) +
       "&screenOn=" +
-      (screenOn ? "1" : "0");
+      (screenOn ? "1" : "0") +
+      "&occurrenceAt=" +
+      occurrenceAtMs;
     Log.i(TAG, "headless 啟動: " + id);
     webView.loadUrl(url);
   }
@@ -233,10 +237,16 @@ public class ReminderForegroundService extends Service {
   }
 
   /** 讓 receiver 可以用同一組 extras 啟動。 */
-  public static Intent intentFor(Context context, String reminderId, boolean screenOn) {
+  public static Intent intentFor(
+    Context context,
+    String reminderId,
+    boolean screenOn,
+    long occurrenceAtMs
+  ) {
     Intent i = new Intent(context, ReminderForegroundService.class);
     i.putExtra(EXTRA_ID, reminderId);
     i.putExtra(EXTRA_SCREEN_ON, screenOn);
+    i.putExtra(EXTRA_OCCURRENCE_AT, occurrenceAtMs);
     return i;
   }
 }

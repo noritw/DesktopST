@@ -59,7 +59,11 @@ export async function runHeadlessReminder(): Promise<void> {
     const session = await bootStandaloneSession(adapters, { headless: true, skipPackFetch: true })
     hlog(`資料載入完成：${session.characters.length} 個角色、${session.reminders.length} 則提醒`)
 
-    const outcome = await session.runReminderHeadless(params.reminderId, params.screenOn)
+    const outcome = await session.runReminderHeadless(
+      params.reminderId,
+      params.screenOn,
+      params.occurrenceAtMs
+    )
     done(outcome)
   } catch (e) {
     /*

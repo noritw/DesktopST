@@ -37,13 +37,22 @@ export function hasHeadlessBridge(): boolean {
 }
 
 /** 這一次載入是不是 headless 提醒（`?headless=reminder&reminderId=…`）。 */
-export function headlessReminderParams(): { reminderId: string; screenOn: boolean } | null {
+export function headlessReminderParams(): {
+  reminderId: string
+  screenOn: boolean
+  /** 這一次原本預定的觸發時刻；0＝原生沒帶（舊鬧鐘），不做防重複比對 */
+  occurrenceAtMs: number
+} | null {
   if (typeof window === 'undefined') return null
   const p = new URLSearchParams(window.location.search)
   if (p.get('headless') !== 'reminder') return null
   const reminderId = p.get('reminderId')
   if (!reminderId) return null
-  return { reminderId, screenOn: p.get('screenOn') !== '0' }
+  return {
+    reminderId,
+    screenOn: p.get('screenOn') !== '0',
+    occurrenceAtMs: Number(p.get('occurrenceAt') ?? 0) || 0
+  }
 }
 
 /**

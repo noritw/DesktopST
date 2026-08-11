@@ -15,6 +15,13 @@ import { Capacitor, registerPlugin } from '@capacitor/core'
 export interface NativeAlarmSpec {
   id: string
   triggerAtMs: number
+  /**
+   * 這一次**原本預定**的觸發時刻（不含刻意延後的 15 秒）。
+   *
+   * headless 用它比對「這次是不是已經被前景那條做掉了」。
+   * 不能拿 `triggerAtMs` 當基準——那是延後過的，比對會差 15 秒而漏判。
+   */
+  occurrenceAtMs: number
   /** 通知標題，通常是角色名字 */
   title: string
   /**

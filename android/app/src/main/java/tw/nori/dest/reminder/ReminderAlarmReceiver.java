@@ -62,9 +62,14 @@ public class ReminderAlarmReceiver extends BroadcastReceiver {
      * 由服務自己在結束時清（`ReminderForegroundService.finish()`）。
      */
     try {
+      /*
+       * 這裡固定傳 screenOn=true 是對的，不是偷懶：
+       * `screen_on_only` 的螢幕判定在上面就做完了，能走到這行代表
+       * 「螢幕亮著」或「這則本來就不管螢幕」，兩種情況對 gate 而言都等同亮著。
+       */
       ContextCompat.startForegroundService(
         context,
-        ReminderForegroundService.intentFor(context, id, true)
+        ReminderForegroundService.intentFor(context, id, true, entry.occurrenceAtMs)
       );
       Log.i(TAG, "已交給前景服務現場生成: " + id);
       return;

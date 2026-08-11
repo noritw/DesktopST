@@ -1,6 +1,6 @@
 import { LocalNotifications } from '@capacitor/local-notifications'
 import type { Reminder, ReminderHistoryStatus } from '@core/types'
-import { decideReminderFire } from '@core/reminder/gate'
+import { decideReminderFire, occurrenceAlreadyHandled } from '@core/reminder/gate'
 import {
   cancelAllNativeAlarms,
   cancelNativeAlarm,
@@ -47,6 +47,11 @@ export interface ReminderSchedulerHooks {
    * 交給原生鬧鐘當「App 已經被劃掉時要發什麼」，沒有就回 null。
    */
   getCachedSpeech: (reminderId: string) => { title: string; body: string } | null
+  /**
+   * 這一次的觸發是不是已經被別條路徑做過了（背景原生鬧鐘）。
+   * 要讀**磁碟上最新的** `lastTriggeredAt`，記憶體裡那份是舊的。
+   */
+  occurrenceHandled?: (reminderId: string, fireAtMs: number) => Promise<boolean>
   /** 最近一次發話失敗的原因（沒有就回 undefined），寫進歷史用 */
   lastFailureReason?: () => string | undefined
   /** 記一筆歷史（含被略過的） */
@@ -157,7 +162,7 @@ function scheduleOne(r: Reminder): void {
     const t = setTimeout(() => {
       timers.delete(r.id)
       console.log(`[Reminder] 觸發 "${r.label}"（startup）`)
-      void fire(r)
+      void fire(r, { fireAtMs: Date.now() })
       // startup 是重複型，觸發後不需要重新排程（下次啟動 scheduleAll 會再來一遍）
     }, 3000)
     timers.set(r.id, t)
@@ -173,10 +178,11 @@ function scheduleOne(r: Reminder): void {
 
   console.log(`[Reminder] 排程 "${r.label}" - ${delay}ms 後 (${new Date(Date.now() + delay).toLocaleTimeString()})`)
 
+  const fireAtMs = Date.now() + delay
   const t = setTimeout(() => {
     timers.delete(r.id)
     console.log(`[Reminder] 觸發 "${r.label}"`)
-    void fire(r)
+    void fire(r, { fireAtMs })
 
     if (r.schedule.type === 'once') {
       r.enabled = false
@@ -186,7 +192,7 @@ function scheduleOne(r: Reminder): void {
   }, delay)
 
   timers.set(r.id, t)
-  armNativeAlarm(r, Date.now() + delay)
+  armNativeAlarm(r, fireAtMs)
 }
 
 /**
@@ -211,6 +217,7 @@ function armNativeAlarm(r: Reminder, fireAtMs: number): void {
   void scheduleNativeAlarm({
     id: r.id,
     triggerAtMs: fireAtMs + NATIVE_ALARM_GRACE_MS,
+    occurrenceAtMs: fireAtMs,
     title: cached?.title ?? '提醒',
     /*
      * 沒有快取就送空字串：原生層看到空的會**不發通知**。
@@ -286,7 +293,25 @@ export function flushDeferredReminders(): void {
   }
 }
 
-async function fire(reminder: Reminder, opts?: { skipGate?: boolean }): Promise<void> {
+async function fire(
+  reminder: Reminder,
+  opts?: { skipGate?: boolean; fireAtMs?: number }
+): Promise<void> {
+  /*
+   * 這一次是不是已經有人做過了？
+   *
+   * JS 計時器在 App 被凍結時不會觸發，**回到前景時會補跑**——
+   * 而那時原生鬧鐘早就在背景把這次提醒做完了。少了這道檢查，
+   * 使用者會在解鎖後看到同一則提醒又生成一次（owner 2026-08-11 實機回報）。
+   */
+  if (opts?.fireAtMs != null && hooks?.occurrenceHandled) {
+    const handled = await hooks.occurrenceHandled(reminder.id, opts.fireAtMs)
+    if (handled) {
+      console.log(`[Reminder] "${reminder.label}" 這次已由背景處理過，略過補跑`)
+      return
+    }
+  }
+
   /*
    * 該不該響的判定集中在 `core/reminder/gate.ts`——
    * 手機 JS 排程器、原生喚醒後的 headless 執行、桌面三條路徑共用同一份判斷，

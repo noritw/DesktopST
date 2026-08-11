@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { decideReminderFire, offlineFallbackAllowed } from '@core/reminder/gate'
+import {
+  decideReminderFire,
+  offlineFallbackAllowed,
+  occurrenceAlreadyHandled,
+  FIRE_DEDUPE_SLACK_MS
+} from '@core/reminder/gate'
 import {
   needsRefresh,
   isCacheUsable,
@@ -73,6 +78,33 @@ describe('提醒該不該響（gate）', () => {
   it('allowOfflineFallback 未設定＝允許（舊資料沒有這個欄位，該響的要響）', () => {
     expect(offlineFallbackAllowed(base)).toBe(true)
     expect(offlineFallbackAllowed({ ...base, allowOfflineFallback: false })).toBe(false)
+  })
+})
+
+describe('同一次觸發的防重複', () => {
+  /*
+   * 實機打出來的：JS 計時器在 App 凍結時不觸發，回到前景會補跑，
+   * 而原生鬧鐘早就在背景做完了。22:41 響一次、22:47 解鎖又生成一次。
+   */
+  const fireAt = 1_786_459_260_000 // 22:41:00
+
+  it('背景已經處理過這次觸發 → 補跑要略過', () => {
+    const handledAt = fireAt + 24_000 // 背景 22:41:24 完成
+    expect(occurrenceAlreadyHandled(handledAt, fireAt)).toBe(true)
+  })
+
+  it('從沒觸發過 → 照常發', () => {
+    expect(occurrenceAlreadyHandled(undefined, fireAt)).toBe(false)
+  })
+
+  it('上次觸發是更早的另一輪 → 這次還是要發', () => {
+    // interval 提醒的前一輪，不能因此把這一輪吃掉
+    expect(occurrenceAlreadyHandled(fireAt - 60 * 60_000, fireAt)).toBe(false)
+  })
+
+  it('容差內的提早觸發也算同一次', () => {
+    expect(occurrenceAlreadyHandled(fireAt - FIRE_DEDUPE_SLACK_MS + 1, fireAt)).toBe(true)
+    expect(occurrenceAlreadyHandled(fireAt - FIRE_DEDUPE_SLACK_MS - 1, fireAt)).toBe(false)
   })
 })
 

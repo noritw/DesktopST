@@ -59,3 +59,30 @@ export function decideReminderFire(reminder: Reminder, ctx: ReminderGateContext)
 export function offlineFallbackAllowed(reminder: Reminder): boolean {
   return reminder.allowOfflineFallback !== false
 }
+
+/**
+ * 同一次觸發被兩條路徑各做一遍的防重複。
+ *
+ * ⚠️ 這是實機打出來的：JS `setTimeout` 在 App 被凍結時不會觸發，
+ * **回到前景時會補跑**。原生鬧鐘早就在背景把那次提醒做完了
+ * （owner 2026-08-11：22:41 響過一次，22:47 解鎖時又生成了一次，
+ * 對話多一則、提醒紀錄多一筆）。
+ *
+ * 取消原生鬧鐘擋不住這個方向——要反過來讓 JS 這條先問
+ * 「這一次的觸發是不是已經有人做過了」。判斷依據是**磁碟上最新的**
+ * `lastTriggeredAt`：背景那條跑完就會寫進去，前景記憶體裡的是舊的。
+ */
+export const FIRE_DEDUPE_SLACK_MS = 5_000
+
+/**
+ * `fireAtMs` 是這個計時器**原本預定**的觸發時刻（不是現在）。
+ * 只要已經有人在那個時刻前後觸發過，就代表這一次已經被消化掉了。
+ */
+export function occurrenceAlreadyHandled(
+  lastTriggeredAt: number | undefined,
+  fireAtMs: number,
+  slackMs: number = FIRE_DEDUPE_SLACK_MS
+): boolean {
+  if (!lastTriggeredAt) return false
+  return lastTriggeredAt >= fireAtMs - slackMs
+}

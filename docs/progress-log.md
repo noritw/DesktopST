@@ -1470,3 +1470,45 @@ headless 驗證 | success | 22:33:37
 
 > 之後要重現這個測法：`am force-stop` 會**清掉鬧鐘**，不能用；
 > 要先按 HOME 讓 App 進背景，再 `am kill`（只殺得掉背景進程）。
+
+### 同日：實機第三輪——同一次觸發被做了兩遍
+
+owner：「手錶跳了提醒，過幾分鐘解鎖螢幕，程式又現場重新生成了一個，
+對話看到的是後者，提醒紀錄變成兩筆。」
+
+紀錄對得上：排程 22:41:00 → 背景 22:41:24 觸發一次 → **22:47:10 又一次**（解鎖時）。
+
+**根因：JS `setTimeout` 在 App 被凍結時不會觸發，回到前景會「補跑」。**
+原生鬧鐘早就在背景把那次做完了，但 JS 這條完全不知道。
+先前做的 `cancelNativeAlarm` 只擋得住「JS 先跑」那個方向，擋不住反向。
+
+修法是兩邊都問一次「這一次是不是已經有人做過了」：
+
+- `core/reminder/gate.ts` 加 `occurrenceAlreadyHandled(lastTriggeredAt, fireAtMs)`。
+  比對基準是**這個計時器原本預定的觸發時刻**，不是現在——否則分不出
+  「補跑同一次」與「interval 的下一輪」。
+- JS 側：`scheduleOne` 記下 `fireAtMs` 傳進 `fire()`；觸發前透過
+  `hooks.occurrenceHandled` **重讀磁碟上的** `reminders.json` 比對
+  （記憶體那份是舊的，背景寫的它看不到）。
+- 原生側：鬧鐘多帶一個 `occurrenceAtMs`（= 預定時刻，不含刻意延後的 15 秒），
+  一路傳到 headless；`runReminderHeadless` 同樣先比對。
+  **這個方向也真的會發生**：前景服務會把整個 App 進程解凍，
+  被凍住的 JS 計時器可能搶在 headless 之前補跑。
+
+順帶修：**一次性提醒響過之後 `enabled=false` 沒有落地**。
+原本只在排程器的記憶體裡設，重開 App 後那則用過的提醒在清單上還是開著的。
+改在 `recordReminderTriggered` 裡一併寫檔。
+
+**實機驗證**：推一則 `once` 提醒 → 開 App 註冊（JS 計時器 23:02:10、
+原生鬧鐘 23:02:25）→ **按 HOME 並關螢幕但不殺進程**（讓 JS 計時器留著被凍結）
+→ 等鬧鐘 → 解鎖回前景。結果：
+
+```
+23:02:26 [headless] 啟動        23:02:30 [headless] 結束：success（發通知）
+23:03:44 回到前景 → 沒有任何補跑觸發
+提醒紀錄：這次觸發只有 1 筆        對話：只有 1 則訊息
+reminders.json：enabled 已落地為 false
+```
+
+> 重現這個測法的注意事項：**不能 `am kill`**——那樣 JS 計時器跟著死掉，
+> 就測不到補跑。要讓進程活著被系統凍結（HOME ＋ 關螢幕）。

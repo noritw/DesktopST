@@ -35,6 +35,8 @@ public class ReminderAlarmStore {
   public static class Entry {
     public String id;
     public long triggerAtMs;
+    /** 這一次原本預定的觸發時刻（不含刻意延後的 15 秒）；headless 拿它比對防重複 */
+    public long occurrenceAtMs;
     public String title;
     public String body;
     /** "always" 或 "screen_on_only"，語意見 core/reminder/gate.ts */
@@ -46,6 +48,7 @@ public class ReminderAlarmStore {
       JSONObject o = new JSONObject();
       o.put("id", id);
       o.put("triggerAtMs", triggerAtMs);
+      o.put("occurrenceAtMs", occurrenceAtMs);
       o.put("title", title == null ? "" : title);
       o.put("body", body == null ? "" : body);
       o.put("wakeMode", wakeMode == null ? "always" : wakeMode);
@@ -57,6 +60,7 @@ public class ReminderAlarmStore {
       Entry e = new Entry();
       e.id = o.optString("id");
       e.triggerAtMs = o.optLong("triggerAtMs");
+      e.occurrenceAtMs = o.optLong("occurrenceAtMs", o.optLong("triggerAtMs"));
       e.title = o.optString("title");
       e.body = o.optString("body");
       e.wakeMode = o.optString("wakeMode", "always");
