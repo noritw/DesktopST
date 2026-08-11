@@ -18,6 +18,7 @@ import { formatDateTime } from './reminderFormat'
 const STATUS_META: Record<ReminderHistoryStatus, { label: string; tone: 'ok' | 'warn' | 'muted' }> = {
   success: { label: '已提醒', tone: 'ok' },
   offline_fallback: { label: '離線・用了先前的話', tone: 'warn' },
+  offline_plain: { label: '離線・只發了提醒事項', tone: 'warn' },
   // 不寫「連不上網」——實際上常常是生成失敗、沒金鑰、沒角色，寫死成網路問題會誤導
   skipped_offline: { label: '沒有可用的台詞，跳過', tone: 'muted' },
   skipped_idle: { label: '待機中，跳過', tone: 'muted' },

@@ -1546,7 +1546,13 @@ export class StandaloneSession {
           ...this.reminderSpeakDeps(r),
           mode: 'cache-refresh'
         })
-        if (!spoken?.text) continue
+        /*
+         * 只存**成功生成**的台詞。降級結果（快取台詞／樸素通知）不能回存，
+         * 否則快取會一路自我複製下去，而且 characterId 是空的。
+         * `speakStandaloneReminder` 在 cache-refresh 模式下已經不會降級了，
+         * 這裡是第二道防線。
+         */
+        if (!spoken?.text || spoken.status !== 'success') continue
         this.reminderCache[r.id] = {
           reminderId: r.id,
           characterId: spoken.characterId,

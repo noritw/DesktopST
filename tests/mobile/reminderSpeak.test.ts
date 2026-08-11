@@ -161,12 +161,37 @@ describe('提醒觸發時由角色發話（獨立模式）', () => {
     expect(conv.messages).toHaveLength(1)
   })
 
-  it('LLM 掛掉又沒有快取：安靜略過，不硬擠一則通知出來', async () => {
+  it('LLM 掛掉又沒有快取：仍要發樸素提醒（開關預設是開的）', async () => {
+    /*
+     * owner 2026-08-11 實機：離線時提醒整個被吞掉。
+     * 「連不上網時仍要提醒」預設開著，勾了卻完全沉默是騙人的——
+     * 連「有件事該做」都丟了，比一則樸素通知更糟。
+     */
     const conv = emptyConv()
     const failing = (async () => {
       throw new Error('network down')
     }) as unknown as typeof globalThis.fetch
     const result = await speakStandaloneReminder(makeOpts(makeSettings('sk-test'), failing, conv))
+
+    expect(result?.status).toBe('offline_plain')
+    expect(result?.text).toContain('提醒我喝水')
+    expect(result?.text).toContain('離線')
+    // 通知標題用提醒名稱，不掛角色名字——那不是角色在講話
+    expect(result?.plainTitle).toBe('喝水')
+    // 也不寫進對話：提醒事項不是誰說的話
+    expect(conv.messages).toHaveLength(0)
+  })
+
+  it('allowOfflineFallback=false 且沒快取：這時才真的安靜略過', async () => {
+    const conv = emptyConv()
+    const failing = (async () => {
+      throw new Error('network down')
+    }) as unknown as typeof globalThis.fetch
+    const base = makeOpts(makeSettings('sk-test'), failing, conv)
+    const result = await speakStandaloneReminder({
+      ...base,
+      reminder: { ...base.reminder, allowOfflineFallback: false }
+    })
 
     expect(result).toBeNull()
     expect(conv.messages).toHaveLength(0)
@@ -226,6 +251,24 @@ describe('提醒觸發時由角色發話（獨立模式）', () => {
       cached: { text: '欸，記得喝水喔。', characterId: 'c1', characterName: '小綠' }
     })
     expect(result?.fallbackReason).toContain('API Key')
+  })
+
+  it('cache-refresh 模式生成失敗時回 null，不把降級結果存成快取', async () => {
+    /*
+     * owner 2026-08-11 實機：離線時按 HOME，刷快取失敗後把樸素通知
+     * 「（離線中，角色暫時說不了話）」存進快取，之後觸發就用了它——
+     * 快取被自己毒化，狀態也被誤記成 offline_fallback。
+     */
+    const conv = emptyConv()
+    const failing = (async () => {
+      throw new Error('network down')
+    }) as unknown as typeof globalThis.fetch
+    const result = await speakStandaloneReminder({
+      ...makeOpts(makeSettings('sk-test'), failing, conv),
+      mode: 'cache-refresh'
+    })
+
+    expect(result).toBeNull()
   })
 
   it('cache-refresh 模式：只回台詞，不寫進對話也不推事件', async () => {

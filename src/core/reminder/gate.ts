@@ -86,3 +86,22 @@ export function occurrenceAlreadyHandled(
   if (!lastTriggeredAt) return false
   return lastTriggeredAt >= fireAtMs - slackMs
 }
+
+/**
+ * 生不出角色台詞、也沒有快取時要發的**樸素提醒**。
+ *
+ * 刻意不用 `reminder.prompt` 當主體再包裝成像在講話——那是給角色的指令。
+ * 這裡就老實承認「角色現在說不了話」，把該提醒的事講清楚就好。
+ * 兩邊（JS 與原生鬧鐘）共用同一份措辭，同一則提醒不會有兩種長相。
+ */
+export function plainReminderNotice(reminder: Pick<Reminder, 'label' | 'prompt'>): {
+  title: string
+  body: string
+} {
+  const what = reminder.prompt?.trim() || reminder.label?.trim() || '時間到了'
+  return {
+    title: reminder.label?.trim() || '提醒',
+    body: `${what}
+（離線中，角色暫時說不了話）`
+  }
+}

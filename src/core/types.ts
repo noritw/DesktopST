@@ -510,6 +510,14 @@ export type ReminderHistoryStatus =
   | 'success'
   /** 現場生成失敗，改發快取台詞 */
   | 'offline_fallback'
+  /**
+   * 現場生成失敗、也沒有可用的快取台詞，改發樸素的提醒事項。
+   *
+   * 只在 `allowOfflineFallback !== false` 時發生。那個開關的標籤是
+   * 「連不上網時仍要提醒」——勾了卻完全沉默是騙人的，
+   * 而且連「有件事該做」都丟了，比一則樸素通知更糟（owner 2026-08-11 實機）。
+   */
+  | 'offline_plain'
   /** 現場生成失敗且 allowOfflineFallback=false，安靜略過 */
   | 'skipped_offline'
   /** screen_on_only 且觸發時螢幕是暗的 */

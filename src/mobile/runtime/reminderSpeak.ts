@@ -3,7 +3,10 @@ import type { PlatformAdapters } from '@core/adapters'
 import { stripOtherCharacterSpeakerLines } from '@core/group/dialogueCleanup'
 import { normalizeCharacterDialogue } from '@core/prompt/dialogue'
 import { messageLlmMeta } from '@core/prompt/promptUtils'
-import { offlineFallbackAllowed as allowOfflineFallback } from '@core/reminder/gate'
+import {
+  offlineFallbackAllowed as allowOfflineFallback,
+  plainReminderNotice
+} from '@core/reminder/gate'
 import { getWeatherContextString } from '@core/weather'
 import type { Lorebook } from '@core/lore'
 import type {
@@ -40,8 +43,16 @@ export interface ReminderSpeakResult {
   characterId: string
   characterName: string
   text: string
-  /** 這句話怎麼來的：現場生成成功，或是退回快取台詞 */
-  status: 'success' | 'offline_fallback'
+  /**
+   * 這句話怎麼來的：現場生成成功／退回快取台詞／
+   * 連快取都沒有時的樸素提醒（`offline_plain`）。
+   */
+  status: 'success' | 'offline_fallback' | 'offline_plain'
+  /**
+   * 樸素提醒時的通知標題（`offline_plain` 才有）。
+   * 那不是角色在講話，通知標題不該掛角色名字。
+   */
+  plainTitle?: string
   /**
    * 降級的原因（`status === 'offline_fallback'` 時才有）。
    *
@@ -104,10 +115,42 @@ export async function speakStandaloneReminder(opts: {
     reason: string
   ): Promise<ReminderSpeakResult | null> => {
     opts.onFailure?.(reason)
+
+    /*
+     * 刷快取時**絕不降級**。
+     *
+     * 快取只該放「成功生成的角色台詞」——把降級結果存進去等於毒化它：
+     * 之後真的要用底線時，拿到的是上一次的樸素通知（而且 characterId 是空的），
+     * 狀態也會被誤記成 offline_fallback。
+     * owner 2026-08-11 實機踩到：離線時按 HOME，刷快取失敗後把
+     * 「（離線中，角色暫時說不了話）」存成快取，觸發時就用了它。
+     */
+    if (!isLive) return null
+
     if (!allowOfflineFallback(reminder)) return null
+
     const cached = opts.cached
     const text = cached?.text?.trim()
-    if (!cached || !text) return null
+    if (!cached || !text) {
+      /*
+       * 沒有快取台詞可用。**不能就這樣沉默**——
+       * 「連不上網時仍要提醒」這個開關是開著的，使用者勾了它就是要被提醒到；
+       * 完全不響連「有件事該做」都丟了，比一則樸素通知更糟
+       * （owner 2026-08-11：離線時提醒整個被吞掉）。
+       *
+       * 樸素通知刻意不裝成角色在講話，也不寫進對話——
+       * 那是提醒事項，不是誰說的話。
+       */
+      const plain = plainReminderNotice(reminder)
+      return {
+        characterId: '',
+        characterName: plain.title,
+        plainTitle: plain.title,
+        text: plain.body,
+        status: 'offline_plain',
+        fallbackReason: reason
+      }
+    }
 
     /*
      * 掛回**當初生成這句話的那個角色**，不是這次挑到的。

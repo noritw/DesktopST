@@ -1,6 +1,11 @@
 import { LocalNotifications } from '@capacitor/local-notifications'
 import type { Reminder, ReminderHistoryStatus } from '@core/types'
-import { decideReminderFire, occurrenceAlreadyHandled } from '@core/reminder/gate'
+import {
+  decideReminderFire,
+  occurrenceAlreadyHandled,
+  offlineFallbackAllowed,
+  plainReminderNotice
+} from '@core/reminder/gate'
 import {
   cancelAllNativeAlarms,
   cancelNativeAlarm,
@@ -31,7 +36,9 @@ type TriggerFn = (
 ) => Promise<{
   characterName: string
   text: string
-  status?: 'success' | 'offline_fallback'
+  status?: 'success' | 'offline_fallback' | 'offline_plain'
+  /** 樸素提醒的通知標題（`offline_plain` 才有；那不是角色在講話） */
+  plainTitle?: string
   fallbackReason?: string
 } | null>
 
@@ -214,16 +221,22 @@ const NATIVE_ALARM_GRACE_MS = 15_000
 
 function armNativeAlarm(r: Reminder, fireAtMs: number): void {
   const cached = hooks?.getCachedSpeech(r.id)
+  /*
+   * 原生鬧鐘身上這份是「headless 整個跑不起來時」的最後底線，分三層：
+   *   有快取                → 先前生成的角色台詞
+   *   沒快取但允許離線提醒  → 樸素提醒事項（老實說角色講不了話）
+   *   沒快取且關掉離線提醒  → 空字串，原生看到空的就不發（沉浸模式）
+   *
+   * 中間那層是 2026-08-11 補的：原本沒快取一律送空字串，於是離線時整則
+   * 提醒被吞掉——而「連不上網時仍要提醒」的開關明明是開著的。
+   */
+  const plain = offlineFallbackAllowed(r) ? plainReminderNotice(r) : null
   void scheduleNativeAlarm({
     id: r.id,
     triggerAtMs: fireAtMs + NATIVE_ALARM_GRACE_MS,
     occurrenceAtMs: fireAtMs,
-    title: cached?.title ?? '提醒',
-    /*
-     * 沒有快取就送空字串：原生層看到空的會**不發通知**。
-     * 這是刻意的——硬發一則「提醒：喝水」等於把功能降級成行事曆。
-     */
-    body: cached?.body ?? '',
+    title: cached?.title ?? plain?.title ?? '提醒',
+    body: cached?.body ?? plain?.body ?? '',
     wakeMode: r.wakeMode ?? 'always',
     inactiveBehavior: r.inactiveBehavior ?? 'skip'
   })
@@ -380,7 +393,7 @@ async function fire(
       await LocalNotifications.schedule({
         notifications: [
           {
-            title: spoken.characterName,
+            title: spoken.plainTitle ?? spoken.characterName,
             body: spoken.text,
             largeBody: spoken.text,
             summaryText: reminder.label || '提醒',
