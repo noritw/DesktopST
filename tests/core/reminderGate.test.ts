@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { decideReminderFire, offlineFallbackAllowed } from '@core/reminder/gate'
-import { needsRefresh, isCacheUsable, pruneCache, CACHE_MAX_AGE_MS } from '@core/reminder/cache'
+import {
+  needsRefresh,
+  isCacheUsable,
+  pruneCache,
+  reminderFingerprint,
+  CACHE_MAX_AGE_MS
+} from '@core/reminder/cache'
 import { appendHistory, buildHistoryItem, normalizeHistory, REMINDER_HISTORY_LIMIT } from '@core/reminder/history'
 import type { Reminder } from '@core/types'
 
@@ -96,6 +102,34 @@ describe('快取台詞', () => {
     // 設完提醒之後又聊了天 → 一定要重生，否則那段互動不會被吃進去
     expect(needsRefresh(entry, 600, now)).toBe(true)
     expect(needsRefresh(undefined, 500, now)).toBe(true)
+  })
+
+  it('提醒內容被改過就一定要重生（2026-08-11 實機回報的「改了還是舊句子」）', () => {
+    const entry = {
+      reminderId: 'r1',
+      characterId: 'c',
+      characterName: 'A',
+      text: '記得洗杯子',
+      generatedAt: now,
+      basedOnConversationUpdatedAt: 500,
+      fingerprint: reminderFingerprint(base)
+    }
+    // 對話沒動、時間也還新，但提醒指令換了 → 舊台詞講的是別件事
+    const edited = { ...base, prompt: '再檢查一下功能' }
+    expect(needsRefresh(entry, 500, now, reminderFingerprint(edited))).toBe(true)
+    expect(needsRefresh(entry, 500, now, reminderFingerprint(base))).toBe(false)
+  })
+
+  it('指紋只看會影響台詞的欄位（改時間不該讓快取白重生）', () => {
+    // 型別上 reminderFingerprint 只收得到那幾個欄位，這裡順帶固定住這個界線
+    const a = reminderFingerprint({ label: '喝水', prompt: '提醒我喝水' })
+    const b = reminderFingerprint({ label: '喝水', prompt: '提醒我喝水', injectWeather: false })
+    expect(a).toBe(b)
+    expect(a).not.toBe(reminderFingerprint({ label: '喝水', prompt: '提醒我喝水', injectWeather: true }))
+  })
+
+  it('換發話角色也算內容改變', () => {
+    expect(reminderFingerprint(base)).not.toBe(reminderFingerprint({ ...base, characterId: 'c2' }))
   })
 
   it('提醒被刪掉時快取跟著走', () => {

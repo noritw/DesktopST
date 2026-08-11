@@ -27,6 +27,7 @@ import {
   needsRefresh,
   normalizeCache,
   pruneCache,
+  reminderFingerprint,
   type ReminderCache
 } from '@core/reminder/cache'
 import { DEFAULT_SETTINGS } from '@core/types'
@@ -1404,9 +1405,24 @@ export class StandaloneSession {
     } else {
       this.reminders.push(saved)
     }
+    /*
+     * 提醒內容改了就**立刻丟掉舊快取**。
+     *
+     * 不能等下一次背景刷新——中間如果鬧鐘響了，發出去的會是上一版的台詞
+     * （owner 2026-08-11：改成「再檢查一下功能」之後，跳出來的還是舊的「洗杯子」）。
+     * 丟掉之後在重新生成之前寧可沒有離線底線，也不要拿錯的內容搪塞。
+     */
+    const cached = this.reminderCache[saved.id]
+    if (cached && cached.fingerprint !== reminderFingerprint(saved)) {
+      delete this.reminderCache[saved.id]
+      await this.persistReminderCache()
+    }
+
     await this.adapters.storage.writeJson(keys.REMINDERS_KEY, this.reminders)
     updateReminders(this.reminders)
     this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    // 內容變了 → 原生鬧鐘身上那份「App 死掉時要發什麼」也得跟著換
+    void this.refreshReminderCache()
     return saved
   }
 
@@ -1512,7 +1528,7 @@ export class StandaloneSession {
       if (r.notificationDevice === 'desktop') continue
       const delay = nextFireDelayMs(r.schedule, r.lastTriggeredAt)
       if (delay === null || delay > horizonMs) continue
-      if (!needsRefresh(this.reminderCache[r.id], convUpdatedAt)) continue
+      if (!needsRefresh(this.reminderCache[r.id], convUpdatedAt, Date.now(), reminderFingerprint(r))) continue
 
       try {
         const spoken = await speakStandaloneReminder({
@@ -1526,7 +1542,8 @@ export class StandaloneSession {
           characterName: spoken.characterName,
           text: spoken.text,
           generatedAt: Date.now(),
-          basedOnConversationUpdatedAt: convUpdatedAt
+          basedOnConversationUpdatedAt: convUpdatedAt,
+          fingerprint: reminderFingerprint(r)
         }
         dirty = true
       } catch (e) {
@@ -1619,7 +1636,8 @@ export class StandaloneSession {
       status: spoken.status,
       text: spoken.text,
       characterId: spoken.characterId,
-      characterName: spoken.characterName
+      characterName: spoken.characterName,
+      errorMessage: spoken.fallbackReason
     })
     return {
       notify: true,
@@ -1671,7 +1689,9 @@ export class StandaloneSession {
         null,
       loadLorebook: (id) => this.getLorebook(id),
       reminder,
-      cachedText: isCacheUsable(cached) ? cached.text : undefined
+      cached: isCacheUsable(cached)
+        ? { text: cached.text, characterId: cached.characterId, characterName: cached.characterName }
+        : undefined
     }
   }
 }

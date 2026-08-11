@@ -24,6 +24,41 @@ export interface ReminderCacheEntry {
    * 對話沒動過就不必重新生成——這是省 Token 的主要手段。
    */
   basedOnConversationUpdatedAt?: number
+  /**
+   * 生成時那則提醒的內容指紋（見 `reminderFingerprint`）。
+   *
+   * ⚠️ 少了這個欄位，改提醒內容之後快取不會重生：
+   * owner 2026-08-11 把提醒改成「再檢查一下功能」，跳出來的還是舊的「洗杯子」，
+   * 一字不差——因為當時只比對「對話有沒有更新」，完全沒看提醒本身變了沒。
+   */
+  fingerprint?: string
+}
+
+/**
+ * 提醒的內容指紋。
+ *
+ * 只放**會影響台詞內容**的欄位。排程時間不算——把時間放進來的話，
+ * 每次算完下一輪都會被判定成「變了」而重生一次，白燒 Token。
+ */
+export function reminderFingerprint(r: {
+  label: string
+  prompt: string
+  characterId?: string
+  sceneId?: string
+  conversationId?: string
+  injectWeather?: boolean
+  injectConversationContext?: boolean
+}): string {
+  // 用 JSON 而不是自訂分隔字元：不會有「看不見的控制字元被編輯器吃掉」的風險
+  return JSON.stringify([
+    r.label,
+    r.prompt,
+    r.characterId ?? '',
+    r.sceneId ?? '',
+    r.conversationId ?? '',
+    !!r.injectWeather,
+    !!r.injectConversationContext
+  ])
 }
 
 export type ReminderCache = Record<string, ReminderCacheEntry>
@@ -45,14 +80,18 @@ export function isCacheUsable(
 /**
  * 這則提醒的快取需不需要重新生成。
  *
- * 兩個條件任一成立就要：快取不存在／過期，或者對話在上次生成之後又更新過。
+ * 三個條件任一成立就要：快取不存在／過期、**提醒內容被改過**、
+ * 或者對話在上次生成之後又更新過。
  */
 export function needsRefresh(
   entry: ReminderCacheEntry | undefined,
   conversationUpdatedAt: number | undefined,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  fingerprint?: string
 ): boolean {
   if (!isCacheUsable(entry, nowMs)) return true
+  // 提醒本身被改過（換了指令／角色／綁定）→ 舊台詞講的是別件事，一定要重生
+  if (fingerprint != null && entry.fingerprint !== fingerprint) return true
   if (conversationUpdatedAt == null) return false
   return (entry.basedOnConversationUpdatedAt ?? 0) < conversationUpdatedAt
 }

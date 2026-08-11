@@ -1393,3 +1393,33 @@ KeyStore alias ＝ prefixedKey）。升級 `@aparajita/capacitor-secure-storage`
 找不到提醒、快取降級（訊息有進對話、歷史有紀錄）、情境不符略過、
 關掉降級時安靜略過；`assembleDebug` 通過、manifest 確認 shortService 與兩個權限。
 **仍未實機測試。**
+
+### 同日：實機第一輪回報的三個 bug
+
+owner 實測：「通知是 A 角色叫我洗杯子，點進 App 卻是 B 角色說的」、
+「把提醒改成別的內容，時間到了跳出來的還是一模一樣的舊句子」。
+
+**根因 1（最關鍵）：master key 一直讀不出來 → 每次都在走降級。**
+`@aparajita/capacitor-secure-storage` 的 `set()` 存的是 `JSON.stringify(value)`，
+所以解密後拿到的是**帶雙引號**的 `"BASE64=="`。`SecureStoreReader` 第一版直接
+原樣回傳，`base64ToBytes` 解出垃圾 → 金鑰無效。
+
+雪上加霜的是 `unavailableSecrets.decrypt` 是**原樣回傳**，於是 `enc:v1:…`
+那串密文被當成 API Key 送去打 LLM，拿 401、進 catch、退回快取——
+整條路徑「看起來有在跑」，只是永遠用舊句子。
+headless 改用專屬的 `undecryptableSecrets`（密文一律回空字串，
+`hasApiKey` 直接是 false），並在拿到金鑰時驗長度是否為 32 bytes。
+
+**根因 2：降級時用「這次隨機挑到的角色」掛名。**
+快取只存了文字，`useFallback` 拿當下挑到的 `char` 去掛——
+通知標題是快取存的 A、對話訊息卻掛在 B 身上。快取改成連
+`characterId`／`characterName` 一起帶，降級時掛回原本那個角色。
+
+**根因 3：改了提醒內容，快取不會重生。**
+`needsRefresh()` 只比對「對話有沒有更新」。加上 `reminderFingerprint`
+（label／prompt／角色／情境／對話／注入開關，**不含排程時間**——
+含了的話每算一次下一輪就白重生一次），並在 `saveReminder` 時
+內容一變就立刻丟掉那則快取＋重刷，不等下一次背景刷新。
+
+順帶：降級原因（`fallbackReason`）現在會一路寫進提醒紀錄並顯示在畫面上。
+在此之前「現場生成一直失敗」與「本來就沒網路」長得一模一樣，只能翻 logcat。

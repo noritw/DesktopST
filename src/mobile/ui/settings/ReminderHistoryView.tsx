@@ -120,8 +120,16 @@ export function ReminderHistoryView(): JSX.Element {
                   )}
                   <p className="mt-1 text-[11px] text-[var(--text-sub)]">
                     {h.reminderLabel} · {formatDateTime(h.timestamp)}
-                    {h.errorMessage ? ` · ${h.errorMessage}` : ''}
                   </p>
+                  {/*
+                    降級原因單獨一行。擠在時間後面會被截斷，
+                    而這正是「為什麼又是舊句子」唯一查得到的地方。
+                  */}
+                  {h.errorMessage && (
+                    <p className="mt-0.5 break-words text-[11px] leading-relaxed text-[var(--text-sub)]">
+                      原因：{h.errorMessage}
+                    </p>
+                  )}
                 </div>
                 <button
                   type="button"

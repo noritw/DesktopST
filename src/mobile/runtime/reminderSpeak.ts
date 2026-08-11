@@ -42,6 +42,14 @@ export interface ReminderSpeakResult {
   text: string
   /** 這句話怎麼來的：現場生成成功，或是退回快取台詞 */
   status: 'success' | 'offline_fallback'
+  /**
+   * 降級的原因（`status === 'offline_fallback'` 時才有）。
+   *
+   * 會一路寫進提醒紀錄給使用者看。沒有這個的話，「現場生成一直失敗」
+   * 與「本來就沒網路」在畫面上長得一模一樣，只能去翻 logcat——
+   * owner 2026-08-11 就是卡在這裡查不出為什麼每次都是舊句子。
+   */
+  fallbackReason?: string
 }
 
 export async function speakStandaloneReminder(opts: {
@@ -59,8 +67,12 @@ export async function speakStandaloneReminder(opts: {
   /**
    * 現場生成失敗時可用的快取台詞（見 §2.1 底線機制）。
    * 沒有可用快取時傳 undefined。
+   *
+   * ⚠️ **要連當初是誰講的一起帶**。只帶文字的話，降級時會把這句話掛到
+   * 「這次重新隨機挑到的角色」身上——owner 2026-08-11 實機回報的
+   * 「通知是 A 角色、點進 App 卻變成 B 角色說的」就是這個。
    */
-  cachedText?: string
+  cached?: { text: string; characterId: string; characterName: string }
   /**
    * `'live'`（預設）＝真的要發話：訊息會進對話、會推 thinking 事件。
    * `'cache-refresh'` ＝只為了刷新快取而先生一句起來放，
@@ -70,6 +82,7 @@ export async function speakStandaloneReminder(opts: {
 }): Promise<ReminderSpeakResult | null> {
   const { reminder, settings } = opts
   const isLive = (opts.mode ?? 'live') === 'live'
+  const charById = (id: string): Character | undefined => opts.characters.find((c) => c.id === id)
 
   /**
    * 現場生成失敗時的共同出口。
@@ -79,19 +92,41 @@ export async function speakStandaloneReminder(opts: {
    * 就退化成普通行事曆。2026-08-11 起改成退回快取台詞，沒有快取就不發。
    */
   const useFallback = async (
-    char: Character,
-    conv: Conversation | null
+    conv: Conversation | null,
+    reason: string
   ): Promise<ReminderSpeakResult | null> => {
     if (!allowOfflineFallback(reminder)) return null
-    const cached = opts.cachedText?.trim()
-    if (!cached) return null
-    if (isLive && conv) {
-      const msg = await appendReminderMessage(opts, conv, { characterId: char.id, content: cached })
-      return { characterId: char.id, characterName: char.name, text: msg.content, status: 'offline_fallback' }
+    const cached = opts.cached
+    const text = cached?.text?.trim()
+    if (!cached || !text) return null
+
+    /*
+     * 掛回**當初生成這句話的那個角色**，不是這次挑到的。
+     * 角色被刪掉的話就沿用快取裡的名字（通知顯示得對），
+     * 訊息則不進對話——沒有 id 可掛的訊息會變成一則幽靈發言。
+     */
+    const speaker = charById(cached.characterId)
+    if (isLive && conv && speaker) {
+      const msg = await appendReminderMessage(opts, conv, {
+        characterId: speaker.id,
+        content: text
+      })
+      return {
+        characterId: speaker.id,
+        characterName: speaker.name,
+        text: msg.content,
+        status: 'offline_fallback',
+        fallbackReason: reason
+      }
     }
-    return { characterId: char.id, characterName: char.name, text: cached, status: 'offline_fallback' }
+    return {
+      characterId: cached.characterId,
+      characterName: speaker?.name ?? cached.characterName,
+      text,
+      status: 'offline_fallback',
+      fallbackReason: reason
+    }
   }
-  const charById = (id: string): Character | undefined => opts.characters.find((c) => c.id === id)
 
   // ── 挑發話角色 ─────────────────────────────────────────
   // 指定的角色還在 → 用它；被刪掉或沒指定 → 從未禁言的在場角色隨機挑。
@@ -153,7 +188,7 @@ export async function speakStandaloneReminder(opts: {
   const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
 
   // ── 沒有 API Key：生不出東西，走底線 ──
-  if (!hasApiKey) return useFallback(char, conv)
+  if (!hasApiKey) return useFallback(conv, '沒有可用的 API Key')
 
   if (isLive) opts.events.push({ kind: 'thinking', characterId: char.id })
   try {
@@ -223,7 +258,7 @@ export async function speakStandaloneReminder(opts: {
      * `allowOfflineFallback === false` 的提醒連快取都不用——
      * 使用者明確選了「寧可不響也不要出戲」。
      */
-    return useFallback(char, conv)
+    return useFallback(conv, e instanceof Error ? e.message : String(e))
   }
 }
 

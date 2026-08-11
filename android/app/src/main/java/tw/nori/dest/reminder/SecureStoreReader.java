@@ -6,6 +6,8 @@ import android.util.Base64;
 import android.util.Log;
 
 import java.nio.charset.StandardCharsets;
+import org.json.JSONArray;
+
 import java.security.KeyStore;
 
 import javax.crypto.Cipher;
@@ -44,7 +46,15 @@ public class SecureStoreReader {
   /** 對應 secretAdapter.ts 的 `dest_` + `master-key-v1`。 */
   private static final String MASTER_KEY_ALIAS = "dest_master-key-v1";
 
-  /** 回傳 base64 的 master key（32 bytes），拿不到時回 null。 */
+  /**
+   * 回傳 base64 的 master key（32 bytes），拿不到時回 null。
+   *
+   * ⚠️ 外掛的 `set()` 存的是 **`JSON.stringify(value)`**，
+   * 所以解密後拿到的是**帶雙引號**的 `"BASE64=="`，不是裸的 base64。
+   * 2026-08-11 第一版漏了這一步：master key 一路壞掉、`base64ToBytes` 解出垃圾，
+   * 於是每一次背景提醒都判定「沒有 API Key」而退回快取台詞——
+   * 從 App 外面看就是「內容永遠是舊的那句」，查不出原因。
+   */
   public static String masterKeyBase64(Context context) {
     try {
       SharedPreferences prefs = context.getSharedPreferences(
@@ -76,11 +86,24 @@ public class SecureStoreReader {
       SecretKey key = entry.getSecretKey();
       Cipher cipher = Cipher.getInstance(CIPHER_TRANSFORMATION);
       cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(128, iv));
-      // 外掛存的是「base64 字串」的明文，不是原始位元組
-      return new String(cipher.doFinal(data), StandardCharsets.UTF_8);
+      String plain = new String(cipher.doFinal(data), StandardCharsets.UTF_8);
+      return unquote(plain);
     } catch (Exception e) {
       Log.e(TAG, "讀取 master key 失敗: " + e.getMessage());
       return null;
     }
+  }
+
+  /** 去掉 `JSON.stringify` 加上的雙引號並還原跳脫。不是 JSON 字串就原樣回傳。 */
+  private static String unquote(String raw) {
+    String t = raw.trim();
+    if (t.length() >= 2 && t.charAt(0) == '"' && t.charAt(t.length() - 1) == '"') {
+      try {
+        return new JSONArray("[" + t + "]").getString(0);
+      } catch (Exception e) {
+        Log.w(TAG, "master key 的 JSON 解析失敗，改用原字串");
+      }
+    }
+    return t;
   }
 }

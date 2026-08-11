@@ -136,7 +136,7 @@ describe('提醒觸發時由角色發話（獨立模式）', () => {
     const { fetch, bodies } = stubLlm('不該被呼叫')
     const result = await speakStandaloneReminder({
       ...makeOpts(makeSettings(''), fetch, conv),
-      cachedText: '欸，記得喝水喔。'
+      cached: { text: '欸，記得喝水喔。', characterId: 'c1', characterName: '小助手' }
     })
 
     expect(bodies).toHaveLength(0)
@@ -152,7 +152,7 @@ describe('提醒觸發時由角色發話（獨立模式）', () => {
     }) as unknown as typeof globalThis.fetch
     const result = await speakStandaloneReminder({
       ...makeOpts(makeSettings('sk-test'), failing, conv),
-      cachedText: '欸，記得喝水喔。'
+      cached: { text: '欸，記得喝水喔。', characterId: 'c1', characterName: '小助手' }
     })
 
     expect(result).not.toBeNull()
@@ -181,11 +181,51 @@ describe('提醒觸發時由角色發話（獨立模式）', () => {
     const result = await speakStandaloneReminder({
       ...base,
       reminder: { ...base.reminder, allowOfflineFallback: false },
-      cachedText: '欸，記得喝水喔。'
+      cached: { text: '欸，記得喝水喔。', characterId: 'c1', characterName: '小助手' }
     })
 
     expect(result).toBeNull()
     expect(conv.messages).toHaveLength(0)
+  })
+
+  it('降級時掛回「當初講這句話的角色」，不是這次隨機挑到的', async () => {
+    /*
+     * owner 2026-08-11 實機回報：通知顯示 A 角色，點進 App 卻是 B 角色說的。
+     * 原因是快取只存了文字，降級時用當下重新挑到的角色掛名。
+     */
+    const other: Character = { ...CHAR, id: 'c2', name: '小藍' }
+    const conv = emptyConv()
+    const failing = (async () => {
+      throw new Error('network down')
+    }) as unknown as typeof globalThis.fetch
+
+    const settings = makeSettings('sk-test')
+    // 在場只有 c2，所以「這次挑到的」一定是小藍
+    settings.ui.desktopCharacters = [
+      { characterId: 'c2', position: { x: 0, y: 0 }, size: 1, flipped: false, muted: false, zIndex: 1 }
+    ]
+    const base = makeOpts(settings, failing, conv)
+
+    const result = await speakStandaloneReminder({
+      ...base,
+      characters: [CHAR, other],
+      cached: { text: '記得洗杯子喔。', characterId: 'c1', characterName: '小綠' }
+    })
+
+    expect(result?.characterName).toBe('小綠')
+    expect(result?.characterId).toBe('c1')
+    // 寫進對話的那則也要掛在小綠身上，不然通知與對話會是兩個人
+    expect(conv.messages[0].characterId).toBe('c1')
+  })
+
+  it('降級會附上原因，讓提醒紀錄查得出為什麼是舊句子', async () => {
+    const conv = emptyConv()
+    const { fetch } = stubLlm('不該被呼叫')
+    const result = await speakStandaloneReminder({
+      ...makeOpts(makeSettings(''), fetch, conv),
+      cached: { text: '欸，記得喝水喔。', characterId: 'c1', characterName: '小綠' }
+    })
+    expect(result?.fallbackReason).toContain('API Key')
   })
 
   it('cache-refresh 模式：只回台詞，不寫進對話也不推事件', async () => {

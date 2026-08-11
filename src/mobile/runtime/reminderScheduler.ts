@@ -28,7 +28,12 @@ import {
  */
 type TriggerFn = (
   reminder: Reminder
-) => Promise<{ characterName: string; text: string; status?: 'success' | 'offline_fallback' } | null>
+) => Promise<{
+  characterName: string
+  text: string
+  status?: 'success' | 'offline_fallback'
+  fallbackReason?: string
+} | null>
 
 /**
  * 排程器問外界「現在的狀態」用的鉤子（由 session 注入）。
@@ -360,7 +365,8 @@ async function fire(reminder: Reminder, opts?: { skipGate?: boolean }): Promise<
       hooks?.recordHistory(reminder, {
         status: spoken.status ?? 'success',
         text: spoken.text,
-        characterName: spoken.characterName
+        characterName: spoken.characterName,
+        errorMessage: spoken.fallbackReason
       })
     } else {
       console.log(`[Reminder] 跳過通知（非 Web 環境）`)

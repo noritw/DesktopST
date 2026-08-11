@@ -1,6 +1,7 @@
 import type { HttpAdapter, PlatformAdapters, SecretAdapter, StorageAdapter } from '../../core/adapters'
+import { SECRET_PREFIX } from '../../core/adapters'
 import { base64ToBytes, bytesToBase64 } from '../../core/util/base64'
-import { createSecretAdapterFromKey, unavailableSecrets } from '../adapters/secretCrypto'
+import { createSecretAdapterFromKey } from '../adapters/secretCrypto'
 import { capacitorScheduler } from '../adapters/schedulerAdapter'
 import { capacitorNotifier } from '../adapters/notifierAdapter'
 import { assertValidStorageKey, cleanPrefix } from '../adapters/storageKey'
@@ -166,13 +167,46 @@ function headlessSecrets(bridge: HeadlessNativeBridge): SecretAdapter {
   const b64 = bridge.masterKey()
   if (!b64) {
     hlog('拿不到 master key（使用者可能還沒設 API Key），將退回快取台詞')
-    return unavailableSecrets
+    return undecryptableSecrets
   }
   try {
-    return createSecretAdapterFromKey(base64ToBytes(b64))
+    /*
+     * 外掛存的是 `JSON.stringify(value)`，原生那側已經把雙引號拆掉了
+     * （`SecureStoreReader.unquote`）。這裡再驗一次長度：
+     * 拿到壞掉的金鑰去解密，症狀會變成「每次都用舊句子」而不是明確的錯誤。
+     */
+    const bytes = base64ToBytes(b64.trim())
+    if (bytes.length !== 32) {
+      hlog(`master key 長度不對（${bytes.length} bytes，應為 32）→ 視為沒有 API Key`)
+      return undecryptableSecrets
+    }
+    return createSecretAdapterFromKey(bytes)
   } catch (e) {
     hlog(`master key 無法使用: ${String(e)}`)
-    return unavailableSecrets
+    return undecryptableSecrets
+  }
+}
+
+/**
+ * 解不開密文時用的 SecretAdapter。
+ *
+ * ⚠️ **不能用 `unavailableSecrets`**：它的 `decrypt` 是原樣回傳，
+ * 於是 `enc:v1:…` 那串密文會被當成 API Key 送去打 LLM——
+ * 拿到 401、走進 catch、退回快取台詞。結果就是「每次都用舊句子」，
+ * 而且從外面看不出原因（owner 2026-08-11 實機回報的正是這個樣子）。
+ *
+ * 這裡改成回空字串：`hasApiKey` 直接是 false，
+ * 省掉一次注定失敗的往返，理由也記得清清楚楚。
+ */
+const undecryptableSecrets: SecretAdapter = {
+  isAvailable: () => false,
+  encrypt: (plain) => plain,
+  decrypt: (stored) => {
+    if (stored.startsWith(SECRET_PREFIX)) {
+      hlog('settings 裡的金鑰是加密的，但 headless 解不開 → 視為沒有 API Key')
+      return ''
+    }
+    return stored
   }
 }
 
