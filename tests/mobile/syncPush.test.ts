@@ -413,7 +413,6 @@ describe('S2 M3 pushSync', () => {
 
     // 應該有推送進度訊息
     expect(messages.some((m) => m.includes('進度測試'))).toBe(true)
-    expect(messages.some((m) => m.includes('更新同步基準'))).toBe(true)
   })
 
   it('推送失敗時基準不被更新', async () => {
@@ -458,6 +457,67 @@ describe('S2 M3 pushSync', () => {
     // 基準應該沒有被更新
     const baselineAfterError = await readBaseline(session.adapters.storage)
     expect(baselineAfterError?.characters['c-fail']).toBeUndefined()
+  })
+
+  it('推送中途失敗時，已經成功的那幾筆基準要保留（否則重試會把它們重推一次，電腦上多出重複角色）', async () => {
+    session.characters.push({
+      id: 'c-ok',
+      name: '成功角色',
+      description: '',
+      emotions: {},
+      createdAt: 1,
+      updatedAt: 100
+    } as any)
+    session.characters.push({
+      id: 'c-boom',
+      name: '失敗角色',
+      description: '',
+      emotions: {},
+      createdAt: 1,
+      updatedAt: 100
+    } as any)
+
+    const diff: SyncDiff = {
+      hasBaseline: true,
+      characters: {
+        localNew: ['c-ok', 'c-boom'],
+        localModified: [],
+        localDeleted: [],
+        remoteNew: [],
+        remoteModified: [],
+        remoteDeleted: [],
+        conflicts: []
+      },
+      personas: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      worlds: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      scenes: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      lorebooks: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      conversations: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      settingsChanged: false
+    }
+
+    // 第一筆角色推送成功，第二筆失敗（模擬「角色都推完了，後面某一步才炸」的情境）
+    let callCount = 0
+    const flakyFetch = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/api/characters/import-pack')) {
+        callCount++
+        if (callCount === 1) return new Response('OK', { status: 200 })
+        return new Response('Network error', { status: 500 })
+      }
+      return new Response('OK', { status: 200 })
+    }) as typeof fetch
+
+    // Set 保留插入順序：c-ok 先推，c-boom 後推
+    const opts: PushOptions = { selectedIds: { characters: new Set(['c-ok', 'c-boom']) } }
+
+    await expect(pushSync(SRC, session, diff, opts, flakyFetch)).rejects.toThrow()
+
+    const baseline = await readBaseline(session.adapters.storage)
+    // c-ok 已經真的送到電腦了，基準要記得，不然重試會再推一次、電腦上多一份重複
+    expect(baseline?.characters['c-ok']).toBeDefined()
+    // c-boom 沒推成功，不該出現在基準裡（下次重試該補推的是它，不是重推 c-ok）
+    expect(baseline?.characters['c-boom']).toBeUndefined()
   })
 })
 

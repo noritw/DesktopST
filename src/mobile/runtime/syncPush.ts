@@ -106,8 +106,27 @@ export async function pushSync(
     }
 
   const updates = { ...baseline }
-  let anyPushed = false
   const summary: PushSummary = { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [] }
+
+  /**
+   * 每推成功一筆就立刻寫回基準——**不要等整趟迴圈跑完才寫一次**。
+   *
+   * 血淋淋的教訓（2026-08-13）：原本的寫法是全部收集在記憶體裡的 `updates`，
+   * 等五個 collection 都跑完、完全沒出錯才在最後寫一次。這代表「角色都推
+   * 成功了，但後面人設／情境隨便哪一步出錯」時，基準完全不會更新——已經
+   * 真的送到電腦、電腦也真的建好的角色，手機這邊卻不知道自己推過。
+   * 使用者下次重試「帶過去」，`computeDiff` 還是把這些角色當成沒推過，
+   * `buildPushSelection` 又把它們全部選進去——電腦的 `onConflict: 'new'`
+   * 策略是每次匯入都建新角色、不判重複，於是每重試一次就多一批重複角色。
+   * 改成每推成功一筆就寫一次，中途失敗時已經成功的那幾筆不會再被重推。
+   */
+  const persist = async (): Promise<void> => {
+    updates.hostBaseUrl = src.baseUrl
+    updates.syncedAt = Date.now()
+    // settingsHash 不動：這一版設定推送還沒接進主迴圈（§5 步驟④待做），
+    // 亂改會讓 computeDiff 誤判成「設定已經同步過」。
+    await writeBaseline(session.adapters.storage, updates)
+  }
 
   try {
     // ── 角色推送 ──
@@ -115,12 +134,11 @@ export async function pushSync(
     for (const id of charIds) {
       // 第一次同步（!diff.hasBaseline）時 diff 刻意全空，信任 selectedIds（見 buildPushSelection）
       if (diff.hasBaseline && !diff.characters.localNew.includes(id) && !diff.characters.localModified.includes(id)) continue
-      const charName = session.characters.find((c) => c.id === id)?.name || id
+      const char = session.characters.find((c) => c.id === id)
+      const charName = char?.name || id
       opts.onProgress?.(`推送角色 ${charName}...`)
       await pushCharacter(src, session, id, fetchImpl)
-      anyPushed = true
       summary.characters.push(charName)
-      const char = session.characters.find((c) => c.id === id)
       if (char) {
         if (!updates.characters[id]) {
           updates.characters[id] = { remoteId: id, localUpdatedAt: char.updatedAt, remoteUpdatedAt: Date.now() }
@@ -128,6 +146,7 @@ export async function pushSync(
           updates.characters[id]!.localUpdatedAt = char.updatedAt
           updates.characters[id]!.remoteUpdatedAt = Date.now()
         }
+        await persist()
       }
     }
 
@@ -139,7 +158,6 @@ export async function pushSync(
       if (!persona) continue
       opts.onProgress?.(`推送人設 ${persona.name || id}...`)
       await pushPersona(src, persona, fetchImpl)
-      anyPushed = true
       summary.personas.push(persona.name || id)
       if (!updates.personas[id]) {
         updates.personas[id] = { remoteId: id, localUpdatedAt: persona.updatedAt, remoteUpdatedAt: Date.now() }
@@ -147,6 +165,7 @@ export async function pushSync(
         updates.personas[id]!.localUpdatedAt = persona.updatedAt
         updates.personas[id]!.remoteUpdatedAt = Date.now()
       }
+      await persist()
     }
 
     // ── 世界觀推送 ──
@@ -157,7 +176,6 @@ export async function pushSync(
       if (!world) continue
       opts.onProgress?.(`推送世界觀 ${world.name || id}...`)
       await pushWorld(src, world, fetchImpl)
-      anyPushed = true
       summary.worlds.push(world.name || id)
       if (!updates.worlds[id]) {
         updates.worlds[id] = { remoteId: id, localUpdatedAt: world.updatedAt, remoteUpdatedAt: Date.now() }
@@ -165,6 +183,7 @@ export async function pushSync(
         updates.worlds[id]!.localUpdatedAt = world.updatedAt
         updates.worlds[id]!.remoteUpdatedAt = Date.now()
       }
+      await persist()
     }
 
     // ── 用語解說推送 ──
@@ -174,7 +193,6 @@ export async function pushSync(
       const lore = await session.getLorebook(id)
       opts.onProgress?.(`推送用語解說 ${lore?.name || id}...`)
       await pushLorebook(src, session, id, fetchImpl)
-      anyPushed = true
       summary.lorebooks.push(lore?.name || id)
       if (lore) {
         if (!updates.lorebooks[id]) {
@@ -183,6 +201,7 @@ export async function pushSync(
           updates.lorebooks[id]!.localUpdatedAt = lore.updatedAt
           updates.lorebooks[id]!.remoteUpdatedAt = Date.now()
         }
+        await persist()
       }
     }
 
@@ -194,7 +213,6 @@ export async function pushSync(
       if (!scene) continue
       opts.onProgress?.(`推送情境 ${scene.name || id}...`)
       await pushScene(src, scene, fetchImpl)
-      anyPushed = true
       summary.scenes.push(scene.name || id)
       if (!updates.scenes[id]) {
         updates.scenes[id] = { remoteId: id, localUpdatedAt: scene.updatedAt, remoteUpdatedAt: Date.now() }
@@ -202,22 +220,13 @@ export async function pushSync(
         updates.scenes[id]!.localUpdatedAt = scene.updatedAt
         updates.scenes[id]!.remoteUpdatedAt = Date.now()
       }
-    }
-
-    // 只有真的推過東西才寫基準（§3.1）
-    if (anyPushed) {
-      opts.onProgress?.('更新同步基準...')
-      // 換主機時基準作廢（§7.6）
-      updates.hostBaseUrl = src.baseUrl
-      updates.syncedAt = Date.now()
-      // settingsHash 不動：這一版設定推送還沒接進主迴圈（§5 步驟④待做），
-      // 亂改會讓 computeDiff 誤判成「設定已經同步過」。
-      await writeBaseline(session.adapters.storage, updates)
+      await persist()
     }
 
     return summary
   } catch (err) {
-    // 推送失敗時基準保持不變（CLAUDE.md §5 的坑）
+    // 中途失敗：已經成功推的那幾筆基準在上面 persist() 時已經寫回去了，
+    // 不會因為後面這步失敗而消失——不需要在這裡再寫一次，也不能整份倒退。
     throw new Error(`推送失敗：${err instanceof Error ? err.message : String(err)}`)
   }
 }
