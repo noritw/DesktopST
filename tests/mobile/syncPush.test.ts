@@ -389,4 +389,5 @@ describe('S2 M3 pushSync', () => {
     const baselineAfterError = await readBaseline(session.adapters.storage)
     expect(baselineAfterError?.characters['c-fail']).toBeUndefined()
   })
+
 })
