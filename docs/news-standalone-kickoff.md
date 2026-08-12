@@ -157,15 +157,50 @@ core 必須在瀏覽器 tsconfig 下編得過（roadmap §4.4b）。
 
 ## 6. 完工判準
 
-- [ ] 手機獨立模式打開「個人新聞報」，抓得到新聞、分欄正確
-- [ ] 釘選／不看了／配額／欄位排序，重開 App 後都還在
-- [ ] 「聊這個」能把原文摘要帶進 prompt，角色講得出內容
-- [ ] 新聞設定與關鍵字組在獨立模式可編輯並持久化
-- [ ] `ReminderEditor` 的「抓一則新聞當話題」不再灰掉，而且真的會注入
-- [ ] `npm test` 全過、`npm run typecheck` 過
-- [ ] `localDataSource.ts` 不再有 `pending('news.*')`
-- [ ] 桌面版行為**完全沒變**（抽 core 是等價重構）
-- [ ] `docs/mobile-standalone-gap-inventory.md` 缺口 #6 標成完成、`progress-log.md` 補條目
+程式碼與自動測試面已全部完成（2026-08-12）。真機複測也已完成（2026-08-12 下午，
+Pixel 10a debug APK）：
+
+- [x] 手機獨立模式打開「個人新聞報」，抓得到新聞、分欄正確
+- [ ] 釘選／不看了／配額／欄位排序，重開 App 後都還在（**仍未逐項驗**）
+- [x] 「聊這個」能把原文摘要帶進 prompt，角色講得出內容
+
+> ⚠️ 第三項第一次真機測時是**全滅**的，而且失敗得很安靜。根因是
+> CapacitorHttp 把回應多做一次 JSON 編碼，只在手機發生。
+> 完整診斷過程與修法見 `progress-log.md` 的
+> 「2026-08-12｜獨立版新聞『聊這個』真機除錯」，坑本身寫進 `CLAUDE.md` §5。
+> `core/news/enrich.ts` 的 `[news-diag]` log **請保留**——這條管線橫跨四個
+> 外部依賴，沒有它就得再打一輪 APK 才知道斷在哪。
+
+> 瀏覽器分頁已驗到的部分：模組開關與關鍵字重整後都還在，抓取管線會用
+> 關鍵字組出正確的 Google News URL 並發出請求，被 CORS 擋下之後畫面
+> 正確落回「目前沒有新聞」而不是炸掉。也就是**除了網路層本身，其餘都通了**。
+
+以下已完成：
+
+- [x] 新聞設定與關鍵字組在獨立模式可編輯並持久化（瀏覽器分頁實測：加關鍵字→重整→還在）
+- [x] `ReminderEditor` 的「抓一則新聞當話題」不再灰掉，而且真的會注入（`reminderSpeak.ts` 接上 `getNewsInjectionForSpeak`）
+- [x] `npm test` 全過（516 通過）、`npm run typecheck` 過
+- [x] `localDataSource.ts` 不再有 `pending('news.*')`（15 支全部接完）
+- [x] 桌面版行為**完全沒變**（抽 core 是等價重構；`npm run build` 全量打包過，手動確認過一次桌面新聞報正常）
+- [x] `docs/mobile-standalone-gap-inventory.md` 缺口 #6 標成完成、`progress-log.md` 補條目
+
+### 2026-08-12 實機回報後的兩處補修
+
+**① 新聞模組開關打了勾又跳回去。** `session.ts` 的 `listModules` 把
+`desktopst.news` 寫死成 `false`、`setModuleEnabled` 對新聞是**空的 no-op**
+（註解還留著「獨立模式新聞模組設定檔尚未接；先忽略不炸」），是接 core
+之前的遺留。原因是**新聞的開關不住在 `settings.json`**，而在
+`modules/desktopst.news/settings.json`——其他三個模組都在前者，所以
+`listModules` 本來是同步的，接新聞要改成 async。已修，並補了
+「打開→重新 boot→還在」的迴歸測試（`tests/mobile/standaloneSession.test.ts`）。
+
+**② 新聞設定沒辦法從電腦匯入**（owner：「不然我要手動重設關鍵字很麻煩」）。
+`/api/sync-init` 的 bundle 新增 `news` 欄位（`getNewsSyncSettingsDirect`），
+手機端以 `applyNewsSettings` 落地。**刻意不帶的四項**：`enabled`（走既有的
+`modules`，不要兩處各送一次）、`seenIds`（各裝置自己的去重歷史）、
+`feedback.adjustments`（學習來的衍生資料）、`reminder`（手機的提醒是原生
+精準鬧鐘、有自己一套，灌電腦的排程會憑空多出一則沒答應過的鬧鐘）。
+順帶補上 `applySettings` 的模組開關迴圈原本也漏掉新聞這件事。
 
 ---
 

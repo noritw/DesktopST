@@ -23,19 +23,18 @@ import { DEFAULT_KEYWORD_GROUP_ID, effectiveGroupId } from './keywordGroups'
 
 // ── 固定欄的 id（與 main 的 readerFetch／mobileRoutes 對得上，不可改字串）──
 export const BREAKOUT_SECTION_ID = '__breakout__'
-export const LOCAL_SECTION_ID = '__local__'
 export const OTHER_SECTION_ID = '__other__'
 
 /** 「這則不要看了」保留幾筆（與 main 的 `readerState.ts` 一致）。 */
 export const MAX_DISMISSED = 500
 
-export type ReaderSectionKind = 'breakout' | 'keyword' | 'local' | 'feed' | 'other'
+export type ReaderSectionKind = 'breakout' | 'keyword' | 'feed' | 'other'
 
 export interface ReaderSection {
-  /** `__breakout__` / `kw:<sourceId>` / `__local__` / `feed:<sourceId>` / `__other__` */
+  /** `__breakout__` / `kw:<sourceId>` / `feed:<sourceId>` / `__other__` */
   groupId: string
   kind: ReaderSectionKind
-  /** 使用者自訂的來源名稱；固定欄（熱門／地方／其他）為空字串，由 UI 給標題。 */
+  /** 使用者自訂的來源名稱；固定欄（熱門／其他）為空字串，由 UI 給標題。 */
   label: string
   items: NewsItem[]
 }
@@ -43,7 +42,6 @@ export interface ReaderSection {
 /** 這則新聞屬於哪一欄。分欄與「重抓一欄」必須用同一套判斷，否則重抓會換錯欄。 */
 export function sectionIdOf(item: NewsItem, sources: NewsSource[]): string {
   if (item.breakout === true) return BREAKOUT_SECTION_ID
-  if ((item.sourceId ?? '').startsWith('loc-')) return LOCAL_SECTION_ID
   const src = sources.find(s => s.id === item.sourceId)
   if (src?.type === 'keyword' || item.sourceType === 'keyword') {
     return `kw:${src ? src.id : item.sourceId}`
@@ -61,7 +59,6 @@ export function sectionIdOf(item: NewsItem, sources: NewsSource[]): string {
 export function groupReaderSections(items: NewsItem[], sources: NewsSource[]): ReaderSection[] {
   const byId = new Map(sources.map(s => [s.id, s]))
   const breakout: NewsItem[] = []
-  const local: NewsItem[] = []
   const other: NewsItem[] = []
   const keyword = new Map<string, { label: string; items: NewsItem[] }>()
   const feed = new Map<string, { label: string; items: NewsItem[] }>()
@@ -72,7 +69,6 @@ export function groupReaderSections(items: NewsItem[], sources: NewsSource[]): R
 
   for (const item of items) {
     if (item.breakout === true) { breakout.push(item); continue }
-    if ((item.sourceId ?? '').startsWith('loc-')) { local.push(item); continue }
 
     const src = byId.get(item.sourceId)
     if (src?.type === 'keyword' || item.sourceType === 'keyword') {
@@ -98,9 +94,6 @@ export function groupReaderSections(items: NewsItem[], sources: NewsSource[]): R
   }
   for (const [id, b] of keyword) {
     if (b.items.length > 0) out.push({ groupId: `kw:${id}`, kind: 'keyword', label: b.label, items: b.items })
-  }
-  if (local.length > 0) {
-    out.push({ groupId: LOCAL_SECTION_ID, kind: 'local', label: '', items: local })
   }
   for (const [id, b] of feed) {
     if (b.items.length > 0) out.push({ groupId: `feed:${id}`, kind: 'feed', label: b.label, items: b.items })
@@ -139,12 +132,10 @@ export function sectionQuota(
  *
  * 必須跟著「要抓哪些關鍵字組」走：沒選＝全部組，有選＝只列那幾組的關鍵字。
  * 否則切了組卻看到同一份清單，使用者會以為切換沒生效。
- * 地方新聞帶入的來源（`origin === 'location'`）不列 —— 它們不是使用者排的欄。
  */
 export function visibleKeywordSources(sources: NewsSource[], selectedGroupIds: string[]): NewsSource[] {
   return sources.filter(s => {
     if (s.type !== 'keyword' || !s.enabled) return false
-    if (s.origin === 'location') return false
     if (selectedGroupIds.length === 0) return true
     return selectedGroupIds.some(id => effectiveGroupId(id) === effectiveGroupId(s.groupId))
   })
@@ -273,7 +264,7 @@ export function groupSourcesByKeywordGroup(
   const buckets = new Map<string, NewsSource[]>()
   for (const g of groups) buckets.set(g.id, [])
   for (const s of sources) {
-    if (s.type !== 'keyword' || s.origin === 'location') continue
+    if (s.type !== 'keyword') continue
     const gid = effectiveGroupId(s.groupId)
     const bucket = buckets.get(gid) ?? buckets.get(DEFAULT_KEYWORD_GROUP_ID)
     bucket?.push(s)

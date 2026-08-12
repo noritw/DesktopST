@@ -277,3 +277,114 @@ describe('StandaloneSession：用語解說（缺口 #2）', () => {
     expect((await session.getLorebook(book.id))!.entries).toEqual([])
   })
 })
+
+describe('StandaloneSession：角色卡／設定包匯出（缺口 #3）', () => {
+  it('exportCard(json) 輸出可以再被 importCard 讀回同樣的人設', async () => {
+    const session = await bootStandaloneSession(testAdapters(), { skipPackFetch: true })
+    const char = session.characters[0]!
+    await session.saveCharacter({ ...char, name: '小綠', personality: '活潑', firstMessage: '嗨！' })
+
+    const file = await session.exportCard(char.id, 'json')
+    expect(file.filename).toBe('小綠.json')
+
+    const reimported = await session.importCard({ bytes: file.bytes, kind: 'json' })
+    expect(reimported.name).toBe('小綠')
+    expect(reimported.firstMessage).toBe('嗨！')
+    // 重新匯入一律發新 id，不能撞名原本那隻
+    expect(reimported.id).not.toBe(char.id)
+  })
+
+  it('exportCard(png) 沒有頭像時退回內建透明底圖，PNG 仍嵌得出 chara chunk', async () => {
+    const session = await bootStandaloneSession(testAdapters(), { skipPackFetch: true })
+    const char = session.characters[0]!
+    await session.saveCharacter({ ...char, avatar: '', name: '無頭像角色' })
+
+    const file = await session.exportCard(char.id, 'png')
+    expect(file.filename).toBe('無頭像角色.png')
+
+    const reimported = await session.importCard({ bytes: file.bytes, kind: 'png' })
+    expect(reimported.name).toBe('無頭像角色')
+  })
+
+  it('找不到角色時丟 DataError', async () => {
+    const session = await bootStandaloneSession(testAdapters(), { skipPackFetch: true })
+    await expect(session.exportCard('沒這隻', 'json')).rejects.toMatchObject({ code: 'not-found' })
+  })
+
+  it('exportPack 打出的 .dstpack 能被同一套匯入邏輯讀回（跨 session 也一樣）', async () => {
+    const session = await bootStandaloneSession(testAdapters(), { skipPackFetch: true })
+    const char = session.characters[0]!
+    await session.saveCharacter({ ...char, name: '小藍' })
+    await session.saveAvatar(char.id, { bytes: new Uint8Array([1, 2, 3, 4]), ext: '.png' })
+
+    const file = await session.exportPack([char.id], {
+      includeGlobalSettings: false,
+      includeLorebooks: false
+    })
+    expect(file.filename).toBe('小藍.dstpack')
+
+    // 另開一個全新的獨立 session（模擬換一台手機／電腦匯入），驗證格式真的互通
+    const other = await bootStandaloneSession(testAdapters(), { skipPackFetch: true })
+    const before = other.characters.length
+    const result = await other.importPack(file.bytes, { onConflict: 'skip', applyGlobalSettings: false })
+    expect(result.imported).toBe(1)
+    await other.reloadCharacters()
+    expect(other.characters.length).toBe(before + 1)
+    const landed = other.characters.find((c) => c.name === '小藍')
+    expect(landed).toBeTruthy()
+    // 帶著頭像一起打包進去，匯入端也要能還原成一個可讀的 storage key
+    expect(landed!.avatar).toBeTruthy()
+  })
+
+  it('exportPack 沒帶 id 時匯出全部角色；空清單丟 DataError', async () => {
+    const session = await bootStandaloneSession(testAdapters(), { skipPackFetch: true })
+    const file = await session.exportPack([], { includeGlobalSettings: false, includeLorebooks: false })
+    expect(file.bytes.length).toBeGreaterThan(0)
+
+    const empty = await bootStandaloneSession(testAdapters(), { skipPackFetch: true })
+    empty.characters = []
+    await expect(
+      empty.exportPack([], { includeGlobalSettings: false, includeLorebooks: false })
+    ).rejects.toMatchObject({ code: 'invalid-input' })
+  })
+})
+
+describe('StandaloneSession：模組開關', () => {
+  /*
+   * owner 2026-08-12 實機回報：新聞模組打勾後切走再回來又變回沒開。
+   * 原因是 `listModules` 把新聞寫死成 false、`setModuleEnabled` 對新聞是空的
+   * no-op（接 core 之前的遺留）。新聞的開關不在 `settings.json`，
+   * 在 `modules/desktopst.news/settings.json`，所以要另外讀寫。
+   */
+  it('模組開關：新聞打開之後讀得回來（開關不在 settings.json）', async () => {
+    const adapters = testAdapters()
+    const session = await bootStandaloneSession(adapters, { skipPackFetch: true })
+
+    const before = await session.listModules()
+    expect(before.find((m) => m.id === 'desktopst.news')!.enabled).toBe(false)
+
+    await session.setModuleEnabled('desktopst.news', true)
+    const after = await session.listModules()
+    expect(after.find((m) => m.id === 'desktopst.news')!.enabled).toBe(true)
+
+    // 真正的重點：重開 App（同一份 storage 重新 boot）之後還在
+    const reopened = await bootStandaloneSession(adapters, { skipPackFetch: true })
+    const persisted = await reopened.listModules()
+    expect(persisted.find((m) => m.id === 'desktopst.news')!.enabled).toBe(true)
+
+    // 關掉也要能落地
+    await reopened.setModuleEnabled('desktopst.news', false)
+    expect((await reopened.listModules()).find((m) => m.id === 'desktopst.news')!.enabled).toBe(false)
+  })
+
+  it('模組開關：其餘三個模組仍走 settings.json，沒被新聞那條路徑影響', async () => {
+    const session = await bootStandaloneSession(testAdapters(), { skipPackFetch: true })
+
+    await session.setModuleEnabled('desktopst.weather', true)
+    const list = await session.listModules()
+    expect(list.find((m) => m.id === 'desktopst.weather')!.enabled).toBe(true)
+    expect(session.settings.weather?.enabled).toBe(true)
+
+    await expect(session.setModuleEnabled('desktopst.nope', true)).rejects.toMatchObject({ code: 'not-found' })
+  })
+})

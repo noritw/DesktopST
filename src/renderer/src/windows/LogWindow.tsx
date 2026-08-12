@@ -680,7 +680,8 @@ export default function LogWindow() {
                     event.stopPropagation()
                     const link = msg.newsLink as NewsLinkInfo
                     setNewsCtxMsg(msg)
-                    setNewsCtxDraft(link.promptContext || link.summary || '')
+                    // `??` 不是 `||`：清成空字串是使用者的決定，重開面板不該把 summary 補回來
+                    setNewsCtxDraft(link.promptContext ?? link.summary ?? '')
                   }}
                 >
                   📰 {msg.newsLink.title}
@@ -1034,6 +1035,13 @@ export default function LogWindow() {
             await window.api.invoke('news:update-prompt-context', {
               messageId: newsCtxMsg.id,
               promptContext: pc
+            })
+            setNewsCtxMsg(null)
+          }}
+          onClear={async () => {
+            await window.api.invoke('news:update-prompt-context', {
+              messageId: newsCtxMsg.id,
+              promptContext: ''
             })
             setNewsCtxMsg(null)
           }}

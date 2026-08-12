@@ -8,6 +8,7 @@ import {
   plainReminderNotice
 } from '@core/reminder/gate'
 import { getWeatherContextString } from '@core/weather'
+import { getNewsInjectionForSpeak } from '@core/news/injection'
 import type { Lorebook } from '@core/lore'
 import type {
   Character,
@@ -19,7 +20,7 @@ import type {
   WorldPreset
 } from '@core/types'
 import type { LocalEventSource } from '../events/localEventSource'
-import { buildLoreBlockFor } from './chat'
+import { buildLoreBlockFor, newsInjectionDepsFor, newsLinkFromInjection } from './chat'
 import { newId } from './id'
 import { contextMessages } from './messages'
 
@@ -220,6 +221,23 @@ export async function speakStandaloneReminder(opts: {
     if (weatherStr) ctxParts.push(weatherStr)
   }
 
+  // 新聞陪聊（缺口 #6，B1 抽 core 步驟⑦）：與桌面 `ipcHandlers.ts` 的提醒路線同一套
+  // `getNewsInjectionForSpeak`，只是不做桌面才有的便利貼併選（survey）與回饋 debug。
+  let newsInjection: Awaited<ReturnType<typeof getNewsInjectionForSpeak>> = null
+  if (reminder.injectNews) {
+    try {
+      const activeScene = opts.getActiveScene()
+      newsInjection = await getNewsInjectionForSpeak(newsInjectionDepsFor(opts.adapters), {
+        force: true,
+        ctx: { sceneGroupId: activeScene?.newsKeywordGroupId, characterKeywords: char.newsKeywords },
+        appSettings: settings
+      })
+      if (newsInjection) ctxParts.push(newsInjection.text)
+    } catch (e) {
+      console.warn('[Reminder] news inject failed:', e)
+    }
+  }
+
   const reminderMessages = reminder.injectConversationContext
     ? contextMessages(conv.messages, settings.memory.keepRecentN)
     : []
@@ -227,10 +245,13 @@ export async function speakStandaloneReminder(opts: {
     ctxParts.push('[近期對話紀錄]\n以下僅供參考語境；不要長篇接續聊天。')
   }
 
+  // 發話重點：有提醒內容＝優先；沒有內容但抽到新聞＝直接用新聞指令（和「說點什麼」一致）。
   if (reminder.prompt?.trim()) {
     ctxParts.push(
-      '[發話重點]\n這次主要是要把上面的「提醒指令」用你自己的個性講出來；天氣如果有，只是順帶提及、別喧賓奪主。換個新鮮的開場，別跟你最近說過的雷同。'
+      '[發話重點]\n這次主要是要把上面的「提醒指令」用你自己的個性講出來；天氣／新聞如果有，只是順帶提及、別喧賓奪主。換個新鮮的開場，別跟你最近說過的雷同。'
     )
+  } else if (newsInjection) {
+    ctxParts.push(`[發話重點]\n${newsInjection.directive}`)
   }
 
   const presentNames = settings.ui.desktopCharacters
@@ -305,7 +326,8 @@ export async function speakStandaloneReminder(opts: {
       emotion,
       inputTokens,
       outputTokens,
-      hasDebugPrompt: !!debugPrompt
+      hasDebugPrompt: !!debugPrompt,
+      newsLink: newsLinkFromInjection(newsInjection)
     })
     opts.events.push({ kind: 'thinking-done', characterId: char.id })
     return { characterId: char.id, characterName: char.name, text: msg.content, status: 'success' }

@@ -277,7 +277,7 @@ describe('兩個實作對 UI 是同一個形狀', () => {
     expect(shape(local)).toEqual(shape(remote))
   })
 
-  it('獨立模式可讀寫對話與角色；仍未接的面 reject', async () => {
+  it('獨立模式可讀寫對話與角色；個人新聞報全部接完（B1 抽 core）', async () => {
     const local = await makeLocal()
     await expect(local.conversations.list()).resolves.toEqual(
       expect.arrayContaining([expect.objectContaining({ active: true })])
@@ -298,7 +298,26 @@ describe('兩個實作對 UI 是同一個形狀', () => {
       kind: 'json'
     })
     expect(imported.name).toBe('測試卡')
-    await expect(local.news.fetchBatch()).rejects.toMatchObject({ code: 'not-supported' })
+    // 個人新聞報 15 支已全部接完（B1 抽 core，缺口 #6）；
+    // 新聞模組預設關閉，回應是正常拒絕不是連線錯誤
+    await expect(local.news.fetchBatch()).resolves.toEqual({ ok: false, error: '新聞模組尚未啟用' })
+    await local.news.setKeywordGroups(['g1'])
+    await expect(local.news.getSettings()).resolves.toMatchObject({ enabled: false })
+    // enrichForChat 沒開 enrichForChat 開關時走 rssFallback，直接回退回 title/summary，不連線也不 reject
+    await expect(
+      local.news.enrichForChat({
+        id: 'n1',
+        title: '標題',
+        summary: '',
+        source: '',
+        tags: [],
+        url: '',
+        publishedAt: '',
+        sourceId: 's1',
+        sourceType: 'rss',
+        sourceWeight: 'normal'
+      })
+    ).resolves.toMatchObject({ ok: true })
   })
 
   /**

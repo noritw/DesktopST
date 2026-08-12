@@ -87,9 +87,9 @@ export class LocalDataSource implements DataSource {
     create: (name) => this.session.createCharacter(name),
     saveAvatar: (id, image) => this.session.saveAvatar(id, image),
     importCard: (file) => this.session.importCard(file),
-    exportCard: () => Promise.reject(pending('characters.exportCard', 3)),
+    exportCard: (id, kind) => this.session.exportCard(id, kind),
     importPack: (bytes, opts) => this.session.importPack(bytes, opts),
-    exportPack: () => Promise.reject(pending('characters.exportPack', 3)),
+    exportPack: (ids, opts) => this.session.exportPack(ids, opts),
     setPresent: (id, present) => this.session.setPresent(id, present),
     toggleMute: async (id) => {
       await this.session.toggleMute(id)
@@ -297,21 +297,25 @@ export class LocalDataSource implements DataSource {
   }
 
   readonly news: NewsApi = {
-    getReaderState: () => Promise.reject(pending('news.getReaderState', 6)),
-    fetchBatch: () => Promise.reject(pending('news.fetchBatch', 6)),
-    fetchSection: () => Promise.reject(pending('news.fetchSection', 6)),
-    setPinned: () => Promise.reject(pending('news.setPinned', 6)),
-    setDismissed: () => Promise.reject(pending('news.setDismissed', 6)),
-    setQuota: () => Promise.reject(pending('news.setQuota', 6)),
-    setKeywordGroups: () => Promise.reject(pending('news.setKeywordGroups', 6)),
-    setSourceOrder: () => Promise.reject(pending('news.setSourceOrder', 6)),
-    markOpened: () => Promise.reject(pending('news.markOpened', 6)),
-    enrichForChat: () => Promise.reject(pending('news.enrichForChat', 6)),
-    updatePromptContext: () => Promise.reject(pending('news.updatePromptContext', 6)),
-    getSettings: () => Promise.reject(pending('news.getSettings', 6)),
-    saveSettings: () => Promise.reject(pending('news.saveSettings', 6)),
-    getSchedule: () => Promise.reject(pending('news.getSchedule', 6)),
-    setSchedule: () => Promise.reject(pending('news.setSchedule', 6))
+    getReaderState: () => this.session.getNewsReaderSnapshot(),
+    fetchBatch: (req) => this.session.fetchNewsReaderBatch(req),
+    fetchSection: (req) => this.session.fetchNewsReaderSection(req),
+    setPinned: async (items) => {
+      await this.session.saveNewsReaderPinned(items)
+    },
+    setDismissed: async (ids) => {
+      await this.session.saveNewsReaderDismissed(ids)
+    },
+    setQuota: (sectionGroupId, quota) => this.session.setNewsReaderQuota(sectionGroupId, quota),
+    setKeywordGroups: (ids) => this.session.setNewsReaderKeywordGroups(ids),
+    setSourceOrder: (orderedSourceIds) => this.session.setNewsReaderSourceOrder(orderedSourceIds),
+    markOpened: (sourceId) => this.session.markNewsOpened(sourceId),
+    enrichForChat: (item, forceRefresh) => this.session.enrichNewsForChat(item, forceRefresh),
+    updatePromptContext: (messageId, promptContext) => this.session.updateNewsPromptContext(messageId, promptContext),
+    getSettings: () => this.session.getNewsEditableSettings(),
+    saveSettings: (patch) => this.session.saveNewsEditableSettings(patch),
+    getSchedule: () => this.session.getNewsSchedule(),
+    setSchedule: (next) => this.session.setNewsSchedule(next)
   }
 
   readonly reminders: RemindersApi = {
@@ -343,10 +347,6 @@ export class LocalDataSource implements DataSource {
     hideWindows: () => Promise.reject(unsupported('remoteControl.hideWindows')),
     restoreWindows: () => Promise.reject(unsupported('remoteControl.restoreWindows'))
   }
-}
-
-function pending(method: string, stage: number): DataError {
-  return new DataError('not-supported', `${method}: 獨立模式尚未實作（B3 階段 ${stage}）`)
 }
 
 function unsupported(method: string): DataError {

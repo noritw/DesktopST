@@ -1,51 +1,25 @@
-import * as fs from 'fs'
-import * as path from 'path'
-import { app } from 'electron'
 import type { ModuleSettingsBridge } from './moduleTypes'
+import { electronStorage } from '../adapters/storageAdapter'
+import * as core from '../../core/store/moduleSettings'
 
-const MODULES_DIR_NAME = 'modules'
-const SETTINGS_FILE_NAME = 'settings.json'
-
-let moduleSettingsRoot = path.join(app.getPath('userData'), 'DesktopST', MODULES_DIR_NAME)
-
-export function configureModuleSettingsRoot(dataDir: string): void {
-  moduleSettingsRoot = path.join(path.resolve(dataDir), MODULES_DIR_NAME)
-}
-
-function getModuleDir(moduleId: string): string {
-  return path.join(moduleSettingsRoot, moduleId)
-}
-
-function getModuleSettingsFile(moduleId: string): string {
-  return path.join(getModuleDir(moduleId), SETTINGS_FILE_NAME)
-}
-
-function ensureModuleDir(moduleId: string): void {
-  const dir = getModuleDir(moduleId)
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-}
+/**
+ * 薄殼：實際的 key 佈局與讀寫邏輯在 `core/store/moduleSettings.ts`
+ * （B1 抽 core，見 `docs/news-standalone-kickoff.md` §3.2／步驟①）。
+ *
+ * `electronStorage` 每次呼叫都重新取 `getDataDir()`，資料夾搬家後自動生效，
+ * 不再需要 `configureModuleSettingsRoot` 這種另外快取根目錄的機制。
+ */
 
 export function hasModuleSettings(moduleId: string): boolean {
-  return fs.existsSync(getModuleSettingsFile(moduleId))
+  return core.hasModuleSettingsSync(electronStorage, moduleId)
 }
 
 export function readModuleSettings<T>(moduleId: string): T | undefined {
-  const file = getModuleSettingsFile(moduleId)
-  if (!fs.existsSync(file)) return undefined
-
-  try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as unknown
-    return raw as T
-  } catch (e) {
-    console.error(`[modules] read settings failed for ${moduleId}:`, e)
-    return undefined
-  }
+  return core.readModuleSettingsSync<T>(electronStorage, moduleId)
 }
 
 export function writeModuleSettings<T>(moduleId: string, value: T): void {
-  ensureModuleDir(moduleId)
-  const file = getModuleSettingsFile(moduleId)
-  fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf-8')
+  core.writeModuleSettingsSync(electronStorage, moduleId, value)
 }
 
 export const moduleSettingsBridge: ModuleSettingsBridge = {
@@ -58,21 +32,13 @@ export const moduleSettingsBridge: ModuleSettingsBridge = {
 // 與 settings.json 分開，才不會被設定正規化剪掉，也不會被搬家包帶走。
 
 export function hasModuleData(moduleId: string, fileName: string): boolean {
-  return fs.existsSync(path.join(getModuleDir(moduleId), fileName))
+  return core.hasModuleDataSync(electronStorage, moduleId, fileName)
 }
 
 export function readModuleData<T>(moduleId: string, fileName: string): T | undefined {
-  const file = path.join(getModuleDir(moduleId), fileName)
-  if (!fs.existsSync(file)) return undefined
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf-8')) as T
-  } catch (e) {
-    console.error(`[modules] read data failed for ${moduleId}/${fileName}:`, e)
-    return undefined
-  }
+  return core.readModuleDataSync<T>(electronStorage, moduleId, fileName)
 }
 
 export function writeModuleData<T>(moduleId: string, fileName: string, value: T): void {
-  ensureModuleDir(moduleId)
-  fs.writeFileSync(path.join(getModuleDir(moduleId), fileName), JSON.stringify(value, null, 2), 'utf-8')
+  core.writeModuleDataSync(electronStorage, moduleId, fileName, value)
 }

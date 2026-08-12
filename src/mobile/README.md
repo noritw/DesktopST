@@ -40,6 +40,7 @@ Header 左側狀態列會標：`本機`／`電腦 · 區網`／`電腦 · 中繼
 | 介面 | 套件 | 備註 |
 |---|---|---|
 | Storage | `@capacitor/filesystem` | 不實作 SyncStorageAdapter |
+| 返回鍵 | `@capacitor/app` | `backButton` 事件；popstate 在 APK 無效 |
 | Secret | `@aparajita/capacitor-secure-storage` ＋ `@noble/ciphers` | 先 `initCapacitorSecrets()` |
 | Http | 全域 fetch（`CapacitorHttp` 已開） | `supportsStreaming: false` |
 | Scheduler／Notifier | stub | B5 再換 |
@@ -101,6 +102,16 @@ cd android && ./gradlew.bat assembleDebug
    `cap sync` 只掃 `dependencies`；放錯的話 `capacitor.settings.gradle` 不會註冊
    Filesystem／SecureStorage，APK 裝起來但**儲存與金鑰全滅**，而且不會有編譯錯誤。
    目前正確時 sync 會印 `Found 4 Capacitor plugins for android`。
+
+## 返回鍵
+
+**不要只靠 `history.pushState` ＋ `popstate`。** Capacitor 8 的 `BridgeActivity`
+沒有覆寫 `onBackPressed`，Android 返回鍵走 Activity 預設行為（`finish()`），
+不碰 WebView 歷史 —— 那條路在 APK 裡等於沒有，一按就結束 activity。
+用 `@capacitor/app` 的 `backButton`（`ui/shell/useBackButton.ts`）；
+瀏覽器那條仍走 popstate，兩者共用 `handleBack()`。
+
+⚠️ **這件事在瀏覽器上測不出來**，只有真機算數。
 
 ## 加新的 Capacitor 外掛時
 

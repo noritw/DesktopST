@@ -3,6 +3,7 @@ import { DataError } from '@core/data'
 import type { NewsFetchResult, NewsReaderSnapshot } from '@core/data'
 import type { NewsItem, NewsKeywordGroup, NewsSource } from '@core/news/types'
 import {
+  BREAKOUT_SECTION_ID,
   addDismissed,
   groupReaderSections,
   mergeBatch,
@@ -39,6 +40,7 @@ import { useUiStore } from '../stores/uiStore'
 
 const LS_DISPLAY = 'desktopst.mobileReader.displayMode'
 const LS_TAB = 'desktopst.mobileReader.activeTab'
+const LS_GROUP = 'desktopst.mobileReader.activeGroup'
 
 export type DisplayMode = 'title' | 'title-summary'
 
@@ -79,7 +81,14 @@ interface NewsState {
 
   /** 正在重抓哪一欄（同時只允許一欄，避免兩個結果互相蓋掉）。 */
   refreshingSection: string | null
+  /**
+   * 導覽第二層：目前看哪一欄（`all` ＝該組全部）。
+   * 第一層是 `activeGroup`——分成兩層是因為只有一排 chips 時，
+   * 使用者分不出「ACG」與「動畫」是上下層還是並列（owner 2026-08-12 回報）。
+   */
   activeTab: string
+  /** 導覽第一層：`all` ＝全部組；`__fixed__` ＝熱門／地方／訂閱那些不屬於任何組的欄。 */
+  activeGroup: string
   displayMode: DisplayMode
   optionsOpen: boolean
   /**
@@ -101,6 +110,18 @@ interface NewsState {
   /** 開啟畫面：只在還沒載入過時抓，關掉再打開不會重來一次。 */
   open: () => Promise<void>
   reload: () => Promise<void>
+  /**
+   * 電腦端的資料改了（`state-invalidated`）——最典型的是「從電腦匯入／
+   * 重新拉設定」把關鍵字組同步過來。這份快取若已經 `loaded`，就標成過期，
+   * 下次 `open()` 會真的重抓一次而不是沿用舊的。
+   *
+   * ⚠️ **沒有這支的話**：使用者先打開過新聞報（這份快取就定住了），
+   * 之後才去跑同步，新聞畫面看起來完全沒變——更糟的是接著在「管理關鍵字」
+   * 隨手加一個關鍵字，`mutateSources` 會把這份**過期的** `sources` 陣列
+   * （很可能是空的）整包送出去覆蓋掉磁碟上剛同步回來的資料，
+   * 電腦端設定好的關鍵字就這樣被靜靜洗掉（owner 2026-08-13 實機回報）。
+   */
+  invalidate: () => void
   fetchBatch: (replaceAll: boolean) => Promise<void>
   refreshSection: (sectionGroupId: string) => Promise<void>
   togglePin: (item: NewsItem) => Promise<void>
@@ -115,8 +136,26 @@ interface NewsState {
   /** 新增／刪除關鍵字組共用這一支，見 `keywordsBusy` 的說明。 */
   mutateGroups: (mutate: (groups: NewsKeywordGroup[]) => NewsKeywordGroup[], action: string) => Promise<void>
   setActiveTab: (tab: string) => void
+  setActiveGroup: (group: string) => void
   toggleDisplayMode: () => void
   toggleOptions: () => void
+}
+
+/**
+ * 開新聞原文＋隱性回饋加分（清單 F9）。
+ *
+ * 新聞報的卡片與**聊天紀錄裡的新聞標題**都要用（後者的資料是 `NewsLinkInfo`
+ * 而不是 `NewsItem`，所以收兩個欄位而不是整個物件）。
+ */
+export async function openNewsOriginal(url?: string, sourceId?: string): Promise<void> {
+  // 先開視窗再回報：加分失敗不該擋住看新聞這件事
+  if (url) window.open(url, '_blank', 'noopener')
+  if (!sourceId) return
+  try {
+    await getData().news.markOpened(sourceId)
+  } catch {
+    /* 隱性回饋，失敗不必打擾使用者 */
+  }
 }
 
 /** 連線層失敗的中文；電腦端自己回的拒絕訊息（模組沒開⋯⋯）直接顯示，不經過這裡。 */
@@ -147,6 +186,7 @@ export const useNewsStore = create<NewsState>((set, get) => ({
 
   refreshingSection: null,
   activeTab: readLocal(LS_TAB) ?? 'all',
+  activeGroup: readLocal(LS_GROUP) ?? 'all',
   displayMode: readLocal(LS_DISPLAY) === 'title-summary' ? 'title-summary' : 'title',
   optionsOpen: false,
   keywordsBusy: false,
@@ -154,6 +194,10 @@ export const useNewsStore = create<NewsState>((set, get) => ({
   open: async () => {
     if (get().loaded || get().loading) return
     await get().reload()
+  },
+
+  invalidate: () => {
+    if (get().loaded) set({ loaded: false })
   },
 
   reload: async () => {
@@ -283,16 +327,7 @@ export const useNewsStore = create<NewsState>((set, get) => ({
     }
   },
 
-  openOriginal: async (item) => {
-    // 先開視窗再回報：加分失敗不該擋住看新聞這件事
-    if (item.url) window.open(item.url, '_blank', 'noopener')
-    if (!item.sourceId) return
-    try {
-      await getData().news.markOpened(item.sourceId)
-    } catch {
-      /* 隱性回饋，失敗不必打擾使用者 */
-    }
-  },
+  openOriginal: async (item) => openNewsOriginal(item.url, item.sourceId),
 
   setQuota: async (sectionGroupId, quota) => {
     set({ refreshingSection: sectionGroupId })
@@ -305,6 +340,34 @@ export const useNewsStore = create<NewsState>((set, get) => ({
       return
     }
     set({ refreshingSection: null })
+
+    // ⚠️ **本地那份配額也要跟著改。** 磁碟上已經是新值，但這份 store 沒動，
+    // 於是畫面上的數字框（`key={value}`）還顯示舊值、「熱門話題開關」也不會翻，
+    // 使用者以為沒生效（owner 2026-08-12）。正規化規則與
+    // `core/news/readerFetch.setReaderQuota` 對齊——那邊會把「與全域相同」
+    // 的單欄覆寫清掉，這裡不跟著清的話下次讀回來又對不上。
+    const n = Math.max(0, Math.min(20, Math.floor(quota)))
+    if (sectionGroupId === BREAKOUT_SECTION_ID) {
+      set({ readerBreakoutQuota: n })
+    } else if (sectionGroupId.startsWith('kw:')) {
+      const sourceId = sectionGroupId.slice(3)
+      const perKeyword = get().readerPerKeyword
+      set({
+        sources: get().sources.map((src) => {
+          if (src.id !== sourceId) return src
+          if (n === perKeyword || n < 1) {
+            const { readerQuota: _drop, ...rest } = src
+            return rest as NewsSource
+          }
+          return { ...src, readerQuota: n }
+        })
+      })
+    } else {
+      set({ readerPerKeyword: Math.max(1, n) })
+    }
+    // ⚠️ 配額的更新要放在 `r.ok` 檢查**之前**：`setReaderQuota` 是「先存檔、
+    // 再重抓那一欄」，重抓失敗（弱網、CORS…）不代表沒存到。放在後面的話
+    // 存檔成功但畫面停在舊數字，看起來就是「設了 5 卻還是 3」。
     if (!r.ok) {
       useUiStore.getState().toast(r.error, 'error')
       return
@@ -398,6 +461,13 @@ export const useNewsStore = create<NewsState>((set, get) => ({
   setActiveTab: (tab) => {
     writeLocal(LS_TAB, tab)
     set({ activeTab: tab })
+  },
+
+  // 換組一定要把第二層歸零：留著上一組的欄位 id 會讓畫面空白。
+  setActiveGroup: (group) => {
+    writeLocal(LS_GROUP, group)
+    writeLocal(LS_TAB, 'all')
+    set({ activeGroup: group, activeTab: 'all' })
   },
 
   toggleDisplayMode: () =>

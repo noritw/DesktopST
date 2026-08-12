@@ -8,7 +8,8 @@ import {
   sanitizePromptText,
   applyStStyleTags,
   normalizeEmotion,
-  parseEmotion
+  parseEmotion,
+  expandNewsLinkForPrompt
 } from '@core/prompt/promptUtils'
 import { makeSettings, CHAR, PERSONA, WORLD, baseMessages, T0 } from '../fixtures'
 import type { Message } from '@core/types'
@@ -254,5 +255,42 @@ describe('normalizeEmotion / parseEmotion', () => {
     const r = parseEmotion('就只是一句話')
     expect(r.content).toBe('就只是一句話')
     expect(typeof r.emotion).toBe('string')
+  })
+})
+
+describe('expandNewsLinkForPrompt — 清除摘要之後不再進 Prompt', () => {
+  const base = { id: 'm1', role: 'user' as const, content: '你們覺得呢', timestamp: 0 }
+  const link = { id: 'n1', sourceId: 's', title: 'IGN 評論任天堂', url: 'https://x', summary: 'RSS 摘要', source: 'IGN' }
+
+  it('有摘要：照常展開成 [Sharing a news item with you]', () => {
+    const [m] = expandNewsLinkForPrompt([{ ...base, newsLink: { ...link, promptContext: '整理過的內容' } }])
+    expect(m.content).toContain('[Sharing a news item with you]')
+    expect(m.content).toContain('Details: 整理過的內容')
+    expect(m.content).toContain('你們覺得呢')
+  })
+
+  it('從未整理過（undefined）：退回 RSS summary，行為不變', () => {
+    const [m] = expandNewsLinkForPrompt([{ ...base, newsLink: { ...link } }])
+    expect(m.content).toContain('Details: RSS 摘要')
+  })
+
+  it('摘要被清空（空字串）：只留一行 [Shared News] 標題，其他全不要', () => {
+    // 空字串與 undefined 意義不同——前者是使用者按了「清除摘要」，
+    // 寫成 falsy 判斷的話會把 summary 補回去，等於清除按鈕沒作用。
+    const [m] = expandNewsLinkForPrompt([{ ...base, newsLink: { ...link, promptContext: '' } }])
+    expect(m.content).toBe('[Shared News] IGN 評論任天堂\n\n你們覺得呢')
+    expect(m.content).not.toContain('Details:')
+    expect(m.content).not.toContain('Source:')
+    expect(m.content).not.toContain('RSS 摘要')
+    // 指著不存在的 Details 會讓模型自己編一段
+    expect(m.content).not.toContain('use the Details above')
+  })
+
+  it('清除後再「重新摘要」：完整格式要整套回來', () => {
+    const [m] = expandNewsLinkForPrompt([{ ...base, newsLink: { ...link, promptContext: '重新整理過的內容' } }])
+    expect(m.content).toContain('[Sharing a news item with you]')
+    expect(m.content).toContain('Details: 重新整理過的內容')
+    expect(m.content).toContain('Source: IGN')
+    expect(m.content).not.toContain('[Shared News]')
   })
 })

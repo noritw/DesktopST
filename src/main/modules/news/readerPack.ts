@@ -22,7 +22,7 @@ export interface NewsReaderPack {
 }
 
 function isExportableSource(s: NewsSource): boolean {
-  if (s.origin === 'character' || s.origin === 'location') return false
+  if (s.origin === 'character') return false
   return s.type === 'keyword' || s.type === 'rss' || s.type === 'json'
 }
 
@@ -111,7 +111,7 @@ export function applyNewsReaderPack(
   pack: NewsReaderPack
 ): NewsModuleSettings {
   const preserved = current.sources.filter(
-    s => s.origin === 'character' || s.origin === 'location'
+    s => s.origin === 'character'
   )
   const incoming = pack.sources.filter(isExportableSource).map(s => ({
     ...s,

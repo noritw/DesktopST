@@ -12,6 +12,8 @@ import { normalizeCharacterDialogue } from '@core/prompt/dialogue'
 import { formatRandomResultForPrompt } from '@core/prompt/randomResult'
 import { messageLlmMeta, resolveModel } from '@core/prompt/promptUtils'
 import { getWeatherContextString } from '@core/weather'
+import { getNewsInjectionForSpeak, type NewsInjectionDeps } from '@core/news/injection'
+import { getActiveNewsTopic } from '@core/news/topicState'
 import {
   buildScanText,
   formatLoreBlock,
@@ -21,9 +23,10 @@ import {
   selectLoreEntries,
   type Lorebook
 } from '@core/lore'
-import type { AppSettings, Character, Conversation, Message, PersonaPreset, ScenePreset } from '@core/types'
+import type { AppSettings, Character, Conversation, Message, NewsLinkInfo, PersonaPreset, ScenePreset } from '@core/types'
 import type { SendMessageInput } from '@core/data'
 import type { LocalEventSource } from '../events/localEventSource'
+import { domRssParser } from '../adapters/rssParseAdapter'
 import { newId } from './id'
 import { contextMessages } from './messages'
 
@@ -106,8 +109,36 @@ export async function buildLoreBlockFor(
 }
 
 /**
+ * `NewsInjectionDeps` 只吃 http／rss／storage 三樣，手機端固定用這組。
+ * `reminderSpeak.ts` 也用這支，不重複兜一份。
+ */
+export function newsInjectionDepsFor(adapters: PlatformAdapters): NewsInjectionDeps {
+  return { http: adapters.http, rss: domRssParser, storage: adapters.storage }
+}
+
+/**
+ * 把抽中的新聞素材（或釘住的話題）轉成掛在訊息上的 `newsLink`
+ * ——聊天泡泡靠這個顯示 📰 標題與「作為後續聊天主題」按鈕（`MessageList.tsx`）。
+ */
+export function newsLinkFromInjection(inj: Awaited<ReturnType<typeof getNewsInjectionForSpeak>>): NewsLinkInfo | undefined {
+  if (!inj) return undefined
+  if (inj.item) {
+    const it = inj.item
+    return { id: it.id, sourceId: it.sourceId, title: it.title, url: it.url, summary: it.summary, source: it.source, keyword: it.keyword, promptContext: it.promptContext }
+  }
+  if (inj.fromTopic) {
+    const topic = getActiveNewsTopic()
+    if (topic?.url) {
+      return { id: topic.id, sourceId: '', title: topic.title, url: topic.url, summary: topic.summary, source: topic.source, promptContext: topic.promptContext }
+    }
+  }
+  return undefined
+}
+
+/**
  * 獨立模式「說點什麼」（強制發話）：對齊桌面 `forceSpeakDirect` 的主幹，
- * 砍掉新聞／Spotify／日曆等獨立版還沒接的素材，天氣兩邊共用 `core/weather` 所以有留。
+ * 砍掉 Spotify／日曆等獨立版還沒接的素材，天氣與新聞兩邊共用同一套 core 邏輯所以有接
+ * （新聞：`core/news/injection.ts`，缺口 #6，B1 抽 core 步驟⑦）。
  *
  * 不是在回一則使用者訊息，所以不新增 user Message；直接把既有對話當 context
  * 餵給 LLM，用 `[發話重點]` 指令引導它主動開口而不是等著回覆。
@@ -167,9 +198,27 @@ export async function forceSpeakStandalone(opts: {
     return
   }
   if (weatherContext) ctxParts.push(weatherContext)
-  ctxParts.push(
-    '[發話重點]\n這是你主動找使用者聊聊，不是在回覆訊息；換個新鮮的開場，別跟你最近說過的雷同。'
-  )
+
+  let newsInjection: Awaited<ReturnType<typeof getNewsInjectionForSpeak>> = null
+  try {
+    newsInjection = await getNewsInjectionForSpeak(newsInjectionDepsFor(opts.adapters), {
+      ctx: { characterKeywords: char.newsKeywords },
+      appSettings: opts.settings
+    })
+  } catch (e) {
+    console.warn('[standalone] news inject failed', e)
+  }
+  if (opts.signal?.aborted) {
+    opts.events.push({ kind: 'thinking-done', characterId: char.id })
+    return
+  }
+  if (newsInjection) {
+    ctxParts.push(newsInjection.text)
+  } else {
+    ctxParts.push(
+      '[發話重點]\n這是你主動找使用者聊聊，不是在回覆訊息；換個新鮮的開場，別跟你最近說過的雷同。'
+    )
+  }
   if (desktopCharacterNames.length > 0) {
     ctxParts.push(
       ['[Desktop Characters]', `- ${char.name} (you)`, ...desktopCharacterNames.filter((n) => n !== char.name).map((n) => `- ${n}`)].join('\n')
@@ -197,6 +246,7 @@ export async function forceSpeakStandalone(opts: {
           opts.loadLorebook,
           new Map()
         ),
+        triggerDirective: newsInjection?.directive,
         omitEmotionTag: true,
         signal: opts.signal
       },
@@ -222,6 +272,7 @@ export async function forceSpeakStandalone(opts: {
       inputTokens,
       outputTokens,
       hasDebugPrompt: !!debugPrompt,
+      newsLink: newsLinkFromInjection(newsInjection),
       timestamp: Date.now()
     }
     conv.messages.push(msg)

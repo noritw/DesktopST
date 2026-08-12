@@ -160,6 +160,11 @@ function NewsHeadlineCell({
     if (warning.startsWith('google-news') || warning.includes('interstitial')) {
       return '無法解析 Google 新聞原文連結，目前先用 RSS 摘要（可能只是相關標題串）。可手動改，或按重新整理再試。'
     }
+    // 403／401 是「這家網站擋掉自動抓取」（付費牆或防爬），重試永遠不會過——
+    // 叫使用者「再試一次」是誤導（owner 2026-08-12 對天下雜誌連按三次都是 403）。
+    if (/\b(401|403)\b/.test(warning)) {
+      return '這家網站擋住了自動抓取，重試也不會過。可以開原文自己看，再手動補幾句。'
+    }
     if (warning.startsWith('fetch-failed') || warning === 'empty-article') {
       return '抓原文失敗，目前先用 RSS 摘要。可手動改，或按重新整理再試。'
     }
