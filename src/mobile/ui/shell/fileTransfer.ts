@@ -55,8 +55,27 @@ export function pickFile(accept: string): Promise<File | null> {
   })
 }
 
-/** 把位元組存成檔案。 */
-export function downloadBytes(bytes: Uint8Array, filename: string, mime = 'application/octet-stream'): void {
+/**
+ * 把位元組存成檔案，讓使用者拿到手（缺口 #3：角色卡／設定包匯出）。
+ *
+ * 網頁（掃 QR 那條路徑）走 `<a download>` ＋ Blob，瀏覽器自己存進下載資料夾。
+ * APK 裡沒有「下載資料夾」這回事、`<a download>` 在 Capacitor WebView 裡也是
+ * 靜靜的沒反應——改走 Capacitor Filesystem 寫進快取，再用 Share 叫出系統分享面板
+ * （存去下載、傳 LINE、丟雲端硬碟都由使用者自己選，比我們代猜路徑更貼近手機的用法）。
+ *
+ * Capacitor 外掛動態載入：瀏覽器煙測與 vitest 沒有原生 plugin，靜態 import 會炸。
+ */
+export async function downloadBytes(
+  bytes: Uint8Array,
+  filename: string,
+  mime = 'application/octet-stream'
+): Promise<void> {
+  const { Capacitor } = await import('@capacitor/core')
+  if (Capacitor.isNativePlatform()) {
+    await shareViaNativeFilesystem(bytes, filename)
+    return
+  }
+
   // 複製一份再包進 Blob：`Uint8Array` 的 buffer 型別上可能是 SharedArrayBuffer，
   // 而 Blob 只吃一般的 ArrayBuffer。複製也順帶避免共用同一塊記憶體。
   const blob = new Blob([new Uint8Array(bytes).slice().buffer as ArrayBuffer], { type: mime })
@@ -69,6 +88,25 @@ export function downloadBytes(bytes: Uint8Array, filename: string, mime = 'appli
   a.remove()
   // 立刻 revoke 會讓部分瀏覽器來不及開始下載。
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
+async function shareViaNativeFilesystem(bytes: Uint8Array, filename: string): Promise<void> {
+  const { Filesystem, Directory } = await import('@capacitor/filesystem')
+  const { Share } = await import('@capacitor/share')
+  const { bytesToBase64 } = await import('@core/util/base64')
+
+  // 檔名來自角色名字（自由文字），濾掉路徑分隔符與控制字元，
+  // 否則 Filesystem.writeFile 可能被導去寫進非預期的子目錄。
+  const safeName = filename.replace(/[/\\]/g, '_').trim() || 'export'
+
+  // Directory.Cache：分享完不必自己清，系統會照 app 快取的一般規則回收。
+  await Filesystem.writeFile({
+    path: safeName,
+    data: bytesToBase64(bytes),
+    directory: Directory.Cache
+  })
+  const { uri } = await Filesystem.getUri({ path: safeName, directory: Directory.Cache })
+  await Share.share({ url: uri, title: safeName })
 }
 
 export function mimeForFilename(filename: string): string {

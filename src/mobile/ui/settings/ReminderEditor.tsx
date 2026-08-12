@@ -327,7 +327,6 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
           label="抓一則新聞當話題"
           checked={!!draft.injectNews}
           onChange={(v) => set('injectNews', v)}
-          disabledNote={standalone ? '獨立版還沒接新聞來源' : undefined}
         />
         <ToggleRow
           label="加入接下來的行程"

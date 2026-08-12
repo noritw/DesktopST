@@ -3,6 +3,7 @@ import type { AppStateSnapshot, DataSource, MessageSnapshot, SendMessageInput } 
 import { DataError } from '@core/data'
 import type { AppEvent, ConnectionStatus, EventSource } from '@core/events'
 import { useUiStore } from './uiStore'
+import { useNewsStore } from '../news/newsStore'
 
 /**
  * 應用資料狀態。**聊天元件唯一的資料入口。**
@@ -283,6 +284,11 @@ function handleEvent(e: AppEvent, set: Setter, get: () => AppState): void {
 
     case 'state-invalidated':
       void get().refresh()
+      // 新聞報有自己的快取（`newsStore`），不會因為這個事件自動重抓——
+      // 見 `newsStore.invalidate` 的說明（同步關鍵字組進來卻沒反映在畫面上
+      // 的那個 bug）。這裡是全站唯一的 `state-invalidated` 訂閱點，
+      // 其他 store 要跟著失效也在這裡加，不要各自另開一條訂閱。
+      useNewsStore.getState().invalidate()
       return
   }
 }

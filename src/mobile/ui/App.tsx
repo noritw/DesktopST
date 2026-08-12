@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { applyTheme } from './theme'
 import { useUiStore } from './stores/uiStore'
 import { useAppStore, describeError } from './stores/appStore'
@@ -11,7 +11,8 @@ import { MessageList } from './chat/MessageList'
 import { Composer } from './chat/Composer'
 import { AvatarBar } from './characters/AvatarBar'
 import MonoIcon from '@shared/MonoIcon'
-import { detectLanDirect, modeBadgeLabel, resolveConnection, wsUrlFor } from './connection'
+import { detectLanDirect, modeBadgeLabel, wsUrlFor } from './connection'
+import { useConnectionStore } from './stores/connectionStore'
 import { RemoteDataSource } from '../data/remoteDataSource'
 import { LocalDataSource } from '../data/localDataSource'
 import { getDeviceIdentity } from '../data/deviceIdentity'
@@ -64,10 +65,17 @@ export function App(): JSX.Element {
     return () => ro.disconnect()
   }, [])
 
-  const conn = useMemo(() => resolveConnection(), [])
-  const modeText = modeBadgeLabel(conn, lanDirect)
+  const conn = useConnectionStore((s) => s.conn)
+  const initConn = useConnectionStore((s) => s.init)
+  const modeText = conn ? modeBadgeLabel(conn, lanDirect) : ''
+
+  // 只解析一次：切換模式之後改的是 store 裡的 conn，不會再走這裡。
+  useEffect(() => {
+    void initConn()
+  }, [initConn])
 
   useEffect(() => {
+    if (!conn) return
     let cancelled = false
     let detach: (() => void) | null = null
 

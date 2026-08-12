@@ -12,6 +12,8 @@ import type { Message, RandomResult, WeatherLocationSource } from './types'
 import { computeRandomResult, sanitizePendingRandomTool } from '../core/random/dice'
 import { getAccessToken } from './relayService'
 import { getRemoteControlClientState, getRemoteControlClientStateForDevice } from './modules/remote-control'
+import { sha1Hex } from '../core/util/sha1'
+import { stableStringify } from '../core/util/stableJson'
 
 // ── 注入的 bridge（由 index.ts 啟動時注入）────────────────
 
@@ -122,6 +124,8 @@ export interface MobileBridge {
     opts: { onConflict: 'skip' | 'overwrite' | 'new'; applyGlobalSettings: boolean }
   ) => Promise<{ ok: true; imported: number; skipped: number } | { error: string }>
   listLorebooks: () => { id: string; name: string }[]
+  /** S2 M2 差異預覽用的輕量清單（多帶 updatedAt）。不改 `listLorebooks()` 的既有形狀，因為 S1 匯入流程依賴它只有 `{id,name}`。 */
+  getLorebookManifest: () => { id: string; name: string; updatedAt: number }[]
   getLorebook: (id: string) => import('../core/lore').Lorebook | null
   createLorebook: (name?: string) => import('../core/lore').Lorebook
   saveLorebook: (book: import('../core/lore').Lorebook) => { ok: true; book: import('../core/lore').Lorebook } | { error: string }
@@ -194,6 +198,15 @@ export interface MobileBridge {
     polish: boolean
     realtimeQuery?: { enabled: boolean; forecastCounty: string; cwaApiKey?: string }
   }
+  /**
+   * S1 要帶去手機的新聞設定（關鍵字／來源／分組／黑名單⋯）。
+   * 不含 `enabled`（走 `modules`）／`seenIds`／`feedback`／`reminder`，
+   * 理由見 `getNewsSyncSettingsDirect`。
+   */
+  getNewsSyncSettings: () => Omit<
+    import('../core/news/types').NewsModuleSettings,
+    'enabled' | 'seenIds' | 'feedback' | 'reminder'
+  >
   detectWeatherLocation: () => Promise<{ ok: true; weather: ReturnType<MobileBridge['getWeatherSettings']> } | { error: string }>
   geocodeWeatherLocation: (name: string) => Promise<{ ok: true; weather: ReturnType<MobileBridge['getWeatherSettings']> } | { error: string }>
   fetchWeatherNow: () => Promise<
@@ -464,6 +477,32 @@ const MOBILE_COLOR_THEMES: string[] = [
   'mint', 'butter', 'peach', 'aqua', 'sky', 'blush', 'lavender', 'forest', 'white',
   'dark', 'sepia', 'cyber'
 ]
+
+/**
+ * `/api/sync-manifest` 的 `settingsHash`（S2 M2 差異預覽，`core/sync/diff.ts`）。
+ *
+ * 只取跟 `/api/sync-init`（1445 行附近）同一批會被同步的設定子集，
+ * **排除 apiKeys**——manifest 是輕量清單，不該夾帶金鑰。子集範圍要跟
+ * `/api/sync-init` 保持一致，這樣雜湊反映的正好是 M3 之後真的會推／拉的東西。
+ */
+function buildSettingsManifestHash(bridge: MobileBridge): string {
+  const llm = bridge.getLlmSettings()
+  const subset = {
+    llm: {
+      provider: llm.provider,
+      model: llm.model,
+      models: llm.models,
+      endpoint: llm.endpoint,
+      maxResponseTokens: llm.maxResponseTokens,
+      maxGroupRounds: llm.maxGroupRounds,
+      maxImagesPerMessage: llm.maxImagesPerMessage
+    },
+    memory: bridge.getMemorySettings(),
+    colorTheme: bridge.getColorTheme(),
+    modules: bridge.listModuleToggles()
+  }
+  return sha1Hex(stableStringify(subset))
+}
 
 // ── HTTP 路由 ─────────────────────────────────────────────
 
@@ -1468,6 +1507,8 @@ async function handleRequest(
       memory: bridge.getMemorySettings(),
       // 地點不帶：手機會移動、也有 GPS，帶座標只會讓它出門顯示家裡的天氣
       weather: bridge.getWeatherSyncSettings(lanDirect),
+      // 新聞的關鍵字／來源設起來很費工，不讓使用者在手機上重設一次（owner 2026-08-12）
+      news: bridge.getNewsSyncSettings(),
       modules: bridge.listModuleToggles(),
       personas: bridge.getPersonaPresets(),
       worlds: bridge.getWorldPresets(),
@@ -1542,6 +1583,32 @@ async function handleRequest(
     const conv = bridge.getConversationForSync(wanted)
     if (!conv) { jsonError(res, 404, 'Conversation not found'); return }
     jsonOk(res, { conversation: conv })
+    return
+  }
+
+  /*
+   * ── GET /api/sync-manifest ── S2 M2 差異預覽用的輕量清單
+   *
+   * 只回 `{id, name, updatedAt}`，不含任何內容——手機拿它跟手機上存的
+   * 基準對一次就知道電腦側改了什麼，不必先把幾十 MB 拉下來。
+   * 詳見 `docs/mobile-mode-switch-sync.md` §6.2。
+   */
+  if (method === 'GET' && url === '/api/sync-manifest') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, {
+      characters: bridge.getCharacters().map((c) => ({ id: c.id, name: c.name, updatedAt: c.updatedAt })),
+      personas: bridge.getPersonaPresets().map((p) => ({ id: p.id, name: p.name, updatedAt: p.updatedAt })),
+      worlds: bridge.getWorldPresets().map((w) => ({ id: w.id, name: w.name, updatedAt: w.updatedAt })),
+      scenes: bridge.getScenes().map((s) => ({ id: s.id, name: s.name, updatedAt: s.updatedAt })),
+      lorebooks: bridge.getLorebookManifest(),
+      conversations: bridge.getConversationsForSync().map((c) => ({
+        id: c.id,
+        title: c.title,
+        updatedAt: c.updatedAt,
+        messageCount: c.messageCount
+      })),
+      settingsHash: buildSettingsManifestHash(bridge)
+    })
     return
   }
 

@@ -1269,6 +1269,30 @@ export function getWeatherSyncSettingsDirect(lanDirect: boolean): {
   }
 }
 
+/**
+ * S1 要送去手機的新聞設定（owner 2026-08-12：「不然我要手動重設關鍵字很麻煩」）。
+ *
+ * 帶的是**使用者自己設定過的那些**——關鍵字／訂閱來源、分組、黑名單、
+ * 語言與陪聊偏好、新聞報版面配額。手機端的新聞設定畫面能改的欄位全在裡面。
+ *
+ * **刻意不帶的四項**：
+ * - `enabled`：模組開關走 `modules`，那條路徑兩邊都已經有了，不要兩處各送一次
+ *   （送兩份而值不同時，後套用的會贏，行為變得看順序）。
+ * - `seenIds`：「這則聊過了」是每台裝置各自的去重歷史，不是設定。
+ * - `feedback.adjustments`：學習來的權重是衍生資料，跟著各自的使用習慣長。
+ * - `reminder`（定時陪聊排程）：手機的提醒是原生精準鬧鐘、有自己的一套
+ *   （`docs/mobile-standalone-reminder-plan.md`），把電腦的排程灌過去會憑空
+ *   多出一則手機沒答應過的鬧鐘。要排程請在手機上自己設。
+ */
+export function getNewsSyncSettingsDirect(): Omit<
+  NewsModuleSettings,
+  'enabled' | 'seenIds' | 'feedback' | 'reminder'
+> {
+  const { enabled: _enabled, seenIds: _seenIds, feedback: _feedback, reminder: _reminder, ...rest } =
+    loadNewsModuleSettings()
+  return rest
+}
+
 export async function detectWeatherLocationDirect(): Promise<
   { ok: true; weather: ReturnType<typeof getWeatherSettingsDirect> } | { error: string }
 > {
@@ -1705,6 +1729,11 @@ function toArrayBuffer(buf: Buffer): ArrayBuffer {
 /** 用語解說清單（只有 id 與名字）。角色卡編輯器的綁定用。 */
 export function listLorebooksDirect(): { id: string; name: string }[] {
   return fileStore.loadLorebooks().map(b => ({ id: b.id, name: b.name }))
+}
+
+/** 用語解說的輕量清單，多帶 `updatedAt`。給 `/api/sync-manifest`（S2 M2 差異預覽）用。 */
+export function getLorebookManifestDirect(): { id: string; name: string; updatedAt: number }[] {
+  return fileStore.loadLorebooks().map(b => ({ id: b.id, name: b.name, updatedAt: b.updatedAt }))
 }
 
 /** 匯入 DST Pack 遇到同 id ／同名角色時的處置。 */

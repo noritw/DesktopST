@@ -1,7 +1,12 @@
 import type { AppSettings, Conversation, PersonaPreset, ScenePreset, WorldPreset } from '@core/types'
+import type { NewsModuleSettings } from '@core/news/types'
+import { saveNewsModuleSettings } from '@core/news/settings'
 import type { StandaloneSession } from './session'
 import { importCharactersFromDstPack } from './seedDefaults'
 import { newId } from './id'
+import { SyncError, getBinary, getJson, type FetchImpl, type SyncSource } from './syncTransport'
+
+export { SyncError, type SyncSource }
 
 /**
  * S1 初始化匯入：從使用者自己的電腦**單向**拉一份設定與角色（roadmap §4.7）。
@@ -36,6 +41,13 @@ export interface SyncInitBundle {
     polish?: boolean
     realtimeQuery?: { enabled: boolean; forecastCounty: string; cwaApiKey?: string }
   }
+  /**
+   * 新聞模組設定（關鍵字／來源／分組／黑名單／版面配額⋯）。
+   *
+   * 電腦端刻意不帶 `enabled`（走下面的 `modules`）、`seenIds`、`feedback`、
+   * `reminder`——理由見 `ipcHandlers.getNewsSyncSettingsDirect`。
+   */
+  news?: Partial<NewsModuleSettings>
   modules?: { id: string; label: string; enabled: boolean }[]
   personas?: PersonaPreset[]
   worlds?: WorldPreset[]
@@ -47,12 +59,6 @@ export interface SyncInitBundle {
 
 /** 同名衝突怎麼辦。與 `.dstpack` 匯入同一套語彙。 */
 export type SyncConflictPolicy = 'skip' | 'overwrite'
-
-export interface SyncSource {
-  /** 不含結尾斜線，例如 `http://192.168.1.20:3721` */
-  baseUrl: string
-  token: string
-}
 
 export interface SyncPreview {
   bundle: SyncInitBundle
@@ -92,22 +98,6 @@ export interface SyncConversationItem {
   characterNames: string[]
   /** 這台手機已經匯入過（比對 `Conversation.importedFrom.sourceId`）。已匯入的不給重選。 */
   alreadyImported: boolean
-}
-
-export class SyncError extends Error {
-  constructor(
-    readonly code: 'unreachable' | 'unauthorized' | 'server-error' | 'bad-response' | 'empty',
-    message: string
-  ) {
-    super(message)
-    this.name = 'SyncError'
-  }
-}
-
-type FetchImpl = typeof globalThis.fetch
-
-function authHeaders(src: SyncSource): Record<string, string> {
-  return { 'X-DesktopST-Token': src.token }
 }
 
 /**
@@ -225,6 +215,7 @@ export async function runSyncImport(
   const bundle = opts.bundle ?? (await getJson<SyncInitBundle>(src, '/api/sync-init', fetchImpl))
 
   const apiKeysImported = applySettings(session, bundle)
+  await applyNewsSettings(session, bundle)
   const presetsImported = await applyPresets(session, bundle)
   await session.saveSettings()
   await session.rememberSyncHost(src)
@@ -316,6 +307,7 @@ export async function pullSettingsFromDesktop(
   const usedSrc = upgraded?.src ?? src
 
   const apiKeysImported = applySettings(session, bundle)
+  await applyNewsSettings(session, bundle)
   /*
    * 設定覆蓋也要把情境的「在場角色／綁定對話」從電腦抄過來。
    * 這裡**只動情境**，不新增 persona／世界觀／角色（那是完整 S1 的事）。
@@ -448,6 +440,7 @@ function applySettings(session: StandaloneSession, bundle: SyncInitBundle): numb
   apiKeysImported += applyWeatherSettings(s, bundle)
 
   // 模組開關：手機沒有的模組略過（例如桌面限定的那些）
+  // 新聞不在這裡——它的開關住在模組自己的設定檔，見 `applyNewsSettings`
   for (const m of bundle.modules ?? []) {
     if (m.id === 'desktopst.weather' && s.weather) s.weather.enabled = m.enabled
     if (m.id === 'desktopst.spotify' && s.spotify) s.spotify.enabled = m.enabled
@@ -455,6 +448,27 @@ function applySettings(session: StandaloneSession, bundle: SyncInitBundle): numb
   }
 
   return apiKeysImported
+}
+
+/**
+ * 新聞：關鍵字／來源／分組／黑名單等設定，外加模組開關。
+ *
+ * 與其他模組分開處理是因為**新聞的設定不在 `settings.json`**，
+ * 而在 `modules/desktopst.news/settings.json`（`core/store/moduleSettings.ts`
+ * 的 key 佈局，兩個平台一致），寫入是非同步的。
+ *
+ * 兩個來源合成一次寫入：設定本體來自 `bundle.news`，`enabled` 來自
+ * `bundle.modules`——分兩次寫會讓「設定覆蓋」與「開關覆蓋」各觸發一次
+ * 讀改寫，中間那次的結果是半套的。
+ */
+async function applyNewsSettings(session: StandaloneSession, bundle: SyncInitBundle): Promise<void> {
+  const patch: Partial<NewsModuleSettings> = { ...(bundle.news ?? {}) }
+
+  const toggle = (bundle.modules ?? []).find((m) => m.id === 'desktopst.news')
+  if (toggle) patch.enabled = toggle.enabled
+
+  if (Object.keys(patch).length === 0) return
+  await saveNewsModuleSettings(session.adapters.storage, patch)
 }
 
 /**
@@ -734,33 +748,4 @@ async function importCharacters(
 
   onProgress?.(total, total)
   return { imported, skipped, failed, lorebooksImported: lorebookIds.size }
-}
-
-async function getJson<T>(src: SyncSource, path: string, fetchImpl: FetchImpl): Promise<T> {
-  const res = await request(src, path, fetchImpl)
-  try {
-    return (await res.json()) as T
-  } catch {
-    throw new SyncError('bad-response', `${path} 回應不是 JSON`)
-  }
-}
-
-async function getBinary(src: SyncSource, path: string, fetchImpl: FetchImpl): Promise<Uint8Array> {
-  const res = await request(src, path, fetchImpl)
-  return new Uint8Array(await res.arrayBuffer())
-}
-
-async function request(src: SyncSource, path: string, fetchImpl: FetchImpl): Promise<Response> {
-  let res: Response
-  try {
-    res = await fetchImpl(`${src.baseUrl.replace(/\/$/, '')}${path}`, { headers: authHeaders(src) })
-  } catch (e) {
-    throw new SyncError('unreachable', e instanceof Error ? e.message : String(e))
-  }
-  if (res.status === 401 || res.status === 403) {
-    throw new SyncError('unauthorized', `${path} 回 ${res.status}`)
-  }
-  if (res.status === 404) throw new SyncError('empty', `${path} 回 404`)
-  if (!res.ok) throw new SyncError('server-error', `${path} 回 ${res.status}`)
-  return res
 }

@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { APP_VERSION, formatBuildTime, GIT_HASH } from '../../buildInfo'
-import { detectLanDirect, modeDescription, resolveConnection, type Connection } from '../connection'
+import { detectLanDirect, modeDescription, type Connection } from '../connection'
 import { useAppStore } from '../stores/appStore'
+import { useConnectionStore } from '../stores/connectionStore'
+import { ModeSwitcher } from './ModeSwitcher'
 
 const OFFICIAL_URL = 'https://nori.tw/DeST/intro.html'
 const LICENSE_URL = 'https://nori.tw/DeST/license.html'
@@ -13,13 +15,15 @@ const LICENSE_URL = 'https://nori.tw/DeST/license.html'
  * 但一步之內要能查到「我更新了沒」，所以點一下開這頁。
  */
 export function AboutView(): JSX.Element {
-  const conn = useMemo(() => resolveConnection(), [])
+  // 跟 App.tsx 共用同一份連線狀態（S2 M1）——這裡不再自己 `resolveConnection()`，
+  // 否則切換模式的按鈕改的是 store、這裡顯示的卻是另一份，兩邊會對不起來。
+  const conn = useConnectionStore((s) => s.conn)
   const status = useAppStore((s) => s.status)
   const built = formatBuildTime()
   const [lanDirect, setLanDirect] = useState<boolean | null>(null)
 
   useEffect(() => {
-    if (conn.mode !== 'remote') return
+    if (!conn || conn.mode !== 'remote') return
     let cancelled = false
     void detectLanDirect(conn).then((v) => {
       if (!cancelled) setLanDirect(v)
@@ -28,6 +32,8 @@ export function AboutView(): JSX.Element {
       cancelled = true
     }
   }, [conn])
+
+  if (!conn) return <p className="py-8 text-center text-sm text-[var(--text-sub)]">載入中⋯⋯</p>
 
   return (
     <div className="space-y-4 pb-2">
@@ -62,6 +68,8 @@ export function AboutView(): JSX.Element {
           </p>
         )}
       </div>
+
+      <ModeSwitcher />
 
       <div className="space-y-2">
         <a

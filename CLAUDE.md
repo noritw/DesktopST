@@ -77,12 +77,19 @@ src/mobile/ 手機 UI
 | **S1 初始化匯入** | 完成（掃 QR 單向拉角色／預設組／設定／**對話**；對話勾選匯入，預設全不選）。另有可重複執行的「從電腦重新拉設定」 |
 | **獨立版天氣** | 完成（缺口 #4）。邏輯在 `core/weather/`，定位 GPS 優先退回 IP，聊天會帶 `[Weather]`。地震／颱風關鍵詞查詢仍桌面限定 |
 | **獨立版 Lorebook 編輯** | 完成（缺口 #2，2026-08-09）。`StandaloneSession` 接上 CRUD＋參照清理；`chat.ts` 補了原本沒接的 `[Glossary]` 注入（桌面版本來就有，獨立版聊天管線之前完全沒有） |
-| **下一步** | owner 2026-08-09 排序：① Persona 清單切分頁 UI bug（已修，見 `docs/mobile-standalone-gap-inventory.md` §0）→ ② Lorebook 編輯（已完成）→ ③ 提醒（缺口 #5，**要連「哪台裝置響」一起做**；owner：切獨立版的主因就是這個）→ ④ 新聞報（缺口 #6，外出常用）。角色卡匯出（#3）與模式切換／S2 同步（`mobile-mode-switch-sync.md`）**排在這批之後**，先求獨立版功能完整。另：v0.4.0 真機煙測（配色／新聞泡泡／遙控） |
+| **獨立版提醒** | 完成（缺口 #5，2026-08-09～11）。CRUD＋排程器＋Capacitor 通知；原生層（AlarmManager＋headless WebView 現場生成台詞）也已完成，App 劃掉後仍會響；`screen_on_only`／`always` 兩種喚醒模式都在判斷 |
+| **獨立版個人新聞報** | 完成（缺口 #6，2026-08-12）。`core/news/*` 15 支全部接上，桌面／遙控／獨立版共用同一份邏輯。手機額外補了：面板下緣安全區、重新摘要、清除摘要（只留 `[Shared News] 標題`）、原文連結、兩層導覽（關鍵字組→欄）、熱門話題開關。**不做**：背景定時抓新聞、對話新聞搜尋、搬家包（皆桌面獨有，刻意不搬） |
+| **地方新聞併回關鍵字組** | 完成（2026-08-12，`docs/news-local-merge-plan.md`）。縣市不再是系統特製欄位，變成一般關鍵字（「地方」組），手機現在也能編輯；情境切換會影響它（owner 拍板接受） |
+| **APK 返回鍵修復** | 完成（2026-08-12）。Capacitor 8 的 `BridgeActivity` 不覆寫 `onBackPressed`，`popstate` 在 APK 裡從不觸發，返回鍵等於直接關 app。改用 `@capacitor/app` 的 `backButton` 事件，見 §5 |
+| **獨立版角色卡／設定包匯出** | 完成（缺口 #3，2026-08-12）。`StandaloneSession.exportCard`／`exportPack` 接上，格式與桌面 `dstPack.ts`／`stCardMapper.ts` 相容（互通匯入）；PNG 無頭像時退回內建透明底圖。`fileTransfer.ts` 的 `downloadBytes` 改非同步、平台分流：網頁走 `<a download>`，APK 走新裝的 `@capacitor/share`＋既有的 `@capacitor/filesystem`（動態 `import()`）。**真機驗證通過**：Pixel 10a 上實際點過「匯出 PNG 卡」，系統分享面板正確跳出且圖片正確 |
+| **S2 同步 M1（模式可切換）** | 完成（2026-08-12），穩定性已補驗證。App 內可直接切換本機／遙控，不用重開；`mobile/ui/stores/connectionStore.ts` 取代原本 `App.tsx` 的 `useMemo`；切換按鈕在「關於」頁（只有原生殼顯示）。**這階段完全不同步資料**，只是把「兩份資料分開存取」的入口做出來。owner 實機試切換時揪出兩個原生殼獨有的既存缺口並修掉：①掃到中繼 QR 時 WebSocket 路由是錯的（`resolveLiveRemote()` 會自動嘗試升級成區網直連，升不了就明講不支援）②`capacitor.config.ts` 的 `androidScheme` 是 `'https'` 導致 Mixed Content 政策擋掉角色頭像與遙控 WebSocket（改成 `'http'`，細節見 §5）。兩個修法 log 上都看得到效果（WS 首次 `open` 成功、Mixed Content 警告歸零）。**穩定性補驗證（同日稍後）**：手動延長螢幕逾時後，遙控·區網直連模式閒置 4 分鐘連線仍正常、`Mixed Content` 全程 0 筆——判定穩定收工。細節：`mobile-mode-switch-sync.md` §8.1 |
+| **S2 同步 M2（差異預覽，唯讀不搬資料）** | 完成，**真機驗證通過**（2026-08-12）。新端點 `GET /api/sync-manifest`；純差異邏輯在 `core/sync/`（平台無關，`npm test` 涵蓋）；切換前用既有的 `ui.confirm` 對話框（沒有另做 Sheet）顯示差異摘要，`ModeSwitcher.tsx` 掛入。**這一版只讀不寫基準**（`sync-baseline.json` 目前不存在，還沒有人寫過），所以真機上看到的是「無基準」的中性統計訊息，逐筆差異／衝突要等 M3 第一次寫入基準才會被真機驗證到。細節與落地筆記：`mobile-mode-switch-sync.md` §8.2 |
+| **下一步** | **S2 M3**（真的推／拉角色、預設組、情境、Lorebook、設定；對話還不動）——**開工指令：`docs/mobile-sync-m3-kickoff.md`（整份，照著開工）**。另：v0.4.0 真機煙測（配色／新聞泡泡／遙控） |
 | 延後／已排程 | 角色印象（B8）；系統通知（B5）；**飲食熱量模組（B9）** → `docs/future-nutrition-module.md`（owner 自用優先；含換機搬家包） |
 
-獨立模式**尚未實作**（會誠實擲 `not-supported`，不是 bug）：新聞、提醒、
-角色卡匯出、天氣的地震／颱風關鍵詞查詢。Spotify／日曆授權仍只在桌面。
-（情境套用／擷取／刪除、設定組刪除、天氣 2026-08-08 已補上；Lorebook 編輯 2026-08-09 已補上。）
+獨立模式**尚未實作**（會誠實擲 `not-supported`，不是 bug）：
+天氣的地震／颱風關鍵詞查詢。Spotify／日曆授權仍只在桌面。
+遙控電腦（`remoteControl.*`）**永久不支援**——獨立模式沒有電腦可控，設計如此。
 → 缺口總表與建議順序：`docs/mobile-standalone-gap-inventory.md`（不長，可整份讀）。
 
 分支：`feat/mobile-standalone`。
@@ -91,6 +98,18 @@ src/mobile/ 手機 UI
 
 ## 5. 進行中仍會踩的坑（寫手機相關時看這裡就夠）
 
+- **`capacitor.config.ts` 的 `server.androidScheme` 一定是 `'http'`，不是 `'https'`**
+  （S2 M1，2026-08-12 owner 實機回報）。改成 `'https'` 的話 App 自己的頁面來源會是
+  `https://localhost`，瀏覽器的 Mixed Content 政策會把任何 `http://`／`ws://` 子資源
+  當成「安全頁面偷載不安全內容」擋掉——**`android.allowMixedContent: true` 蓋不掉這個**
+  （實測在這台裝置的 WebView 版本上完全沒用）。症狀很好認但很難聯想到 scheme：
+  角色頭像／訊息圖片全部讀不到（`<img>` 直接被拒絕），遙控模式的 WebSocket
+  連了又斷、畫面一直跳「連線中斷，正在重新連線」——但 HTTP API（送訊息、讀設定）
+  完全正常，因為那些走 `CapacitorHttp` 外掛的原生請求橋接，不受 WebView 的
+  Mixed Content 檢查管。`localhost` 不論哪個 scheme 都算瀏覽器規範裡的可信任來源，
+  改成 `'http'` 不會少任何 secure-context 能力，只會讓區網直連的 `http://`／`ws://`
+  不再被當成降級擋下——中繼走的是 `https://`／`wss://`，這條路是升級，本來就不受影響。
+  診斷方法：`adb logcat | grep "Mixed Content"`，看到訊息就是這個。
 - 選檔 `accept` **只給** `image/*` 大類，不要列副檔名（Android 相簿會空）
 - 改 vite alias 或 tailwind `content` 後**一定重開** `dev:mobile`，否則圖示無聲消失
 - relay 三約束（改連線／建置／QR 必守；細節 §4.20）：
@@ -115,6 +134,14 @@ src/mobile/ 手機 UI
   `setTimeout(abort)` 的逾時在手機上等於不存在，原生請求一慢就無限等
   （天氣「抓取位置」卡住就是這個）。`mobile/adapters/httpAdapter.ts` 已用
   `Promise.race` 把 signal 翻成 reject，**新的逾時邏輯照樣要走 signal，別自己 setTimeout**
+- **CapacitorHttp 會把「宣稱是 JSON、內容卻不是合法 JSON」的回應多編碼一次**：
+  原生層 `JSON.parse` 失敗後當字串留著，fetch patch 再 `JSON.stringify` 一次還給你 ——
+  `res.text()` 拿到的換行是字面上的 `\n` 兩個字元、引號變 `\"`、原本的 `\"` 變 `\\\"`。
+  **桌面走 Node fetch 不會這樣**，所以症狀是「只有手機壞、而且壞得很安靜」。
+  踩過：Google 新聞 `batchexecute` 解原文連結（`core/news/enrich.ts` 的
+  `normalizeRpcBody`），每一則都解不開但 log 只說「解析失敗」。
+  **凡是要自己剖析非標準 JSON 回應（前綴 `)]}'`、分段格式、JSONP…）就要先還原**，
+  而且解析用的 regex 別寫死反斜線層數
 - **Capacitor plugin 的 `timeout` 選項不保證兌現**（`Geolocation.getCurrentPosition`
   沒權限時 Promise 可能永遠不 settle）。外面自己再包一層計時器
 - **絕對不要讓 async function 直接 `return` Capacitor 的 plugin 物件**
@@ -124,6 +151,18 @@ src/mobile/ 手機 UI
   **外面的 `await` 永遠卡住**（天氣「抓取位置」按了沒反應就是這個，
   錯誤只在 logcat 看得到：`"Geolocation.then()" is not implemented on android`）。
   要回傳就包一層：`return { plugin: mod.Geolocation }`
+- **APK 的返回鍵不會變成 `popstate`**：Capacitor 8 的 `BridgeActivity` 沒有覆寫
+  `onBackPressed`，返回鍵走 Activity 預設行為（直接 `finish()`），完全不碰 WebView
+  歷史。所以**只靠 `history.pushState` ＋ `popstate` 的返回處理在 APK 裡等於沒有**——
+  一按就結束 activity，使用者從最近使用回來時是全新啟動、停在聊天畫面，
+  症狀是「操作到一半自己跳回首頁」。要用 `@capacitor/app` 的 `backButton` 事件
+  （`ui/shell/useBackButton.ts`，瀏覽器仍走 popstate，兩條共用 `handleBack()`）
+- **資料遷移一定要「寫回磁碟」再看一次磁碟**：正規化／遷移若只寫在讀取路徑
+  （純函式、作用在記憶體），磁碟要等下次有人存設定才會更新 ——
+  在那之前每次讀都重跑遷移，**冪等旗標永遠不會生效**，使用者刪掉的東西會被建回來。
+  症狀很隱蔽：畫面完全正常。驗收要用
+  `adb shell run-as tw.nori.dest cat files/modules/<id>/settings.json` 看磁碟
+  （踩過：地方新聞併關鍵字組，`core/news/settings.ts` 的 `needsMigrationWriteBack`）
 - **手機通知一定要自己建 channel**：Capacitor 預設頻道 importance=3，
   只會安靜躺進通知欄、**不會有橫幅彈出**，手機又常在震動模式 ——
   看起來就像「時間到了什麼都沒發生」。用 importance 4（`reminderScheduler.ts` 的
@@ -150,11 +189,13 @@ src/mobile/ 手機 UI
 | 改 QR／relay／手機建置 | 計畫書 **只讀 §4.20** | §4.10–4.18 |
 | S1／S2 同步 | roadmap **§4.7**（模式、S1–S3 分層、API Key 判定、星狀拓樸） | 整份 roadmap |
 | 手機模式切換／切換時帶資料走 | `mobile-mode-switch-sync.md`（整份，S2 第一階段的實作設計） | 整份 roadmap |
+| **實作 S2 M3（真的推／拉資料）** | `mobile-sync-m3-kickoff.md`（整份，開工指令） | 一切長文 |
 | 打 APK／改 Capacitor | `src/mobile/README.md` | 一切長文 |
 | 動天氣（兩邊共用） | `core/weather/`（四個小檔，直接讀原始碼）＋ `progress-log.md` 搜「獨立版天氣」 | 舊的 `weather-realtime-query-spec.md`（那是桌面 CWA 規格） |
 | 問「獨立版還缺什麼」／挑下一項做 | `mobile-standalone-gap-inventory.md`（整份，不長） | 舊的 `mobile-html-feature-inventory.md` |
 | 實作手機獨立版精準鬧鐘／提醒 | `mobile-standalone-reminder-plan.md`（整份） | 一切長文 |
 | **實作獨立版個人新聞報（缺口 #6）** | `news-standalone-kickoff.md`（整份，開工指令） | 一切長文 |
+| 地方新聞為什麼不是獨立欄了 | `news-local-merge-plan.md`（已完成，看 §9） | 一切長文 |
 | 實作 Android 桌面小工具 (Widget) | `mobile-android-widget-plan.md`（整份） | 一切長文 |
 | 查「以前為什麼這樣做／已知坑」 | `progress-log.md` **Grep 關鍵字** | 整份 log |
 | 實作某桌面／資料規格 | `DesktopST-Spec.md` **對應章節** | 整本 Spec |

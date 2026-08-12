@@ -353,8 +353,8 @@ CLAUDE.md §5 已列為常踩的坑，同步流程一次寫很多筆，**批次�
 
 | 階段 | 內容 | 產出 |
 |---|---|---|
-| **M1** | 模式可在 App 內切換（§4），記住偏好；**完全不同步** | 兩份資料明確分開，UI 要講清楚 |
-| **M2** | `GET /api/sync-manifest` ＋ 基準 ＋ 差異偵測，**唯讀預覽** | 切換時顯示「有什麼不一樣」但不搬 |
+| **M1**（2026-08-12 完成） | 模式可在 App 內切換（§4），記住偏好；**完全不同步** | 兩份資料明確分開，UI 要講清楚 |
+| **M2**（2026-08-12 完成） | `GET /api/sync-manifest` ＋ 基準 ＋ 差異偵測，**唯讀預覽** | 切換時顯示「有什麼不一樣」但不搬 |
 | **M3** | 真的推／拉：角色、預設組、情境、Lorebook、設定 | 對話還不動 |
 | **M4** | 對話訊息層聯集合併（含新端點 ②） | 完整的「帶著走」 |
 | **M5**（可選） | 設定頁的「立即同步」按鈕，不切模式也能同步 | 補齊「我就想備份一下」 |
@@ -364,6 +364,126 @@ M2 是**真正的安全閥**：roadmap §4.7 說「差異預覽讓錯誤在發�
 
 依賴關係：M3 的 Lorebook 部分要等**缺口 #2（獨立版 Lorebook 編輯）**做完才有意義；
 其餘不依賴任何未完成的缺口。
+
+### 8.1 M1 落地筆記（2026-08-12）
+
+- `core/store/keys.ts`：新增 `MODE_PREF_KEY`（`mode-pref.json`）。
+- `mobile/ui/connection.ts`：`resolveConnection()` 加 `pref?: ModePref` 參數——
+  **只在原生殼、且沒有任何 URL／relay 訊號時**才參考，外部訊號（`?server=`／
+  `?mode=`／relay 注入）一律優先。
+- `mobile/ui/stores/connectionStore.ts`（新）：`conn` 從 `App.tsx` 原本的
+  `useMemo` 常數變成 store 狀態；`switchTo()` 切換後**只在原生殼**寫回偏好。
+  ⚠️ 切回獨立時**不能把記住的 `remote` 洗掉**——寫偏好時要跟舊值合併，
+  只有切到遙控成功時才更新 `remote` 欄位，否則每次「切換到遙控」都要重新掃 QR。
+- `mobile/ui/App.tsx`：`conn` 改讀 store；`attach` effect 的 `[conn, attach]`
+  依賴不用改，null 時直接 return（沿用既有的「還沒 ready 就顯示載入中」畫面，
+  不需要額外的載入態）。
+- `mobile/ui/shell/ModeSwitcher.tsx`（新）：切換按鈕**放進「關於」頁**
+  （不是新開主選單項目）——那裡本來就在講「目前連線」。**只在
+  `Capacitor.isNativePlatform()` 顯示**，網頁版永遠遙控，給按鈕沒有意義。
+  切到遙控會先試記住的主機，連不上才落回掃 QR／手動貼網址（沿用
+  `SyncImportView.tsx` 同一套 `scannerAdapter`）。切到獨立前用
+  `useAppStore.sending` 擋「正在生成」。
+- `@capacitor/share` 那顆之前已經是 `dependencies`（缺口 #3 裝的），這次沒有再加新外掛。
+
+#### 8.1.1 owner 實機試切換揪出的兩個既存缺口
+
+M1 是**第一次**有原生殼在 App 內建立「即時遙控連線」（不是掃 QR 開網頁，也不是
+S1 那種一次性 HTTP 拉資料）——兩個問題都是這條路徑本來就有、只是之前沒人踩過：
+
+**① 掃到中繼 QR，WebSocket 永遠連不上（HTTP 正常）**
+
+`wsUrlFor()` 拿 `conn.baseUrl` 字串代換 `http→ws`；這對一般伺服器位址沒問題，
+但中繼的即時通道只有**中繼自己託管網頁**載入時才會被注入正確位址
+（`window.__tunnelWsUrl`，`main/cloudflare-worker.js`）。原生殼是自己組網址連過去，
+繞過了那層注入，組出來的路由對中繼是錯的。
+
+修法：`connection.ts` 新增 `resolveLiveRemote(baseUrl, token)`，切換前先問一次
+`/api/sync-init` 拿 `lanDirect`／`lanUrl`，中繼就比照 S1 的 `upgradeToLan` 試著
+換成區網直連；換不了就回 `relayOnly: true`，`ModeSwitcher` 據此明講「這個版本
+還不支援用中繼建立即時遙控」，不切換（不要讓使用者切過去卡在假連線）。
+`tests/mobile/connection.test.ts` 有 6 個測試釘住這幾種情況。
+
+**② `androidScheme: 'https'` 讓 Mixed Content 政策擋掉頭像圖片與 WebSocket**
+
+即使①修好、真的换成區網直連，`ws://192.168.x.x:port` 與角色頭像的
+`<img src="http://192.168.x.x:port/api/avatar/...">` 還是會被瀏覽器的 Mixed
+Content 政策當成「安全頁面（`https://localhost`）偷載不安全內容」擋掉——
+`android.allowMixedContent: true` 在實測的 WebView 版本上**沒有**完全蓋掉這個檢查。
+HTTP JSON API（送訊息、讀設定）不受影響，因為那些走 `CapacitorHttp` 外掛的原生
+橋接，不經過 WebView 自己的網路堆疊。
+
+修法：`capacitor.config.ts` 的 `server.androidScheme` 改成 `'http'`——
+`localhost` 不論哪個 scheme 都是瀏覽器規範裡的可信任來源，不會少掉任何
+secure-context 能力，但頁面來源不再是 https，區網的 `http://`／`ws://` 就不算
+「降級」，不會被擋。中繼走 `https://`／`wss://`，這條路是升級，本來就不受影響。
+細節與診斷方法（`adb logcat | grep "Mixed Content"`）見 `CLAUDE.md` §5。
+
+**已驗證**：真機（Pixel 10a）裝新 APK、實際掃「手機連線」QR（走中繼）成功升級成
+區網直連並切換過去、傳訊息角色正常回應。兩個修法在 log 上都看得到效果
+（WebSocket 第一次真的 `open`、Mixed Content 警告從每次都有變成歸零）。
+
+**穩定性補驗證（2026-08-12，同日稍後）**：先前因手機螢幕一直自動鎖定干擾測試，
+沒拿到「切過去之後穩定不斷線」的最終確認。這次先手動把螢幕逾時延長到 30 分鐘，
+確認 App 在遙控·區網直連模式下閒置放置 4 分鐘（22:58→23:02，中間完全沒有互動）
+連線狀態仍顯示「正常」，`adb logcat` 全程搜尋 `Mixed Content` 是 0 筆，角色頭像
+全程正常顯示。M1 判定為穩定收工。
+
+### 8.2 M2 落地筆記（2026-08-12）
+
+- 桌面端新增 `GET /api/sync-manifest`（`main/mobileServer.ts`，緊接在
+  `/api/sync-conversation` 之後），回傳 §6.2 定義的輕量清單。`settingsHash`
+  用 `core/util/sha1.ts` 的 `sha1Hex()` 對 `core/util/stableJson.ts`（新，
+  key 排序後才序列化，讓雙邊算出同一個雜湊不受物件寫法差異影響）算出的
+  子集雜湊——子集範圍刻意跟 `/api/sync-init` 已經在同步的那些欄位對齊
+  （llm 除 apiKeys、memory、colorTheme、modules）。
+- Lorebook 沒有現成的「輕量清單＋updatedAt」getter（`listLorebooks()` 只給
+  `{id,name}`，且 S1 既有呼叫方依賴這個形狀）——桌面與手機都各自**新開一個
+  方法**（`getLorebookManifestDirect()` / `StandaloneSession.listLorebooksManifest()`），
+  不改舊方法。
+- 純差異邏輯放在 `core/sync/`（`types.ts` + `diff.ts`），平台無關、`npm test`
+  涵蓋（`tests/core/sync/diff.test.ts`）——這樣未來要在 M3 桌面端也做「反向
+  比對」或寫其他工具時可以直接重用，不綁死在手機的 React 元件裡。
+- `syncImport.ts`（S1）裡原本沒有匯出的 `getJson`／`request`／`authHeaders`／
+  `SyncError`／`SyncSource` 抽到新檔 `mobile/runtime/syncTransport.ts` 並匯出，
+  `syncImport.ts` 改成從那裡 re-export，呼叫端（`DesktopPullSection.tsx`、
+  `SyncImportView.tsx`）完全不用改。純搬移，`tests/mobile/syncImport.test.ts`
+  36 個既有測試原封不動全過。
+- **M2 刻意不做 Sheet 元件**：一開始規劃是仿照「關於」頁的 `Sheet`
+  另做一個 `SyncDiffPreview.tsx`，落地時發現手機 UI 早就有一個通用的
+  `ui.confirm({title, message, confirmLabel})`（`DialogHost.tsx`／`uiStore.ts`）
+  ——文字訊息＋確認／取消，剛好就是「看一段差異摘要，決定要不要繼續切換」
+  這個互動，而且已經接好返回鍵深度計算（`useBackButton.ts` 的
+  `s.dialog ? 1 : 0`）。改用它，差異摘要用純文字函式
+  （`ui/shell/syncDiffMessage.ts`，`formatFirstRunMessage` / `formatDiffMessage`）
+  組字串塞進 `message`，比另起一個 Sheet 元件少一層、也更符合「不要重造
+  已有的輪子」。
+- 掛入點在 `ModeSwitcher.tsx` 的 `goStandalone()`／`tryConnect()`，`switchTo`
+  呼叫之前先跑 `previewBeforeSwitch()`：讀基準、建本地清單（獨立模式下直接
+  用當前 `getStandaloneSession()`；遙控模式下本機沒有活著的 session，臨時
+  `bootStandaloneSession()` 一份唯讀讀本地檔案，不寫回 `sessionHolder`）、
+  抓遠端清單、`computeDiff`。任何一步失敗（電腦連不上、本地讀取出錯）都
+  **直接放行不擋切換**，呼應 §7.7「不可以因為同步失敗就把使用者卡在原模式」。
+- **首次執行決議**：`SyncBaseline` 在這版之前完全不存在，所以每個使用者
+  第一次切換都是 `baseline === null`。`computeDiff` 對此回傳
+  `hasBaseline: false` 加全空差異，UI 層改顯示雙邊「目前各有幾筆」的中性
+  統計（`formatFirstRunMessage`），不逐筆貼「新增」標籤——這才不會讓第一次
+  切換就跳出一份嚇人的「全部都是新增」清單。**這也表示 (c)(d) 兩種真正的
+  差異／衝突狀態要等 M3 第一次寫入基準之後才會被真實使用者看到**——
+  這一版已經照 §5.3／§5.4／§7.3 的規則做對（`tests/core/sync/diff.test.ts`
+  逐條釘住），但目前沒有基準存在，邏輯上不可能被觸發，等 M3 落地後才能在
+  真機上實際觀察。
+- 基準本身這一版**只讀不寫**（`mobile/runtime/syncBaseline.ts` 只有
+  `readBaseline()`，故意沒有 `writeBaseline()`）——§7.2 明講基準只在資料
+  真的搬過去後才更新，M2 完全不搬資料。
+
+**驗證**：`npm test`（新增 `core/sync/diff.test.ts` 10 例、
+`mobile/syncManifest.test.ts` 4 例、`mobile/syncBaseline.test.ts` 2 例、
+`ui/syncDiffMessage.test.ts` 3 例，加上既有 36 例 `syncImport.test.ts`
+全過）、`npm run typecheck`、`npm run build:mobile` 皆過。**還沒做**：真機
+上實際跑一次模式切換確認 `ui.confirm` 對話框正常彈出——目前沒有基準，
+能驗證到的只有「無基準」這條路徑（中性統計訊息），(c)(d) 兩種狀態要等
+M3 寫入基準後才有東西可以真機驗證。
 
 ---
 

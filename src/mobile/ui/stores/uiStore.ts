@@ -79,6 +79,13 @@ export interface DialogRequest {
   multiline?: boolean
   confirmLabel?: string
   destructive?: boolean
+  /**
+   * 送出／取消之外的額外動作（新聞上下文的「原文 ↗」與「清除摘要」）。
+   *
+   * 預設**不關閉對話框**——像「原文」是離開去看別的東西，回來還要接著編輯。
+   * 自己就是終點的動作（清除）才設 `closeAfter`。
+   */
+  extraActions?: { label: string; onClick: () => void; closeAfter?: boolean }[]
   /** 回傳：confirm 給 boolean，prompt 給字串或 null（取消）。 */
   resolve: (value: string | boolean | null) => void
 }
@@ -171,13 +178,25 @@ export const useUiStore = create<UiState>((set, get) => ({
 
   stack: [],
   // 疊新畫面時清掉 guard：它屬於底下那一層，留著會讓上層被誤攔。
-  push: (kind, param) => set((s) => ({ stack: [...s.stack, { id: nextId(), kind, param }], closeGuard: null })),
+  push: (kind, param) => set((s) => {
+    diagNav('push', kind, s.stack)
+    return { stack: [...s.stack, { id: nextId(), kind, param }], closeGuard: null }
+  }),
   replace: (kind, param) =>
-    set((s) => ({ stack: [...s.stack.slice(0, -1), { id: nextId(), kind, param }], closeGuard: null })),
+    set((s) => {
+      diagNav('replace', kind, s.stack)
+      return { stack: [...s.stack.slice(0, -1), { id: nextId(), kind, param }], closeGuard: null }
+    }),
   setEntryParam: (id, param) =>
     set((s) => ({ stack: s.stack.map((e) => (e.id === id ? { ...e, param } : e)) })),
-  pop: () => set((s) => ({ stack: s.stack.slice(0, -1), closeGuard: null })),
-  popAll: () => set({ stack: [], closeGuard: null }),
+  pop: () => set((s) => {
+    diagNav('pop', '', s.stack)
+    return { stack: s.stack.slice(0, -1), closeGuard: null }
+  }),
+  popAll: () => set((s) => {
+    diagNav('popAll', '', s.stack)
+    return { stack: [], closeGuard: null }
+  }),
 
   closeGuard: null,
   setCloseGuard: (fn) => set({ closeGuard: fn }),
@@ -215,14 +234,33 @@ export const useUiStore = create<UiState>((set, get) => ({
 }))
 
 /**
+ * 畫面堆疊的變動 log。
+ *
+ * ⚠️ **這支是為了追「新聞報自己跳回首頁」加的**（owner 2026-08-12 回報，
+ * 尚未定位）。堆疊會被清空的路徑有好幾條——`pop`／`popAll`／返回手勢轉成的
+ * `popstate`／整個 app 重載——光看畫面分不出是哪一條，
+ * 而且只在真機偶發（瀏覽器上那次是 vite 熱重載，不算重現）。
+ *
+ * `stack` 印出來就能分辨：
+ *   - 有 `pop`／`popAll` → 是我們自己關的，往呼叫端追
+ *   - 只有 `back` 沒有後續 → 返回手勢被誤觸發
+ *   - 什麼都沒有、直接從 `push menu` 重新開始 → WebView 整個重載了
+ */
+function diagNav(op: string, kind: string, stack: { kind: string }[]): void {
+  console.info(`[nav-diag] ${op}${kind ? ' ' + kind : ''} stack=[${stack.map((e) => e.kind).join(',')}]`)
+}
+
+/**
  * Android 實體返回鍵 ／ 瀏覽器上一頁的處理。
  *
  * 回傳 true 表示「我消化掉了」，呼叫端就不要讓系統退出 app。
  * 順序有意義：**由上而下關**，燈箱 > 對話框 > 畫面堆疊。
  * 燈箱是全螢幕蓋在最上層的，先關掉它以外的任何東西都會讓畫面看起來沒反應。
  */
+
 export function handleBack(): boolean {
   const s = useUiStore.getState()
+  diagNav('back', s.lightbox ? 'lightbox' : s.dialog ? 'dialog' : 'stack', s.stack)
   if (s.lightbox) {
     s.closeLightbox()
     return true

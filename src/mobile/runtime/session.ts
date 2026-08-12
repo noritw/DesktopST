@@ -43,8 +43,8 @@ import type {
   SendMessageInput,
   StopGeneratingResult
 } from '@core/data'
-import { extractCharaJson, PngCardError } from '@core/card/pngCard'
-import { importStJson } from '@core/card/stCardMapper'
+import { extractCharaJson, embedCharaJson, MINIMAL_TRANSPARENT_PNG_BASE64, PngCardError } from '@core/card/pngCard'
+import { importStJson, exportToStJson } from '@core/card/stCardMapper'
 import {
   DEFAULT_SCAN_DEPTH,
   DEFAULT_TOKEN_BUDGET,
@@ -53,8 +53,19 @@ import {
   type Lorebook,
   type LoreEntry
 } from '@core/lore'
-import { bytesToBase64 } from '@core/util/base64'
+import { bytesToBase64, base64ToBytes } from '@core/util/base64'
+import type { CardFile } from '@core/data'
+import JSZip from 'jszip'
 import { fetchWeather, geocodeCity, invalidateWeatherCache, type WeatherData } from '@core/weather'
+import * as newsReaderState from '@core/news/readerState'
+import type { NewsReaderState } from '@core/news/readerState'
+import * as newsReaderFetch from '@core/news/readerFetch'
+import { loadNewsModuleSettings, saveNewsModuleSettings, applyNewsFeedbackDelta } from '@core/news/settings'
+import { getNewsSchedulerState, applyNewsSchedulerToReminders } from '@core/news/schedule'
+import * as newsEnrich from '@core/news/enrich'
+import type { NewsItem } from '@core/news/types'
+import type { NewsReaderSnapshot, NewsEditableSettings, NewsScheduleSnapshot } from '@core/data'
+import { domRssParser } from '../adapters/rssParseAdapter'
 import { LocalEventSource } from '../events/localEventSource'
 import { detectMobileLocation } from './weather'
 import { newId } from './id'
@@ -84,6 +95,12 @@ const MODULE_DEFS: ModuleToggle[] = [
 ]
 
 const ALLOWED_AVATAR_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp']
+
+/** storage key → 相對於角色資料夾的路徑，配 `exportPack` 寫進 `.dstpack` 用。 */
+function relativeToCharacterDir(dirKey: string, key: string): string {
+  const norm = key.replace(/\\/g, '/')
+  return norm.startsWith(`${dirKey}/`) ? norm.slice(dirKey.length + 1) : (norm.split('/').pop() ?? norm)
+}
 
 /** 記住的同步主機。權杖會過期，所以拿來用之前要有失敗的心理準備。 */
 export interface SyncHostMemo {
@@ -635,7 +652,15 @@ export class StandaloneSession {
     }
   }
 
-  listModules(): ModuleToggle[] {
+  /**
+   * ⚠️ **新聞的開關不在 `settings.json`，在模組自己的設定檔**
+   * （`modules/desktopst.news/settings.json` 的 `enabled`），所以這支是 async。
+   *
+   * 之前這裡把新聞寫死成 `false`、`setModuleEnabled` 對新聞是空的 no-op，
+   * 於是「打勾 → 切走再回來又變回沒開」——owner 2026-08-12 實機回報。
+   */
+  async listModules(): Promise<ModuleToggle[]> {
+    const newsEnabled = (await loadNewsModuleSettings(this.adapters.storage)).enabled
     return MODULE_DEFS.map((m) => ({
       ...m,
       enabled:
@@ -645,7 +670,9 @@ export class StandaloneSession {
             ? !!this.settings.spotify?.enabled
             : m.id === 'desktopst.calendar'
               ? !!this.settings.calendar?.enabled
-              : false
+              : m.id === 'desktopst.news'
+                ? newsEnabled
+                : false
     }))
   }
 
@@ -676,8 +703,10 @@ export class StandaloneSession {
         }
         break
       case 'desktopst.news':
-        // 獨立模式新聞模組設定檔尚未接；先忽略不炸
-        break
+        // 新聞的開關住在模組自己的設定檔，不是 settings.json（見 `listModules`）。
+        await saveNewsModuleSettings(this.adapters.storage, { enabled })
+        this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+        return
       default:
         throw new DataError('not-found', `unknown module ${id}`)
     }
@@ -811,6 +840,16 @@ export class StandaloneSession {
         updatedAt: c.updatedAt,
         active: c.id === activeId
       }))
+  }
+
+  /** 對話的輕量清單，多帶 `messageCount`。給 S2 M2 差異預覽用（見 `syncManifest.ts`）。 */
+  listConversationsManifest(): { id: string; title: string; updatedAt: number; messageCount: number }[] {
+    return [...this.conversationIndex.values()].map((c) => ({
+      id: c.id,
+      title: c.title,
+      updatedAt: c.updatedAt,
+      messageCount: c.messages.length
+    }))
   }
 
   async loadConversation(id: string): Promise<void> {
@@ -1204,6 +1243,139 @@ export class StandaloneSession {
     }
   }
 
+  /**
+   * 匯出單張角色卡（缺口 #3）。PNG 走 `char.avatar` 當底圖，沒有頭像就用
+   * `core/card/pngCard.ts` 內建的 1×1 透明佔位——桌面版遇到同樣情況是讀
+   * `assets/icon.png`，手機沒有 app 安裝目錄可讀，佔位圖是最貼近的替代。
+   */
+  async exportCard(id: string, kind: 'png' | 'json'): Promise<CardFile> {
+    const char = this.characters.find((c) => c.id === id)
+    if (!char) throw new DataError('not-found', id)
+    const safeName = char.name?.trim() || 'character'
+    const jsonStr = exportToStJson(char)
+
+    if (kind === 'json') {
+      return { bytes: new TextEncoder().encode(jsonStr), filename: `${safeName}.json` }
+    }
+
+    const baseBytes =
+      (char.avatar ? await this.adapters.storage.readBinary(char.avatar) : null) ??
+      base64ToBytes(MINIMAL_TRANSPARENT_PNG_BASE64)
+    try {
+      const out = embedCharaJson(baseBytes, jsonStr)
+      return { bytes: out, filename: `${safeName}.png` }
+    } catch (e) {
+      throw new DataError('invalid-input', e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  /**
+   * 打包 `.dstpack`（缺口 #3）。格式與桌面 `dstPack.ts` 完全相容——manifest／
+   * `characters/<id>/card.json`／`lorebooks/<id>.json` 佈局一致，桌面能直接匯入。
+   *
+   * 手機儲存 key 本來就是「相對於角色資料夾」的路徑（`characters/<id>/avatar.png`），
+   * 跟桌面 `dstPack.ts` 把絕對路徑轉相對路徑那步是同一件事，只是手機不必轉換。
+   */
+  async exportPack(
+    ids: string[],
+    opts: { includeGlobalSettings: boolean; includeLorebooks: boolean }
+  ): Promise<CardFile> {
+    const wanted = ids.length > 0 ? this.characters.filter((c) => ids.includes(c.id)) : this.characters
+    if (wanted.length === 0) throw new DataError('invalid-input', 'no characters')
+
+    const zip = new JSZip()
+    const lorebookIds = new Set<string>()
+    if (opts.includeLorebooks) {
+      for (const c of wanted) for (const lid of c.lorebookIds ?? []) lorebookIds.add(lid)
+    }
+
+    zip.file(
+      'manifest.json',
+      JSON.stringify(
+        {
+          format: 'desktopst-pack',
+          version: 1,
+          exportedAt: Date.now(),
+          includeGlobalSettings: opts.includeGlobalSettings,
+          characterIds: wanted.map((c) => c.id),
+          includeLorebooks: lorebookIds.size > 0
+        },
+        null,
+        2
+      )
+    )
+
+    if (opts.includeGlobalSettings) {
+      const persona = this.personas.find((p) => p.id === this.settings.activePersonaId) ?? null
+      const world = this.worlds.find((w) => w.id === this.settings.activeWorldId) ?? null
+      zip.file(
+        'global/settings.partial.json',
+        JSON.stringify(
+          {
+            worldSetting: world?.worldSetting ?? '',
+            interactionExample: world?.interactionExample ?? '',
+            injectSystemTime: !!this.settings.injectSystemTime,
+            persona: {
+              displayName: persona?.displayName ?? '使用者',
+              nickname: persona?.nickname ?? '主人',
+              description: persona?.description ?? ''
+            },
+            personaName: persona?.name,
+            worldName: world?.name
+          },
+          null,
+          2
+        )
+      )
+    }
+
+    for (const lid of lorebookIds) {
+      const book = await this.getLorebook(lid)
+      if (book) zip.file(`lorebooks/${lid}.json`, JSON.stringify(book, null, 2))
+    }
+
+    for (const c of wanted) {
+      const dirKey = keys.characterDirKey(c.id)
+      const card: Character = { ...c }
+      if (card.avatar) card.avatar = relativeToCharacterDir(dirKey, card.avatar)
+      if (card.emotions) {
+        const rel: Record<string, string> = {}
+        for (const [k, v] of Object.entries(card.emotions)) rel[k] = relativeToCharacterDir(dirKey, v)
+        card.emotions = rel
+      }
+      zip.file(`characters/${c.id}/card.json`, JSON.stringify(card, null, 2))
+
+      for (const { relPath, bytes } of await this.collectCharacterFiles(dirKey)) {
+        zip.file(`characters/${c.id}/${relPath}`, bytes)
+      }
+    }
+
+    const bytes = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' })
+    const filename =
+      wanted.length === 1
+        ? `${wanted[0]!.name?.trim() || 'character'}.dstpack`
+        : `DesktopST_${wanted.length}角色.dstpack`
+    return { bytes, filename }
+  }
+
+  /** 遞迴列出角色資料夾底下的所有檔案（`card.json` 除外），配 `exportPack` 用。 */
+  private async collectCharacterFiles(
+    dirKey: string
+  ): Promise<{ relPath: string; bytes: Uint8Array }[]> {
+    const out: { relPath: string; bytes: Uint8Array }[] = []
+    const walk = async (prefix: string): Promise<void> => {
+      const entries = await this.adapters.storage.list(prefix)
+      for (const entry of entries) {
+        if (entry.endsWith('/card.json')) continue
+        const bytes = await this.adapters.storage.readBinary(entry)
+        if (bytes) out.push({ relPath: relativeToCharacterDir(dirKey, entry), bytes })
+        else await walk(entry)
+      }
+    }
+    await walk(dirKey)
+    return out
+  }
+
   /** 沒有人在場時，把這隻拉上場（否則聊天列會是全空）。 */
   private async ensurePresent(id: string): Promise<void> {
     if (this.settings.ui.desktopCharacters.some((d) => d.characterId === id)) return
@@ -1275,6 +1447,24 @@ export class StandaloneSession {
       if (!id) continue
       const book = await this.getLorebook(id)
       if (book) out.push({ id: book.id, name: book.name })
+    }
+    return out
+  }
+
+  /**
+   * 用語解說的輕量清單，多帶 `updatedAt`。給 S2 M2 差異預覽
+   * （`syncManifest.ts` 的 `buildLocalManifest`）用——不改 `listLorebooks()`
+   * 的既有形狀，因為那支給角色卡編輯器的綁定用，只期待 `{id,name}`。
+   */
+  async listLorebooksManifest(): Promise<{ id: string; name: string; updatedAt: number }[]> {
+    const listed = await this.adapters.storage.list(keys.LOREBOOKS_DIR)
+    const out: { id: string; name: string; updatedAt: number }[] = []
+    for (const entry of listed) {
+      const name = entry.split('/').pop() ?? ''
+      const id = keys.idFromJsonName(name)
+      if (!id) continue
+      const book = await this.getLorebook(id)
+      if (book) out.push({ id: book.id, name: book.name, updatedAt: book.updatedAt })
     }
     return out
   }
@@ -1378,6 +1568,163 @@ export class StandaloneSession {
     const entry: LoreEntry = { id: newId(), insertion_order: book.entries.length, ...generated }
     await this.saveLorebook({ ...book, entries: [...book.entries, entry] })
     return { ok: true, entry }
+  }
+
+  // ── 個人新聞報：釘選／不看了（缺口 #6，B1 抽 core）────────────
+  // 設定與抓取還在 pending（news-standalone-kickoff.md §4 步驟④／⑤），
+  // 這裡先接「內容狀態」——跟桌面共用同一個 key 佈局。
+
+  async getNewsReaderState(): Promise<NewsReaderState> {
+    return newsReaderState.loadNewsReaderState(this.adapters.storage)
+  }
+
+  async saveNewsReaderPinned(items: unknown): Promise<NewsReaderState> {
+    const next = await newsReaderState.saveNewsReaderPinned(this.adapters.storage, items)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    return next
+  }
+
+  async saveNewsReaderDismissed(ids: unknown): Promise<NewsReaderState> {
+    const next = await newsReaderState.saveNewsReaderDismissed(this.adapters.storage, ids)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    return next
+  }
+
+  // ── 個人新聞報：抓取（缺口 #6，B1 抽 core，步驟④）───────────
+  // RSS 解析用瀏覽器原生 DOMParser（`rss-parser` 在 WebView 下會炸，
+  // 見 `core/news/rssAdapter.ts` 檔頭）。
+
+  private get newsFetchDeps(): newsReaderFetch.ReaderFetchDeps {
+    return { http: this.adapters.http, rss: domRssParser, storage: this.adapters.storage }
+  }
+
+  async getNewsReaderSnapshot(): Promise<NewsReaderSnapshot> {
+    const settings = await loadNewsModuleSettings(this.adapters.storage)
+    const state = await newsReaderState.loadNewsReaderState(this.adapters.storage)
+    return {
+      enabled: settings.enabled,
+      sources: settings.sources,
+      keywordGroups: settings.keywordGroups,
+      readerKeywordGroupIds: settings.readerKeywordGroupIds ?? [],
+      readerMaxItems: settings.readerMaxItems ?? 30,
+      readerPerKeyword: settings.readerPerKeyword ?? 3,
+      readerBreakoutQuota: settings.readerBreakoutQuota ?? 3,
+      pinnedItems: state.pinnedItems,
+      dismissedIds: state.dismissedIds
+    }
+  }
+
+  async fetchNewsReaderBatch(req?: newsReaderFetch.ReaderBatchRequest): Promise<newsReaderFetch.ReaderFetchResult> {
+    return newsReaderFetch.fetchReaderBatch(this.newsFetchDeps, req)
+  }
+
+  async fetchNewsReaderSection(req?: newsReaderFetch.ReaderSectionRequest): Promise<newsReaderFetch.ReaderFetchResult> {
+    return newsReaderFetch.fetchReaderSection(this.newsFetchDeps, req)
+  }
+
+  async setNewsReaderQuota(sectionGroupId: string, quota: number): Promise<newsReaderFetch.ReaderFetchResult> {
+    const result = await newsReaderFetch.setReaderQuota(this.newsFetchDeps, sectionGroupId, quota)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    return result
+  }
+
+  async setNewsReaderSourceOrder(orderedSourceIds: string[]) {
+    const sources = await newsReaderFetch.setReaderSourceOrder(this.newsFetchDeps, orderedSourceIds)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    return sources
+  }
+
+  async setNewsReaderKeywordGroups(ids: string[]): Promise<void> {
+    const cleaned = Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string' && id.length > 0) : []
+    await saveNewsModuleSettings(this.adapters.storage, { readerKeywordGroupIds: cleaned })
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  /** 開原文的隱性回饋加分（清單 F9）。 */
+  async markNewsOpened(sourceId: string): Promise<void> {
+    if (!sourceId) return
+    await applyNewsFeedbackDelta(this.adapters.storage, sourceId, 0.1)
+  }
+
+  // ── 個人新聞報：手機能改的設定（清單 6.1）─────────────────────
+  // 刻意不是整份 NewsModuleSettings：語言處理、破圈、學習權重屬於桌面設定
+  // 面板的深水區，手機上要的是「加個關鍵字、封鎖一個詞、加個 RSS」。
+
+  async getNewsEditableSettings(): Promise<NewsEditableSettings> {
+    const s = await loadNewsModuleSettings(this.adapters.storage)
+    return { enabled: s.enabled, sources: s.sources, keywordGroups: s.keywordGroups, blacklist: s.blacklist, speakButton: s.speakButton }
+  }
+
+  async saveNewsEditableSettings(patch: Partial<Omit<NewsEditableSettings, 'enabled'>>): Promise<NewsEditableSettings> {
+    const next = await saveNewsModuleSettings(this.adapters.storage, patch)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    return { enabled: next.enabled, sources: next.sources, keywordGroups: next.keywordGroups, blacklist: next.blacklist, speakButton: next.speakButton }
+  }
+
+  // ── 個人新聞報：定時陪聊（與桌面設定面板同一份資料形狀，各自的提醒存檔流程）──
+  // 比照桌面 scheduler.ts：在提醒清單裡塞一條特殊 Reminder；
+  // 但獨立版走自己的原生精準鬧鐘，所以直接沿用 saveReminder 那條既有存檔＋
+  // 重新註冊鬧鐘的路徑（`updateReminders`），不另造一套排程機制
+  // （mobile-standalone-reminder-plan.md §2.1）。
+
+  async getNewsSchedule(): Promise<NewsScheduleSnapshot> {
+    const settings = await loadNewsModuleSettings(this.adapters.storage)
+    return getNewsSchedulerState(this.reminders, settings)
+  }
+
+  async setNewsSchedule(next: NewsScheduleSnapshot): Promise<void> {
+    this.reminders = applyNewsSchedulerToReminders(this.reminders, next)
+    await this.adapters.storage.writeJson(keys.REMINDERS_KEY, this.reminders)
+    updateReminders(this.reminders)
+    await saveNewsModuleSettings(this.adapters.storage, { reminder: { enabled: !!next?.enabled, schedule: next?.schedule } })
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  // ── 個人新聞報：進 Prompt 的上下文補強（缺口 #6，B1 抽 core，步驟⑥）───
+  // 輔助模型設定沿用既有的 llm.utilityEnabled／utilityProvider／utilityModel，
+  // 不另開一套（news-standalone-kickoff.md §5 點 5）。
+
+  async enrichNewsForChat(item: NewsItem, forceRefresh?: boolean): Promise<{
+    ok: boolean
+    promptContext: string
+    source?: string
+    usedUtility?: boolean
+    warning?: string
+  }> {
+    try {
+      const enrich = await newsEnrich.enrichNewsForChat(
+        { http: this.adapters.http, storage: this.adapters.storage },
+        item,
+        { forceRefresh: !!forceRefresh, appSettings: this.settings }
+      )
+      if (enrich.warning) console.warn('[news enrich]', item.id || item.title, enrich.warning)
+      return { ok: true, promptContext: enrich.promptContext, source: enrich.source, usedUtility: enrich.usedUtility, warning: enrich.warning }
+    } catch (e) {
+      console.warn('[news enrich] failed', e)
+      return {
+        ok: true,
+        promptContext: item.summary || '',
+        source: 'rss-fallback',
+        usedUtility: false,
+        warning: e instanceof Error ? e.message : String(e)
+      }
+    }
+  }
+
+  /** 覆寫已送出訊息上的 promptContext（只影響後續延續話題）。 */
+  async updateNewsPromptContext(messageId: string, promptContext: string): Promise<{ ok: boolean; error?: string }> {
+    const pc = promptContext.trim()
+    const conv = this.activeConversation
+    if (!conv) return { ok: false, error: 'no-conversation' }
+    const msg = conv.messages.find((m) => m.id === messageId)
+    if (!msg?.newsLink) return { ok: false, error: 'no-news-link' }
+
+    msg.newsLink = { ...msg.newsLink, promptContext: pc }
+    conv.updatedAt = Date.now()
+    await this.saveConversation(conv)
+    if (msg.newsLink.id) newsEnrich.cacheManualPromptContext(msg.newsLink.id, pc)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    return { ok: true }
   }
 
   private async reloadReminders(): Promise<void> {

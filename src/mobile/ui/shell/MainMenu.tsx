@@ -27,10 +27,11 @@ interface MenuItemDef {
  * ⚠️ **灰掉而不是拿掉**（owner 2026-08-09）：這些是「還沒做」不是
  * 「這台裝置永遠沒有」——後者（遙控電腦）才用 `.filter()` 整個消失。
  * 直接讓人點進去會看到一個什麼都抓不到的空畫面，比灰掉更難懂。
+ *
+ * 個人新聞報（缺口 #6）已於 B1 抽 core 全部接完（抓取／設定／釘選／
+ * enrich／聊天注入），2026-08-12 解除灰掉。
  */
-const STANDALONE_PENDING: Partial<Record<ViewKind, string>> = {
-  news: '獨立版還沒接新聞來源，做好會開放'
-}
+const STANDALONE_PENDING: Partial<Record<ViewKind, string>> = {}
 
 const ITEMS: MenuItemDef[] = [
   { kind: 'conversations', icon: 'chat', label: '對話', hint: '切換、新增或重新命名對話' },

@@ -25,6 +25,17 @@ export interface Connection {
   token: string
 }
 
+/**
+ * 記住的「上次用哪個模式」（S2 M1）。只有原生殼會用到。
+ *
+ * `remote` 只在使用者曾經**成功切到遙控**時才有值——單純掃 QR 匯入（S1）
+ * 不會寫這裡，那是完全不同的動作（一次性拉資料，不是「接下來都連這台」）。
+ */
+export interface ModePref {
+  mode: AppMode
+  remote?: { baseUrl: string; token: string }
+}
+
 declare global {
   interface Window {
     __mobileToken?: string
@@ -34,7 +45,12 @@ declare global {
   }
 }
 
-export function resolveConnection(loc: Location = location): Connection {
+/**
+ * @param pref 記住的「上次用哪個模式」（S2 M1）。**只在原生殼、且沒有任何
+ *   URL／relay 訊號時**才會參考——那些訊號代表明確的外部意圖（掃 QR 開的頁面、
+ *   `dev:mobile --server=` 除錯），永遠比「上次記住的」優先。
+ */
+export function resolveConnection(loc: Location = location, pref?: ModePref | null): Connection {
   const params = new URLSearchParams(loc.search)
 
   const token = window.__mobileToken || params.get('token') || ''
@@ -59,14 +75,14 @@ export function resolveConnection(loc: Location = location): Connection {
     return { mode: 'standalone', baseUrl: '', token: '' }
   }
 
-  const wantRemote =
-    !Capacitor.isNativePlatform() ||
-    forceRemote ||
-    !!serverOverride ||
-    !!window.__mobileToken ||
-    !!relayDeviceId
+  const hasExplicitSignal = forceRemote || !!serverOverride || !!window.__mobileToken || !!relayDeviceId
+  const wantRemote = !Capacitor.isNativePlatform() || hasExplicitSignal
 
   if (!wantRemote) {
+    // 原生殼、沒有任何外部訊號 → 這才是記住的偏好該發揮作用的時候。
+    if (pref?.mode === 'remote' && pref.remote) {
+      return { mode: 'remote', baseUrl: pref.remote.baseUrl, token: pref.remote.token }
+    }
     return { mode: 'standalone', baseUrl: '', token: '' }
   }
 
@@ -82,6 +98,76 @@ export function wsUrlFor(conn: Connection): string {
   }
   const wsOrigin = location.origin.replace(/^http/, 'ws')
   return `${wsOrigin}${conn.baseUrl}/?token=${token}`
+}
+
+/**
+ * 探測一組 `{baseUrl, token}` 現在連不連得上（S2 M1 切換模式用）。
+ *
+ * 跟 `detectLanDirect` 故意分開：那支只在**已經確定要用**遙控時，
+ * 拿來判斷「是不是區網直連」；這支是**切換前的守門**，關心的是「連不連得上、
+ * 權杖還有沒有效」，401（權杖過期，`DesktopPullSection.tsx` 已有先例）也要算失敗。
+ */
+export async function checkRemoteReachable(baseUrl: string, token: string): Promise<boolean> {
+  try {
+    const base = baseUrl.replace(/\/$/, '')
+    const res = await fetch(`${base}/api/connection-info`, {
+      headers: { 'X-DesktopST-Token': token }
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export interface LiveRemoteResolution {
+  ok: boolean
+  /** `ok:true` 時才有意義：最後真的要用來連線的位址（可能已升級成區網直連）。 */
+  baseUrl?: string
+  token?: string
+  /** 走的是中繼、而且升級不了區網直連——這個 App 版本沒辦法在這條連線上建立即時遙控。 */
+  relayOnly?: boolean
+}
+
+/**
+ * 幫「App 內切換到遙控」（S2 M1 `ModeSwitcher.tsx`）決定實際要連的位址。
+ *
+ * ⚠️ **中繼網址不能直接拿來開 WebSocket。** `wsUrlFor()` 對一般伺服器位址是拿
+ * `baseUrl` 字串代換 `http→ws`，這對中繼完全是錯的路由——中繼的即時通道只有
+ * **中繼自己託管的網頁**載入時才會被注入正確位址（`window.__tunnelWsUrl`，
+ * 見 `main/cloudflare-worker.js`）。原生殼是自己組網址連過去，繞過了那層注入，
+ * 症狀是 HTTP（送訊息）正常、WebSocket（即時狀態／推播）永遠連不上、
+ * 畫面卡在「連線中斷，正在重新連線」（2026-08-12 owner 實機回報）。
+ *
+ * 因此**掃到中繼網址時，一律嘗試比照 S1（`syncImport.ts` 的 `upgradeToLan`）
+ * 升級成區網直連**；升級不了就老實回報 `relayOnly`，讓呼叫端明講「這條連線
+ * 這個版本還不支援即時遙控」，不要讓使用者切過去卻卡在一個永遠連不上的假連線。
+ */
+export async function resolveLiveRemote(baseUrl: string, token: string): Promise<LiveRemoteResolution> {
+  const base = baseUrl.replace(/\/$/, '')
+  const info = await fetchSyncInitInfo(base, token)
+  if (!info) return { ok: false }
+  if (info.lanDirect) return { ok: true, baseUrl: base, token }
+
+  const lanUrl = info.lanUrl?.trim()
+  if (lanUrl) {
+    const upgraded = await fetchSyncInitInfo(lanUrl.replace(/\/$/, ''), token)
+    if (upgraded?.lanDirect) return { ok: true, baseUrl: lanUrl.replace(/\/$/, ''), token }
+  }
+  return { ok: true, relayOnly: true }
+}
+
+async function fetchSyncInitInfo(
+  base: string,
+  token: string
+): Promise<{ lanDirect: boolean; lanUrl?: string } | null> {
+  try {
+    const res = await fetch(`${base}/api/sync-init`, { headers: { 'X-DesktopST-Token': token } })
+    if (!res.ok) return null
+    const data = (await res.json()) as { lanDirect?: boolean; lanUrl?: string }
+    return { lanDirect: !!data.lanDirect, lanUrl: data.lanUrl }
+  } catch {
+    return null
+  }
 }
 
 export async function detectLanDirect(conn: Connection): Promise<boolean> {

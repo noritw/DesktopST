@@ -328,6 +328,87 @@ describe('從電腦重新拉設定（可重複執行）', () => {
   })
 })
 
+/*
+ * owner 2026-08-12：「新聞設定能從電腦匯入過來嗎？不然我要手動重設關鍵字很麻煩」
+ * 新聞設定不在 settings.json，在 modules/desktopst.news/settings.json，
+ * 所以走 `applyNewsSettings` 而不是 `applySettings`。
+ */
+describe('S1：新聞設定（關鍵字／來源）從電腦帶過來', () => {
+  const newsBundle = (): SyncInitBundle =>
+    bundle({
+      news: {
+        sources: [
+          { id: 'kw1', type: 'keyword', label: '半導體', weight: 'often', enabled: true, origin: 'user' },
+          { id: 'feed1', type: 'rss', label: '某新聞網', url: 'https://example.com/rss', weight: 'normal', enabled: true, origin: 'user' }
+        ],
+        keywordGroups: [{ id: 'default', name: '預設組' }, { id: 'g-work', name: '上班用' }],
+        blacklist: ['詐騙'],
+        speakButton: 'always',
+        readerPerKeyword: 5
+      },
+      modules: [{ id: 'desktopst.news', label: '個人新聞報', enabled: true }]
+    })
+
+  it('關鍵字、來源、分組、黑名單都落地，模組也跟著打開', async () => {
+    const session = await boot()
+    await pullSettingsFromDesktop(SRC, session, fakeFetch(newsBundle(), null))
+
+    const settings = await session.getNewsEditableSettings()
+    expect(settings.enabled).toBe(true)
+    expect(settings.sources.map((s) => s.label)).toEqual(['半導體', '某新聞網'])
+    expect(settings.keywordGroups.map((g) => g.name)).toEqual(['預設組', '上班用'])
+    expect(settings.blacklist).toEqual(['詐騙'])
+    expect(settings.speakButton).toBe('always')
+  })
+
+  it('bundle 沒帶 news 時不動手機上既有的新聞設定', async () => {
+    const session = await boot()
+    await session.saveNewsEditableSettings({ blacklist: ['手機自己設的'] })
+
+    await pullSettingsFromDesktop(SRC, session, fakeFetch(bundle(), null))
+
+    expect((await session.getNewsEditableSettings()).blacklist).toEqual(['手機自己設的'])
+  })
+
+  it('關鍵字綁在自訂分組時，groupId 也一起帶過來（不會全部落回預設組）', async () => {
+    const session = await boot()
+    await pullSettingsFromDesktop(
+      SRC,
+      session,
+      fakeFetch(
+        bundle({
+          news: {
+            sources: [
+              { id: 'kw-work', type: 'keyword', label: '半導體', weight: 'often', enabled: true, origin: 'user', groupId: 'g-work' },
+              { id: 'kw-default', type: 'keyword', label: '貓咪', weight: 'normal', enabled: true, origin: 'user' }
+            ],
+            keywordGroups: [{ id: 'default', name: '預設組' }, { id: 'g-work', name: '上班用' }]
+          },
+          modules: [{ id: 'desktopst.news', label: '個人新聞報', enabled: true }]
+        }),
+        null
+      )
+    )
+
+    const settings = await session.getNewsEditableSettings()
+    expect(settings.sources.find((s) => s.label === '半導體')?.groupId).toBe('g-work')
+    expect(settings.sources.find((s) => s.label === '貓咪')?.groupId).toBeUndefined()
+  })
+
+  it('電腦端關著新聞時，手機這邊也跟著關（開關走 modules 那條）', async () => {
+    const session = await boot()
+    await session.setModuleEnabled('desktopst.news', true)
+
+    await pullSettingsFromDesktop(
+      SRC,
+      session,
+      fakeFetch(bundle({ modules: [{ id: 'desktopst.news', label: '個人新聞報', enabled: false }] }), null)
+    )
+
+    expect((await session.getNewsEditableSettings()).enabled).toBe(false)
+  })
+})
+
 describe('S1 relay → 區網自動升級', () => {
   /** relay 那條回 lanDirect:false ＋ lanUrl；區網那條回 lanDirect:true ＋ 金鑰。 */
   function twoHostFetch(opts: { lanReachable: boolean; lanUrl?: string }) {
