@@ -1,4 +1,5 @@
 import type { CollectionDiff, Manifest, SyncDiff } from '@core/sync/types'
+import type { PushSummary } from '../../runtime/syncPush'
 
 /**
  * S2 M2 差異預覽的文字呈現（`ModeSwitcher.tsx` 用 `ui.confirm` 顯示）。
@@ -55,4 +56,30 @@ export function formatDiffMessage(diff: SyncDiff): string {
   if (diff.settingsChanged) lines.push('設定：兩邊不一樣')
   lines.push('', '這個版本只預覽，不會搬動任何資料。')
   return lines.join('\n')
+}
+
+const PUSH_SUMMARY_LABELS: [keyof PushSummary, string][] = [
+  ['characters', '角色'],
+  ['personas', '人設'],
+  ['worlds', '世界觀'],
+  ['scenes', '情境'],
+  ['lorebooks', '用語解說']
+]
+
+/**
+ * 推送完成後的結果訊息（M3，`ModeSwitcher.tsx` 用 `ui.confirm` 顯示）。
+ *
+ * 使用者選「帶過去並切換」之前只看得到差異統計數字（`formatDiffMessage`）；
+ * 推送完之後應該要能看到「實際推了哪些名字」，不然使用者只知道按鈕按了、
+ * 不知道究竟改了什麼。
+ */
+export function formatPushSummaryMessage(summary: PushSummary): string {
+  const lines = PUSH_SUMMARY_LABELS.map(([key, label]) => {
+    const names = summary[key]
+    if (names.length === 0) return null
+    return `${label}（${names.length}）：${names.join('、')}`
+  }).filter((l): l is string => l !== null)
+
+  if (lines.length === 0) return '沒有東西被推送。'
+  return ['已推送到電腦：', ...lines].join('\n')
 }

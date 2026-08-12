@@ -156,13 +156,61 @@ describe('S2 M3 pushSync', () => {
     const { fetchImpl } = makeFakeFetch()
     const opts: PushOptions = { selectedIds: { characters: new Set(['c-test-1']) } }
 
-    await pushSync(SRC, session, diff, opts, fetchImpl)
+    const summary = await pushSync(SRC, session, diff, opts, fetchImpl)
 
     // 基準應該被更新
     const baseline = await readBaseline(session.adapters.storage)
     expect(baseline?.characters['c-test-1']).toBeDefined()
     expect(baseline?.characters['c-test-1']?.remoteId).toBe('c-test-1')
     expect(baseline?.characters['c-test-1']?.localUpdatedAt).toBe(2000)
+
+    // 回傳的 summary 要能讓 UI 顯示「實際推了什麼」，不是只有靜默成功
+    expect(summary.characters).toEqual(['測試角色'])
+  })
+
+  it('推送結果摘要包含每個 collection 實際推送的名字', async () => {
+    session.characters.push({
+      id: 'c-sum-1',
+      name: '摘要測試角色',
+      description: '',
+      emotions: {},
+      createdAt: 1,
+      updatedAt: 10
+    } as any)
+    session.personas.push({
+      id: 'p-sum-1',
+      name: '摘要測試人設',
+      displayName: 'P',
+      nickname: '',
+      description: '',
+      createdAt: 1,
+      updatedAt: 10
+    } as any)
+
+    const diff: SyncDiff = {
+      hasBaseline: true,
+      characters: { localNew: ['c-sum-1'], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      personas: { localNew: ['p-sum-1'], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      worlds: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      scenes: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      lorebooks: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      conversations: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      settingsChanged: false
+    }
+
+    const { fetchImpl } = makeFakeFetch()
+    const opts: PushOptions = {
+      selectedIds: { characters: new Set(['c-sum-1']), personas: new Set(['p-sum-1']) }
+    }
+
+    const summary = await pushSync(SRC, session, diff, opts, fetchImpl)
+
+    expect(summary.characters).toEqual(['摘要測試角色'])
+    expect(summary.personas).toEqual(['摘要測試人設'])
+    // 沒推的 collection 是空陣列，不是 undefined
+    expect(summary.worlds).toEqual([])
+    expect(summary.scenes).toEqual([])
+    expect(summary.lorebooks).toEqual([])
   })
 
   it('刪除的角色不被推送', async () => {

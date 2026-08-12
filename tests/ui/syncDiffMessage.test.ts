@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { formatDiffMessage, formatFirstRunMessage } from '../../src/mobile/ui/shell/syncDiffMessage'
+import { formatDiffMessage, formatFirstRunMessage, formatPushSummaryMessage } from '../../src/mobile/ui/shell/syncDiffMessage'
 import type { Manifest, SyncDiff } from '../../src/core/sync/types'
+import type { PushSummary } from '../../src/mobile/runtime/syncPush'
 
 function emptyManifest(): Manifest {
   return { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [], conversations: [], settingsHash: 'h' }
@@ -64,5 +65,28 @@ describe('formatDiffMessage', () => {
     const msg = formatDiffMessage(diff)
     expect(msg).toContain('衝突 1')
     expect(msg).toContain('設定：兩邊不一樣')
+  })
+})
+
+function emptyPushSummary(): PushSummary {
+  return { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [] }
+}
+
+describe('formatPushSummaryMessage', () => {
+  it('列出實際推送的名字，不是只有數字', () => {
+    const summary = emptyPushSummary()
+    summary.characters = ['星離宸', '琉緋璃']
+    summary.personas = ['電腦上的我']
+
+    const msg = formatPushSummaryMessage(summary)
+    expect(msg).toContain('角色（2）：星離宸、琉緋璃')
+    expect(msg).toContain('人設（1）：電腦上的我')
+    expect(msg).not.toContain('世界觀')
+  })
+
+  it('什麼都沒推時給出明確訊息，不是空字串', () => {
+    const summary = emptyPushSummary()
+    const msg = formatPushSummaryMessage(summary)
+    expect(msg).toBe('沒有東西被推送。')
   })
 })

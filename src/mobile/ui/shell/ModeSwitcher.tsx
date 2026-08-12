@@ -14,7 +14,7 @@ import { bootStandaloneSession, type StandaloneSession } from '../../runtime/ses
 import { buildLocalManifest, fetchRemoteManifest } from '../../runtime/syncManifest'
 import { readBaseline } from '../../runtime/syncBaseline'
 import { buildPushSelection, pushSync } from '../../runtime/syncPush'
-import { formatDiffMessage, formatFirstRunMessage } from './syncDiffMessage'
+import { formatDiffMessage, formatFirstRunMessage, formatPushSummaryMessage } from './syncDiffMessage'
 import type { SyncSource } from '../../runtime/syncTransport'
 import type { SyncDiff } from '@core/sync/types'
 
@@ -137,7 +137,7 @@ export function ModeSwitcher(): JSX.Element | null {
 
           try {
             const selectedIds = await buildPushSelection(diff, session)
-            await pushSync(
+            const summary = await pushSync(
               { baseUrl: conn.baseUrl, token: conn.token },
               session,
               diff,
@@ -148,7 +148,13 @@ export function ModeSwitcher(): JSX.Element | null {
                 }
               }
             )
-            toast('已推送資料，切換到本機模式')
+            // 推送成功但沒東西真的推過去（例如全部都是衝突）——不用彈結果對話框。
+            const pushedAnything = Object.values(summary).some((names) => names.length > 0)
+            if (pushedAnything) {
+              await confirm({ title: '推送完成', message: formatPushSummaryMessage(summary), confirmLabel: '好' })
+            } else {
+              toast('沒有東西需要推送')
+            }
           } catch (err) {
             toast(`推送失敗：${err instanceof Error ? err.message : String(err)}`, 'error')
             return

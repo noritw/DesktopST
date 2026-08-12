@@ -32,6 +32,18 @@ export interface PushOptions {
 }
 
 /**
+ * 推送結果摘要——每個 collection 實際推了哪些名字（不是 id，UI 直接顯示用）。
+ * 推送失敗時 `pushSync` 會拋錯，不會回傳這個；只有整趟成功才有意義。
+ */
+export interface PushSummary {
+  characters: string[]
+  personas: string[]
+  worlds: string[]
+  scenes: string[]
+  lorebooks: string[]
+}
+
+/**
  * 算出「帶過去並切換」預設要選的 id（M3 UI 用，`ModeSwitcher.tsx` 呼叫）。
  *
  * **第一次同步（`diff.hasBaseline === false`）要特別處理**：`computeDiff()`
@@ -76,7 +88,7 @@ export async function pushSync(
   diff: SyncDiff,
   opts: PushOptions,
   fetchImpl: FetchImpl = globalThis.fetch
-): Promise<void> {
+): Promise<PushSummary> {
   // 第一次同步（從未寫過基準）時 readBaseline() 回傳 null——這不是錯誤，
   // 是正常狀況：建一份空的基準骨架，讓推送迴圈往裡面填。
   const existing = await readBaseline(session.adapters.storage)
@@ -95,6 +107,7 @@ export async function pushSync(
 
   const updates = { ...baseline }
   let anyPushed = false
+  const summary: PushSummary = { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [] }
 
   try {
     // ── 角色推送 ──
@@ -102,9 +115,11 @@ export async function pushSync(
     for (const id of charIds) {
       // 第一次同步（!diff.hasBaseline）時 diff 刻意全空，信任 selectedIds（見 buildPushSelection）
       if (diff.hasBaseline && !diff.characters.localNew.includes(id) && !diff.characters.localModified.includes(id)) continue
-      opts.onProgress?.(`推送角色 ${session.characters.find((c) => c.id === id)?.name || id}...`)
+      const charName = session.characters.find((c) => c.id === id)?.name || id
+      opts.onProgress?.(`推送角色 ${charName}...`)
       await pushCharacter(src, session, id, fetchImpl)
       anyPushed = true
+      summary.characters.push(charName)
       const char = session.characters.find((c) => c.id === id)
       if (char) {
         if (!updates.characters[id]) {
@@ -125,6 +140,7 @@ export async function pushSync(
       opts.onProgress?.(`推送人設 ${persona.name || id}...`)
       await pushPersona(src, persona, fetchImpl)
       anyPushed = true
+      summary.personas.push(persona.name || id)
       if (!updates.personas[id]) {
         updates.personas[id] = { remoteId: id, localUpdatedAt: persona.updatedAt, remoteUpdatedAt: Date.now() }
       } else {
@@ -142,6 +158,7 @@ export async function pushSync(
       opts.onProgress?.(`推送世界觀 ${world.name || id}...`)
       await pushWorld(src, world, fetchImpl)
       anyPushed = true
+      summary.worlds.push(world.name || id)
       if (!updates.worlds[id]) {
         updates.worlds[id] = { remoteId: id, localUpdatedAt: world.updatedAt, remoteUpdatedAt: Date.now() }
       } else {
@@ -154,10 +171,11 @@ export async function pushSync(
     const lorebookIds = opts.selectedIds.lorebooks ?? new Set()
     for (const id of lorebookIds) {
       if (diff.hasBaseline && !diff.lorebooks.localNew.includes(id) && !diff.lorebooks.localModified.includes(id)) continue
-      opts.onProgress?.(`推送用語解說 ${id}...`)
+      const lore = await session.getLorebook(id)
+      opts.onProgress?.(`推送用語解說 ${lore?.name || id}...`)
       await pushLorebook(src, session, id, fetchImpl)
       anyPushed = true
-      const lore = await session.getLorebook(id)
+      summary.lorebooks.push(lore?.name || id)
       if (lore) {
         if (!updates.lorebooks[id]) {
           updates.lorebooks[id] = { remoteId: id, localUpdatedAt: lore.updatedAt, remoteUpdatedAt: Date.now() }
@@ -177,6 +195,7 @@ export async function pushSync(
       opts.onProgress?.(`推送情境 ${scene.name || id}...`)
       await pushScene(src, scene, fetchImpl)
       anyPushed = true
+      summary.scenes.push(scene.name || id)
       if (!updates.scenes[id]) {
         updates.scenes[id] = { remoteId: id, localUpdatedAt: scene.updatedAt, remoteUpdatedAt: Date.now() }
       } else {
@@ -195,6 +214,8 @@ export async function pushSync(
       // 亂改會讓 computeDiff 誤判成「設定已經同步過」。
       await writeBaseline(session.adapters.storage, updates)
     }
+
+    return summary
   } catch (err) {
     // 推送失敗時基準保持不變（CLAUDE.md §5 的坑）
     throw new Error(`推送失敗：${err instanceof Error ? err.message : String(err)}`)
