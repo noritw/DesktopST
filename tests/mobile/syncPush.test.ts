@@ -6,7 +6,7 @@ import { createMemoryStorage } from '../../src/mobile/adapters/memoryStorage'
 import { unavailableSecrets } from '../../src/mobile/adapters/secretCrypto'
 import { bootStandaloneSession, type StandaloneSession } from '../../src/mobile/runtime/session'
 import { readBaseline, writeBaseline } from '../../src/mobile/runtime/syncBaseline'
-import { pushSync, type PushOptions } from '../../src/mobile/runtime/syncPush'
+import { buildPushSelection, pushSync, type PushOptions } from '../../src/mobile/runtime/syncPush'
 
 const SRC = { baseUrl: 'http://192.168.1.20:3721', token: 'tok' }
 
@@ -22,6 +22,28 @@ function adapters(): PlatformAdapters {
 
 async function bootSession(): Promise<StandaloneSession> {
   return bootStandaloneSession(adapters(), { skipPackFetch: true })
+}
+
+const EMPTY_COLLECTION_DIFF = {
+  localNew: [],
+  localModified: [],
+  localDeleted: [],
+  remoteNew: [],
+  remoteModified: [],
+  remoteDeleted: [],
+  conflicts: []
+}
+
+/** 第一次同步的 diff：`computeDiff(null, ...)` 就是回傳這種形狀（`core/sync/diff.ts`）。 */
+const FIRST_SYNC_DIFF: SyncDiff = {
+  hasBaseline: false,
+  characters: EMPTY_COLLECTION_DIFF,
+  personas: EMPTY_COLLECTION_DIFF,
+  worlds: EMPTY_COLLECTION_DIFF,
+  scenes: EMPTY_COLLECTION_DIFF,
+  lorebooks: EMPTY_COLLECTION_DIFF,
+  conversations: EMPTY_COLLECTION_DIFF,
+  settingsChanged: false
 }
 
 /**
@@ -389,5 +411,103 @@ describe('S2 M3 pushSync', () => {
     const baselineAfterError = await readBaseline(session.adapters.storage)
     expect(baselineAfterError?.characters['c-fail']).toBeUndefined()
   })
+})
 
+describe('第一次同步（!diff.hasBaseline）', () => {
+  it('readBaseline 是 null 時 pushSync 不拋錯，建立新基準', async () => {
+    const session = await bootSession()
+    // 從未寫過基準 → readBaseline 回傳 null（不是「先切換過又壞掉」）
+    const before = await readBaseline(session.adapters.storage)
+    expect(before).toBeNull()
+
+    session.characters.push({
+      id: 'c1',
+      name: '第一次同步角色',
+      description: '',
+      emotions: {},
+      createdAt: 1,
+      updatedAt: 100
+    } as any)
+
+    const { fetchImpl } = makeFakeFetch()
+    const opts: PushOptions = { selectedIds: { characters: new Set(['c1']) } }
+
+    await pushSync(SRC, session, FIRST_SYNC_DIFF, opts, fetchImpl)
+
+    const after = await readBaseline(session.adapters.storage)
+    expect(after).not.toBeNull()
+    expect(after?.characters['c1']).toBeDefined()
+    expect(after?.hostBaseUrl).toBe(SRC.baseUrl)
+  })
+
+  it('buildPushSelection 選取全部本地資料，不理會刻意留空的 diff', async () => {
+    const session = await bootSession()
+    session.characters.push({ id: 'c1', name: 'A', description: '', emotions: {}, createdAt: 1, updatedAt: 1 } as any)
+    session.characters.push({ id: 'c2', name: 'B', description: '', emotions: {}, createdAt: 1, updatedAt: 1 } as any)
+    session.personas.push({
+      id: 'p1',
+      name: 'P',
+      displayName: 'P',
+      nickname: '',
+      description: '',
+      createdAt: 1,
+      updatedAt: 1
+    } as any)
+
+    const selection = await buildPushSelection(FIRST_SYNC_DIFF, session)
+
+    // FIRST_SYNC_DIFF.characters.localNew 是空陣列，但本地明明有角色——
+    // 這裡驗證的正是「不能直接拿 diff.localNew 建選取清單」這個曾經的 bug。
+    // bootStandaloneSession 會種一個預設角色，所以拿 session.characters 的
+    // 完整 id 清單來比對，而不是寫死只有 c1／c2。
+    expect(selection.characters).toEqual(new Set(session.characters.map((c) => c.id)))
+    expect(selection.characters!.has('c1')).toBe(true)
+    expect(selection.characters!.has('c2')).toBe(true)
+    expect(selection.personas).toEqual(new Set(session.personas.map((p) => p.id)))
+    expect(selection.personas!.has('p1')).toBe(true)
+  })
+
+  it('端到端：第一次同步用 buildPushSelection 的結果真的能推送成功', async () => {
+    const session = await bootSession()
+    session.characters.push({
+      id: 'c1',
+      name: '端到端測試',
+      description: '',
+      emotions: {},
+      createdAt: 1,
+      updatedAt: 1
+    } as any)
+
+    const { fetchImpl, calls } = makeFakeFetch()
+    const selectedIds = await buildPushSelection(FIRST_SYNC_DIFF, session)
+    await pushSync(SRC, session, FIRST_SYNC_DIFF, { selectedIds }, fetchImpl)
+
+    const pushCall = calls.find((c) => c.path === '/api/characters/import-pack')
+    expect(pushCall).toBeDefined()
+
+    const baseline = await readBaseline(session.adapters.storage)
+    expect(baseline?.characters['c1']).toBeDefined()
+  })
+
+  it('有基準時 buildPushSelection 只選 diff 標記的新增／修改，不是全部本地資料', async () => {
+    const session = await bootSession()
+    session.characters.push({ id: 'c1', name: 'New', description: '', emotions: {}, createdAt: 1, updatedAt: 1 } as any)
+    session.characters.push({ id: 'c2', name: 'Untouched', description: '', emotions: {}, createdAt: 1, updatedAt: 1 } as any)
+
+    const diffWithBaseline: SyncDiff = {
+      hasBaseline: true,
+      characters: { ...EMPTY_COLLECTION_DIFF, localNew: ['c1'] },
+      personas: EMPTY_COLLECTION_DIFF,
+      worlds: EMPTY_COLLECTION_DIFF,
+      scenes: EMPTY_COLLECTION_DIFF,
+      lorebooks: EMPTY_COLLECTION_DIFF,
+      conversations: EMPTY_COLLECTION_DIFF,
+      settingsChanged: false
+    }
+
+    const selection = await buildPushSelection(diffWithBaseline, session)
+
+    // 只選 c1（diff 標記的新增），不選 c2（未變動、diff 沒提到）
+    expect(selection.characters).toEqual(new Set(['c1']))
+  })
 })

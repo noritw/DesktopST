@@ -13,7 +13,7 @@ import { getStandaloneSession } from '../../runtime/sessionHolder'
 import { bootStandaloneSession, type StandaloneSession } from '../../runtime/session'
 import { buildLocalManifest, fetchRemoteManifest } from '../../runtime/syncManifest'
 import { readBaseline } from '../../runtime/syncBaseline'
-import { pushSync } from '../../runtime/syncPush'
+import { buildPushSelection, pushSync } from '../../runtime/syncPush'
 import { formatDiffMessage, formatFirstRunMessage } from './syncDiffMessage'
 import type { SyncSource } from '../../runtime/syncTransport'
 import type { SyncDiff } from '@core/sync/types'
@@ -136,18 +136,13 @@ export function ModeSwitcher(): JSX.Element | null {
           }
 
           try {
+            const selectedIds = await buildPushSelection(diff, session)
             await pushSync(
               { baseUrl: conn.baseUrl, token: conn.token },
               session,
               diff,
               {
-                selectedIds: {
-                  characters: new Set([...diff.characters.localNew, ...diff.characters.localModified]),
-                  personas: new Set([...diff.personas.localNew, ...diff.personas.localModified]),
-                  worlds: new Set([...diff.worlds.localNew, ...diff.worlds.localModified]),
-                  scenes: new Set([...diff.scenes.localNew, ...diff.scenes.localModified]),
-                  lorebooks: new Set([...diff.lorebooks.localNew, ...diff.lorebooks.localModified])
-                },
+                selectedIds,
                 onProgress: (msg: string) => {
                   toast(msg)
                 }

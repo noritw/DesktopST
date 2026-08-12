@@ -32,6 +32,36 @@ export interface PushOptions {
 }
 
 /**
+ * 算出「帶過去並切換」預設要選的 id（M3 UI 用，`ModeSwitcher.tsx` 呼叫）。
+ *
+ * **第一次同步（`diff.hasBaseline === false`）要特別處理**：`computeDiff()`
+ * 對第一次同步刻意讓每個 collection 全空（`core/sync/diff.ts` 的註解——
+ * 不要把「本地目前有的資料」逐筆判成新增，那只是在重述使用者有資料）。
+ * 但這代表如果直接拿 `diff.characters.localNew` 建選取清單，第一次同步時
+ * 會全部是空集合、使用者選了「帶過去」卻什麼都沒推。第一次同步要推的
+ * 是「本地目前全部的資料」，不是 diff 裡（刻意留空）的新增清單。
+ */
+export async function buildPushSelection(diff: SyncDiff, session: StandaloneSession): Promise<PushOptions['selectedIds']> {
+  if (!diff.hasBaseline) {
+    const lorebooks = await session.listLorebooksManifest()
+    return {
+      characters: new Set(session.characters.map((c) => c.id)),
+      personas: new Set(session.personas.map((p) => p.id)),
+      worlds: new Set(session.worlds.map((w) => w.id)),
+      scenes: new Set(session.scenes.map((s) => s.id)),
+      lorebooks: new Set(lorebooks.map((l) => l.id))
+    }
+  }
+  return {
+    characters: new Set([...diff.characters.localNew, ...diff.characters.localModified]),
+    personas: new Set([...diff.personas.localNew, ...diff.personas.localModified]),
+    worlds: new Set([...diff.worlds.localNew, ...diff.worlds.localModified]),
+    scenes: new Set([...diff.scenes.localNew, ...diff.scenes.localModified]),
+    lorebooks: new Set([...diff.lorebooks.localNew, ...diff.lorebooks.localModified])
+  }
+}
+
+/**
  * 推送選中的資料到電腦，並更新本地基準（§5 步驟②）。
  *
  * 呼叫端（`ModeSwitcher.tsx`）負責：
@@ -47,8 +77,21 @@ export async function pushSync(
   opts: PushOptions,
   fetchImpl: FetchImpl = globalThis.fetch
 ): Promise<void> {
-  const baseline = await readBaseline(session.adapters.storage)
-  if (!baseline) throw new Error('No baseline to update')
+  // 第一次同步（從未寫過基準）時 readBaseline() 回傳 null——這不是錯誤，
+  // 是正常狀況：建一份空的基準骨架，讓推送迴圈往裡面填。
+  const existing = await readBaseline(session.adapters.storage)
+  const baseline: SyncBaseline =
+    existing ?? {
+      hostBaseUrl: src.baseUrl,
+      syncedAt: 0,
+      settingsHash: '',
+      characters: {},
+      personas: {},
+      worlds: {},
+      scenes: {},
+      lorebooks: {},
+      conversations: {}
+    }
 
   const updates = { ...baseline }
   let anyPushed = false
@@ -57,7 +100,8 @@ export async function pushSync(
     // ── 角色推送 ──
     const charIds = opts.selectedIds.characters ?? new Set()
     for (const id of charIds) {
-      if (!diff.characters.localNew.includes(id) && !diff.characters.localModified.includes(id)) continue
+      // 第一次同步（!diff.hasBaseline）時 diff 刻意全空，信任 selectedIds（見 buildPushSelection）
+      if (diff.hasBaseline && !diff.characters.localNew.includes(id) && !diff.characters.localModified.includes(id)) continue
       opts.onProgress?.(`推送角色 ${session.characters.find((c) => c.id === id)?.name || id}...`)
       await pushCharacter(src, session, id, fetchImpl)
       anyPushed = true
@@ -75,7 +119,7 @@ export async function pushSync(
     // ── 人設推送 ──
     const personaIds = opts.selectedIds.personas ?? new Set()
     for (const id of personaIds) {
-      if (!diff.personas.localNew.includes(id) && !diff.personas.localModified.includes(id)) continue
+      if (diff.hasBaseline && !diff.personas.localNew.includes(id) && !diff.personas.localModified.includes(id)) continue
       const persona = session.personas.find((p) => p.id === id)
       if (!persona) continue
       opts.onProgress?.(`推送人設 ${persona.name || id}...`)
@@ -92,7 +136,7 @@ export async function pushSync(
     // ── 世界觀推送 ──
     const worldIds = opts.selectedIds.worlds ?? new Set()
     for (const id of worldIds) {
-      if (!diff.worlds.localNew.includes(id) && !diff.worlds.localModified.includes(id)) continue
+      if (diff.hasBaseline && !diff.worlds.localNew.includes(id) && !diff.worlds.localModified.includes(id)) continue
       const world = session.worlds.find((w) => w.id === id)
       if (!world) continue
       opts.onProgress?.(`推送世界觀 ${world.name || id}...`)
@@ -109,7 +153,7 @@ export async function pushSync(
     // ── 用語解說推送 ──
     const lorebookIds = opts.selectedIds.lorebooks ?? new Set()
     for (const id of lorebookIds) {
-      if (!diff.lorebooks.localNew.includes(id) && !diff.lorebooks.localModified.includes(id)) continue
+      if (diff.hasBaseline && !diff.lorebooks.localNew.includes(id) && !diff.lorebooks.localModified.includes(id)) continue
       opts.onProgress?.(`推送用語解說 ${id}...`)
       await pushLorebook(src, session, id, fetchImpl)
       anyPushed = true
@@ -127,7 +171,7 @@ export async function pushSync(
     // ── 情境推送（§5 步驟③）──
     const sceneIds = opts.selectedIds.scenes ?? new Set()
     for (const id of sceneIds) {
-      if (!diff.scenes.localNew.includes(id) && !diff.scenes.localModified.includes(id)) continue
+      if (diff.hasBaseline && !diff.scenes.localNew.includes(id) && !diff.scenes.localModified.includes(id)) continue
       const scene = session.scenes.find((s) => s.id === id)
       if (!scene) continue
       opts.onProgress?.(`推送情境 ${scene.name || id}...`)
@@ -146,6 +190,9 @@ export async function pushSync(
       opts.onProgress?.('更新同步基準...')
       // 換主機時基準作廢（§7.6）
       updates.hostBaseUrl = src.baseUrl
+      updates.syncedAt = Date.now()
+      // settingsHash 不動：這一版設定推送還沒接進主迴圈（§5 步驟④待做），
+      // 亂改會讓 computeDiff 誤判成「設定已經同步過」。
       await writeBaseline(session.adapters.storage, updates)
     }
   } catch (err) {
