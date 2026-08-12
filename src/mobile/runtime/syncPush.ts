@@ -328,12 +328,28 @@ async function pushJson(src: SyncSource, path: string, payload: unknown, fetchIm
 
 /**
  * 推送二進位資料到電腦。
+ *
+ * ⚠️ **手機端不能用 `Buffer`**：那是 Node.js 專屬全域物件，WebView／瀏覽器
+ * 執行環境沒有這東西（症狀：`Buffer is not defined`）。
+ *
+ * ⚠️ **也不能直接送 `Uint8Array` 或 `Blob`**：CapacitorHttp 的 Android
+ * 原生橋接（`native-bridge.js` 的 `convertBody()`）對這兩種 body 都會先
+ * `new TextDecoder().decode()` 轉成字串，原生層再 `getBytes(UTF_8)`
+ * 轉回位元組——任意二進位資料經過這個 UTF-8 往返幾乎必壞（`.dstpack`
+ * 是 JSZip 產出的 ZIP，內容不是合法 UTF-8）。橋接只有 `File` 這個 body
+ * 型別會走 base64 編碼上橋、原生端用 `Base64.decode` 直接寫回輸出串流，
+ * 是唯一位元組正確的路徑（`CapacitorHttpUrlConnection.java` 的
+ * `bodyType.equals("file")` 分支）——所以就算不是要上傳「檔案」，
+ * 這裡也要包成 `File` 才會送到位元組正確的資料。
  */
 async function pushBinary(src: SyncSource, path: string, data: Uint8Array, fetchImpl: FetchImpl): Promise<void> {
   const token = `Bearer ${src.token}`
   const url = `${src.baseUrl}${path}`
-  // Uint8Array 需轉為 Buffer 或 ArrayBuffer 才能作為 fetch body
-  const body = data instanceof Buffer ? data : Buffer.from(data)
+  // 複製一份再包：data 底下的 ArrayBuffer 型別上可能是 SharedArrayBuffer，
+  // File／Blob 只吃一般的 ArrayBuffer（比照 fileTransfer.ts 的 downloadBytes）。
+  const body = new File([new Uint8Array(data).slice().buffer as ArrayBuffer], 'push.bin', {
+    type: 'application/octet-stream'
+  })
   const res = await fetchImpl(url, {
     method: 'POST',
     headers: {
