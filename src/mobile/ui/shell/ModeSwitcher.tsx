@@ -129,10 +129,10 @@ export function ModeSwitcher(): JSX.Element | null {
 
         if (choice === 'push') {
           // M3 推送邏輯：選中所有新增＋修改的項目推送
-          const session = getStandaloneSession()
+          // 在遙控模式下沒有活著的 session（資料在電腦上），臨時建立本機讀取用
+          let session = getStandaloneSession()
           if (!session) {
-            toast('本機 session 不可用', 'error')
-            return
+            session = await bootStandaloneSession(capacitorAdapters, { skipPackFetch: true })
           }
 
           try {
@@ -153,7 +153,7 @@ export function ModeSwitcher(): JSX.Element | null {
                 }
               }
             )
-            toast('已推送資料，切換到遙控模式')
+            toast('已推送資料，切換到本機模式')
           } catch (err) {
             toast(`推送失敗：${err instanceof Error ? err.message : String(err)}`, 'error')
             return
