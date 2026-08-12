@@ -1,5 +1,10 @@
 # 個人新聞報 — 手機版 實作規劃
 
+
+> ⚠️ **2026-08-12 起地方新聞已不存在獨立欄位**，縣市併回一般關鍵字組
+> （`docs/news-local-merge-plan.md`）。本文件提到「地方新聞」的段落請當歷史看。
+
+
 > 狀態：**已實作完成**（階段 1–3；階段 4 匯出／匯入依 owner 決定不做）
 > 基準版本：v0.3.8（`040b23c`）
 > 相關：`docs/news-module-design.md`、`docs/remote-control-plan.md`
@@ -299,5 +304,5 @@ export async function fetchReaderSection(settings, req): Promise<ReaderResult>
 
 - **換一批的釘選併回較桌面簡化**：桌面版 `mergeKeepingPins` 會依每欄配額細部併回；
   手機版是「釘選一律保留，分欄時各自歸位、排在該欄最前」。行為好預測，也不必維護第二份配額演算法。
-- **地方新聞 / 訂閱來源欄的則數**沒有獨立配額，改的是全域 `readerPerKeyword`（與桌面同行為）。
+- **訂閱來源欄的則數**沒有獨立配額，改的是全域 `readerPerKeyword`（與桌面同行為）。
 - 手機不提供新聞模組總開關與設定入口（見 §6），停用時只顯示提示。

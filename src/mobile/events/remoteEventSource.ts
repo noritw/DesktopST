@@ -118,16 +118,22 @@ export class RemoteEventSource implements EventSource {
     this.hub.setStatus('connecting')
     const create = this.opts.createSocket ?? ((url: string) => new WebSocket(url) as unknown as WebSocketLike)
 
+    const url = this.opts.wsUrl()
+    // eslint-disable-next-line no-console -- 暫時診斷（S2 M1「連線中斷」追查用，見 CLAUDE.md §5）
+    console.info('[RemoteEventSource] connecting', url)
+
     let socket: WebSocketLike
     try {
-      socket = create(this.opts.wsUrl())
-    } catch {
+      socket = create(url)
+    } catch (e) {
+      console.info('[RemoteEventSource] create() threw', e)
       this.handleClose()
       return
     }
     this.socket = socket
 
     socket.addEventListener('open', () => {
+      console.info('[RemoteEventSource] open')
       this.retryCount = 0
       this.failCount = 0
       this.hub.setStatus('online')
@@ -137,8 +143,15 @@ export class RemoteEventSource implements EventSource {
     })
 
     socket.addEventListener('message', (e) => this.handleMessage(e.data))
-    socket.addEventListener('close', () => this.handleClose())
-    socket.addEventListener('error', () => socket.close())
+    socket.addEventListener('close', (e) => {
+      const ce = e as unknown as { code?: number; reason?: string; wasClean?: boolean }
+      console.info('[RemoteEventSource] close', { code: ce.code, reason: ce.reason, wasClean: ce.wasClean })
+      this.handleClose()
+    })
+    socket.addEventListener('error', (e) => {
+      console.info('[RemoteEventSource] error', e)
+      socket.close()
+    })
   }
 
   private handleClose(): void {

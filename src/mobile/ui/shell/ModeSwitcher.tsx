@@ -13,8 +13,10 @@ import { getStandaloneSession } from '../../runtime/sessionHolder'
 import { bootStandaloneSession, type StandaloneSession } from '../../runtime/session'
 import { buildLocalManifest, fetchRemoteManifest } from '../../runtime/syncManifest'
 import { readBaseline } from '../../runtime/syncBaseline'
+import { pushSync } from '../../runtime/syncPush'
 import { formatDiffMessage, formatFirstRunMessage } from './syncDiffMessage'
 import type { SyncSource } from '../../runtime/syncTransport'
+import type { SyncDiff } from '@core/sync/types'
 
 /**
  * 模式切換（S2 M1，`docs/mobile-mode-switch-sync.md` §4）。
@@ -51,8 +53,40 @@ export function ModeSwitcher(): JSX.Element | null {
   }
 
   /**
-   * S2 M2 差異預覽（`docs/mobile-mode-switch-sync.md` §7.1）——只顯示「剛才在寫
-   * 那一份資料相對於基準有什麼不一樣」，**不搬任何資料**（那是 M3）。
+   * S2 M3 切換前預覽并提供三選項（`docs/mobile-sync-m3-kickoff.md` §4）。
+   *
+   * 回傳 object 或 null：
+   * - `{ choice: 'push', diff }`：帶過去並切換（進行 M3 推送）
+   * - `{ choice: 'switch', diff }`：直接切換不帶（基準保持不動）
+   * - `null`：取消切換
+   */
+  const previewBeforeSwitchWithChoice = async (remoteSrc: SyncSource): Promise<{ choice: 'push' | 'switch'; diff: SyncDiff } | null> => {
+    let localSession: StandaloneSession
+    try {
+      localSession = getStandaloneSession() ?? (await bootStandaloneSession(capacitorAdapters, { skipPackFetch: true }))
+      const [baseline, local, remote] = await Promise.all([
+        readBaseline(capacitorAdapters.storage),
+        buildLocalManifest(localSession),
+        fetchRemoteManifest(remoteSrc)
+      ])
+      const diff = computeDiff(baseline, local, remote)
+      if (!diff.hasBaseline) {
+        const choice = await confirmWithChoice({
+          title: '切換前預覽',
+          message: formatFirstRunMessage(local, remote)
+        })
+        return choice ? { choice, diff } : null
+      }
+      if (isDiffEmpty(diff)) return { choice: 'switch', diff }
+      const choice = await confirmWithChoice({ title: '切換前預覽', message: formatDiffMessage(diff) })
+      return choice ? { choice, diff } : null
+    } catch {
+      return { choice: 'switch', diff: { hasBaseline: false, characters: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] }, personas: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] }, worlds: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] }, scenes: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] }, lorebooks: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] }, conversations: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] }, settingsChanged: false } }
+    }
+  }
+
+  /**
+   * S2 M2 差異預覽（舊版，只有「繼續」和「取消」）——保留給非切換流程用。
    *
    * 抓不到清單（電腦連不上、或本地資料讀取失敗）就直接放行，不擋切換：
    * 「不可以因為同步失敗就把使用者卡在原模式」（§7.7）。
@@ -86,12 +120,52 @@ export function ModeSwitcher(): JSX.Element | null {
 
   const goStandalone = async (): Promise<void> => {
     if (!guardSending()) return
-    if (conn.mode === 'remote') {
-      const proceed = await previewBeforeSwitch({ baseUrl: conn.baseUrl, token: conn.token })
-      if (!proceed) return
+    setBusy(true)
+    try {
+      if (conn.mode === 'remote') {
+        const result = await previewBeforeSwitchWithChoice({ baseUrl: conn.baseUrl, token: conn.token })
+        if (!result) return // 取消
+        const { choice, diff } = result
+
+        if (choice === 'push') {
+          // M3 推送邏輯：選中所有新增＋修改的項目推送
+          const session = getStandaloneSession()
+          if (!session) {
+            toast('本機 session 不可用', 'error')
+            return
+          }
+
+          try {
+            await pushSync(
+              { baseUrl: conn.baseUrl, token: conn.token },
+              session,
+              diff,
+              {
+                selectedIds: {
+                  characters: new Set([...diff.characters.localNew, ...diff.characters.localModified]),
+                  personas: new Set([...diff.personas.localNew, ...diff.personas.localModified]),
+                  worlds: new Set([...diff.worlds.localNew, ...diff.worlds.localModified]),
+                  scenes: new Set([...diff.scenes.localNew, ...diff.scenes.localModified]),
+                  lorebooks: new Set([...diff.lorebooks.localNew, ...diff.lorebooks.localModified])
+                },
+                onProgress: (msg: string) => {
+                  toast(msg)
+                }
+              }
+            )
+            toast('已推送資料，切換到遙控模式')
+          } catch (err) {
+            toast(`推送失敗：${err instanceof Error ? err.message : String(err)}`, 'error')
+            return
+          }
+        }
+        // choice === 'switch'：直接切換，不帶資料
+      }
+      await switchTo({ mode: 'standalone', baseUrl: '', token: '' })
+      toast('已切換到本機模式')
+    } finally {
+      setBusy(false)
     }
-    await switchTo({ mode: 'standalone', baseUrl: '', token: '' })
-    toast('已切換到本機模式')
   }
 
   const tryConnect = async (baseUrl: string, token: string): Promise<boolean> => {
@@ -149,6 +223,31 @@ export function ModeSwitcher(): JSX.Element | null {
       return
     }
     await tryConnect(parsed.baseUrl, parsed.token)
+  }
+
+  /**
+   * 三選項對話（M3，§4）：帶過去 ／ 直接切 ／ 取消。
+   *
+   * confirm 按鈕當「直接切換，不帶」；extraActions 加一顆「帶過去並切換」。
+   */
+  const confirmWithChoice = (opts: { title: string; message: string }): Promise<'push' | 'switch' | null> => {
+    return new Promise((resolve) => {
+      confirm({
+        title: opts.title,
+        message: opts.message,
+        confirmLabel: '直接切換（不帶資料）',
+        extraActions: [
+          {
+            label: '帶過去並切換',
+            onClick: () => resolve('push'),
+            closeAfter: true
+          }
+        ]
+      }).then((result) => {
+        if (result) resolve('switch') // confirm 按鈕 → 「直接切」
+        else resolve(null) // 取消或背景關閉
+      })
+    })
   }
 
   return (

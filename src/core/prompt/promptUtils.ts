@@ -192,15 +192,28 @@ export function expandNewsLinkForPrompt(messages: Message[]): Message[] {
   return messages.map(m => {
     if (m.role !== 'user' || !m.newsLink) return m
     const link = m.newsLink
+    // ⚠️ 空字串與 undefined **意義不同**：`''` 是使用者按了「清除摘要」，
+    // `undefined` 是從來沒整理過（那時仍該退回 summary）。
+    // 所以這裡是 `??` 不是 `||`——寫成 falsy 判斷的話清除按鈕等於沒作用。
     const pc = (link.promptContext ?? link.summary ?? '').trim()
     const title = (link.title || m.content).trim()
     if (!title && !pc) return m
-    const lines = ['[Sharing a news item with you]']
-    if (title) lines.push(`Title: ${title}`)
-    if (pc && pc !== title) lines.push(`Details: ${pc}`)
-    if (link.source) lines.push(`Source: ${link.source}`)
-    lines.push('')
-    lines.push('(The chat bubble only shows the title; use the Details above as background. Reply in character.)')
+
+    // 摘要被清空＝「這則聊過了，留個紀錄就好」（owner 2026-08-12）。
+    // 只留一行標題，**來源與說明句都不要**：角色當時的回覆本來就還在對話裡，
+    // 脈絡不缺；而指著不存在的 Details 說「用上面的背景」只會讓模型自己編。
+    // 之後按「重新摘要」把 promptContext 補回來，下面的完整格式就會回來。
+    const lines = pc
+      ? [
+          '[Sharing a news item with you]',
+          ...(title ? [`Title: ${title}`] : []),
+          ...(pc !== title ? [`Details: ${pc}`] : []),
+          ...(link.source ? [`Source: ${link.source}`] : []),
+          '',
+          '(The chat bubble only shows the title; use the Details above as background. Reply in character.)'
+        ]
+      : [`[Shared News] ${title}`]
+
     // 若使用者在標題外還打了別的字，保留在後面
     const extra = m.content.trim()
     const body = extra && extra !== title ? `${lines.join('\n')}\n\n${extra}` : lines.join('\n')

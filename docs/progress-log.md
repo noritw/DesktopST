@@ -1544,3 +1544,305 @@ owner：「沒有網路的情況下提醒被吞掉是正常的嗎？」紀錄是
 提醒紀錄：離線驗證2 | offline_plain | 「提醒我把水壺裝滿（離線中，角色暫時說不了話）」
 快取：{} —— 沒有被毒化
 ```
+
+---
+
+## 手機獨立版個人新聞報（缺口 #6，2026-08-12）
+
+依 `news-standalone-kickoff.md` §4 的建議順序，分七步把新聞報從只有桌面能用
+抽成桌面／手機共用的 `core/news/`，逐步接上 `LocalDataSource.news.*`（15 支
+`pending` 全部接完）。過程中每步都 `npm test` ＋ `typecheck`，重要節點另外
+用 Browser 分頁跑過。
+
+**新增的 core 檔案**：`moduleId.ts`（module id 單一來源）、`rssAdapter.ts`
+（`RssParseAdapter` 介面）、`sources.ts`（抓取／快取，改吃注入的
+`{http, rss}`）、`readerState.ts`（釘選／不看了）、`settings.ts`（正規化＋
+讀寫）、`readerFetch.ts`（批次／單欄抓取＋配額／排序）、`enrich.ts`
+（原本純規則那半之外，把抓原文／輔助模型摘要那半也搬進來，改吃
+`{http, storage}`）、`schedule.ts`（定時陪聊要塞進提醒清單的那條特殊
+Reminder，純函式）、`injection.ts`（「說點什麼」／主動發話的抽選＋記已讀＋
+enrich 整套流程，桌面與手機共用）。桌面 `main/modules/news/*` 全部改薄殼，
+固定綁 `electronHttp`／`electronRssParser`（包 `rss-parser` 的 `parseString`）
+／`electronStorage`，函式簽章不變，`ipc.ts`／`mobileRoutes.ts` 完全沒動。
+
+**§3.1 的技術決策（RSS 解析）**：實測 `rss-parser`（底層 `xml2js`）在
+`vite build --config vite.mobile.config.ts` 下會把 `events`／`timers`／
+`stream` 外部化成空殼——build 不報錯，但那些模組是真的被用到（`sax` 內部
+靠 `events.EventEmitter`），一執行就炸。改成 `core` 只定義
+`RssParseAdapter` 介面（`parseFeed`／`parseTrendsFeed`，吃已解析好的
+`ParsedFeed`），桌面注入包 `rss-parser` 的版本，手機注入
+`mobile/adapters/rssParseAdapter.ts`（瀏覽器原生 `DOMParser`，含 Google
+Trends 的 `ht:news_item` 命名空間解析）。手機版沒辦法走 vitest（Node 環境
+沒有 `DOMParser`），改用 Browser 分頁的 `javascript_tool` 對著真的 Chromium
+餵 Google News／一般 RSS＋`content:encoded`／Atom／Trends 熱搜四種樣本
+XML，全部欄位解析正確才定案。
+
+**步驟⑦「聊天注入」是真正的缺口本體**：`mobile/runtime/chat.ts` 原本
+只認得已經掛好的 `newsLink`（「聊這個」明確點選才會動，靠 `chatWithLLM`
+內建的 `expandNewsLinkForPrompt` 自動展開，這段其實早就通了），但完全沒有
+「主動抽一則新聞當話題」的邏輯——`forceSpeakStandalone`（說點什麼）與
+`reminderSpeak.ts`（`reminder.injectNews`）都是照抄桌面砍掉新聞那段留下的
+空缺。這次比照桌面 `ipcHandlers.ts` 的兩條路徑接上
+`core/news/injection.ts` 的 `getNewsInjectionForSpeak`：說點什麼走
+`triggerDirective` 傳指令（跟桌面 force-speak 路徑一致），提醒路線因為
+沒有「便利貼併選」的候選機制，指令直接併進 `[發話重點]`（跟桌面提醒路線
+一致）。兩處都會把抽中的新聞（或釘住的話題）轉成 `newsLink` 掛回訊息，
+讓聊天泡泡的 📰 標題與「作為後續聊天主題」按鈕動起來。角色卡的
+`newsKeywords`／情境的 `newsKeywordGroupId` 也一併接上抽選情境。
+
+**刻意沒做的**：桌面「使用者回話後幫剛聊的新聞來源加分」那段
+process 級待結算回饋（`pendingNewsCreditSourceId`）沒有搬——那是回饋
+微調的錦上添花，不是「聊天會不會提到新聞」的必要條件，先不擴大這輪的
+風險面。背景定時抓新聞、對話新聞搜尋、搬家包三項延續 kickoff 文件原本
+就排除的範圍，這輪沒碰。
+
+`MainMenu.tsx` 的 `STANDALONE_PENDING.news` 與 `ReminderEditor.tsx`
+「抓一則新聞當話題」的灰字都已解除。新增／改動測試：
+`tests/core/moduleSettings.test.ts`、`tests/news/{readerState,readerFetch,
+schedule,injection}.test.ts`，`tests/data/dataSource.test.ts` 更新了
+「未接的面該 reject」那個斷言（15 支全部接完，改驗證 `enrichForChat` 在
+沒有 URL 時走 RSS fallback 而不連線）。全程 `npm test`（516 通過）、
+`typecheck`、`build:mobile`（無 Node 模組外部化警告）、`npm run build`
+（桌面 electron-builder 全量打包）都過。
+
+### 同日：owner 實機回報的兩件事
+
+**① 「新聞模組打勾完切到個人新聞報又回到沒開的狀態」。**
+
+`session.ts` 的 `listModules` 把 `desktopst.news` 的 enabled 寫死成
+`false`，`setModuleEnabled` 對新聞是**空的 no-op**，註解還留著
+「獨立模式新聞模組設定檔尚未接；先忽略不炸」——接 core 那七步全程沒掃到
+這兩處，因為它們在 `session.ts` 的模組開關區、不在新聞相關檔案裡。
+
+根因是**新聞的開關與其他三個模組不同層**：天氣／Spotify／日曆都住在
+`settings.json`（所以 `listModules` 一直是同步的），新聞的住在
+`modules/desktopst.news/settings.json`，讀寫是非同步的。`DataSource`
+介面本來就宣告 `listModules(): Promise<ModuleToggle[]>`，只是 session
+那層偷懶做成同步，於是新聞沒地方接。改成 async 之後兩邊都對上了。
+
+補了迴歸測試（`tests/mobile/standaloneSession.test.ts`）：打開 →
+**用同一份 storage 重新 boot** → 仍是開的。重點在「重新 boot」而不是
+只驗當下的回傳值，不然這個 bug 照樣測不出來。
+
+**② 「新聞設定能從電腦匯入過來嗎？不然我要手動重設關鍵字很麻煩」。**
+
+`/api/sync-init` 的 bundle 加 `news` 欄位（`getNewsSyncSettingsDirect`），
+手機端新增 `applyNewsSettings` 落地。因為新聞設定不在 `settings.json`，
+沒辦法塞進既有的同步 `applySettings`，得另外走一支非同步的。
+
+**刻意不帶的四項**（都寫進了函式註解，免得日後有人「順手補齊」）：
+- `enabled`：走既有的 `modules`。兩處各送一份而值不同時，行為會變成看
+  誰後套用，不值得為了「一次寫完」冒這個險。
+- `seenIds`：「這則聊過了」是每台裝置各自的去重歷史，不是設定。
+- `feedback.adjustments`：學習來的權重是衍生資料，跟著各自的使用習慣長。
+- `reminder`（定時陪聊排程）：手機的提醒是原生精準鬧鐘、有自己一套，
+  把電腦的排程灌過去會憑空多出一則使用者沒在這台裝置答應過的鬧鐘。
+
+順帶補上 `applySettings` 的模組開關迴圈**原本也漏掉新聞**——同一個遺留的
+另一半，只是這半要等 ① 修好才有意義。
+
+**驗證方式的限制**：瀏覽器分頁抓不到真新聞（`news.google.com` 沒有
+`Access-Control-Allow-Origin`，只有真機的 CapacitorHttp 繞得過）。
+但這反而驗到了三件事：關鍵字加完重整後還在、抓取管線用它組出了正確的
+Google News URL 並真的發了請求、被 CORS 擋下之後畫面正確落回
+「目前沒有新聞」而不是炸掉。**除了網路層本身，其餘都通了。**
+
+---
+
+## 2026-08-12｜獨立版新聞「聊這個」真機除錯：解不開 Google 新聞原文
+
+owner 實機試用個人新聞報時回報三件事，其中一件牽出了一個**只在手機發生、
+而且會靜悄悄退化**的根因。整輪是插 USB 開 logcat、加診斷 log、
+打 debug APK 反覆驗證出來的。
+
+### 症狀
+
+「聊這個」抓不到原文，面板只給一段很短的 RSS 摘要，角色講得很空泛。
+owner 的體感是「有的成功有的失敗」。
+
+### 診斷過程（`[news-diag]` log 就是這次加的，**請保留**）
+
+`core/news/enrich.ts` 整條管線橫跨四個外部依賴（解 Google 跳板 → 抓正文 →
+抽內文 → 輔助模型），失敗時只會回一句籠統的 warning，**分不出斷在哪一步**。
+所以先加了 `diag()`，每一步印 `[news-diag]`，真機用
+`adb logcat -s Capacitor/Console | grep news-diag` 就能定位。
+
+第一輪 log 立刻推翻了「有時成功」的假設：
+
+```
+start  isGoogle=false → end source=rss-adequate     ← 成功的其實是這種
+start  isGoogle=true  → end source=rss-fallback warning=google-news-resolve-failed
+```
+
+**成功的那些根本沒走抓原文那條路**（RSS 摘要夠完整就直接採用，連輔助 LLM
+都沒叫）。凡是 Google 新聞來源的，一律失敗，`forceRefresh` 也一樣。
+
+### 根因（兩層，第二層才是真的）
+
+**第一層**：`batchexecute` 的回應是**分段格式**，每段前面有一行長度數字、
+段數不固定。舊寫法只剝掉第一個長度數字就整包 `JSON.parse`，多一段就必炸。
+炸完落在一條沒有 log 的早退路徑上（`if (!Array.isArray(envelopes)) return null`），
+所以連錯誤都看不到。
+
+**第二層（真正只影響手機的那個）**：修完第一層真機仍全滅，log 顯示
+
+```
+resolve.rpc-body head=")]}'\n\n[[\"wrb.fr\",\"Fbv4je\",\"[\\\"garturlres\\\",\\\"https://…
+```
+
+換行是**字面上的 `\n` 兩個字元**、引號是 `\"`、`garturlres` 前面**三個**反斜線
+—— **CapacitorHttp 把回應多做了一次 JSON 編碼**。原因是這個回應宣稱
+`content-type: application/json`，但有 `)]}'` 前綴不是合法 JSON，原生層
+`JSON.parse` 失敗後當字串留著，fetch patch 再 `JSON.stringify` 一次還給我們。
+
+**桌面走 Node fetch 不會這樣**，所以症狀是「桌面完全正常、只有手機壞」，
+而且壞得很安靜。這條已寫進 `CLAUDE.md` §5。
+
+### 修法
+
+- `extractGarturlres()`：逐段掃（跳過長度數字行），最後留一層 regex 保底，
+  Google 之後再改外層包裝也不會整條啞掉。regex 用 `\*`（零到多個反斜線），
+  **不要寫死轉義層數**。
+- `normalizeRpcBody()`：偵測到「沒有真換行、卻有字面 `\n`」才還原，
+  桌面那條路徑逐字不受影響。
+- 測試直接用真機 log 觀察到的字串形狀釘住（`tests/news/enrich.test.ts`）。
+
+修完真機四則全部 `resolve.ok` → 抓到原文 → 兩則走輔助模型摘要、
+兩則正文夠短直接用，整趟 0.8–4.4 秒，沒有任何 warning。
+
+### 同一輪的其他三項
+
+**① 「聊這個」面板下緣被手勢列吃掉、按不到「確認帶去聊」。**
+原本整塊 `overflow-y-auto` ＋ `max-h-[80vh]`：整塊捲會把按鈕推到捲動區最底，
+`vh` 又不含 Android 手勢列。改成外層 flex column、只有中段 textarea 捲，
+`85dvh` ＋ `paddingBottom: calc(var(--safe-bottom) + 12px)`。真機確認 OK。
+
+**② 面板補齊到與桌面 `NewsContextPanel` 對等**：來源、失敗提示
+（`hintFromWarning`，文案與桌面逐字對齊）、開原文 ↗、**重新總結**
+（`forceRefresh: true`，跳過 enrich 快取真的重抓）。
+
+原本 UI 只看 `enrichForChat` 的 `ok`，但**失敗時兩邊都回 `ok: true` ＋
+`warning`**，於是「抓原文失敗、退回 RSS 摘要」被畫成正常結果——使用者只看到
+一段沒總結過的字，不知道發生什麼事，也不知道可以重試。
+
+**③ 送出之後找不到原文、也清不掉摘要。**
+- 聊天紀錄點 📰 標題的視窗加「原文 ↗」（手機借 `DialogRequest.extraActions`，
+  桌面在 `NewsContextPanel` 加 `onClear`／既有的 `onOpenOriginal`）。
+- 加「清除摘要」。**摘要會跟著訊息一路留在上下文視窗裡**
+  （`expandNewsLinkForPrompt` 每輪重新展開），不清就一直在。
+  owner 要的語意是「留下我們討論過這則的紀錄，細節不用」——
+  所以清除後 **Prompt 只留 `Title:`**，不帶 `Details:`。
+- ⚠️ 沒有 Details 時那句 `use the Details above` **要換掉**，指著不存在的東西
+  會讓模型自己補一段沒人講過的內容。
+- ⚠️ **空字串與 `undefined` 意義不同**：`''` 是使用者清掉的，`undefined` 是
+  從沒整理過（仍該退回 `summary`）。面板初始值原本寫 `promptContext || summary`，
+  `||` 會把空字串當「沒有」→ 清掉、關掉、再點開摘要就**復活**，
+  看起來像按鈕壞掉。兩邊都改成 `??`。
+- ⚠️ `cacheManualPromptContext(id, '')` 原本會把空字串當有效的手動摘要存進
+  enrich 快取，於是清除之後同一則再按「聊這個」拿到空的，4 小時內連
+  「重新總結」都救不回來。改成空的就刪快取。
+
+### 不是 bug 的那一項
+
+owner 回報角色回覆句尾出現 `♀♀♀♀`。把手機上的對話 JSON 拉下來逐字檢查：
+`ZWJ(200D): 0 / VS16(FE0F): 0 / 非 BMP 字元: 0`，程式碼裡也沒有任何地方會
+產生或過濾這個字元。**不是 emoji 被截斷（那會留下 ZWJ 或變體選擇符），
+是模型自己吐的**（gpt-5.6-luna）。程式面無事可修。
+
+> 真機除錯備忘：`adb shell run-as tw.nori.dest cat files/conversations/<id>.json`
+> 可以直接讀原始對話（debug build 才行），懷疑「畫面顯示壞掉」時先看這個，
+> 能立刻分辨是資料本來就長這樣還是 UI 畫錯。
+
+---
+
+## 2026-08-12（續）｜新聞報 UI 四項回報：兩個真 bug、一個誤解、一個版面重做
+
+承上一節，owner 繼續試用時回報四件事。真機用 `adb shell input tap` ＋ `screencap`
+逐項驗過（螢幕不能鎖，鎖了就只能請 owner 解）。
+
+### ① 「操作到一半自己跳回首頁」＝ 返回鍵在 APK 裡從來沒生效過
+
+**最有價值的一條。** 加 `[nav-diag]`（`uiStore.ts`，印每次 push／pop／popAll／back
+與當下堆疊）之後，真機按一次返回鍵 —— log 裡**完全沒有 `back`**，app 直接被關掉。
+
+根因：`useBackButton.ts` 原本整支只靠 `history.pushState` ＋ `popstate`，
+註解還寫著「Android WebView 會把返回鍵轉成 popstate」。**那是錯的。**
+Capacitor 8 的 `BridgeActivity` **沒有覆寫 `onBackPressed`**，返回鍵走 Activity
+預設行為（`finish()`），完全不碰 WebView 歷史。於是每一層 sheet 都是單向陷阱：
+往回滑 ＝ 結束 activity，從最近使用回來是全新啟動、停在聊天畫面——
+使用者看到的就是「我在管理關鍵字，點一點就跳回首頁」。
+
+修法就是那段註解自己預言的：裝 `@capacitor/app`，用它的 `backButton` 事件。
+瀏覽器仍走 popstate，兩條路徑共用 `handleBack()`，所以「哪一層先關」只有一份規則。
+真機驗證：新聞設定 →（返回）→ 新聞報 →（返回）→ 聊天，app 不再退出。
+
+> ⚠️ 這個 bug **在瀏覽器上永遠測不出來**（瀏覽器的返回真的會發 popstate）。
+> 凡是「返回鍵／手勢」相關的行為，只有真機算數。
+
+### ② 配額設 5 卻只拿到 3 —— 兩個原因，都不是抓取端的錯
+
+`[news-diag] pick` 印每一欄的 `limit / pool / excluded / taken` 之後就清楚了：
+
+```
+初次抓取  kw:女性向  limit=5 pool=5 excluded=0 taken=5
+重抓      kw:女性向  limit=5 pool=5 excluded=4 taken=1
+```
+
+- **配額根本沒送到抓取端**：`newsStore.setQuota` **從來不更新 store 裡的配額**
+  （`readerBreakoutQuota`／`readerPerKeyword`／`sources[].readerQuota` 都沒動），
+  數字框是 `key={value}` 的 uncontrolled，於是畫面停在舊值。已補上，
+  正規化規則與 `core/news/readerFetch.setReaderQuota` 對齊。
+- **更陰的一層**：`setReaderQuota` 是「先存檔、再重抓那一欄」，原本的程式碼在
+  `!r.ok` 時直接 return —— **重抓失敗不代表沒存到**。配額更新必須放在 `r.ok`
+  檢查**之前**，否則弱網下存了卻不反映，就是「設了 5 還是 3」。
+- 剩下的「只有 4 則」是真的：「女性向」整個池子只有 5 則（其他關鍵字是 50–108）。
+  重抓只拿 1 則則是 `strictExclude` 的預期行為（寧願少也不重複）。
+
+### ③ 「選管理關鍵字就跳回全部」
+
+`NewsView` 有一條「目前分頁的欄沒東西了就退回全部」的保險，但在管理面板裡
+加／刪／改名關鍵字都會讓欄位 id 變動，每編一次就被踢回全部；而分頁列當下是
+隱藏的，所以只在關掉面板時才發現。改成**面板開著時不判**，關掉後再判一次。
+
+### ④ 兩層導覽 ＋ 熱門話題開關（owner 選的方向）
+
+- 導覽拆成第一層「關鍵字組」、第二層「該組底下的欄」（縮排＋小一號字）。
+  固定欄（熱門／地方／訂閱／其他）不屬於任何關鍵字組，集中成「其他來源」，
+  不散在關鍵字組之間。只有一個組時第一排不畫。
+- 熱門話題開關：背後就是把該欄配額設 0（`setReaderQuota` 對 `__breakout__`
+  本來就允許 0），**沒有新機制**，只是把本來做得到卻看不出來的事變成開關。
+  關掉前記住則數，打開時還原。
+
+### 不是 bug 的那一項
+
+角色回覆句尾的 `♀♀♀♀`：把手機上的對話 JSON 拉下來逐字檢查，
+`ZWJ: 0 / VS16: 0 / 非 BMP 字元: 0`，程式碼也沒有任何地方會產生或過濾它。
+不是 emoji 被截斷（那會留下 ZWJ 或變體選擇符），是模型自己吐的。
+
+### 還沒做
+
+owner 提議**把地方新聞併回一般關鍵字組**（它本來就是 `type: 'keyword'`，
+只是 `origin: 'location'` ＋ 六處特例）。已討論方向與三個要決定的點
+（`fromDetection` 自動帶入要不要留、搬家包語意會變、必須保留一個預設組），
+**實作計畫待寫**。
+
+---
+
+## 2026-08-12（續二）｜地方新聞併回一般關鍵字組
+
+owner 提議、拍板後當天做完。計畫與落地紀錄在 `docs/news-local-merge-plan.md`
+（含 §9 的兩處「與計畫不同」與兩個真機 bug），這裡只留索引與最關鍵的一條教訓。
+
+**做了什麼**：地方新聞本來就是 `type: 'keyword'`、縣市名當查詢字，只差一個
+`origin: 'location'` 與散在 9 個檔案的 10 處特例。把資料搬平成一般關鍵字之後
+特例全刪，桌面／遙控／獨立版自動一致。順帶解掉「手機完全編輯不到地方新聞」
+（`NewsEditableSettings` 不含 `localNews`）。
+
+**owner 的兩個決定**：
+- 情境切換會讓地方新聞跟著被切掉 → **接受**（「不是每個使用者都想看地方新聞」）
+- 「偵測我的縣市」按鈕**保留**（「出外時看一下當地狀況有用」），改成加一個一般關鍵字
+
+**最關鍵的教訓**：**遷移只寫在讀取路徑等於沒有做完。** 正規化是純函式、
+只作用在記憶體，磁碟要等下次有人存設定才會被覆蓋；在那之前每次讀都重跑遷移，
+冪等旗標永遠不生效。單元測試全綠、畫面完全正常，只有 `adb shell run-as ... cat
+settings.json` 看得出磁碟還是舊的。已寫進 `CLAUDE.md` §5。

@@ -141,7 +141,7 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
     setBusy(true)
     try {
       const file = await getData().characters.exportCard(draft.id, kind)
-      downloadBytes(file.bytes, file.filename, mimeForFilename(file.filename))
+      await downloadBytes(file.bytes, file.filename, mimeForFilename(file.filename))
       toast(`已匯出 ${file.filename}`)
     } catch (e) {
       toast(describeCharacterError(e, '匯出'), 'error')

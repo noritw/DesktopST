@@ -133,7 +133,7 @@ export function CharacterLibrary(): JSX.Element {
         // 用語解說預設不外流（規格 §7.3：那是私人資料）。
         { includeGlobalSettings: false, includeLorebooks: false }
       )
-      downloadBytes(file.bytes, file.filename)
+      await downloadBytes(file.bytes, file.filename)
       toast('已匯出角色包')
     } catch (e) {
       toast(describeCharacterError(e, '匯出'), 'error')

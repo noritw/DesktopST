@@ -980,6 +980,29 @@ async function handleRequest(
     return
   }
 
+  // ── POST /api/characters/import-pack ── S2 M3 角色推送（手機 → 電腦）
+  // 手機上傳 .dstpack 格式的角色，電腦負責解包並落地。
+  // 衝突處理：新增角色發新 id；同名既有角色可選擇跳過或覆蓋。
+  if (method === 'POST' && url === '/api/characters/import-pack') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const buffer = await readBinary(req)
+    if (!buffer) { jsonError(res, 413, '檔案太大或讀取失敗'); return }
+    try {
+      // 轉換 Buffer 為 ArrayBuffer（Node.js Buffer 和瀏覽器 ArrayBuffer 型別不同）
+      const arrayBuffer = new Uint8Array(buffer).buffer
+      const result = await bridge.importDstPack(arrayBuffer, {
+        onConflict: 'new',  // M3：同名時發新 id（不覆蓋），保留兩份
+        applyGlobalSettings: false  // 設定走 `/api/settings/*`，不在這裡帶
+      })
+      if ('error' in result) { jsonError(res, 400, result.error); return }
+      pushDesktopUpdate(bridge.getDesktopCharacterIds())
+      jsonOk(res, { ok: true, imported: result.imported, skipped: result.skipped })
+    } catch (err) {
+      jsonError(res, 400, err instanceof Error ? err.message : 'Import failed')
+    }
+    return
+  }
+
   const presetSave = url.match(/^\/api\/presets\/(persona|world|scene)\/save$/)
   if (method === 'POST' && presetSave) {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
@@ -1995,6 +2018,28 @@ function readBody(req: http.IncomingMessage, maxBytes: number = DEFAULT_MAX_BODY
     })
     req.on('end', () => { if (!aborted) resolve(body) })
     req.on('error', () => { if (!aborted) resolve('') })
+  })
+}
+
+function readBinary(req: http.IncomingMessage, maxBytes: number = MEDIA_MAX_BODY): Promise<Buffer | null> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    let aborted = false
+    req.on('data', chunk => {
+      if (aborted) return
+      if (!(chunk instanceof Buffer)) chunk = Buffer.from(chunk)
+      size += chunk.length
+      if (size > maxBytes) {
+        aborted = true
+        resolve(null)
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => { if (!aborted) resolve(Buffer.concat(chunks)) })
+    req.on('error', () => { if (!aborted) resolve(null) })
   })
 }
 

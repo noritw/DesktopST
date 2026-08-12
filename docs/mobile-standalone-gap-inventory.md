@@ -10,16 +10,15 @@
 
 ## 1. 一句話結論
 
-獨立版目前**聊天主線是完整的**（角色、對話、預設組的持久化與 LLM 呼叫都在），
-缺的全部集中在**「需要主機端長期跑著的東西」與「還沒補的編輯／匯出面」**兩類：
+獨立版目前**聊天主線是完整的**（角色、對話、預設組的持久化與 LLM 呼叫都在）。
+新聞報、提醒、角色卡／設定包匯出都已補完（**背景**定時抓新聞／背景喚醒仍是刻意不做，見缺口 #6 附註），
+只剩一項：
 
 | 類別 | 缺什麼 |
 |---|---|
-| A. 需要背景執行 | 新聞報、提醒 |
-| B. 還沒補的資料面 | Lorebook 編輯、角色卡／設定包**匯出** |
-| C. 尚未開工 | 對話與電腦雙向同步（S2；S1 單向匯入與「重新拉設定」已完成） |
+| C. 進行中 | 對話與電腦雙向同步（S2；S1 單向匯入與「重新拉設定」已完成，M1「模式可切換」2026-08-12 已完成，M2–M5 待做） |
 
-情境整組、天氣（含定位與 CWA）2026-08-08 已補上。
+情境整組、天氣（含定位與 CWA）2026-08-08 已補上；角色卡／設定包匯出 2026-08-12 已補上。
 
 > **2026-08-09 owner 重新排序**：獨立版是最大宗使用情境（帶出門／躺著用），
 > 遙控版需要電腦開著、不一定隨時能用。因此**優先把獨立版功能補完整**，
@@ -51,18 +50,19 @@
 |---|---|---|---|---|---|
 | ~~1~~ | ~~情境（scene）套用／存檔／擷取／刪除~~ | `PresetsView` 有完整清單與按鈕 | **2026-08-08 完成** | — | 已做 |
 | ~~2~~ | ~~Lorebook（用語解說）編輯~~ | `LorebookEditor` 已存在 | **2026-08-09 完成**：CRUD 接上 `StandaloneSession`；另外把 `[Glossary]` 注入也接進 `chat.ts`（原本連桌面都沒有的那段獨立版聊天管線，光有編輯 UI 不會影響對話） | — | 已做 |
-| 3 | **角色卡／設定包匯出** | 角色編輯器有匯出入口 | `characters.exportCard`／`exportPack` pending（匯入**已可用**） | 需要 Capacitor Filesystem 寫檔 ＋ 分享 intent | ④（owner 這輪未特別點名，暫緩後排） |
+| ~~3~~ | ~~**角色卡／設定包匯出**~~ | 角色編輯器有匯出入口 | **2026-08-12 完成**：`StandaloneSession.exportCard`／`exportPack` 接上，格式與桌面 `dstPack.ts`／`stCardMapper.ts` 完全相容（同一份 manifest／`characters/<id>/card.json` 佈局，桌面能直接匯入）；PNG 沒有頭像時退回 `core/card/pngCard.ts` 內建透明底圖。`fileTransfer.ts` 的 `downloadBytes` 改成非同步、平台分流：網頁走原本的 `<a download>`，APK 走 Capacitor Filesystem 寫進 `Directory.Cache` 再用新裝的 `@capacitor/share` 叫出系統分享面板（兩個外掛都動態 `import()`，煙測與 vitest 不受影響）。瀏覽器 `?mode=standalone` 煙測過角色包／單張 PNG／JSON 三種匯出，皆跳出成功 toast、console 無錯誤。**還沒做**：APK 真機驗證分享面板（僅網頁路徑測過，Capacitor Share 那條路徑要真機 `npx cap sync android` 後才測得到） | — | 已做 |
 | ~~4~~ | ~~天氣定位／即時查詢~~ | 設定頁有天氣區塊 | **2026-08-08 完成**（背景 `[Weather]` 含 CWA；地震／颱風關鍵詞查詢仍桌面限定） | — | 已做 |
 | ~~5~~ | ~~**提醒**~~ | `RemindersView`／`ReminderEditor` 完整 | **2026-08-09 完成**：CRUD 接上 `StandaloneSession`；手機端排程器（`reminderScheduler.ts`）與 Capacitor LocalNotifications；新增 `notificationDevice` 欄位（desktop/mobile/both，預設 mobile）；測試通過 13/13 排程邏輯。**2026-08-10 補齊**：① `startup` 排程在手機版靜默失效（`nextFireDelayMs` 明確不處理 startup，手機 `scheduleOne` 補對應分支）；② `ReminderEditor` 補 `notificationDevice` 選擇 UI（獨立模式才顯示）| — | 已做 |
-| 6 | **個人新聞報** | `NewsView`／設定／關鍵字面板完整 | `news.*` 全 pending（15 支） | 抓 RSS／解析／配額／排程，量最大；還牽涉 CORS 與背景抓取。**開工指令見 `news-standalone-kickoff.md`** | **③**（owner：外出時常用；提醒已於 2026-08-11 完成，輪到這項） |
-| 7 | **對話與電腦同步（S2）** | 只有 S1「從電腦匯入」 | 未開工 | roadmap §4.7 已定分層與星狀拓樸；**實作設計見 `mobile-mode-switch-sync.md`**（改成「切換模式時帶資料走」） | ⑤（owner 2026-08-09：排在獨立版功能補完之後） |
+| ~~6~~ | ~~**個人新聞報**~~ | `NewsView`／設定／關鍵字面板完整 | **2026-08-12 完成**：`news.*` 15 支全部接上（`core/news/` 新增 `moduleId`／`rssAdapter`／`sources`／`readerState`／`settings`／`readerFetch`／`enrich`／`schedule`／`injection`）；桌面 `main/modules/news/*` 改薄殼、行為逐字等價；手機 RSS 解析改用瀏覽器原生 `DOMParser`（`mobile/adapters/rssParseAdapter.ts`，`rss-parser` 在 WebView 下無法用，已在真的 Chromium 環境驗證解析正確）；`chat.ts`／`reminderSpeak.ts` 都接上「挑一則新聞當話題」的自動注入與 `newsLink` 掛回訊息；`MainMenu` 與 `ReminderEditor` 的灰字解除。**不做**：背景定時抓新聞（仍只在前景開 App 時抓）、對話新聞搜尋、搬家包。 | — | 已做 |
+| 7 | **對話與電腦同步（S2）** | 只有 S1「從電腦匯入」 | **進行中**：M1（模式可在 App 內切換、記住偏好，完全不同步）2026-08-12 完成。M2–M5 待做 | roadmap §4.7 已定分層與星狀拓樸；**實作設計見 `mobile-mode-switch-sync.md`**（改成「切換模式時帶資料走」，§8.1 有 M1 落地筆記） | ⑤（owner 2026-08-09：排在獨立版功能補完之後） |
 
 > **2026-08-11 提醒補強（缺口 #5 的延伸，非新缺口）**：台詞生成策略定案為
 > 「現場生成為主、快取為底」（`mobile-standalone-reminder-plan.md` §2.1），
 > 並完成 TS 部分——進階選項（喚醒模式／情境綁定／對話綁定／離線沉浸開關）、
 > 觸發歷史紀錄畫面、`core/reminder/{gate,cache,history}.ts`。
-> **Android 原生層（AlarmManager ＋ headless WebView）尚未開工**，
-> 所以 App 被劃掉後仍然不會響，`screen_on_only` 目前也等同 `always`。
+> **Android 原生層（AlarmManager ＋ headless WebView）已完成**（`提醒 ②a／②b`），
+> App 被劃掉後仍會響，`screen_on_only` 與 `always` 兩種喚醒模式都在判斷
+> （`ReminderAlarmReceiver.java`）。真機測過三輪 bug 修復（2026-08-11）。
 
 **永久不支援（不是 bug，不要修）**：`remoteControl.*` 全部 —— 獨立模式沒有電腦可控。
 Spotify／日曆授權同樣只在桌面。
@@ -79,8 +79,7 @@ Spotify／日曆授權同樣只在桌面。
 這個根本限制 —— 開工前先回頭讀 roadmap §2 的四大目標，別把已否決的方案再提一次。
 提醒排在新聞報前面是 owner 明確排序（見文首），不是難度或風險考量。
 
-3（角色卡匯出）與 7（S2 同步）這輪都沒被 owner 點名重新排序，
-暫時維持在補完獨立版功能之後；下一輪對話若要調整順序可以再確認。
+3（角色卡匯出）2026-08-12 已補完。7（S2 同步）是獨立版現在唯一剩下的缺口，M1 已開工並完成第一階段。
 
 ### 3.1 提醒要連同步一起做（owner 2026-08-08 決議）
 
@@ -119,6 +118,12 @@ owner：「天氣和提醒希望也可以和電腦同步，這樣我不用設定
 | **缺口 #2 用語解說編輯** | `StandaloneSession` 加 `listLorebooks`／`getLorebook`／`createLorebook`／`saveLorebook`／`removeLorebook`（刪除時清角色卡／世界觀／情境的參照）；`LocalDataSource.lorebooks` 接上。**另外補了原本完全沒接的一段**：`chat.ts` 新增 `buildLoreBlockFor()`，解析角色／世界觀／情境的 `lorebookIds`（情境取代式、其餘疊加）、掃描近期訊息、組出 `[Glossary]` 區塊餵給 `chatWithLLM` 的 `loreBlock` 參數——這段桌面版原本就有（`ipcHandlers.ts` 的 `buildLoreBlockFor`），獨立版聊天管線（`chat.ts`）之前完全沒有，只做 CRUD 的話編輯了也不會影響對話 |
 | **缺口 #5 提醒** | `StandaloneSession` 加 `listReminders`／`createReminder`／`saveReminder`／`removeReminder`／`toggleReminder`；`LocalDataSource.reminders` 接上。手機端排程器 `reminderScheduler.ts` 用 Capacitor LocalNotifications 發送本機通知；新增 `Reminder.notificationDevice` 欄位（値：desktop/mobile/both，預設新建時為 mobile）；測試通過 13/13 排程邏輯（詳見 `tests/mobile/reminderScheduling.test.ts`）。見 `docs/reminder-testing-plan.md` 測試計劃。**後續補強**：提醒觸發改走 LLM 由角色發話（`reminderSpeak.ts`），不再照搬 `reminder.prompt` 原文；提醒通知改用專屬高重要性頻道；時間顯示統一走 `toLocaleTimeString()`；便利貼／新聞／日曆三個獨立版沒接的注入選項灰掉並寫明原因 |
 | **手機端輔助模型設定**（不在缺口清單內，owner 2026-08-09 追問後補） | 桌面「輔助模型」（提醒發話、情緒分類、天氣潤飾走另一組模型）原本只能在電腦設定，手機只有唯讀提示。補齊兩種模式：`core/data/types.ts` 的 `LlmSettingsSnapshot`／`SettingsApi` 加 `utilityEnabled`／`utilityProvider`／`utilityModel(s)` 與三個 setter；獨立模式 `StandaloneSession.llmSnapshot()` ＋ `LocalDataSource`；遙控模式 `ipcHandlers.ts` 三個新 `*Direct` 函式（`setLlmUtilityEnabledDirect`／`ProviderDirect`／`ModelDirect`，換供應商時仿桌面補目錄預設模型）＋ `mobileServer.ts` 三支新路由＋ `remoteDataSource.ts`；手機 UI 在「設定」新增「輔助模型」摺疊區（供應商／模型／API Key，API Key 沿用主模型同一個 `setLlmApiKey`，同供應商時金鑰共用不必重填）。天氣區塊的唯讀提示字樣同步更新。`scripts/mobile-stub-server.mjs` 也補了對應假資料與端點，煙測時「設定→輔助模型」可正常操作 |
+
+## 5.0 2026-08-12 這一輪已完成
+
+| 項目 | 說明 |
+|---|---|
+| **缺口 #3 角色卡／設定包匯出** | `StandaloneSession` 加 `exportCard(id, kind)`／`exportPack(ids, opts)`；`LocalDataSource.characters` 接上（`pending()` 那個死掉的 helper 一併刪掉）。單卡 JSON 走既有的 `core/card/stCardMapper.ts` 的 `exportToStJson`；PNG 用 `char.avatar` 當底圖、沒有頭像時退回 `core/card/pngCard.ts` 內建的 1×1 透明佔位（桌面版遇到同樣情況是讀 `assets/icon.png`，手機沒有 app 安裝目錄可讀）。`.dstpack` 打包格式（manifest／`characters/<id>/card.json`／`lorebooks/<id>.json`）刻意跟桌面 `dstPack.ts` 對齊，桌面能直接匯入手機打的包；手機儲存 key 本來就是角色資料夾的相對路徑，不必像桌面那樣把絕對路徑轉相對路徑。`fileTransfer.ts` 的 `downloadBytes` 從同步的 `<a download>` 改成非同步、依平台分流：網頁走原本的 Blob 下載，APK 走新裝的 `@capacitor/share`＋既有的 `@capacitor/filesystem`（寫進 `Directory.Cache` 再叫系統分享面板），兩個外掛都動態 `import()`。`tests/mobile/standaloneSession.test.ts` 補了匯出→匯入的往返測試（含跨 session 驗證 `.dstpack` 格式真的互通）。**瀏覽器 `?mode=standalone` 煙測過**：角色包／單張 PNG／單張 JSON 三種匯出都跳出成功 toast、console 無錯誤；**APK 真機分享面板還沒測**，需要 `npx cap sync android` 重建後在實機上驗證系統分享面板跳不跳得出來 |
 
 ## 5.1 2026-08-08 這一輪已完成（不在缺口內）
 

@@ -7,6 +7,7 @@ import { MessageImages } from './MessageImages'
 import { formatRandomBadge } from './randomLabels'
 import { Avatar } from '../characters/Avatar'
 import { useUiStore } from '../stores/uiStore'
+import { NewsContextSheet } from '../news/NewsContextSheet'
 
 /**
  * 訊息串（清單 A1、A9）。
@@ -66,15 +67,48 @@ export function MessageList(): JSX.Element {
   const nameOf = (id?: string): string =>
     snapshot?.presentCharacters.find((c) => c.id === id)?.name ?? ''
 
+  /** 點 📰 標題要編的那則訊息。面板本身與新聞報的「聊這個」共用一份。 */
+  const [newsMsg, setNewsMsg] = useState<MessageSnapshot | null>(null)
+  const link = newsMsg?.newsLink
+  const saveNewsCtx = async (pc: string, done: string): Promise<void> => {
+    if (!newsMsg) return
+    try {
+      await getData().news.updatePromptContext(newsMsg.id, pc)
+      useUiStore.getState().toast(done)
+    } catch {
+      useUiStore.getState().toast('儲存失敗', 'error')
+    }
+    setNewsMsg(null)
+  }
+
   return (
     <div ref={containerRef} className="scroll-y flex-1 px-4 py-3">
       {messages.map((m) => (
-        <MessageRow key={m.id} message={m} characterName={nameOf(m.characterId)} />
+        <MessageRow key={m.id} message={m} characterName={nameOf(m.characterId)} onEditNews={setNewsMsg} />
       ))}
       {thinkingIds.map((id) => (
         <ThinkingRow key={`thinking:${id}`} name={nameOf(id)} />
       ))}
       <div ref={endRef} />
+      {link && (
+        <NewsContextSheet
+          target={{
+            id: link.id,
+            title: link.title,
+            summary: link.summary,
+            url: link.url,
+            source: link.source,
+            sourceId: link.sourceId,
+            keyword: link.keyword
+          }}
+          mode="edit"
+          // `??` 不是 `||`：清成空字串是使用者按過「清除摘要」，不該把 summary 補回來
+          initialDraft={link.promptContext ?? link.summary ?? ''}
+          onClose={() => setNewsMsg(null)}
+          onSave={(pc) => void saveNewsCtx(pc, '已儲存')}
+          onClear={() => void saveNewsCtx('', '已清除摘要')}
+        />
+      )}
     </div>
   )
 }
@@ -116,7 +150,11 @@ function LlmBadge({ message }: { message: MessageSnapshot }): JSX.Element | null
   )
 }
 
-function MessageRow({ message, characterName }: { message: MessageSnapshot; characterName: string }): JSX.Element {
+function MessageRow({ message, characterName, onEditNews }: {
+  message: MessageSnapshot
+  characterName: string
+  onEditNews: (m: MessageSnapshot) => void
+}): JSX.Element {
   // 未設定＝開啟，與 `showLlmBadge` 同一個慣例。
   const showPersonaName = useAppStore((s) => s.snapshot?.showPersonaName !== false)
 
@@ -192,25 +230,7 @@ function MessageRow({ message, characterName }: { message: MessageSnapshot; char
               <button
                 type="button"
                 className="mt-1 block max-w-full truncate text-left text-[12px] text-[var(--mint2)] underline decoration-dotted"
-                onClick={() => {
-                  void (async () => {
-                    const link = message.newsLink!
-                    const next = await useUiStore.getState().prompt({
-                      title: '新聞上下文',
-                      message: '這段會寫進角色看到的背景，不會整段出現在聊天泡泡裡。',
-                      defaultValue: link.promptContext || link.summary || '',
-                      multiline: true,
-                      confirmLabel: '儲存'
-                    })
-                    if (next == null) return
-                    try {
-                      await getData().news.updatePromptContext(message.id, next)
-                      useUiStore.getState().toast('已儲存')
-                    } catch {
-                      useUiStore.getState().toast('儲存失敗', 'error')
-                    }
-                  })()
-                }}
+                onClick={() => onEditNews(message)}
               >
                 📰 {message.newsLink.title}
               </button>

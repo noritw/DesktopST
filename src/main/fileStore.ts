@@ -17,7 +17,6 @@ import {
   normalizeRemoteControlSettings,
   saveRemoteControlModuleSettings
 } from './modules/remote-control'
-import { configureModuleSettingsRoot } from './modules/moduleSettings'
 
 /**
  * API Key 解密失敗時的暫存：key = provider name（openai/claude/…），value = 'enc:v1:...'
@@ -43,8 +42,7 @@ let SETTINGS_FILE = resolveKey(keys.SETTINGS_KEY)
 let PINNED_NOTES_FILE = resolveKey(keys.PINNED_NOTES_KEY)
 
 function refreshPaths(nextDir: string): void {
-  const dir = setDataDir(nextDir)
-  configureModuleSettingsRoot(dir)
+  setDataDir(nextDir)
   SETTINGS_FILE = resolveKey(keys.SETTINGS_KEY)
   PINNED_NOTES_FILE = resolveKey(keys.PINNED_NOTES_KEY)
   _dirsEnsured = false
