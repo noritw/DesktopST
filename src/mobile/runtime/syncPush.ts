@@ -1,6 +1,7 @@
 import type { SyncBaseline, SyncDiff } from '@core/sync/types'
 import type { StandaloneSession } from './session'
 import { readBaseline, writeBaseline } from './syncBaseline'
+import { fetchRemoteManifest } from './syncManifest'
 import type { FetchImpl, SyncSource } from './syncTransport'
 import { request } from './syncTransport'
 
@@ -109,6 +110,23 @@ export async function pushSync(
   const summary: PushSummary = { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [] }
 
   /**
+   * 基準記錄「這隻角色先前推送成功過」不代表電腦上現在還真的有那個 id——
+   * 使用者可能事後在電腦上把它刪了、或那份基準本來就是舊資料換過主機
+   * 殘留下來的。血淋淋的教訓（2026-08-13 owner 實機檢查發現）：手機端
+   * 12 隻角色裡有 10 隻的基準 remoteId 電腦上早就不存在了，但電腦上剛好
+   * 都有一隻「同名、不同 id」的角色（多半是電腦原生就有、從未被手機碰過
+   * 的角色）。如果只看基準歷史就決定 `overwrite`，電腦端 id 對不上時會
+   * 退回用名字比對，會直接蓋掉那隻同名但完全無關的原生角色——真的會弄丟
+   * 使用者資料。所以 `overwrite` 只能在「基準記的 remoteId 現在真的還在
+   * 電腦上」這個前提下才能用；查不到（或整個 fetch 失敗，保守起見一律
+   * 當查不到）就退回 `new`，讓電腦端照原本「同名不覆蓋、發新 id」的
+   * 既有規則處理，不要冒著蓋掉不相關角色的風險去猜。
+   */
+  const remoteCharacterIds = await fetchRemoteManifest(src, fetchImpl)
+    .then((m) => new Set(m.characters.map((c) => c.id)))
+    .catch(() => new Set<string>())
+
+  /**
    * 每推成功一筆就立刻寫回基準——**不要等整趟迴圈跑完才寫一次**。
    *
    * 血淋淋的教訓（2026-08-13）：原本的寫法是全部收集在記憶體裡的 `updates`，
@@ -137,9 +155,11 @@ export async function pushSync(
       const char = session.characters.find((c) => c.id === id)
       const charName = char?.name || id
       opts.onProgress?.(`推送角色 ${charName}...`)
-      // 基準已經記過這筆 → 這次是同一隻角色被改過、重新推，要蓋掉電腦上
-      // 那份而不是又生一隻新的（不然每次修改重推都會在電腦上多一隻重複角色）。
-      const onConflict = baseline.characters[id] ? 'overwrite' : 'new'
+      // 基準記過、而且那個 remoteId 現在真的還在電腦上 → 這次是同一隻角色
+      // 被改過、重新推，蓋掉電腦上那份；否則一律當新角色處理（見上面
+      // remoteCharacterIds 的說明——基準過期時退回 new 比冒險 overwrite 安全）。
+      const recordedRemoteId = baseline.characters[id]?.remoteId
+      const onConflict = recordedRemoteId && remoteCharacterIds.has(recordedRemoteId) ? 'overwrite' : 'new'
       await pushCharacter(src, session, id, onConflict, fetchImpl)
       summary.characters.push(charName)
       if (char) {

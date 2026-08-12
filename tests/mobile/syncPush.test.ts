@@ -48,8 +48,12 @@ const FIRST_SYNC_DIFF: SyncDiff = {
 
 /**
  * 造假 fetch，記錄所有呼叫（方法、路徑、body）以便驗證。
+ *
+ * `remoteCharacterIds`：模擬電腦上「現在真的存在」的角色 id 清單，供
+ * `pushSync` 一開始的 `fetchRemoteManifest` 查詢用——不給就是空清單
+ * （電腦上什麼都沒有，等同全新環境）。
  */
-function makeFakeFetch() {
+function makeFakeFetch(remoteCharacterIds: string[] = []) {
   const calls: { method: string; path: string; query: string; body?: unknown; contentType?: string }[] = []
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
@@ -72,6 +76,21 @@ function makeFakeFetch() {
     }
 
     calls.push({ method, path: path!, query, body: parsedBody, contentType })
+
+    if (path === '/api/sync-manifest') {
+      return new Response(
+        JSON.stringify({
+          characters: remoteCharacterIds.map((id) => ({ id, name: id, updatedAt: 1 })),
+          personas: [],
+          worlds: [],
+          scenes: [],
+          lorebooks: [],
+          conversations: [],
+          settingsHash: 'h'
+        }),
+        { status: 200 }
+      )
+    }
 
     // 如果缺了某個端點，就讓它失敗；這樣能測試邏輯是否調用了正確的端點
     // （import-pack 的 onConflict 走 query string，不是完全比對路徑）
@@ -236,13 +255,112 @@ describe('S2 M3 pushSync', () => {
       settingsChanged: false
     }
 
-    const { fetchImpl, calls } = makeFakeFetch()
+    // 電腦上「現在真的還有」這個 id——overwrite 才安全
+    const { fetchImpl, calls } = makeFakeFetch(['c-repeat'])
     const opts: PushOptions = { selectedIds: { characters: new Set(['c-repeat']) } }
 
     await pushSync(SRC, session, diff, opts, fetchImpl)
 
     const importCall = calls.find((c) => c.path === '/api/characters/import-pack')
     expect(importCall?.query).toBe('onConflict=overwrite')
+  })
+
+  it('基準記過但電腦上那個 id 已經不在了（例如被手動刪除）→ 退回 onConflict=new，不冒險覆蓋同名的無關角色', async () => {
+    const baselineWithStaleChar: SyncBaseline = {
+      hostBaseUrl: SRC.baseUrl,
+      syncedAt: 1000,
+      settingsHash: 'h',
+      characters: { 'c-stale': { remoteId: 'c-stale', localUpdatedAt: 100, remoteUpdatedAt: 200 } },
+      personas: {},
+      worlds: {},
+      scenes: {},
+      lorebooks: {},
+      conversations: {}
+    }
+    await writeBaseline(session.adapters.storage, baselineWithStaleChar)
+
+    session.characters.push({
+      id: 'c-stale',
+      name: '基準過期的角色',
+      description: '',
+      emotions: {},
+      createdAt: 1,
+      updatedAt: 999
+    } as any)
+
+    const diff: SyncDiff = {
+      hasBaseline: true,
+      characters: { localNew: [], localModified: ['c-stale'], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      personas: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      worlds: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      scenes: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      lorebooks: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      conversations: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      settingsChanged: false
+    }
+
+    // 電腦上「現在沒有」c-stale 這個 id 了（例如被使用者手動刪除，或基準本來就是舊資料）——
+    // 就算基準記過，也不能盲目 overwrite，因為電腦上可能有一隻同名但不相干的角色
+    const { fetchImpl, calls } = makeFakeFetch([])
+    const opts: PushOptions = { selectedIds: { characters: new Set(['c-stale']) } }
+
+    await pushSync(SRC, session, diff, opts, fetchImpl)
+
+    const importCall = calls.find((c) => c.path === '/api/characters/import-pack')
+    expect(importCall?.query).toBe('onConflict=new')
+  })
+
+  it('fetchRemoteManifest 失敗時保守退回 onConflict=new（查不到就不冒險 overwrite）', async () => {
+    const baselineWithChar: SyncBaseline = {
+      hostBaseUrl: SRC.baseUrl,
+      syncedAt: 1000,
+      settingsHash: 'h',
+      characters: { 'c-unknown': { remoteId: 'c-unknown', localUpdatedAt: 100, remoteUpdatedAt: 200 } },
+      personas: {},
+      worlds: {},
+      scenes: {},
+      lorebooks: {},
+      conversations: {}
+    }
+    await writeBaseline(session.adapters.storage, baselineWithChar)
+
+    session.characters.push({
+      id: 'c-unknown',
+      name: '查不到遠端清單',
+      description: '',
+      emotions: {},
+      createdAt: 1,
+      updatedAt: 999
+    } as any)
+
+    const diff: SyncDiff = {
+      hasBaseline: true,
+      characters: { localNew: [], localModified: ['c-unknown'], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      personas: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      worlds: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      scenes: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      lorebooks: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      conversations: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      settingsChanged: false
+    }
+
+    const calls: { path: string; query: string }[] = []
+    // /api/sync-manifest 本身失敗（500），import-pack 正常——驗證失敗時保守退回 new
+    const flakyManifestFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const fullPath = url.replace(SRC.baseUrl, '')
+      const [path, query = ''] = fullPath.split('?')
+      if (path === '/api/sync-manifest') return new Response('server error', { status: 500 })
+      calls.push({ path: path!, query })
+      if (path === '/api/characters/import-pack') return new Response('OK', { status: 200 })
+      return new Response('OK', { status: 200 })
+    }) as typeof fetch
+
+    const opts: PushOptions = { selectedIds: { characters: new Set(['c-unknown']) } }
+    await pushSync(SRC, session, diff, opts, flakyManifestFetch)
+
+    const importCall = calls.find((c) => c.path === '/api/characters/import-pack')
+    expect(importCall?.query).toBe('onConflict=new')
   })
 
   it('推送結果摘要包含每個 collection 實際推送的名字', async () => {
