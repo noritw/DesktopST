@@ -982,16 +982,25 @@ async function handleRequest(
 
   // ── POST /api/characters/import-pack ── S2 M3 角色推送（手機 → 電腦）
   // 手機上傳 .dstpack 格式的角色，電腦負責解包並落地。
-  // 衝突處理：新增角色發新 id；同名既有角色可選擇跳過或覆蓋。
+  //
+  // 衝突策略由手機端用 ?onConflict= 決定，不是固定寫死：
+  // - 'new'：第一次推這個角色，電腦上還沒有——新增。
+  // - 'overwrite'：手機端的基準已經記過這個角色（先前推送成功過），這次
+  //   是同一個角色被改過、重新推——蓋掉電腦上那份，不要每次修改重推
+  //   都在電腦上生一個新角色（2026-08-13 owner 實機回報「電腦上多了一堆
+  //   重複角色」，根因就是每次重推同一隻角色都被當成新角色處理）。
+  // 手機端在 `syncPush.ts` 依基準有沒有這筆記錄來決定傳哪個值。
   if (method === 'POST' && url === '/api/characters/import-pack') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
     const buffer = await readBinary(req)
     if (!buffer) { jsonError(res, 413, '檔案太大或讀取失敗'); return }
+    const onConflictParam = requestUrl.searchParams.get('onConflict')
+    const onConflict = onConflictParam === 'overwrite' ? 'overwrite' : 'new'
     try {
       // 轉換 Buffer 為 ArrayBuffer（Node.js Buffer 和瀏覽器 ArrayBuffer 型別不同）
       const arrayBuffer = new Uint8Array(buffer).buffer
       const result = await bridge.importDstPack(arrayBuffer, {
-        onConflict: 'new',  // M3：同名時發新 id（不覆蓋），保留兩份
+        onConflict,
         applyGlobalSettings: false  // 設定走 `/api/settings/*`，不在這裡帶
       })
       if ('error' in result) { jsonError(res, 400, result.error); return }

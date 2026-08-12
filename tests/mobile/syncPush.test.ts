@@ -50,10 +50,11 @@ const FIRST_SYNC_DIFF: SyncDiff = {
  * 造假 fetch，記錄所有呼叫（方法、路徑、body）以便驗證。
  */
 function makeFakeFetch() {
-  const calls: { method: string; path: string; body?: unknown; contentType?: string }[] = []
+  const calls: { method: string; path: string; query: string; body?: unknown; contentType?: string }[] = []
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
-    const path = url.replace(SRC.baseUrl, '')
+    const fullPath = url.replace(SRC.baseUrl, '')
+    const [path, query = ''] = fullPath.split('?')
     const method = init?.method ?? 'GET'
     const body = init?.body
     const contentType = init?.headers ? (init.headers as Record<string, string>)['Content-Type'] ?? undefined : undefined
@@ -70,15 +71,16 @@ function makeFakeFetch() {
       }
     }
 
-    calls.push({ method, path, body: parsedBody, contentType })
+    calls.push({ method, path: path!, query, body: parsedBody, contentType })
 
     // 如果缺了某個端點，就讓它失敗；這樣能測試邏輯是否調用了正確的端點
+    // （import-pack 的 onConflict 走 query string，不是完全比對路徑）
     if (path === '/api/characters/import-pack') return new Response('OK', { status: 200 })
     if (path === '/api/presets/persona/save') return new Response('OK', { status: 200 })
     if (path === '/api/presets/world/save') return new Response('OK', { status: 200 })
     if (path === '/api/presets/scene/save') return new Response('OK', { status: 200 })
     if (path === '/api/lorebooks/save') return new Response('OK', { status: 200 })
-    if (path.startsWith('/api/settings/')) return new Response('OK', { status: 200 })
+    if (path?.startsWith('/api/settings/')) return new Response('OK', { status: 200 })
 
     return new Response('not implemented', { status: 404 })
   }) as typeof fetch
@@ -166,6 +168,81 @@ describe('S2 M3 pushSync', () => {
 
     // 回傳的 summary 要能讓 UI 顯示「實際推了什麼」，不是只有靜默成功
     expect(summary.characters).toEqual(['測試角色'])
+  })
+
+  it('角色第一次推送用 onConflict=new（電腦上還沒有這隻）', async () => {
+    session.characters.push({
+      id: 'c-first',
+      name: '第一次推送',
+      description: '',
+      emotions: {},
+      createdAt: 1,
+      updatedAt: 1
+    } as any)
+
+    const diff: SyncDiff = {
+      hasBaseline: true,
+      characters: { localNew: ['c-first'], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      personas: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      worlds: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      scenes: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      lorebooks: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      conversations: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      settingsChanged: false
+    }
+
+    const { fetchImpl, calls } = makeFakeFetch()
+    const opts: PushOptions = { selectedIds: { characters: new Set(['c-first']) } }
+
+    await pushSync(SRC, session, diff, opts, fetchImpl)
+
+    const importCall = calls.find((c) => c.path === '/api/characters/import-pack')
+    expect(importCall?.query).toBe('onConflict=new')
+  })
+
+  it('角色已經在基準裡（先前推送成功過）→ 重推用 onConflict=overwrite，不會在電腦上多生一隻', async () => {
+    // 先寫一份基準，模擬「這隻角色先前已經推送成功過」
+    const baselineWithChar: SyncBaseline = {
+      hostBaseUrl: SRC.baseUrl,
+      syncedAt: 1000,
+      settingsHash: 'h',
+      characters: { 'c-repeat': { remoteId: 'c-repeat', localUpdatedAt: 100, remoteUpdatedAt: 200 } },
+      personas: {},
+      worlds: {},
+      scenes: {},
+      lorebooks: {},
+      conversations: {}
+    }
+    await writeBaseline(session.adapters.storage, baselineWithChar)
+
+    // 角色在本地被改過（updatedAt 比基準記的新），要重推
+    session.characters.push({
+      id: 'c-repeat',
+      name: '被改過重推',
+      description: '',
+      emotions: {},
+      createdAt: 1,
+      updatedAt: 999
+    } as any)
+
+    const diff: SyncDiff = {
+      hasBaseline: true,
+      characters: { localNew: [], localModified: ['c-repeat'], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      personas: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      worlds: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      scenes: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      lorebooks: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      conversations: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] },
+      settingsChanged: false
+    }
+
+    const { fetchImpl, calls } = makeFakeFetch()
+    const opts: PushOptions = { selectedIds: { characters: new Set(['c-repeat']) } }
+
+    await pushSync(SRC, session, diff, opts, fetchImpl)
+
+    const importCall = calls.find((c) => c.path === '/api/characters/import-pack')
+    expect(importCall?.query).toBe('onConflict=overwrite')
   })
 
   it('推送結果摘要包含每個 collection 實際推送的名字', async () => {

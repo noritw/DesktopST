@@ -137,7 +137,10 @@ export async function pushSync(
       const char = session.characters.find((c) => c.id === id)
       const charName = char?.name || id
       opts.onProgress?.(`推送角色 ${charName}...`)
-      await pushCharacter(src, session, id, fetchImpl)
+      // 基準已經記過這筆 → 這次是同一隻角色被改過、重新推，要蓋掉電腦上
+      // 那份而不是又生一隻新的（不然每次修改重推都會在電腦上多一隻重複角色）。
+      const onConflict = baseline.characters[id] ? 'overwrite' : 'new'
+      await pushCharacter(src, session, id, onConflict, fetchImpl)
       summary.characters.push(charName)
       if (char) {
         if (!updates.characters[id]) {
@@ -236,18 +239,25 @@ export async function pushSync(
  *
  * 手機端用 `exportPack` 把角色序列化成 `.dstpack`，再 POST 到電腦的
  * `/api/characters/import-pack`。電腦那邊用同一套 S1 的解包邏輯接收。
+ *
+ * `onConflict` 由呼叫端（`pushSync` 的角色迴圈）依基準有沒有這筆記錄決定：
+ * - `'new'`：第一次推這隻角色，電腦上還沒有。
+ * - `'overwrite'`：基準已經記過，這次是同一隻角色被改過重推——蓋掉電腦
+ *   上那份，不要每次修改重推都生一隻新角色（`mobileServer.ts` 的
+ *   `/api/characters/import-pack` 端點註解有完整說明這條的來龍去脈）。
  */
 async function pushCharacter(
   src: SyncSource,
   session: StandaloneSession,
   id: string,
+  onConflict: 'new' | 'overwrite',
   fetchImpl: FetchImpl
 ): Promise<void> {
   const char = session.characters.find((c) => c.id === id)
   if (!char) throw new Error(`Character ${id} not found`)
 
   const { bytes } = await session.exportPack([id], { includeGlobalSettings: false, includeLorebooks: false })
-  await pushBinary(src, '/api/characters/import-pack', bytes, fetchImpl)
+  await pushBinary(src, `/api/characters/import-pack?onConflict=${onConflict}`, bytes, fetchImpl)
 }
 
 /**
