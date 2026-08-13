@@ -85,7 +85,9 @@ src/mobile/ 手機 UI
 | **S2 同步 M1（模式可切換）** | 完成（2026-08-12），穩定性已補驗證。App 內可直接切換本機／遙控，不用重開；`mobile/ui/stores/connectionStore.ts` 取代原本 `App.tsx` 的 `useMemo`；切換按鈕在「關於」頁（只有原生殼顯示）。**這階段完全不同步資料**，只是把「兩份資料分開存取」的入口做出來。owner 實機試切換時揪出兩個原生殼獨有的既存缺口並修掉：①掃到中繼 QR 時 WebSocket 路由是錯的（`resolveLiveRemote()` 會自動嘗試升級成區網直連，升不了就明講不支援）②`capacitor.config.ts` 的 `androidScheme` 是 `'https'` 導致 Mixed Content 政策擋掉角色頭像與遙控 WebSocket（改成 `'http'`，細節見 §5）。兩個修法 log 上都看得到效果（WS 首次 `open` 成功、Mixed Content 警告歸零）。**穩定性補驗證（同日稍後）**：手動延長螢幕逾時後，遙控·區網直連模式閒置 4 分鐘連線仍正常、`Mixed Content` 全程 0 筆——判定穩定收工。細節：`mobile-mode-switch-sync.md` §8.1 |
 | **S2 同步 M2（差異預覽，唯讀不搬資料）** | 完成，**真機驗證通過**（2026-08-12）。新端點 `GET /api/sync-manifest`；純差異邏輯在 `core/sync/`（平台無關，`npm test` 涵蓋）；切換前用既有的 `ui.confirm` 對話框（沒有另做 Sheet）顯示差異摘要，`ModeSwitcher.tsx` 掛入。**這一版只讀不寫基準**（`sync-baseline.json` 目前不存在，還沒有人寫過），所以真機上看到的是「無基準」的中性統計訊息，逐筆差異／衝突要等 M3 第一次寫入基準才會被真機驗證到。細節與落地筆記：`mobile-mode-switch-sync.md` §8.2 |
 | **S2 同步 M3（真的推／拉資料）** | **方向已修正，自動測試通過，尚未真機驗證。** 獨立→遙控＝手機→電腦推送（`syncPush.ts`，角色／人設／世界觀／Lorebook／情境，逐項成功即寫回基準）；遙控→獨立＝電腦→手機拉取（新檔 `syncPull.ts`，直接複用 S1 `runSyncImport()`，`onConflict='overwrite'`，且會拔掉電腦附的 API Key，S2 不碰金鑰）。路由抽成純函式 `runtime/modeSwitchSync.ts`，可被單元測試直接驗證方向沒接錯（`tests/mobile/modeSwitchSync.test.ts`、`syncPull.test.ts`）。**設定推送仍是死碼**（`pushSettings()` 沒有呼叫端）；**對話同步是 M4，完全沒做**。`npm run typecheck`／`npm test` 皆過（47 檔、600 項）——只證明邏輯正確，不是真機驗證。真機待驗兩條路徑見 `docs/mobile-sync-m3-kickoff.md` §9 |
-| **下一步** | **Pixel 10a 真機驗證 S2 M3 兩條切換路徑**（獨立→遙控的推送終點在電腦、遙控→獨立的拉取終點在手機），細節見 `docs/mobile-sync-m3-kickoff.md` §9。驗過後再補設定推送（M3 收尾）；之後做階段 7 正式 APK／散布；v0.4.0 另需真機煙測（配色／新聞泡泡／遙控）。 |
+| **S2 同步 M4（逐項比對）** | **已實作，自動測試通過，尚未真機驗證**（2026-08-14）。M3 真機實測發現「資料有過去但重複愈來愈多」——電腦端長出 23 個情境（真正 7 個）、各 10 份世界觀與使用者設定。根因是**基準表整份是假的**（推送時記 `remoteId: id`，但電腦端 `savePersonaPresetDirect` 會丟掉送來的 id 另發 uuid，手機從沒讀過回應）＋ diff 的名字後備配對讓同名資料永遠不推也永遠不收斂 ＋ 推情境沒翻譯交叉參照（電腦上留下 10 處死參照）＋ 取消被誤報成「連不上」。**改成每次切換當場逐項比對**（`core/sync/pair.ts`，身分＝id 相同 or 名稱相同，不依賴基準），左手機右電腦逐列選，含「全部用手機／全部用電腦／保留差異」；內容是否相同看 `contentHash`（**不能看 `updatedAt`**，推送會把接收端時間設成現在）。方向變成資料而非程式分支，M3「掛錯呼叫端就整個反了」的錯誤類別消失。電腦端資料已用一次性腳本清理完（備份 `Data.backup-2026-08-13T15-59-48`），手機端刻意留著當真機驗證素材。細節與待驗清單：`docs/mobile-sync-m4-compare.md` |
+| **S2 M5（設定同步）** | **已實作，真機驗證進行中**（2026-08-14）。M4 比對畫面加開「設定」分頁，逐欄位比對 LLM 供應商／各供應商模型／對話限制／記憶／配色主題／模組開關／天氣潤飾；不碰 API Key。跟資料比對是兩套獨立系統（`core/sync/settingsPair.ts`）——設定欄位兩邊永遠都有值，沒有「單邊獨有」，選項只有 本機／電腦／不動，預設一律不動。桌面／手機的設定子集定義統一到 `core/sync/settingsSnapshot.ts`（避免重蹈 M4 `contentHash.ts` 那次雙邊定義漂移的坑）；新增 `GET /api/settings/sync-snapshot`。**owner 2026-08-14 真機測出一個遺漏**：`weather.polish`（天氣輔助模型潤飾）是模組底下的子設定、不在原本沿用的舊子集裡，已補上（§8.5b）——這類「模組除了 enabled 還有自己的子設定」的遺漏還沒逐一排查完，之後如有人回報某模組的某個開關沒同步，大概率是同一類坑。細節：`docs/mobile-sync-m4-compare.md` §8 |
+| **下一步** | **Pixel 10a 真機驗證 S2 M4／M5 比對畫面**：M4 六條見 `docs/mobile-sync-m4-compare.md` §7，M5 六條見 §8.6（含新補的 `weather.polish`）。驗過後考慮做對話同步（範圍大、需另外設計衝突呈現方式，見 §6）；之後做階段 7 正式 APK／散布；v0.4.0 另需真機煙測（配色／新聞泡泡／遙控）。 |
 | 延後／已排程 | 角色印象（B8）；系統通知（B5）；**飲食熱量模組（B9）** → `docs/future-nutrition-module.md`（owner 自用優先；含換機搬家包） |
 
 獨立模式**尚未實作**（會誠實擲 `not-supported`，不是 bug）：
@@ -235,7 +237,7 @@ src/mobile/ 手機 UI
 | 改 QR／relay／手機建置 | 計畫書 **只讀 §4.20** | §4.10–4.18 |
 | S1／S2 同步 | roadmap **§4.7**（模式、S1–S3 分層、API Key 判定、星狀拓樸） | 整份 roadmap |
 | 手機模式切換／切換時帶資料走 | `mobile-mode-switch-sync.md`（整份，S2 第一階段的實作設計） | 整份 roadmap |
-| **修正／驗證 S2 M3（真的推／拉資料）** | `mobile-sync-m3-kickoff.md`（整份；先讀文首的 P1 現況） | 一切長文 |
+| **改／驗證切換模式的同步** | `mobile-sync-m4-compare.md`（整份，M4 逐項比對，**已取代 M3 流程**） | `mobile-sync-m3-kickoff.md`（只在追歷史時才讀） |
 | 打 APK／改 Capacitor | `src/mobile/README.md` | 一切長文 |
 | 動天氣（兩邊共用） | `core/weather/`（四個小檔，直接讀原始碼）＋ `progress-log.md` 搜「獨立版天氣」 | 舊的 `weather-realtime-query-spec.md`（那是桌面 CWA 規格） |
 | 問「獨立版還缺什麼」／挑下一項做 | `mobile-standalone-gap-inventory.md`（整份，不長） | 舊的 `mobile-html-feature-inventory.md` |

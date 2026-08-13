@@ -82,6 +82,49 @@ export async function getJson<T>(
   }
 }
 
+/**
+ * POST JSON 並把回應解析回來（S2 M4）。
+ *
+ * 回應**一定要用**：電腦端存完之後回的是它實際採用的 id，那個 id 不保證等於
+ * 送過去的（`savePersonaPresetDirect` 的 `id: existing?.id ?? uuidv4()`）。
+ * M3 把回應丟掉、自己假設 id 沒變，對應表因此整份寫錯，每同步一次就多一份
+ * 重複資料（`core/sync/pair.ts` 檔頭有完整來龍去脈）。
+ *
+ * 逾時理由同 `request()`：CapacitorHttp 忽略 `signal`，得自己算。
+ */
+export async function postJson<T>(
+  src: SyncSource,
+  path: string,
+  payload: unknown,
+  fetchImpl: FetchImpl,
+  timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<T> {
+  const url = `${src.baseUrl.replace(/\/$/, '')}${path}`
+  let res: Response
+  try {
+    res = await Promise.race([
+      fetchImpl(url, {
+        method: 'POST',
+        headers: { ...authHeaders(src), Authorization: `Bearer ${src.token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new SyncError('unreachable', `${path} 等了 ${timeoutMs}ms 沒有回應`)), timeoutMs)
+      )
+    ])
+  } catch (e) {
+    if (e instanceof SyncError) throw e
+    throw new SyncError('unreachable', e instanceof Error ? e.message : String(e))
+  }
+  if (res.status === 401 || res.status === 403) throw new SyncError('unauthorized', `${path} 回 ${res.status}`)
+  if (!res.ok) throw new SyncError('server-error', `${path} 回 ${res.status}：${await res.text().catch(() => '')}`)
+  try {
+    return (await res.json()) as T
+  } catch {
+    throw new SyncError('bad-response', `${path} 回應不是 JSON`)
+  }
+}
+
 export async function getBinary(src: SyncSource, path: string, fetchImpl: FetchImpl): Promise<Uint8Array> {
   const res = await request(src, path, fetchImpl)
   return new Uint8Array(await res.arrayBuffer())

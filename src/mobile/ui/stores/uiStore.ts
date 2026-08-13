@@ -1,5 +1,13 @@
 import { create } from 'zustand'
 import type { ColorTheme } from '@core/types'
+import type { ChoiceMap, PairTable } from '@core/sync/pair'
+import type { SettingsChoiceMap, SettingsFieldRow } from '@core/sync/settingsPair'
+
+/** `openSyncCompare` 的成功結果——資料的決定與設定的決定各自一份 map。 */
+export interface SyncCompareResult {
+  choices: ChoiceMap
+  settingsChoices: SettingsChoiceMap
+}
 
 /**
  * 介面狀態：畫面堆疊、toast、對話框、主題。
@@ -135,6 +143,30 @@ interface UiState {
   openNameConflicts: (items: { id: string; name: string }[]) => Promise<Set<string> | null>
   closeNameConflicts: (selected: Set<string> | null) => void
 
+/**
+   * 切換模式前的逐項比對（S2 M4，owner 2026-08-13 指定；S2 M5 加入「設定」分頁）。
+   *
+   * 取代 M3 那個「帶過去／直接切／取消」的三選一對話框——那個版本只能整包
+   * 決定，而且判斷「兩邊是不是同一筆」靠的是壞掉的基準表，結果是每切換一次
+   * 兩邊就多一批重複資料。這裡改成把每一筆攤開來讓使用者自己選哪一邊。
+   *
+   * 資料（角色／使用者設定／世界觀／情境／用語解說）與設定（LLM、記憶、配色、
+   * 模組）是兩套獨立的比對系統（`core/sync/pair.ts` 與 `core/sync/settingsPair.ts`），
+   * 一起放進同一個畫面、同一趟 resolve，是因為對使用者而言這就是「切換前要
+   * 決定的東西」，不該因為實作上的兩套型別而拆成兩個先後彈出的畫面。
+   *
+   * 與 `nameConflicts` 同一套 Promise 包裝：resolve 一份結果才往下做，
+   * 回 `null` ＝ 使用者取消（**呼叫端必須把它和「連不上」分開處理**，
+   * 混在一起會讓取消跳出「上次那台電腦連不上了」的假錯誤）。
+   */
+  syncCompare: {
+    table: PairTable
+    settingsRows: SettingsFieldRow[]
+    resolve: (result: SyncCompareResult | null) => void
+  } | null
+  openSyncCompare: (table: PairTable, settingsRows: SettingsFieldRow[]) => Promise<SyncCompareResult | null>
+  closeSyncCompare: (result: SyncCompareResult | null) => void
+
   stack: ViewEntry[]
   push: (kind: ViewKind, param?: string) => void
   /**
@@ -224,6 +256,17 @@ export const useUiStore = create<UiState>((set, get) => ({
     const c = get().nameConflicts
     set({ nameConflicts: null })
     c?.resolve(selected)
+  },
+
+  syncCompare: null,
+  openSyncCompare: (table, settingsRows) =>
+    new Promise<SyncCompareResult | null>((resolve) => {
+      set({ syncCompare: { table, settingsRows, resolve } })
+    }),
+  closeSyncCompare: (result) => {
+    const c = get().syncCompare
+    set({ syncCompare: null })
+    c?.resolve(result)
   },
 
   stack: [],

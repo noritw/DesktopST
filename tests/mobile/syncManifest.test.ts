@@ -32,7 +32,9 @@ describe('buildLocalManifest', () => {
     const manifest = await buildLocalManifest(session)
 
     const found = manifest.characters.find((c) => c.id === 'c1')
-    expect(found).toEqual({ id: 'c1', name: '星離宸', updatedAt: 123 })
+    expect(found).toMatchObject({ id: 'c1', name: '星離宸', updatedAt: 123 })
+    // S2 M4：每筆多帶內容雜湊，手機才判得出「兩邊都有的這一筆內容一不一樣」
+    expect(found?.contentHash).toMatch(/^[0-9a-f]{40}$/)
     expect(manifest.settingsHash).toMatch(/^[0-9a-f]{40}$/)
   })
 
@@ -46,7 +48,10 @@ describe('buildLocalManifest', () => {
   it('LLM 設定變動會讓 settingsHash 跟著變', async () => {
     const session = await bootStandaloneSession(adapters(), { skipPackFetch: true })
     const before = await buildLocalManifest(session)
-    session.settings.llm.model = 'a-completely-different-model'
+    // `llm.model` 是早期單一供應商時代的棄用欄位，S2 M5 起雜湊子集改看
+    // `llm.models[provider]`（`core/sync/settingsSnapshot.ts`）——那才是真正
+    // 會被同步／顯示在比對畫面上的值。
+    session.settings.llm.models = { ...session.settings.llm.models, [session.settings.llm.provider]: 'a-completely-different-model' }
     const after = await buildLocalManifest(session)
     expect(after.settingsHash).not.toBe(before.settingsHash)
   })

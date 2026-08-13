@@ -43,6 +43,15 @@ export interface ManifestEntity {
   id: string
   name: string
   updatedAt: number
+  /**
+   * 內容雜湊（S2 M4，`core/sync/contentHash.ts`）。用來判斷「兩邊都有的這一筆
+   * 內容是不是同一份」——`updatedAt` 跨裝置不可比（推送本身就會把接收端的
+   * 時間設成現在，推完永遠是對面比較新）。
+   *
+   * 可選是為了相容還沒升級的舊桌面端：缺這個欄位時 `pair.ts` 把該列標成
+   * `compare: 'unknown'`，讓使用者自己判斷，而不是猜。
+   */
+  contentHash?: string
 }
 
 /** 對話的輕量描述，多帶則數。 */

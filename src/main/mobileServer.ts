@@ -14,6 +14,8 @@ import { getAccessToken } from './relayService'
 import { getRemoteControlClientState, getRemoteControlClientStateForDevice } from './modules/remote-control'
 import { sha1Hex } from '../core/util/sha1'
 import { stableStringify } from '../core/util/stableJson'
+import { buildManifest } from '../core/sync/manifestBuild'
+import { settingsSnapshotHash, type SettingsSnapshot } from '../core/sync/settingsSnapshot'
 
 // ── 注入的 bridge（由 index.ts 啟動時注入）────────────────
 
@@ -121,8 +123,9 @@ export interface MobileBridge {
   buildDstPack: (payload: { characterIds: string[]; includeGlobalSettings: boolean; includeLorebooks?: boolean }) => Promise<{ buffer: ArrayBuffer } | { error: string }>
   importDstPack: (
     buffer: ArrayBuffer,
-    opts: { onConflict: 'skip' | 'overwrite' | 'new'; applyGlobalSettings: boolean }
-  ) => Promise<{ ok: true; imported: number; skipped: number } | { error: string }>
+    opts: { onConflict: 'skip' | 'overwrite' | 'new'; applyGlobalSettings: boolean; targetId?: string }
+    /** `ids` ＝ 實際落地的角色 id，不保證等於送進來的 id（S2 M4，見 `importDstPackDirect`）。 */
+  ) => Promise<{ ok: true; imported: number; skipped: number; ids: string[] } | { error: string }>
   listLorebooks: () => { id: string; name: string }[]
   /** S2 M2 差異預覽用的輕量清單（多帶 updatedAt）。不改 `listLorebooks()` 的既有形狀，因為 S1 匯入流程依賴它只有 `{id,name}`。 */
   getLorebookManifest: () => { id: string; name: string; updatedAt: number }[]
@@ -479,29 +482,28 @@ const MOBILE_COLOR_THEMES: string[] = [
 ]
 
 /**
- * `/api/sync-manifest` 的 `settingsHash`（S2 M2 差異預覽，`core/sync/diff.ts`）。
+ * 電腦端的設定比對子集（S2 M2 雜湊、S2 M5 逐欄位比對共用）。
  *
- * 只取跟 `/api/sync-init`（1445 行附近）同一批會被同步的設定子集，
- * **排除 apiKeys**——manifest 是輕量清單，不該夾帶金鑰。子集範圍要跟
- * `/api/sync-init` 保持一致，這樣雜湊反映的正好是 M3 之後真的會推／拉的東西。
+ * **唯一**的定義在 `core/sync/settingsSnapshot.ts`，這裡只是把 bridge 的取值套進
+ * 那個共用型別。只取跟 `/api/sync-init`（1445 行附近）同一批會被同步的設定，
+ * **排除 apiKeys**——這裡是輕量清單，不該夾帶金鑰。
  */
-function buildSettingsManifestHash(bridge: MobileBridge): string {
+function buildSettingsSnapshot(bridge: MobileBridge): SettingsSnapshot {
   const llm = bridge.getLlmSettings()
-  const subset = {
+  return {
     llm: {
       provider: llm.provider,
-      model: llm.model,
-      models: llm.models,
-      endpoint: llm.endpoint,
+      models: Object.fromEntries(Object.entries(llm.models).filter((e): e is [string, string] => !!e[1])),
+      endpoint: llm.endpoint ?? '',
       maxResponseTokens: llm.maxResponseTokens,
       maxGroupRounds: llm.maxGroupRounds,
       maxImagesPerMessage: llm.maxImagesPerMessage
     },
     memory: bridge.getMemorySettings(),
     colorTheme: bridge.getColorTheme(),
-    modules: bridge.listModuleToggles()
+    modules: bridge.listModuleToggles(),
+    weather: { polish: bridge.getWeatherSettings().polish }
   }
-  return sha1Hex(stableStringify(subset))
 }
 
 // ── HTTP 路由 ─────────────────────────────────────────────
@@ -1026,16 +1028,21 @@ async function handleRequest(
     if (!buffer) { jsonError(res, 413, '檔案太大或讀取失敗'); return }
     const onConflictParam = requestUrl.searchParams.get('onConflict')
     const onConflict = onConflictParam === 'overwrite' ? 'overwrite' : 'new'
+    // S2 M4：手機在比對畫面上已經確定要蓋哪一隻，直接指定，不要再靠名字猜
+    const targetId = requestUrl.searchParams.get('targetId') || undefined
     try {
       // 轉換 Buffer 為 ArrayBuffer（Node.js Buffer 和瀏覽器 ArrayBuffer 型別不同）
       const arrayBuffer = new Uint8Array(buffer).buffer
       const result = await bridge.importDstPack(arrayBuffer, {
         onConflict,
-        applyGlobalSettings: false  // 設定走 `/api/settings/*`，不在這裡帶
+        applyGlobalSettings: false,  // 設定走 `/api/settings/*`，不在這裡帶
+        targetId
       })
       if ('error' in result) { jsonError(res, 400, result.error); return }
       pushDesktopUpdate(bridge.getDesktopCharacterIds())
-      jsonOk(res, { ok: true, imported: result.imported, skipped: result.skipped })
+      // `ids` ＝ 實際落地的角色 id（S2 M4）。手機要拿它記對應表——送出去的 id
+      // 不保證就是存下來的那個，見 `importDstPackDirect` 裡 `ids` 的註解。
+      jsonOk(res, { ok: true, imported: result.imported, skipped: result.skipped, ids: result.ids })
     } catch (err) {
       jsonError(res, 400, err instanceof Error ? err.message : 'Import failed')
     }
@@ -1657,20 +1664,42 @@ async function handleRequest(
    */
   if (method === 'GET' && url === '/api/sync-manifest') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-    jsonOk(res, {
-      characters: bridge.getCharacters().map((c) => ({ id: c.id, name: c.name, updatedAt: c.updatedAt })),
-      personas: bridge.getPersonaPresets().map((p) => ({ id: p.id, name: p.name, updatedAt: p.updatedAt })),
-      worlds: bridge.getWorldPresets().map((w) => ({ id: w.id, name: w.name, updatedAt: w.updatedAt })),
-      scenes: bridge.getScenes().map((s) => ({ id: s.id, name: s.name, updatedAt: s.updatedAt })),
-      lorebooks: bridge.getLorebookManifest(),
-      conversations: bridge.getConversationsForSync().map((c) => ({
+    const b = bridge
+    /*
+     * S2 M4：每筆多帶一個 `contentHash`，手機端才判得出「兩邊都有的這一筆
+     * 內容一不一樣」。算法在 `core/sync/manifestBuild.ts`，**桌面與手機共用
+     * 同一支**——各自抄一份的話只要漂移一個欄位，手機上每一列都會變成假衝突
+     * 而且不會有任何錯誤訊息。
+     */
+    const books = b.getLorebookManifest()
+      .map((l) => b.getLorebook(l.id))
+      .filter((x): x is NonNullable<typeof x> => !!x)
+    jsonOk(res, buildManifest({
+      characters: b.getCharacters(),
+      personas: b.getPersonaPresets(),
+      worlds: b.getWorldPresets(),
+      scenes: b.getScenes(),
+      lorebooks: books,
+      conversations: b.getConversationsForSync().map((c) => ({
         id: c.id,
         title: c.title,
         updatedAt: c.updatedAt,
         messageCount: c.messageCount
       })),
-      settingsHash: buildSettingsManifestHash(bridge)
-    })
+      settingsHash: settingsSnapshotHash(buildSettingsSnapshot(b))
+    }))
+    return
+  }
+
+  /*
+   * ── GET /api/settings/sync-snapshot ── S2 M5 逐欄位比對用
+   *
+   * 回傳跟手機 `buildLocalSettingsSnapshot()` 同形狀的物件（不只雜湊），
+   * 手機才能把兩邊的值並排顯示，不只是知道「有沒有差異」。
+   */
+  if (method === 'GET' && url === '/api/settings/sync-snapshot') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, buildSettingsSnapshot(bridge))
     return
   }
 

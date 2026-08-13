@@ -8,23 +8,38 @@ import { PROBE_TIMEOUT_MS, resolveLiveRemote, type Connection, type ModePref } f
 import { isScannerAvailable, parsePairingUrl, scanQr } from '../../adapters/scannerAdapter'
 import * as keys from '@core/store/keys'
 import { capacitorAdapters, initCapacitorSecrets } from '../../adapters'
-import { computeDiff, isDiffEmpty } from '@core/sync/diff'
+import { countPlan, pairManifests, type PairTable } from '@core/sync/pair'
+import { countSettingsPlan, pairSettings, type SettingsFieldRow } from '@core/sync/settingsPair'
 import { getStandaloneSession } from '../../runtime/sessionHolder'
 import { bootStandaloneSession, type StandaloneSession } from '../../runtime/session'
-import { MANIFEST_TIMEOUT_MS, buildLocalManifest, fetchRemoteManifest } from '../../runtime/syncManifest'
-import { readBaseline } from '../../runtime/syncBaseline'
-import { pullRemoteToLocal as pullRemoteToLocalSync, pushLocalToRemote as pushLocalToRemoteSync } from '../../runtime/modeSwitchSync'
-import { PushCancelled } from '../../runtime/syncPush'
-import { formatDiffMessage, formatFirstRunMessage, formatPullSummaryMessage, formatPushSummaryMessage } from './syncDiffMessage'
+import {
+  MANIFEST_TIMEOUT_MS,
+  buildLocalManifest,
+  buildLocalSettingsSnapshot,
+  fetchRemoteManifest,
+  fetchRemoteSettingsSnapshot
+} from '../../runtime/syncManifest'
+import { applySync } from '../../runtime/syncApply'
+import { applySettingsSync } from '../../runtime/syncSettingsApply'
+import { formatApplyMessage } from './syncDiffMessage'
 import { countdownLabel, useCountdown } from './useCountdown'
 import type { SyncSource } from '../../runtime/syncTransport'
-import type { SyncDiff } from '@core/sync/types'
 
 /**
- * 模式切換（S2 M1，`docs/mobile-mode-switch-sync.md` §4）。
+ * 切換的三種結果。**取消一定要跟失敗分開**——兩者合成一個 boolean 的話，
+ * 使用者在比對畫面按取消會被當成「電腦連不上」（見 `goRemote` 的註解）。
+ */
+type SwitchOutcome = 'ok' | 'cancelled' | 'failed'
+
+/**
+ * 模式切換（S2 M4，`docs/mobile-sync-m4-compare.md`）。
  *
- * 這一版**完全不同步資料**——切換就是切換，跟已完成的 S1「從電腦匯入」是
- * 兩件事。放在「關於」頁而不是主選單新開一項，因為這裡本來就在講「目前連線」，
+ * 切換前會先**逐項比對**兩邊的資料，讓使用者一列一列決定要留哪一邊
+ * （`SyncComparePicker.tsx`）。M1～M3 的「整包帶過去／不帶」三選一已經移除——
+ * 那個版本靠壞掉的基準表判斷「兩邊是不是同一筆」，實測結果是每切換一次
+ * 兩邊就多一批重複資料。
+ *
+ * 放在「關於」頁而不是主選單新開一項，因為這裡本來就在講「目前連線」，
  * 使用者會在同一個地方問「我在跟誰講話」跟「我要換一個」。
  *
  * ⚠️ **只在原生殼顯示**：網頁版永遠是遙控模式（拓樸限制，`connection.ts` 已有說明），
@@ -35,6 +50,7 @@ export function ModeSwitcher(): JSX.Element | null {
   const switchTo = useConnectionStore((s) => s.switchTo)
   const toast = useUiStore((s) => s.toast)
   const confirm = useUiStore((s) => s.confirm)
+  const openSyncCompare = useUiStore((s) => s.openSyncCompare)
   const sending = useAppStore((s) => s.sending)
 
   const [scannerOk, setScannerOk] = useState(false)
@@ -84,101 +100,87 @@ export function ModeSwitcher(): JSX.Element | null {
   }
 
   /**
-   * S2 M3 切換前預覽并提供三選項（`docs/mobile-sync-m3-kickoff.md` §4）。
+   * S2 M4 切換前的逐項比對與同步。
    *
-   * 這支只負責「算差異、問使用者要不要帶」，**不管方向**——方向（推或拉）
-   * 由呼叫端根據「現在要切去哪個模式」決定，見 `mobile-mode-switch-sync.md` §2：
-   * 獨立 → 遙控是手機 → 電腦，遙控 → 獨立是電腦 → 手機。
+   * **兩個切換方向共用這一支**，而且它本身不管方向——比對畫面上每一列各自
+   * 決定要用手機那份還是電腦那份，同一趟裡兩個方向可以同時發生。
    *
-   * 回傳 object 或 null：
-   * - `{ choice: 'bring', diff }`：帶過去並切換
-   * - `{ choice: 'switch', diff }`：直接切換不帶（基準保持不動）
-   * - `null`：取消切換
+   * 這也順手消滅了 M3 最容易犯的一整類錯：那時推與拉是兩條分開的程式路徑，
+   * 掛錯呼叫端就整個反了（`docs/mobile-sync-m3-kickoff.md` §0.1 就是這個）。
+   * 現在方向是資料（每列一個 choice），不是程式分支。
    */
-  const previewBeforeSwitchWithChoice = async (remoteSrc: SyncSource): Promise<{ choice: 'bring' | 'switch'; diff: SyncDiff } | null> => {
+  const syncBeforeSwitch = async (remoteSrc: SyncSource): Promise<SwitchOutcome> => {
     let localSession: StandaloneSession
+    let table: PairTable
+    let settingsRows: SettingsFieldRow[]
     try {
       localSession = await localSessionForSync()
       setWaiting({ label: '讀取電腦資料', totalMs: MANIFEST_TIMEOUT_MS })
-      let baseline, local, remote
       try {
-        ;[baseline, local, remote] = await Promise.all([
-          readBaseline(capacitorAdapters.storage),
+        const [local, remote, localSettings, remoteSettings] = await Promise.all([
           buildLocalManifest(localSession),
-          fetchRemoteManifest(remoteSrc)
+          fetchRemoteManifest(remoteSrc),
+          buildLocalSettingsSnapshot(localSession),
+          fetchRemoteSettingsSnapshot(remoteSrc)
         ])
+        table = pairManifests(local, remote)
+        settingsRows = pairSettings(localSettings, remoteSettings)
       } finally {
         setWaiting(null)
       }
-      const diff = computeDiff(baseline, local, remote)
-      if (!diff.hasBaseline) {
-        const choice = await confirmWithChoice({
-          title: '切換前預覽',
-          message: formatFirstRunMessage(local, remote)
-        })
-        return choice ? { choice, diff } : null
-      }
-      if (isDiffEmpty(diff)) return { choice: 'switch', diff }
-      const choice = await confirmWithChoice({ title: '切換前預覽', message: formatDiffMessage(diff) })
-      return choice ? { choice, diff } : null
     } catch {
-      return { choice: 'switch', diff: { hasBaseline: false, characters: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] }, personas: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] }, worlds: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] }, scenes: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] }, lorebooks: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] }, conversations: { localNew: [], localModified: [], localDeleted: [], remoteNew: [], remoteModified: [], remoteDeleted: [], conflicts: [] }, settingsChanged: false } }
+      /*
+       * 讀不到清單就**問過再切**，不要默默放行。舊版是靜靜當成「這次不帶資料」
+       * 直接切過去，使用者完全不知道自己剛剛跳過了一次比對。
+       */
+      const go = await confirm({
+        title: '讀不到電腦上的資料',
+        message: '沒辦法跟電腦比對，可能是電腦剛關掉或網路不通。仍要切換嗎？切換後兩邊資料維持各自原樣。',
+        confirmLabel: '仍要切換'
+      })
+      return go ? 'ok' : 'cancelled'
+    }
+
+    const result0 = await openSyncCompare(table, settingsRows)
+    if (!result0) return 'cancelled'
+    const { choices, settingsChoices } = result0
+
+    const plan = countPlan(table, choices)
+    const settingsPlan = countSettingsPlan(settingsRows, settingsChoices)
+    // 使用者選了全部不動 → 不必跑 apply，直接切
+    if (plan.push + plan.pull + plan.deleteLocal + plan.deleteRemote + settingsPlan.push + settingsPlan.pull === 0) {
+      return 'ok'
+    }
+
+    try {
+      /*
+       * 依序跑，不要 `Promise.all`：兩支都會呼叫 `session.saveSettings()` 寫同一份
+       * 檔案，並在記憶體裡改同一個 `session.settings` 物件——平行執行時兩邊的
+       * 寫入可能交錯，輕則一方的改動被蓋掉，重則檔案寫壞。順序本身不影響結果
+       * （兩支動的欄位不重疊：一個是資料實體、一個是設定），只是求安全。
+       */
+      const dataResult = await applySync(remoteSrc, localSession, { table, choices, onProgress: (m) => toast(m) })
+      const settingsResult = await applySettingsSync(remoteSrc, localSession, settingsRows, settingsChoices, (m) => toast(m))
+      await confirm({
+        title: '同步完成',
+        message: formatApplyMessage(dataResult, settingsResult),
+        confirmLabel: '好'
+      })
+      return 'ok'
+    } catch (err) {
+      toast(`同步失敗：${err instanceof Error ? err.message : String(err)}`, 'error')
+      return 'failed'
     }
   }
 
-  /**
-   * 獨立 → 遙控：把手機資料推到電腦（`docs/mobile-mode-switch-sync.md` §2）。
-   * 呼叫端已經跑過 `previewBeforeSwitchWithChoice` 並確認 `choice === 'bring'`。
-   */
-  const pushLocalToRemote = async (remoteSrc: SyncSource, diff: SyncDiff): Promise<void> => {
-    const session = await localSessionForSync()
-    const summary = await pushLocalToRemoteSync(
-      remoteSrc,
-      session,
-      diff,
-      (msg) => toast(msg),
-      // 電腦上有同名角色時，讓使用者逐一勾選要覆蓋哪幾隻（預設全選）
-      (conflicts) => useUiStore.getState().openNameConflicts(conflicts)
-    )
-    // 推送成功但沒東西真的推過去（例如全部都是衝突）——不用彈結果對話框。
-    const pushedAnything = Object.values(summary).some((names) => names.length > 0)
-    if (pushedAnything) {
-      await confirm({ title: '推送完成', message: formatPushSummaryMessage(summary), confirmLabel: '好' })
-    } else {
-      toast('沒有東西需要推送')
-    }
-  }
-
-  /**
-   * 遙控 → 獨立：把電腦資料拉回手機（`docs/mobile-mode-switch-sync.md` §2）。
-   * 沿用既有 S1 匯入邏輯（`syncPull.ts` 的 `pullFromDesktop`），不重新設計。
-   */
-  const pullRemoteToLocal = async (remoteSrc: SyncSource): Promise<void> => {
-    const session = await localSessionForSync()
-    toast('正在從電腦帶回資料⋯⋯')
-    const result = await pullRemoteToLocalSync(remoteSrc, session)
-    await confirm({ title: '帶回完成', message: formatPullSummaryMessage(result), confirmLabel: '好' })
-  }
 
   const goStandalone = async (): Promise<void> => {
     if (!guardSending()) return
     setBusy(true)
     try {
       if (conn.mode === 'remote') {
-        const remoteSrc = { baseUrl: conn.baseUrl, token: conn.token }
-        const result = await previewBeforeSwitchWithChoice(remoteSrc)
-        if (!result) return // 取消
-        const { choice } = result
-
-        if (choice === 'bring') {
-          try {
-            await pullRemoteToLocal(remoteSrc)
-          } catch (err) {
-            toast(`從電腦帶回資料失敗：${err instanceof Error ? err.message : String(err)}`, 'error')
-            return
-          }
-        }
-        // choice === 'switch'：直接切換，不帶資料
+        const outcome = await syncBeforeSwitch({ baseUrl: conn.baseUrl, token: conn.token })
+        if (outcome !== 'ok') return
       }
       await switchTo({ mode: 'standalone', baseUrl: '', token: '' })
       toast('已切換到本機模式')
@@ -187,7 +189,7 @@ export function ModeSwitcher(): JSX.Element | null {
     }
   }
 
-  const tryConnect = async (baseUrl: string, token: string): Promise<boolean> => {
+  const tryConnect = async (baseUrl: string, token: string): Promise<SwitchOutcome> => {
     setBusy(true)
     try {
       setWaiting({ label: '連線中', totalMs: PROBE_TIMEOUT_MS })
@@ -199,34 +201,22 @@ export function ModeSwitcher(): JSX.Element | null {
       }
       if (!resolved.ok) {
         toast('連不上那台電腦，請確認已開機、DeST 正在執行，而且同一個網路', 'error')
-        return false
+        return 'failed'
       }
       if (resolved.relayOnly) {
         // 這裡不切換——切過去只會卡在「連線中斷」（見 connection.ts 的 resolveLiveRemote 註解）。
         toast('這條連線是透過中繼，這個版本還不支援用中繼建立即時遙控。請確認手機和電腦在同一個 Wi-Fi 再試一次', 'error')
-        return false
+        return 'failed'
       }
       const remoteSrc = { baseUrl: resolved.baseUrl!, token: resolved.token! }
-      const result = await previewBeforeSwitchWithChoice(remoteSrc)
-      if (!result) return false // 取消
-      const { choice, diff } = result
+      const outcome = await syncBeforeSwitch(remoteSrc)
+      if (outcome !== 'ok') return outcome
 
-      if (choice === 'bring') {
-        try {
-          await pushLocalToRemote(remoteSrc, diff)
-        } catch (err) {
-          // 使用者在同名清單按了取消 → 安靜留在原模式，不是錯誤
-          if (err instanceof PushCancelled) return false
-          toast(`推送失敗：${err instanceof Error ? err.message : String(err)}`, 'error')
-          return false
-        }
-      }
-      // choice === 'switch'：直接切換，不帶資料
       const next: Connection = { mode: 'remote', baseUrl: remoteSrc.baseUrl, token: remoteSrc.token }
       await switchTo(next)
       setShowPair(false)
       toast('已切換到遙控模式')
-      return true
+      return 'ok'
     } finally {
       setBusy(false)
     }
@@ -237,9 +227,21 @@ export function ModeSwitcher(): JSX.Element | null {
     setBusy(true)
     const remembered = await readRememberedRemote()
     setBusy(false)
-    if (remembered && (await tryConnect(remembered.baseUrl, remembered.token))) return
-    // 沒有記住的主機，或連不上了（權杖可能已過期）→ 引導重新配對。
-    if (remembered) toast('上次那台電腦連不上了，請重新配對', 'error')
+    if (!remembered) {
+      setShowPair(true)
+      return
+    }
+    const outcome = await tryConnect(remembered.baseUrl, remembered.token)
+    if (outcome === 'ok') return
+    /*
+     * ⚠️ **取消不是失敗。** 舊版 `tryConnect` 用 boolean 回報，於是「使用者在
+     * 比對畫面按了取消」跟「電腦連不上」是同一個 `false`，兩者都會跳出
+     * 「上次那台電腦連不上了，請重新配對」並強制彈出配對畫面——使用者明明
+     * 只是反悔不想切，卻被告知電腦壞了（owner 2026-08-13 實機回報）。
+     * 現在取消就安靜留在原地，什麼都不做。
+     */
+    if (outcome === 'cancelled') return
+    toast('上次那台電腦連不上了，請重新配對', 'error')
     setShowPair(true)
   }
 

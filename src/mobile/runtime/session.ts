@@ -1323,9 +1323,17 @@ export class StandaloneSession {
    * 手機儲存 key 本來就是「相對於角色資料夾」的路徑（`characters/<id>/avatar.png`），
    * 跟桌面 `dstPack.ts` 把絕對路徑轉相對路徑那步是同一件事，只是手機不必轉換。
    */
+  /**
+   * `remapLorebookIds`（S2 M4）：把卡片上的 `lorebookIds` 換成對方裝置上的 id。
+   *
+   * 用語解說在兩台機器上的 id 常常不同（同一本各自建過一次），照原樣送出去
+   * 的話角色卡會掛著一串對面不存在的 id——解說不會注入，而且**完全不報錯**，
+   * 只是角色對某些詞的反應莫名其妙消失。回傳 undefined 的就從清單裡拿掉。
+   * 不傳這個參數時行為完全不變（桌面匯出、使用者手動匯出都走原路）。
+   */
   async exportPack(
     ids: string[],
-    opts: { includeGlobalSettings: boolean; includeLorebooks: boolean }
+    opts: { includeGlobalSettings: boolean; includeLorebooks: boolean; remapLorebookIds?: (id: string) => string | undefined }
   ): Promise<CardFile> {
     const wanted = ids.length > 0 ? this.characters.filter((c) => ids.includes(c.id)) : this.characters
     if (wanted.length === 0) throw new DataError('invalid-input', 'no characters')
@@ -1384,6 +1392,11 @@ export class StandaloneSession {
     for (const c of wanted) {
       const dirKey = keys.characterDirKey(c.id)
       const card: Character = { ...c }
+      if (opts.remapLorebookIds && card.lorebookIds) {
+        card.lorebookIds = card.lorebookIds
+          .map((lid) => opts.remapLorebookIds!(lid))
+          .filter((lid): lid is string => !!lid)
+      }
       if (card.avatar) card.avatar = relativeToCharacterDir(dirKey, card.avatar)
       if (card.emotions) {
         const rel: Record<string, string> = {}

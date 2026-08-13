@@ -594,7 +594,8 @@ function initMobileServer(): void {
     importDstPack: (buffer, opts) => importDstPackDirect(buffer, {
       // 手機端沒有「彈對話框問」這個選項，策略在請求裡就決定好了。
       onConflict: async () => opts.onConflict,
-      confirmGlobalSettings: async () => opts.applyGlobalSettings
+      confirmGlobalSettings: async () => opts.applyGlobalSettings,
+      targetId: opts.targetId
     }),
     listLorebooks: () => listLorebooksDirect(),
     getLorebookManifest: () => getLorebookManifestDirect(),

@@ -1749,12 +1749,24 @@ export type DstPackConflictChoice = 'overwrite' | 'new' | 'skip'
 export interface DstPackImportResolvers {
   onConflict: (info: { name: string; reason: 'same-id' | 'same-name' }) => Promise<DstPackConflictChoice>
   confirmGlobalSettings: () => Promise<boolean>
+  /**
+   * 指定這一趟要蓋到哪個既有角色上（S2 M4 的逐項比對用）。
+   *
+   * 手機端在比對畫面上已經明確判定「手機這隻＝電腦那隻」，可能是靠 id、
+   * 也可能是靠名稱——**名稱那條路 `onConflict` 判不出來**：包裡的 id 在電腦上
+   * 不存在（`same-id` 不成立），而如果使用者又在電腦上把它改過名，`same-name`
+   * 也不成立，結果就是「當成全新角色建一隻」，正是重複資料的來源。
+   *
+   * 有這個值時直接蓋在它上面，跳過所有猜測。只在單隻角色的包上使用；
+   * 桌面 UI 的匯入不傳這個，行為完全不變。
+   */
+  targetId?: string
 }
 
 export async function importDstPackDirect(
   buffer: ArrayBuffer,
   resolvers: DstPackImportResolvers
-): Promise<{ ok: true; imported: number; skipped: number } | { error: string }> {
+): Promise<{ ok: true; imported: number; skipped: number; ids: string[] } | { error: string }> {
   try {
     const buf = Buffer.from(buffer ?? new ArrayBuffer(0))
     if (buf.length < 32) return { error: '檔案過小或已損毀' }
@@ -1767,6 +1779,16 @@ export async function importDstPackDirect(
     const charsRoot = path.join(fileStore.getDataDir(), 'characters')
     let imported = 0
     let skipped = 0
+    /**
+     * 這一趟實際落地的角色 id（S2 M4）。
+     *
+     * 手機推送過來時**必須**知道結果的 id 是哪個：這支會依 id／名稱衝突決定
+     * 沿用既有 id 還是發新的（下面的 `targetDirId`），手機送來的 id 常常不是
+     * 最後存下來的那個。M3 的手機端就是誤以為「送什麼 id 就存成什麼 id」，
+     * 把對應表記成自己的 id，於是每次同步都判成「電腦上沒有」而重推一份——
+     * owner 的電腦因此長出 23 個情境、各 10 份的世界觀與使用者設定。
+     */
+    const ids: string[] = []
 
     for (const prefix of parsed.characterZipPrefixes) {
       const segs = prefix.split('/').filter(Boolean)
@@ -1781,7 +1803,11 @@ export async function importDstPackDirect(
 
       let targetDirId = charPreview.id
 
-      if (idHit) {
+      if (resolvers.targetId) {
+        // 呼叫端已經確定要蓋哪一隻（S2 M4 逐項比對），不必再猜
+        targetDirId = resolvers.targetId
+        fs.rmSync(path.join(charsRoot, targetDirId), { recursive: true, force: true })
+      } else if (idHit) {
         const choice = await resolvers.onConflict({ name: charPreview.name, reason: 'same-id' })
         if (choice === 'skip') {
           skipped++
@@ -1824,6 +1850,7 @@ export async function importDstPackDirect(
       const idx = characters.findIndex(c => c.id === fixed.id)
       if (idx >= 0) characters[idx] = fixed
       else characters.push(fixed)
+      ids.push(fixed.id)
       imported++
     }
 
@@ -1886,7 +1913,7 @@ export async function importDstPackDirect(
       }
     }
 
-    return { ok: true as const, imported, skipped }
+    return { ok: true as const, imported, skipped, ids }
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) }
   }

@@ -1,5 +1,5 @@
-import { sha1Hex } from '@core/util/sha1'
-import { stableStringify } from '@core/util/stableJson'
+import { buildManifest } from '@core/sync/manifestBuild'
+import { settingsSnapshotHash, type SettingsSnapshot } from '@core/sync/settingsSnapshot'
 import type { Manifest } from '@core/sync/types'
 import type { StandaloneSession } from './session'
 import { getJson, type FetchImpl, type SyncSource } from './syncTransport'
@@ -21,38 +21,63 @@ export async function fetchRemoteManifest(src: SyncSource, fetchImpl: FetchImpl 
   return getJson<Manifest>(src, '/api/sync-manifest', fetchImpl, MANIFEST_TIMEOUT_MS)
 }
 
-/**
- * 把手機本地資料組成跟 `/api/sync-manifest` 一樣的輕量清單，供 `computeDiff` 比對。
- *
- * `settingsHash` 的計算子集**必須**跟桌面端 `buildSettingsManifestHash`
- * （`main/mobileServer.ts`）完全對齊，否則雙邊永遠對不起來——見那邊的註解。
- */
-export async function buildLocalManifest(session: StandaloneSession): Promise<Manifest> {
-  const [lorebooks, modules] = await Promise.all([session.listLorebooksManifest(), session.listModules()])
+/** 電腦端目前的設定子集（S2 M5，比對畫面的「設定」分頁用）。 */
+export async function fetchRemoteSettingsSnapshot(
+  src: SyncSource,
+  fetchImpl: FetchImpl = globalThis.fetch
+): Promise<SettingsSnapshot> {
+  return getJson<SettingsSnapshot>(src, '/api/settings/sync-snapshot', fetchImpl, MANIFEST_TIMEOUT_MS)
+}
 
+/**
+ * 手機端的設定比對子集（S2 M5）。**唯一**的定義在 `core/sync/settingsSnapshot.ts`，
+ * 這裡只是把 `session.settings` 的形狀套進那個共用型別，不要另外組欄位——
+ * 兩邊定義一旦漂移，設定同步會整個判斷錯亂且沒有任何錯誤訊息（見該檔案檔頭）。
+ */
+export async function buildLocalSettingsSnapshot(session: StandaloneSession): Promise<SettingsSnapshot> {
   const llm = session.settings.llm
-  const subset = {
+  const modules = await session.listModules()
+  return {
     llm: {
       provider: llm.provider,
-      model: llm.model,
-      models: llm.models,
-      endpoint: llm.endpoint,
+      models: { ...(llm.models ?? {}) },
+      endpoint: llm.endpoint ?? '',
       maxResponseTokens: llm.maxResponseTokens,
       maxGroupRounds: llm.maxGroupRounds,
       maxImagesPerMessage: llm.maxImagesPerMessage
     },
     memory: session.settings.memory,
     colorTheme: session.settings.ui.colorTheme ?? 'mint',
-    modules: modules.map((m) => ({ id: m.id, label: m.label, enabled: m.enabled }))
+    modules: modules.map((m) => ({ id: m.id, label: m.label, enabled: m.enabled })),
+    weather: { polish: !!session.settings.weather?.polish }
   }
+}
 
-  return {
-    characters: session.characters.map((c) => ({ id: c.id, name: c.name, updatedAt: c.updatedAt })),
-    personas: session.personas.map((p) => ({ id: p.id, name: p.name, updatedAt: p.updatedAt })),
-    worlds: session.worlds.map((w) => ({ id: w.id, name: w.name, updatedAt: w.updatedAt })),
-    scenes: session.scenes.map((s) => ({ id: s.id, name: s.name, updatedAt: s.updatedAt })),
-    lorebooks,
+/**
+ * 把手機本地資料組成跟 `/api/sync-manifest` 一樣的輕量清單，供 `computeDiff` 比對。
+ */
+export async function buildLocalManifest(session: StandaloneSession): Promise<Manifest> {
+  const [lorebooks, settingsSnapshot] = await Promise.all([
+    session.listLorebooksManifest(),
+    buildLocalSettingsSnapshot(session)
+  ])
+
+  /*
+   * 用語解說要**整本**才算得出 contentHash，`listLorebooksManifest()` 只給
+   * id/name/updatedAt。本數很少（個位數），逐本讀進來不是問題；讀不到的
+   * 那本就跳過雜湊、留在清單裡當成 `unknown`，不要整趟失敗。
+   */
+  const books = (await Promise.all(lorebooks.map((l) => session.getLorebook(l.id).catch(() => null)))).filter(
+    (b): b is NonNullable<typeof b> => !!b
+  )
+
+  return buildManifest({
+    characters: session.characters,
+    personas: session.personas,
+    worlds: session.worlds,
+    scenes: session.scenes,
+    lorebooks: books,
     conversations: session.listConversationsManifest(),
-    settingsHash: sha1Hex(stableStringify(subset))
-  }
+    settingsHash: settingsSnapshotHash(settingsSnapshot)
+  })
 }

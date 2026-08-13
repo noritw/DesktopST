@@ -1,6 +1,18 @@
 import type { CollectionDiff, Manifest, SyncDiff } from '@core/sync/types'
+import type { PairKind } from '@core/sync/pair'
 import type { PushSummary } from '../../runtime/syncPush'
 import type { SyncResult } from '../../runtime/syncImport'
+import type { ApplyResult } from '../../runtime/syncApply'
+import type { SettingsApplyResult } from '../../runtime/syncSettingsApply'
+
+/** M4 摘要的顯示順序與字樣。 */
+const APPLY_LABELS: [PairKind, string][] = [
+  ['characters', '角色'],
+  ['personas', '使用者設定'],
+  ['worlds', '世界觀'],
+  ['scenes', '情境'],
+  ['lorebooks', '用語解說']
+]
 
 /**
  * S2 M2 差異預覽的文字呈現（`ModeSwitcher.tsx` 用 `ui.confirm` 顯示）。
@@ -108,4 +120,45 @@ export function formatPullSummaryMessage(result: SyncResult): string {
 
   if (lines.length === 0) return '沒有東西需要從電腦帶回。'
   return ['已從電腦帶回：', ...lines].join('\n')
+}
+
+/**
+ * S2 M4 逐項同步完成後的摘要。
+ *
+ * 兩個方向會出現在同一趟裡（比對畫面是逐列決定的），所以推與拉分開列，
+ * 不能像 M3 那樣假設整趟只有一個方向。
+ *
+ * **失敗一定要列出來**：`applySync` 刻意讓單筆失敗不中斷整趟，
+ * 不講出來的話使用者會以為十筆都成功了。
+ */
+/**
+ * 資料與設定各自跑一套 apply（`syncApply.ts`／`syncSettingsApply.ts`），
+ * 但使用者只在乎「這趟同步到底做了什麼」，所以合成一則訊息，不分兩個對話框。
+ */
+export function formatApplyMessage(data: ApplyResult, settings?: SettingsApplyResult): string {
+  const section = (title: string, bucket: Record<PairKind, string[]>): string[] => {
+    const lines = APPLY_LABELS.map(([key, label]) => {
+      const names = bucket[key]
+      return names.length === 0 ? null : `${label}（${names.length}）：${names.join('、')}`
+    }).filter((l): l is string => l !== null)
+    return lines.length === 0 ? [] : [title, ...lines]
+  }
+
+  const out = [
+    ...section('送到電腦：', data.pushed),
+    ...section('帶回手機：', data.pulled),
+    ...section('已從手機刪除：', data.deletedLocal),
+    ...section('已從電腦刪除：', data.deletedRemote)
+  ]
+  if (settings) {
+    if (settings.pushed.length > 0) out.push('設定 送到電腦：', `・${settings.pushed.join('、')}`)
+    if (settings.pulled.length > 0) out.push('設定 帶回手機：', `・${settings.pulled.join('、')}`)
+  }
+
+  const failed = [...data.failed, ...(settings?.failed.map((f) => ({ name: f.label, error: f.error })) ?? [])]
+  if (failed.length > 0) {
+    out.push('', `⚠️ 有 ${failed.length} 筆沒成功：`)
+    for (const f of failed) out.push(`・${f.name}（${f.error}）`)
+  }
+  return out.length === 0 ? '沒有任何資料被搬動。' : out.join('\n')
 }

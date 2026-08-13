@@ -10,6 +10,7 @@ import { DialogHost } from './shell/DialogHost'
 import { Lightbox } from './shell/Lightbox'
 import { AvatarCropView } from './characters/AvatarCropView'
 import { NameConflictPicker } from './shell/NameConflictPicker'
+import { SyncComparePicker } from './shell/SyncComparePicker'
 import { MessageList } from './chat/MessageList'
 import { Composer } from './chat/Composer'
 import { AvatarBar } from './characters/AvatarBar'
@@ -364,6 +365,7 @@ export function App(): JSX.Element {
       <Lightbox />
       <AvatarCropView />
       <NameConflictPicker />
+      <SyncComparePicker />
       <ToastHost />
     </div>
   )
