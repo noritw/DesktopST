@@ -133,8 +133,7 @@ cd android && ./gradlew.bat assembleDebug
    範例：`src/mobile/runtime/weather.ts` 的 `loadGeolocation()`。
 
 ## 尚未做
-- 新聞／提醒完整本機實作、角色卡 export
-- S2 雙向同步（S1 單向匯入與「從電腦重新拉設定」已完成）
+- S2 雙向同步的完整收尾（設定推送、對話同步與真機驗收）
 - 簽章 keystore（不要自行產生）
 
 ## 原生層（提醒鬧鐘）

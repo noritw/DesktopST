@@ -1,6 +1,7 @@
-import type { PlatformAdapters } from '@core/adapters'
+import { SECRET_PREFIX, type PlatformAdapters } from '@core/adapters'
 import { hydrateSettings, toPersistedSettings } from '@core/store/settings'
 import { applySceneSettings } from '@core/scene/apply'
+import { stampCharacterNames } from '@core/chat/characterName'
 import { isActiveSceneDirty } from '@core/scene/dirty'
 import * as keys from '@core/store/keys'
 import type {
@@ -318,7 +319,50 @@ export class StandaloneSession {
 
   async saveSettings(): Promise<void> {
     const persisted = toPersistedSettings(this.settings, this.adapters.secrets)
+    await this.preserveEncryptedSecrets(persisted)
     await this.adapters.storage.writeJson(keys.SETTINGS_KEY, persisted)
+  }
+
+  /**
+   * **金鑰保險絲：secrets 還沒解封時，絕對不可以把磁碟上的密文蓋掉。**
+   *
+   * 血淋淋的教訓（2026-08-13，owner 回報「獨立版的 API Key 不見了」）：
+   * `initCapacitorSecrets()` 沒被呼叫時 `capacitorSecrets` 會退化成
+   * `unavailableSecrets`，它的 `decrypt()` 原封不動回傳 `enc:v1:…` 密文。
+   * `hydrateSettings()` 看到解出來的東西還是密文，就依既有規則把記憶體裡那把
+   * 金鑰設成 `''`（本意是「別讓使用者看到亂碼、以為要自己清掉」）。
+   * 這時只要有任何人呼叫 `saveSettings()`，`encrypt('')` 又原封不動回傳 `''`，
+   * **磁碟上的密文就被空字串覆蓋、永久消失**。
+   *
+   * 真正踩到的路徑：`ModeSwitcher` 在遙控模式下臨時 boot 一份 standalone
+   * session（那時整個 app 從沒初始化過 secrets，因為 `App.tsx` 只在獨立模式
+   * 分支呼叫），接著 S2 M3 的「從電腦帶回資料」跑 `runSyncImport()` →
+   * `session.saveSettings()` → 金鑰歸零。呼叫端當然要補上初始化（已補），
+   * 但**那是第二道防線**：這種「安靜地毀掉使用者資料」的失敗，不能只靠
+   * 每個呼叫端都記得先做某件事。
+   *
+   * 只在「secrets 不可用 ＋ 磁碟上是密文 ＋ 準備寫入的是空字串」三者同時成立時
+   * 才把舊值留著 —— secrets 正常時使用者真的要清空金鑰仍然清得掉。
+   */
+  private async preserveEncryptedSecrets(persisted: AppSettings): Promise<void> {
+    if (this.adapters.secrets.isAvailable()) return
+    const onDisk = await this.adapters.storage.readJson<AppSettings>(keys.SETTINGS_KEY)
+    if (!onDisk) return
+
+    const keepEncrypted = (next: string | undefined, old: string | undefined): string | undefined =>
+      !next?.trim() && old?.startsWith(SECRET_PREFIX) ? old : next
+
+    for (const [provider, old] of Object.entries(onDisk.llm?.apiKeys ?? {})) {
+      const kept = keepEncrypted(persisted.llm.apiKeys[provider], old)
+      if (kept !== undefined) persisted.llm.apiKeys[provider] = kept
+    }
+
+    const oldCwa = onDisk.weather?.realtimeQuery?.cwaApiKey
+    const rq = persisted.weather?.realtimeQuery
+    if (rq) {
+      const kept = keepEncrypted(rq.cwaApiKey, oldCwa)
+      if (kept !== undefined) rq.cwaApiKey = kept
+    }
   }
 
   async reloadCharacters(): Promise<void> {
@@ -430,6 +474,9 @@ export class StandaloneSession {
   async saveConversation(conv: Conversation): Promise<void> {
     this.conversationIndex.set(conv.id, conv)
     if (this.activeConversation?.id === conv.id) this.activeConversation = conv
+    // 存檔時補上角色名字快照，與桌面 `fileStore.saveConversation` 同一份邏輯
+    // （理由見 `Message.characterName` 的註解：角色 id 會因為同步而斷掉）。
+    stampCharacterNames(conv, this.characters)
     await this.adapters.storage.writeJson(keys.conversationKey(conv.id), conv)
   }
 

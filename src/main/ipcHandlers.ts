@@ -1905,6 +1905,13 @@ export function initState(
   setLowPerformanceMode(settings.ui.lowPerformanceMode ?? false, settings.ui.lowPerformanceLogMessageLimit ?? 50)
   setEventDrivenHitTest(settings.ui.eventDrivenHitTest ?? false)
   characters = chars
+  /*
+   * 讓 `fileStore.saveConversation` 存檔時能把角色名字快照補進訊息裡
+   * （`Message.characterName`）。用 getter 而不是傳陣列本身：`characters`
+   * 這個變數會被整個換掉（上面這行、刪角色時的 filter⋯），傳當下那份的話
+   * fileStore 會一直抓著舊陣列。
+   */
+  fileStore.setCharacterNameSource(() => characters)
   configureAuxWindowPersistence(
     (kind) => kind === 'input' ? settings.ui.inputWindowBounds : settings.ui.logWindowBounds,
     (kind, bounds) => {

@@ -6,6 +6,7 @@ import { type Lorebook, normalizeLorebook } from '../core/lore'
 import { DEFAULT_SETTINGS } from './types'
 import { isPinnedNote } from '../core/store/normalize'
 import { pruneConversationDebugPrompts } from '../core/store/prune'
+import { stampCharacterNames, type NamedCharacter } from '../core/chat/characterName'
 import { hydrateSettings, toPersistedSettings } from '../core/store/settings'
 import * as keys from '../core/store/keys'
 import { electronSecrets, electronStorage } from './adapters'
@@ -446,9 +447,24 @@ const _saveConvTimers = new Map<string, ReturnType<typeof setTimeout>>()
 /** 由 loadSettings / saveSettings 同步；saveConversation 用它決定 debug prompt 保留則數。 */
 let _keepDebugPromptN = DEFAULT_SETTINGS.memory.keepDebugPromptN
 
+/**
+ * 目前的角色名單，`saveConversation` 拿它把角色名字快照補進訊息裡
+ * （`core/chat/characterName.ts`，理由見 `Message.characterName` 的註解）。
+ *
+ * 用注入而不是讓 fileStore 直接讀角色檔：角色的真相在 `ipcHandlers` 的記憶體
+ * 名單上（新增／改名都先進那裡），fileStore 自己去讀檔會拿到落後一步的版本。
+ * 沒注入時就是空陣列 —— 補不了名字就不補，不會擋住存檔。
+ */
+let _characterNameSource: () => readonly NamedCharacter[] = () => []
+
+export function setCharacterNameSource(fn: () => readonly NamedCharacter[]): void {
+  _characterNameSource = fn
+}
+
 export function saveConversation(conv: Conversation): void {
   ensureDirs()
   pruneConversationDebugPrompts(conv, _keepDebugPromptN)
+  stampCharacterNames(conv, _characterNameSource())
   _pendingConvJson.set(conv.id, JSON.stringify(conv, null, 2))
   const existing = _saveConvTimers.get(conv.id)
   if (existing) clearTimeout(existing)

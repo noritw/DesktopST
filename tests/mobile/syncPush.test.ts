@@ -6,7 +6,7 @@ import { createMemoryStorage } from '../../src/mobile/adapters/memoryStorage'
 import { unavailableSecrets } from '../../src/mobile/adapters/secretCrypto'
 import { bootStandaloneSession, type StandaloneSession } from '../../src/mobile/runtime/session'
 import { readBaseline, writeBaseline } from '../../src/mobile/runtime/syncBaseline'
-import { buildPushSelection, pushSync, type PushOptions } from '../../src/mobile/runtime/syncPush'
+import { buildPushSelection, pushSync, PushCancelled, type PushOptions } from '../../src/mobile/runtime/syncPush'
 
 const SRC = { baseUrl: 'http://192.168.1.20:3721', token: 'tok' }
 
@@ -812,5 +812,146 @@ describe('第一次同步（!diff.hasBaseline）', () => {
 
     // 只選 c1（diff 標記的新增），不選 c2（未變動、diff 沒提到）
     expect(selection.characters).toEqual(new Set(['c1']))
+  })
+})
+
+/**
+ * 同名衝突（owner 2026-08-13 拍板的處理方式）。
+ *
+ * 這是那場「角色名稱掉光」事故的正源頭：舊版把同名角色一律當新角色送過去，
+ * 電腦上每推一次就多一隻；清掉重複時留下的是新複本，而舊對話指向的是原本
+ * 那隻的 id。這組測試釘住新規則：**問過使用者才動，而且預設不是建立重複**。
+ */
+describe('同名衝突處理', () => {
+  function diffWithChar(id: string): SyncDiff {
+    return {
+      hasBaseline: true,
+      characters: { ...EMPTY_COLLECTION_DIFF, localNew: [id] },
+      personas: EMPTY_COLLECTION_DIFF,
+      worlds: EMPTY_COLLECTION_DIFF,
+      scenes: EMPTY_COLLECTION_DIFF,
+      lorebooks: EMPTY_COLLECTION_DIFF,
+      conversations: EMPTY_COLLECTION_DIFF,
+      settingsChanged: false
+    }
+  }
+
+  /** 電腦上有一隻叫「星離宸」、id 與手機不同的角色。 */
+  function fetchWithRemoteNamed(name: string) {
+    const calls: { path: string; query: string }[] = []
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input)
+      const [path, query = ''] = url.replace(SRC.baseUrl, '').split('?')
+      if (path === '/api/sync-manifest') {
+        return new Response(
+          JSON.stringify({
+            characters: [{ id: 'desktop-native-id', name, updatedAt: 1 }],
+            personas: [], worlds: [], scenes: [], lorebooks: [], conversations: [], settingsHash: 'h'
+          }),
+          { status: 200 }
+        )
+      }
+      calls.push({ path: path!, query })
+      return new Response('OK', { status: 200 })
+    }) as typeof fetch
+    return { fetchImpl, calls }
+  }
+
+  async function sessionWithChar(name: string): Promise<StandaloneSession> {
+    const s = await bootSession()
+    s.characters.push({ id: 'phone-id', name, description: '', emotions: {}, createdAt: 1, updatedAt: 1 } as any)
+    return s
+  }
+
+  it('偵測到同名時會把清單交給使用者，不是自己決定', async () => {
+    const session = await sessionWithChar('星離宸')
+    const { fetchImpl } = fetchWithRemoteNamed('星離宸')
+    let asked: { id: string; name: string }[] | null = null
+
+    await pushSync(SRC, session, diffWithChar('phone-id'), {
+      selectedIds: { characters: new Set(['phone-id']) },
+      onNameConflicts: async (c) => { asked = c; return new Set(c.map((x) => x.id)) }
+    }, fetchImpl)
+
+    expect(asked).toEqual([{ id: 'phone-id', name: '星離宸' }])
+  })
+
+  it('勾選覆蓋 → 用 onConflict=overwrite（電腦端會沿用它原本的 id，舊對話不會斷）', async () => {
+    const session = await sessionWithChar('星離宸')
+    const { fetchImpl, calls } = fetchWithRemoteNamed('星離宸')
+
+    await pushSync(SRC, session, diffWithChar('phone-id'), {
+      selectedIds: { characters: new Set(['phone-id']) },
+      onNameConflicts: async (c) => new Set(c.map((x) => x.id))
+    }, fetchImpl)
+
+    expect(calls.find((c) => c.path === '/api/characters/import-pack')?.query).toBe('onConflict=overwrite')
+  })
+
+  it('沒勾 → 完全不推這隻，而且會出現在摘要的「未推送」裡（不能默默略過）', async () => {
+    const session = await sessionWithChar('星離宸')
+    const { fetchImpl, calls } = fetchWithRemoteNamed('星離宸')
+
+    const summary = await pushSync(SRC, session, diffWithChar('phone-id'), {
+      selectedIds: { characters: new Set(['phone-id']) },
+      onNameConflicts: async () => new Set<string>()
+    }, fetchImpl)
+
+    expect(calls.find((c) => c.path === '/api/characters/import-pack')).toBeUndefined()
+    expect(summary.characters).toEqual([])
+    expect(summary.skippedByName).toEqual(['星離宸'])
+  })
+
+  it('取消 → 丟 PushCancelled，整趟都不推', async () => {
+    const session = await sessionWithChar('星離宸')
+    const { fetchImpl, calls } = fetchWithRemoteNamed('星離宸')
+
+    await expect(
+      pushSync(SRC, session, diffWithChar('phone-id'), {
+        selectedIds: { characters: new Set(['phone-id']) },
+        onNameConflicts: async () => null
+      }, fetchImpl)
+    ).rejects.toBeInstanceOf(PushCancelled)
+
+    expect(calls.find((c) => c.path === '/api/characters/import-pack')).toBeUndefined()
+  })
+
+  it('沒有提供回調時保守不推——預設值不能是「默默建立重複角色」（這正是出事的舊行為）', async () => {
+    const session = await sessionWithChar('星離宸')
+    const { fetchImpl, calls } = fetchWithRemoteNamed('星離宸')
+
+    const summary = await pushSync(SRC, session, diffWithChar('phone-id'), {
+      selectedIds: { characters: new Set(['phone-id']) }
+    }, fetchImpl)
+
+    expect(calls.find((c) => c.path === '/api/characters/import-pack')).toBeUndefined()
+    expect(summary.skippedByName).toEqual(['星離宸'])
+  })
+
+  it('名字大小寫／前後空白不同仍算同名，不會漏判', async () => {
+    const session = await sessionWithChar('  Nori  ')
+    const { fetchImpl } = fetchWithRemoteNamed('nori')
+    let asked = 0
+
+    await pushSync(SRC, session, diffWithChar('phone-id'), {
+      selectedIds: { characters: new Set(['phone-id']) },
+      onNameConflicts: async (c) => { asked = c.length; return new Set(c.map((x) => x.id)) }
+    }, fetchImpl)
+
+    expect(asked).toBe(1)
+  })
+
+  it('電腦上沒有同名的就完全不問，照舊用 onConflict=new', async () => {
+    const session = await sessionWithChar('手機獨有的角色')
+    const { fetchImpl, calls } = fetchWithRemoteNamed('電腦上的別人')
+    let asked = false
+
+    await pushSync(SRC, session, diffWithChar('phone-id'), {
+      selectedIds: { characters: new Set(['phone-id']) },
+      onNameConflicts: async () => { asked = true; return new Set<string>() }
+    }, fetchImpl)
+
+    expect(asked).toBe(false)
+    expect(calls.find((c) => c.path === '/api/characters/import-pack')?.query).toBe('onConflict=new')
   })
 })

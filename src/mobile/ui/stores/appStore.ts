@@ -4,6 +4,7 @@ import { DataError } from '@core/data'
 import type { AppEvent, ConnectionStatus, EventSource } from '@core/events'
 import { useUiStore } from './uiStore'
 import { useNewsStore } from '../news/newsStore'
+import { invalidateAllAvatars } from '../characters/useAvatarUrl'
 
 /**
  * 應用資料狀態。**聊天元件唯一的資料入口。**
@@ -289,6 +290,10 @@ function handleEvent(e: AppEvent, set: Setter, get: () => AppState): void {
       // 的那個 bug）。這裡是全站唯一的 `state-invalidated` 訂閱點，
       // 其他 store 要跟著失效也在這裡加，不要各自另開一條訂閱。
       useNewsStore.getState().invalidate()
+      // 頭像同理：電腦端換了主圖也是靠這個通用事件通知手機，事件本身不會
+      // 講是哪一隻角色，乾脆全部清快取重問一次（owner 2026-08-13 實機回報：
+      // 遙控模式下電腦端換的主圖沒有反映到手機畫面，成因就是這裡漏掉）。
+      invalidateAllAvatars()
       return
   }
 }

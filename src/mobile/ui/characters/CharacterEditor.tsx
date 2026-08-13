@@ -6,7 +6,7 @@ import MonoIcon from '@shared/MonoIcon'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeCharacterError } from './characterErrors'
-import { prepareAvatar } from './avatarFile'
+import { extOf, prepareAvatar } from './avatarFile'
 import { invalidateAvatar, useAvatarUrl } from './useAvatarUrl'
 import { downloadBytes, mimeForFilename, pickFile } from '../shell/fileTransfer'
 
@@ -26,6 +26,7 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
   const confirm = useUiStore((s) => s.confirm)
   const pop = useUiStore((s) => s.pop)
   const setCloseGuard = useUiStore((s) => s.setCloseGuard)
+  const openAvatarCrop = useUiStore((s) => s.openAvatarCrop)
   const refresh = useAppStore((s) => s.refresh)
 
   const [draft, setDraft] = useState<Character | null>(null)
@@ -117,9 +118,17 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
     // 真正的格式把關在 `prepareAvatar`，不是在選圖器上。
     const file = await pickFile('image/*')
     if (!file || !draft) return
+
+    // GIF 不進裁切畫面：裁切一定要把圖畫到 canvas 上再輸出，只留得住第一格，
+    // 動圖就死了——`avatarFile.ts` 的 `prepareAvatar` 本來就會把 GIF 原檔保留，
+    // 裁切這步在這裡直接跳過，交給後面既有的邏輯處理。
+    const isGif = file.type === 'image/gif' || extOf(file.name) === '.gif'
+    const toPrepare = isGif ? file : await openAvatarCrop(file)
+    if (!toPrepare) return // 使用者在裁切畫面按了取消
+
     setBusy(true)
     try {
-      const prepared = await prepareAvatar(file)
+      const prepared = await prepareAvatar(toPrepare)
       // ⚠️ **圖檔先落地、角色卡後存**（與桌面版同語意）：`saveAvatar` 回來的是
       // 平台自己決定的位址，手機不可以自己編一個路徑塞進卡裡。
       const avatar = await getData().characters.saveAvatar(draft.id, prepared)

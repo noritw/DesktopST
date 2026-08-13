@@ -69,7 +69,7 @@ describe('formatDiffMessage', () => {
 })
 
 function emptyPushSummary(): PushSummary {
-  return { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [] }
+  return { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [], skippedByName: [] }
 }
 
 describe('formatPushSummaryMessage', () => {

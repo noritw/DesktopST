@@ -14,21 +14,54 @@ import { getData } from '../stores/appStore'
 const cache = new Map<string, Promise<string | null>>()
 
 /**
- * 換過主圖的角色 → 一個遞增號碼，附在網址後面當作 cache buster。
+ * 一個遞增號碼，附在網址後面當作 cache buster。
  *
  * ⚠️ **階段 3 之前不需要這東西，之後一定要有。** 換主圖後位址是同一個
  * （`/api/avatar/:id`），瀏覽器會直接拿快取裡那張舊圖 ——
  * 症狀是「存檔成功但畫面還是舊圖」，而且重開 app 才會好，
  * 使用者只會覺得沒存到，於是再選一次、再存一次。
+ *
+ * ⚠️ **故意是全站共用一個號碼，不是每隻角色各自一個。** 一開始是每隻角色
+ * 各自維護版本號，但那只涵蓋得到「這支手機自己換過的頭像」——遙控模式下
+ * **電腦端**換的主圖，手機收到的是通用的 `state-invalidated` 事件
+ * （`appStore.ts` 的唯一訂閱點），不會告訴我們是哪一隻角色。與其去追蹤
+ * 「哪些角色可能被電腦動過」，不如換頭像這種低頻操作就讓全部頭像一起
+ * 重新問一次，簡單也不會漏（owner 2026-08-13 實機回報：電腦上換的主圖
+ * 沒有反映到遙控版，是這裡漏掉電腦端變動的成因）。
  */
-const versions = new Map<string, number>()
+let version = 0
 const listeners = new Set<() => void>()
 
-/** 換過主圖之後呼叫。清掉快取並通知所有正在顯示這個頭像的元件重取。 */
+/** 換過主圖之後呼叫。清掉快取並通知所有正在顯示頭像的元件重取。 */
 export function invalidateAvatar(id: string): void {
   cache.delete(id)
-  versions.set(id, (versions.get(id) ?? 0) + 1)
+  version++
   for (const fn of listeners) fn()
+}
+
+/**
+ * 遙控模式收到電腦端的 `state-invalidated` 時呼叫——不知道是哪一隻角色的
+ * 頭像變了，乾脆整包快取清掉，逼所有正在顯示的頭像重新問一次。
+ */
+export function invalidateAllAvatars(): void {
+  cache.clear()
+  version++
+  for (const fn of listeners) fn()
+}
+
+/**
+ * 加上 cache buster——**但只對真正的網址加**。
+ *
+ * 獨立模式的 `avatarUrl()`（`session.avatarDataUrl()`）回的是完整的
+ * `data:image/png;base64,...` 字串，不是網址。在 `data:` URI 後面加
+ * `?v=1` 會被當成 base64 內容的一部分，整串解不出來——**瀏覽器不會拋錯**，
+ * `<img>` 只會靜靜觸發 `onerror`，畫面上看起來就是「選了圖，欄位閃一下
+ * 又變回空的，什麼錯誤訊息都沒有」（獨立模式選頭像放不進去的成因）。
+ * 遙控模式回的是 `/api/avatar/:id` 這種真的網址，接 `?v=` 才有意義。
+ */
+export function withCacheBuster(url: string, version: number | undefined): string {
+  if (!version || url.startsWith('data:')) return url
+  return `${url}${url.includes('?') ? '&' : '?'}v=${version}`
 }
 
 function lookup(id: string): Promise<string | null> {
@@ -51,8 +84,7 @@ export function useAvatarUrl(id: string): string | null {
     const load = (): void => {
       void lookup(id).then((u) => {
         if (!alive) return
-        const v = versions.get(id)
-        setUrl(u && v ? `${u}${u.includes('?') ? '&' : '?'}v=${v}` : u)
+        setUrl(u ? withCacheBuster(u, version) : u)
       })
     }
     load()

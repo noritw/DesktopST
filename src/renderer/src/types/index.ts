@@ -54,6 +54,15 @@ export interface Message {
   id: string
   role: 'user' | 'character' | 'system'
   characterId?: string
+  /**
+   * 發話角色當下的名字，**只在 `characterId` 查不到人時當備援**
+   * （完整說明見 `core/types.ts` 的同名欄位）。
+   *
+   * ⚠️ 這份 `Message` 是 renderer 自己維護的平行定義，不是 `core/types.ts`
+   * 那份的 re-export（`src/main/types.ts` 才是）。core 加欄位時這裡要一起加，
+   * 否則 renderer 讀得到值卻過不了型別檢查。
+   */
+  characterName?: string
   content: string
   llmProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
   llmModel?: string

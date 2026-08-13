@@ -1,5 +1,6 @@
 import type { CollectionDiff, Manifest, SyncDiff } from '@core/sync/types'
 import type { PushSummary } from '../../runtime/syncPush'
+import type { SyncResult } from '../../runtime/syncImport'
 
 /**
  * S2 M2 差異預覽的文字呈現（`ModeSwitcher.tsx` 用 `ui.confirm` 顯示）。
@@ -80,6 +81,31 @@ export function formatPushSummaryMessage(summary: PushSummary): string {
     return `${label}（${names.length}）：${names.join('、')}`
   }).filter((l): l is string => l !== null)
 
-  if (lines.length === 0) return '沒有東西被推送。'
-  return ['已推送到電腦：', ...lines].join('\n')
+  // 略過的一定要講出來，不能默默不推——使用者會以為推成功了。
+  const skipped =
+    summary.skippedByName.length > 0
+      ? ['', `未推送（電腦上有同名角色、你沒有勾選覆蓋）：${summary.skippedByName.join('、')}`]
+      : []
+
+  if (lines.length === 0) {
+    return skipped.length > 0 ? skipped.slice(1).join('\n') : '沒有東西被推送。'
+  }
+  return ['已推送到電腦：', ...lines, ...skipped].join('\n')
+}
+
+/**
+ * 從電腦拉取完成後的結果訊息（M3 P1 修正，`ModeSwitcher.tsx` 遙控 → 獨立時用）。
+ *
+ * 沿用 S1 `runSyncImport` 的既有回傳形狀，不重新設計——這裡只是把數字排成
+ * 使用者看得懂的一句話。
+ */
+export function formatPullSummaryMessage(result: SyncResult): string {
+  const lines: string[] = []
+  if (result.charactersImported > 0) lines.push(`角色：${result.charactersImported}`)
+  if (result.presetsImported > 0) lines.push(`人設／世界觀／情境：${result.presetsImported}`)
+  if (result.lorebooksImported > 0) lines.push(`用語解說：${result.lorebooksImported}`)
+  if (result.charactersFailed > 0) lines.push(`⚠️ 角色下載失敗：${result.charactersFailed}`)
+
+  if (lines.length === 0) return '沒有東西需要從電腦帶回。'
+  return ['已從電腦帶回：', ...lines].join('\n')
 }

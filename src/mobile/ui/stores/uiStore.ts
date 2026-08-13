@@ -108,6 +108,33 @@ interface UiState {
   /** 上一張／下一張。到頭就停住，不繞回去（繞回去會分不清有沒有看完）。 */
   stepLightbox: (delta: number) => void
 
+  /**
+   * 頭像裁切畫面（選完圖 → 裁切 → 確認才真的存檔）。
+   *
+   * 跟 `dialog`（`confirm`/`prompt`）同一個 Promise 包裝套路：`openAvatarCrop`
+   * 回傳的 Promise 要等到使用者按「完成」或「取消」才 resolve，讓
+   * `CharacterEditor.tsx` 的 `changeAvatar()` 能直接 `await` 拿到裁切完的檔案，
+   * 不用另外接事件。放在 store 而不是元件內部狀態，理由跟 Lightbox 一樣——
+   * 這是一個蓋在最上層的全螢幕畫面，要吃返回鍵。
+   */
+  avatarCrop: { file: File; resolve: (result: File | null) => void } | null
+  openAvatarCrop: (file: File) => Promise<File | null>
+  closeAvatarCrop: (result: File | null) => void
+
+  /**
+   * 推送前的同名角色勾選（S2 M3，owner 2026-08-13 拍板）。
+   *
+   * 與 `avatarCrop` 同一套 Promise 包裝：`openNameConflicts` 要等使用者按完
+   * 才 resolve，`syncPush` 才能在推送迴圈開始前拿到答案。回 `null` ＝ 取消整趟推送。
+   * 用獨立欄位而不是 `dialog`：`ui.confirm` 只能回是／否，這裡要回一組勾選結果。
+   */
+  nameConflicts: {
+    items: { id: string; name: string }[]
+    resolve: (selected: Set<string> | null) => void
+  } | null
+  openNameConflicts: (items: { id: string; name: string }[]) => Promise<Set<string> | null>
+  closeNameConflicts: (selected: Set<string> | null) => void
+
   stack: ViewEntry[]
   push: (kind: ViewKind, param?: string) => void
   /**
@@ -175,6 +202,29 @@ export const useUiStore = create<UiState>((set, get) => ({
       if (next < 0 || next >= s.lightbox.images.length) return {}
       return { lightbox: { ...s.lightbox, index: next } }
     }),
+
+  avatarCrop: null,
+  openAvatarCrop: (file) =>
+    new Promise<File | null>((resolve) => {
+      set({ avatarCrop: { file, resolve } })
+    }),
+  closeAvatarCrop: (result) => {
+    const c = get().avatarCrop
+    set({ avatarCrop: null })
+    // 先清掉再 resolve：跟 closeDialog 同理，呼叫端可能在 then 裡立刻做下一步。
+    c?.resolve(result)
+  },
+
+  nameConflicts: null,
+  openNameConflicts: (items) =>
+    new Promise<Set<string> | null>((resolve) => {
+      set({ nameConflicts: { items, resolve } })
+    }),
+  closeNameConflicts: (selected) => {
+    const c = get().nameConflicts
+    set({ nameConflicts: null })
+    c?.resolve(selected)
+  },
 
   stack: [],
   // 疊新畫面時清掉 guard：它屬於底下那一層，留著會讓上層被誤攔。
@@ -260,7 +310,18 @@ function diagNav(op: string, kind: string, stack: { kind: string }[]): void {
 
 export function handleBack(): boolean {
   const s = useUiStore.getState()
-  diagNav('back', s.lightbox ? 'lightbox' : s.dialog ? 'dialog' : 'stack', s.stack)
+  diagNav('back', s.avatarCrop ? 'avatarCrop' : s.nameConflicts ? 'nameConflicts' : s.lightbox ? 'lightbox' : s.dialog ? 'dialog' : 'stack', s.stack)
+  // 裁切畫面蓋在最上層（從角色編輯器叫出來的），比燈箱／對話框都優先關。
+  if (s.avatarCrop) {
+    s.closeAvatarCrop(null)
+    return true
+  }
+  // 返回＝取消整趟推送（等同按取消），不是「當作全都不覆蓋」——
+  // 後者會安靜地推一半，使用者不會知道自己漏掉了什麼。
+  if (s.nameConflicts) {
+    s.closeNameConflicts(null)
+    return true
+  }
   if (s.lightbox) {
     s.closeLightbox()
     return true

@@ -609,16 +609,46 @@ async function handleRequest(
     const char = bridge.getCharacters().find(c => c.id === charId)
     if (!char?.avatar) { jsonError(res, 404, 'Not found'); return }
 
+    /*
+     * ⚠️ **一定要送 `Cache-Control: no-cache`。**
+     *
+     * 這個網址（`/api/avatar/:id`）是**固定**的，但背後那張圖會換
+     * （電腦端換主圖）。完全不送快取標頭時，瀏覽器會套用「啟發式快取」
+     * 自己猜一段有效期，然後**連問都不問**就拿舊圖 —— 手機端於是永遠
+     * 停在換圖前那張。症狀非常容易誤判成同步壞掉：同一張角色卡的**文字
+     * 會即時更新**（那是 JSON，畫面一掛載就重抓），只有圖不動
+     * （owner 2026-08-13 實機回報）。
+     *
+     * `no-cache` 不是「不要快取」，是「用之前先來問我一次」。配上 ETag
+     * 之後，沒換過就回 304（不傳任何位元組，跟快取一樣快），真的換過
+     * 才傳新圖 —— 既不會顯示舊圖，也不會每次都白傳一張圖。
+     *
+     * ⚠️ 別照抄下面 `/api/message-image/` 那支的 `max-age=86400`：
+     * 訊息圖片的內容**永遠不會變**（綁在某一則訊息的某一張），可以放心
+     * 長快取；頭像剛好相反，是「網址不變、內容會變」，兩者要反過來處理。
+     */
     const avatar = char.avatar
     if (avatar.startsWith('data:image/')) {
       const [header, b64] = avatar.split(',')
       const mime = header.replace('data:', '').replace(';base64', '')
-      res.writeHead(200, { 'Content-Type': mime })
+      // data: 這條沒有檔案 mtime 可以當驗證碼，就不給 ETag：每次都重送。
+      // 頭像很小，而且這條路徑只有少數角色（圖直接內嵌在卡裡）會走到。
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' })
       res.end(Buffer.from(b64, 'base64'))
     } else if (fs.existsSync(avatar)) {
       const ext = path.extname(avatar).toLowerCase()
       const mime = ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png'
-      res.writeHead(200, { 'Content-Type': mime })
+      // 檔名本身就帶時間戳（`avatar-${Date.now()}${ext}`，見 ipcHandlers
+      // 的 saveCharacterAvatarDirect），換圖必換檔名；再加上 mtime 與大小，
+      // 就算之後改成固定檔名也還是驗得出來。
+      const stat = fs.statSync(avatar)
+      const etag = `W/"${stat.mtimeMs.toString(36)}-${stat.size.toString(36)}"`
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, { 'Cache-Control': 'no-cache', ETag: etag })
+        res.end()
+        return
+      }
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache', ETag: etag })
       res.end(fs.readFileSync(avatar))
     } else {
       jsonError(res, 404, 'Avatar not found')

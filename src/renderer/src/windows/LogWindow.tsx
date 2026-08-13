@@ -3,6 +3,7 @@ import { useAppStore, selectMessages } from '../stores/useAppStore'
 import type { Message, NewsDebugInfo, NewsLinkInfo } from '../types'
 // 排版與圖片剝除跟手機版共用同一份（`core/prompt/debugPromptView`），不要在這裡另抄。
 import { renderDebugPrompt, stripImageData } from '@core/prompt/debugPromptView'
+import { resolveCharacterName } from '@core/chat/characterName'
 import { MESSAGE_REACTION_EMOJIS } from '../types'
 import MessageText from '@shared/MessageText'
 import NewsContextPanel from '../components/NewsContextPanel'
@@ -297,9 +298,13 @@ export default function LogWindow() {
     || '你'
   ), [activePersona])
 
-  const getCharName = (id?: string) => {
+  /**
+   * 角色名字：以現存角色為準，查不到才用訊息裡的名字快照
+   * （`Message.characterName`，同步把 id 換掉時的備援）。
+   */
+  const getCharName = (id?: string, snapshotName?: string) => {
     if (!id) return '系統'
-    return characters.find(c => c.id === id)?.name ?? '角色'
+    return resolveCharacterName(id, characters, snapshotName, '角色')
   }
 
   const lastCharacterMessageId = useMemo(() => {
@@ -504,7 +509,7 @@ export default function LogWindow() {
           ) : (
             <>
               <span className={`text-xs font-semibold ${isCharacter ? 'text-primary' : 'text-secondary'}`}>
-                {isCharacter ? `【${getCharName(msg.characterId)}】` : '【系統】'}
+                {isCharacter ? `【${getCharName(msg.characterId, msg.characterName)}】` : '【系統】'}
                 <LlmBadge msg={msg} />
               </span>
               {msg.excludeFromContext && (
@@ -598,7 +603,7 @@ export default function LogWindow() {
             if (isCharacter && msg.characterId) {
               window.api.invoke('bubble:debug-show', {
                 characterId: msg.characterId,
-                speakerName: getCharName(msg.characterId),
+                speakerName: getCharName(msg.characterId, msg.characterName),
                 text: String(msg.content ?? ''),
                 emotion: msg.emotion ?? 'neutral',
                 newsLink: msg.newsLink ?? null,
@@ -898,7 +903,7 @@ export default function LogWindow() {
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-primary">完整 Prompt</div>
                 <div className="text-xs text-secondary truncate">
-                  {promptMessage.role === 'character' ? getCharName(promptMessage.characterId) : userName} · {formatTime(promptMessage.timestamp)}
+                  {promptMessage.role === 'character' ? getCharName(promptMessage.characterId, promptMessage.characterName) : userName} · {formatTime(promptMessage.timestamp)}
                 </div>
                 {(promptMessage.inputTokens != null || promptMessage.outputTokens != null) && (
                   <div className="text-[11px] text-secondary mt-0.5 flex flex-wrap gap-x-2">

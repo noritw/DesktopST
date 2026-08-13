@@ -160,29 +160,73 @@ async function fetchSyncInitInfo(
   base: string,
   token: string
 ): Promise<{ lanDirect: boolean; lanUrl?: string } | null> {
-  try {
-    const res = await fetch(`${base}/api/sync-init`, { headers: { 'X-DesktopST-Token': token } })
-    if (!res.ok) return null
-    const data = (await res.json()) as { lanDirect?: boolean; lanUrl?: string }
-    return { lanDirect: !!data.lanDirect, lanUrl: data.lanUrl }
-  } catch {
-    return null
-  }
+  // 同樣要自己算逾時：這支是「切換到遙控」按下去之後第一個等待點，
+  // 電腦關機時沒有逾時就會一直停在「連線中⋯⋯」（owner 2026-08-13 回報）。
+  const work = (async (): Promise<{ lanDirect: boolean; lanUrl?: string } | null> => {
+    try {
+      const res = await fetch(`${base}/api/sync-init`, { headers: { 'X-DesktopST-Token': token } })
+      if (!res.ok) return null
+      const data = (await res.json()) as { lanDirect?: boolean; lanUrl?: string }
+      return { lanDirect: !!data.lanDirect, lanUrl: data.lanUrl }
+    } catch {
+      return null
+    }
+  })()
+  return withTimeout(work, PROBE_TIMEOUT_MS, null)
+}
+
+/**
+ * 探測電腦還在不在的逾時。
+ *
+ * ⚠️ **一定要自己算時間，不能靠 `AbortSignal`。** CapacitorHttp 完全忽略
+ * `init.signal`（CLAUDE.md §5），APK 上唯一能中止「等待」的方法是 `Promise.race`。
+ * 電腦整台關機時封包沒有任何人回應，作業系統的 TCP 逾時可能要等上一分鐘以上——
+ * 開 App 停在「載入中⋯⋯」不動就是這樣來的（owner 2026-08-13 回報）。
+ *
+ * 六秒對區網綽綽有餘；中繼再慢也不該讓使用者盯著轉圈等更久，真的慢了
+ * 使用者仍可在詢問視窗選「繼續嘗試連線」。
+ */
+export const PROBE_TIMEOUT_MS = 6000
+
+/** 逾時就當作沒連上。原生請求仍會自己跑完，我們只是不再等它。 */
+function withTimeout<T>(work: Promise<T>, ms: number, onTimeout: T): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<T>((resolve) => setTimeout(() => resolve(onTimeout), ms))
+  ])
+}
+
+/**
+ * 電腦還在不在 ＋ 是不是區網直連，一次問完。
+ *
+ * 兩件事共用同一支 `/api/connection-info`：開機流程需要「連得上嗎」來決定要不要
+ * 詢問使用者切回本機，而 header 的小標籤需要 `lanDirect`。分兩次問等於在電腦
+ * 關機時要等兩次逾時。
+ */
+export async function probeRemote(
+  conn: Connection,
+  timeoutMs = PROBE_TIMEOUT_MS
+): Promise<{ alive: boolean; lanDirect: boolean }> {
+  if (conn.mode === 'standalone') return { alive: true, lanDirect: false }
+  const work = (async (): Promise<{ alive: boolean; lanDirect: boolean }> => {
+    try {
+      const base = conn.baseUrl.replace(/\/$/, '')
+      const res = await fetch(`${base}/api/connection-info`, {
+        headers: { 'X-DesktopST-Token': conn.token }
+      })
+      // 權杖過期（401／403）也算「電腦在」——那要走重新配對，不是叫使用者切回本機。
+      if (!res.ok) return { alive: res.status === 401 || res.status === 403, lanDirect: false }
+      const data = (await res.json()) as { lanDirect?: boolean }
+      return { alive: true, lanDirect: data.lanDirect === true }
+    } catch {
+      return { alive: false, lanDirect: false }
+    }
+  })()
+  return withTimeout(work, timeoutMs, { alive: false, lanDirect: false })
 }
 
 export async function detectLanDirect(conn: Connection): Promise<boolean> {
-  if (conn.mode === 'standalone') return false
-  try {
-    const base = conn.baseUrl.replace(/\/$/, '')
-    const res = await fetch(`${base}/api/connection-info`, {
-      headers: { 'X-DesktopST-Token': conn.token }
-    })
-    if (!res.ok) return false
-    const data = (await res.json()) as { lanDirect?: boolean }
-    return data.lanDirect === true
-  } catch {
-    return false
-  }
+  return (await probeRemote(conn)).lanDirect
 }
 
 /** Header 小標籤用：最多兩個字，點進去「關於」才看完整說明。 */

@@ -4,17 +4,19 @@ import MonoIcon from '@shared/MonoIcon'
 import { useConnectionStore } from '../stores/connectionStore'
 import { useUiStore } from '../stores/uiStore'
 import { useAppStore } from '../stores/appStore'
-import { resolveLiveRemote, type Connection, type ModePref } from '../connection'
+import { PROBE_TIMEOUT_MS, resolveLiveRemote, type Connection, type ModePref } from '../connection'
 import { isScannerAvailable, parsePairingUrl, scanQr } from '../../adapters/scannerAdapter'
 import * as keys from '@core/store/keys'
-import { capacitorAdapters } from '../../adapters'
+import { capacitorAdapters, initCapacitorSecrets } from '../../adapters'
 import { computeDiff, isDiffEmpty } from '@core/sync/diff'
 import { getStandaloneSession } from '../../runtime/sessionHolder'
 import { bootStandaloneSession, type StandaloneSession } from '../../runtime/session'
-import { buildLocalManifest, fetchRemoteManifest } from '../../runtime/syncManifest'
+import { MANIFEST_TIMEOUT_MS, buildLocalManifest, fetchRemoteManifest } from '../../runtime/syncManifest'
 import { readBaseline } from '../../runtime/syncBaseline'
-import { buildPushSelection, pushSync } from '../../runtime/syncPush'
-import { formatDiffMessage, formatFirstRunMessage, formatPushSummaryMessage } from './syncDiffMessage'
+import { pullRemoteToLocal as pullRemoteToLocalSync, pushLocalToRemote as pushLocalToRemoteSync } from '../../runtime/modeSwitchSync'
+import { PushCancelled } from '../../runtime/syncPush'
+import { formatDiffMessage, formatFirstRunMessage, formatPullSummaryMessage, formatPushSummaryMessage } from './syncDiffMessage'
+import { countdownLabel, useCountdown } from './useCountdown'
 import type { SyncSource } from '../../runtime/syncTransport'
 import type { SyncDiff } from '@core/sync/types'
 
@@ -39,12 +41,41 @@ export function ModeSwitcher(): JSX.Element | null {
   const [showPair, setShowPair] = useState(false)
   const [manual, setManual] = useState('')
   const [busy, setBusy] = useState(false)
+  /**
+   * 記住的那台電腦（`null` ＝ 從沒成功連過）。
+   *
+   * UI 要用它決定「連上次那台」這顆按鈕該不該出現 —— 沒有記憶時那顆按鈕
+   * 按下去只會什麼都不做，不如不要畫。
+   */
+  const [remembered, setRemembered] = useState<{ baseUrl: string; token: string } | null>(null)
+  /**
+   * 正在等電腦回應的那一段（給倒數用）。`busy` 涵蓋整趟切換（含使用者在對話框
+   * 上思考的時間），倒數只能對應**真的有逾時**的那幾步，否則數字會對不上。
+   */
+  const [waiting, setWaiting] = useState<{ label: string; totalMs: number } | null>(null)
+  const secondsLeft = useCountdown(waiting?.totalMs ?? 0, !!waiting)
 
   useEffect(() => {
     if (Capacitor.isNativePlatform()) void isScannerAvailable().then(setScannerOk)
+    void readRememberedRemote().then(setRemembered)
   }, [])
 
   if (!Capacitor.isNativePlatform() || !conn) return null
+
+  /**
+   * 拿一份可以讀寫本機資料的 session。
+   *
+   * ⚠️ **一定要先 `initCapacitorSecrets()`。** 遙控模式下 `App.tsx` 從來沒有
+   * 初始化過 secrets（它只在獨立模式分支呼叫），沒解封就 boot 的話
+   * `hydrateSettings()` 解不開 `enc:v1:…`，會把記憶體裡的 API Key 設成空字串；
+   * 之後任何一次 `saveSettings()` 都會把磁碟上的密文蓋成空的 ——
+   * owner 2026-08-13 回報「獨立版的 API Key 不見了」就是這樣沒的
+   * （`session.saveSettings` 現在另外有一道保險絲，但別依賴它）。
+   */
+  const localSessionForSync = async (): Promise<StandaloneSession> => {
+    await initCapacitorSecrets()
+    return getStandaloneSession() ?? (await bootStandaloneSession(capacitorAdapters, { skipPackFetch: true }))
+  }
 
   const guardSending = (): boolean => {
     if (!sending) return true
@@ -55,20 +86,30 @@ export function ModeSwitcher(): JSX.Element | null {
   /**
    * S2 M3 切換前預覽并提供三選項（`docs/mobile-sync-m3-kickoff.md` §4）。
    *
+   * 這支只負責「算差異、問使用者要不要帶」，**不管方向**——方向（推或拉）
+   * 由呼叫端根據「現在要切去哪個模式」決定，見 `mobile-mode-switch-sync.md` §2：
+   * 獨立 → 遙控是手機 → 電腦，遙控 → 獨立是電腦 → 手機。
+   *
    * 回傳 object 或 null：
-   * - `{ choice: 'push', diff }`：帶過去並切換（進行 M3 推送）
+   * - `{ choice: 'bring', diff }`：帶過去並切換
    * - `{ choice: 'switch', diff }`：直接切換不帶（基準保持不動）
    * - `null`：取消切換
    */
-  const previewBeforeSwitchWithChoice = async (remoteSrc: SyncSource): Promise<{ choice: 'push' | 'switch'; diff: SyncDiff } | null> => {
+  const previewBeforeSwitchWithChoice = async (remoteSrc: SyncSource): Promise<{ choice: 'bring' | 'switch'; diff: SyncDiff } | null> => {
     let localSession: StandaloneSession
     try {
-      localSession = getStandaloneSession() ?? (await bootStandaloneSession(capacitorAdapters, { skipPackFetch: true }))
-      const [baseline, local, remote] = await Promise.all([
-        readBaseline(capacitorAdapters.storage),
-        buildLocalManifest(localSession),
-        fetchRemoteManifest(remoteSrc)
-      ])
+      localSession = await localSessionForSync()
+      setWaiting({ label: '讀取電腦資料', totalMs: MANIFEST_TIMEOUT_MS })
+      let baseline, local, remote
+      try {
+        ;[baseline, local, remote] = await Promise.all([
+          readBaseline(capacitorAdapters.storage),
+          buildLocalManifest(localSession),
+          fetchRemoteManifest(remoteSrc)
+        ])
+      } finally {
+        setWaiting(null)
+      }
       const diff = computeDiff(baseline, local, remote)
       if (!diff.hasBaseline) {
         const choice = await confirmWithChoice({
@@ -86,36 +127,37 @@ export function ModeSwitcher(): JSX.Element | null {
   }
 
   /**
-   * S2 M2 差異預覽（舊版，只有「繼續」和「取消」）——保留給非切換流程用。
-   *
-   * 抓不到清單（電腦連不上、或本地資料讀取失敗）就直接放行，不擋切換：
-   * 「不可以因為同步失敗就把使用者卡在原模式」（§7.7）。
+   * 獨立 → 遙控：把手機資料推到電腦（`docs/mobile-mode-switch-sync.md` §2）。
+   * 呼叫端已經跑過 `previewBeforeSwitchWithChoice` 並確認 `choice === 'bring'`。
    */
-  const previewBeforeSwitch = async (remoteSrc: SyncSource): Promise<boolean> => {
-    let localSession: StandaloneSession
-    try {
-      // 目前在獨立模式時直接用當前 session；在遙控模式時本機沒有活著的
-      // session（資料在電腦上），臨時開一份唯讀用來讀本地檔案，不設成
-      // 全域 session、也不影響 App.tsx 自己的開機流程。
-      localSession = getStandaloneSession() ?? (await bootStandaloneSession(capacitorAdapters, { skipPackFetch: true }))
-      const [baseline, local, remote] = await Promise.all([
-        readBaseline(capacitorAdapters.storage),
-        buildLocalManifest(localSession),
-        fetchRemoteManifest(remoteSrc)
-      ])
-      const diff = computeDiff(baseline, local, remote)
-      if (!diff.hasBaseline) {
-        return await confirm({
-          title: '切換前預覽',
-          message: formatFirstRunMessage(local, remote),
-          confirmLabel: '繼續切換'
-        })
-      }
-      if (isDiffEmpty(diff)) return true
-      return await confirm({ title: '切換前預覽', message: formatDiffMessage(diff), confirmLabel: '繼續切換' })
-    } catch {
-      return true
+  const pushLocalToRemote = async (remoteSrc: SyncSource, diff: SyncDiff): Promise<void> => {
+    const session = await localSessionForSync()
+    const summary = await pushLocalToRemoteSync(
+      remoteSrc,
+      session,
+      diff,
+      (msg) => toast(msg),
+      // 電腦上有同名角色時，讓使用者逐一勾選要覆蓋哪幾隻（預設全選）
+      (conflicts) => useUiStore.getState().openNameConflicts(conflicts)
+    )
+    // 推送成功但沒東西真的推過去（例如全部都是衝突）——不用彈結果對話框。
+    const pushedAnything = Object.values(summary).some((names) => names.length > 0)
+    if (pushedAnything) {
+      await confirm({ title: '推送完成', message: formatPushSummaryMessage(summary), confirmLabel: '好' })
+    } else {
+      toast('沒有東西需要推送')
     }
+  }
+
+  /**
+   * 遙控 → 獨立：把電腦資料拉回手機（`docs/mobile-mode-switch-sync.md` §2）。
+   * 沿用既有 S1 匯入邏輯（`syncPull.ts` 的 `pullFromDesktop`），不重新設計。
+   */
+  const pullRemoteToLocal = async (remoteSrc: SyncSource): Promise<void> => {
+    const session = await localSessionForSync()
+    toast('正在從電腦帶回資料⋯⋯')
+    const result = await pullRemoteToLocalSync(remoteSrc, session)
+    await confirm({ title: '帶回完成', message: formatPullSummaryMessage(result), confirmLabel: '好' })
   }
 
   const goStandalone = async (): Promise<void> => {
@@ -123,40 +165,16 @@ export function ModeSwitcher(): JSX.Element | null {
     setBusy(true)
     try {
       if (conn.mode === 'remote') {
-        const result = await previewBeforeSwitchWithChoice({ baseUrl: conn.baseUrl, token: conn.token })
+        const remoteSrc = { baseUrl: conn.baseUrl, token: conn.token }
+        const result = await previewBeforeSwitchWithChoice(remoteSrc)
         if (!result) return // 取消
-        const { choice, diff } = result
+        const { choice } = result
 
-        if (choice === 'push') {
-          // M3 推送邏輯：選中所有新增＋修改的項目推送
-          // 在遙控模式下沒有活著的 session（資料在電腦上），臨時建立本機讀取用
-          let session = getStandaloneSession()
-          if (!session) {
-            session = await bootStandaloneSession(capacitorAdapters, { skipPackFetch: true })
-          }
-
+        if (choice === 'bring') {
           try {
-            const selectedIds = await buildPushSelection(diff, session)
-            const summary = await pushSync(
-              { baseUrl: conn.baseUrl, token: conn.token },
-              session,
-              diff,
-              {
-                selectedIds,
-                onProgress: (msg: string) => {
-                  toast(msg)
-                }
-              }
-            )
-            // 推送成功但沒東西真的推過去（例如全部都是衝突）——不用彈結果對話框。
-            const pushedAnything = Object.values(summary).some((names) => names.length > 0)
-            if (pushedAnything) {
-              await confirm({ title: '推送完成', message: formatPushSummaryMessage(summary), confirmLabel: '好' })
-            } else {
-              toast('沒有東西需要推送')
-            }
+            await pullRemoteToLocal(remoteSrc)
           } catch (err) {
-            toast(`推送失敗：${err instanceof Error ? err.message : String(err)}`, 'error')
+            toast(`從電腦帶回資料失敗：${err instanceof Error ? err.message : String(err)}`, 'error')
             return
           }
         }
@@ -172,7 +190,13 @@ export function ModeSwitcher(): JSX.Element | null {
   const tryConnect = async (baseUrl: string, token: string): Promise<boolean> => {
     setBusy(true)
     try {
-      const resolved = await resolveLiveRemote(baseUrl, token)
+      setWaiting({ label: '連線中', totalMs: PROBE_TIMEOUT_MS })
+      let resolved
+      try {
+        resolved = await resolveLiveRemote(baseUrl, token)
+      } finally {
+        setWaiting(null)
+      }
       if (!resolved.ok) {
         toast('連不上那台電腦，請確認已開機、DeST 正在執行，而且同一個網路', 'error')
         return false
@@ -183,8 +207,21 @@ export function ModeSwitcher(): JSX.Element | null {
         return false
       }
       const remoteSrc = { baseUrl: resolved.baseUrl!, token: resolved.token! }
-      const proceed = await previewBeforeSwitch(remoteSrc)
-      if (!proceed) return false
+      const result = await previewBeforeSwitchWithChoice(remoteSrc)
+      if (!result) return false // 取消
+      const { choice, diff } = result
+
+      if (choice === 'bring') {
+        try {
+          await pushLocalToRemote(remoteSrc, diff)
+        } catch (err) {
+          // 使用者在同名清單按了取消 → 安靜留在原模式，不是錯誤
+          if (err instanceof PushCancelled) return false
+          toast(`推送失敗：${err instanceof Error ? err.message : String(err)}`, 'error')
+          return false
+        }
+      }
+      // choice === 'switch'：直接切換，不帶資料
       const next: Connection = { mode: 'remote', baseUrl: remoteSrc.baseUrl, token: remoteSrc.token }
       await switchTo(next)
       setShowPair(false)
@@ -231,7 +268,7 @@ export function ModeSwitcher(): JSX.Element | null {
    *
    * confirm 按鈕當「直接切換，不帶」；extraActions 加一顆「帶過去並切換」。
    */
-  const confirmWithChoice = (opts: { title: string; message: string }): Promise<'push' | 'switch' | null> => {
+  const confirmWithChoice = (opts: { title: string; message: string }): Promise<'bring' | 'switch' | null> => {
     return new Promise((resolve) => {
       confirm({
         title: opts.title,
@@ -240,7 +277,7 @@ export function ModeSwitcher(): JSX.Element | null {
         extraActions: [
           {
             label: '帶過去並切換',
-            onClick: () => resolve('push'),
+            onClick: () => resolve('bring'),
             closeAfter: true
           }
         ]
@@ -256,14 +293,16 @@ export function ModeSwitcher(): JSX.Element | null {
       <p className="text-[11px] text-[var(--text-sub)]">切換模式</p>
 
       {conn.mode === 'standalone' ? (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void goRemote()}
-          className="w-full rounded-full border border-[var(--border)] py-2.5 text-sm text-[var(--text)] disabled:opacity-40"
-        >
-          {busy ? '連線中⋯⋯' : '切換到遙控（連電腦）'}
-        </button>
+        remembered && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void goRemote()}
+            className="w-full rounded-full border border-[var(--border)] py-2.5 text-sm text-[var(--text)] disabled:opacity-40"
+          >
+            {waiting ? countdownLabel(waiting.label, secondsLeft) : busy ? '處理中⋯⋯' : '切換到遙控（連上次那台）'}
+          </button>
+        )
       ) : (
         <button
           type="button"
@@ -271,14 +310,21 @@ export function ModeSwitcher(): JSX.Element | null {
           onClick={() => void goStandalone()}
           className="w-full rounded-full border border-[var(--border)] py-2.5 text-sm text-[var(--text)] disabled:opacity-40"
         >
-          切換到本機（獨立版）
+          {waiting ? countdownLabel(waiting.label, secondsLeft) : busy ? '處理中⋯⋯' : '切換到本機（獨立版）'}
         </button>
       )}
 
-      {showPair && (
+      {/*
+        本機模式**一律**顯示掃 QR，不管有沒有記住上一台（owner 2026-08-13）。
+        原本只有「連上次那台」失敗時才會冒出來，於是已經配對過的人**永遠找不到
+        換一台電腦的入口**——記憶反而把功能藏起來了。
+      */}
+      {(showPair || conn.mode === 'standalone') && (
         <div className="space-y-2 border-t border-[var(--border)] pt-3">
           <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
-            電腦請開啟「手機連線」，畫面上會出現一張 QR。
+            {remembered && conn.mode === 'standalone'
+              ? '要改連別台電腦，掃那台的 QR 就會換過去。電腦請開啟「手機連線」。'
+              : '電腦請開啟「手機連線」，畫面上會出現一張 QR。'}
           </p>
           {scannerOk && (
             <button

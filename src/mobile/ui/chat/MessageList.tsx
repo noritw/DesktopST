@@ -7,6 +7,7 @@ import { MessageImages } from './MessageImages'
 import { formatRandomBadge } from './randomLabels'
 import { Avatar } from '../characters/Avatar'
 import { useUiStore } from '../stores/uiStore'
+import { resolveCharacterName } from '@core/chat/characterName'
 import { NewsContextSheet } from '../news/NewsContextSheet'
 
 /**
@@ -64,8 +65,15 @@ export function MessageList(): JSX.Element {
     return () => window.clearTimeout(t)
   }, [messages, thinkingIds])
 
-  const nameOf = (id?: string): string =>
-    snapshot?.presentCharacters.find((c) => c.id === id)?.name ?? ''
+  /**
+   * 角色名字：以現存角色為準，查不到才退回訊息裡的名字快照
+   * （`Message.characterName`——同步把角色 id 換掉時的備援）。
+   *
+   * ⚠️ 這裡的名單是 `presentCharacters`（目前在場的），**不是全部角色**：
+   * 已經離場的角色本來就查不到，以前一律顯示空白，現在至少還有快照可用。
+   */
+  const nameOf = (id?: string, snapshotName?: string): string =>
+    resolveCharacterName(id, snapshot?.presentCharacters ?? [], snapshotName)
 
   /** 點 📰 標題要編的那則訊息。面板本身與新聞報的「聊這個」共用一份。 */
   const [newsMsg, setNewsMsg] = useState<MessageSnapshot | null>(null)
@@ -84,7 +92,7 @@ export function MessageList(): JSX.Element {
   return (
     <div ref={containerRef} className="scroll-y flex-1 px-4 py-3">
       {messages.map((m) => (
-        <MessageRow key={m.id} message={m} characterName={nameOf(m.characterId)} onEditNews={setNewsMsg} />
+        <MessageRow key={m.id} message={m} characterName={nameOf(m.characterId, m.characterName)} onEditNews={setNewsMsg} />
       ))}
       {thinkingIds.map((id) => (
         <ThinkingRow key={`thinking:${id}`} name={nameOf(id)} />

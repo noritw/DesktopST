@@ -84,7 +84,8 @@ src/mobile/ 手機 UI
 | **獨立版角色卡／設定包匯出** | 完成（缺口 #3，2026-08-12）。`StandaloneSession.exportCard`／`exportPack` 接上，格式與桌面 `dstPack.ts`／`stCardMapper.ts` 相容（互通匯入）；PNG 無頭像時退回內建透明底圖。`fileTransfer.ts` 的 `downloadBytes` 改非同步、平台分流：網頁走 `<a download>`，APK 走新裝的 `@capacitor/share`＋既有的 `@capacitor/filesystem`（動態 `import()`）。**真機驗證通過**：Pixel 10a 上實際點過「匯出 PNG 卡」，系統分享面板正確跳出且圖片正確 |
 | **S2 同步 M1（模式可切換）** | 完成（2026-08-12），穩定性已補驗證。App 內可直接切換本機／遙控，不用重開；`mobile/ui/stores/connectionStore.ts` 取代原本 `App.tsx` 的 `useMemo`；切換按鈕在「關於」頁（只有原生殼顯示）。**這階段完全不同步資料**，只是把「兩份資料分開存取」的入口做出來。owner 實機試切換時揪出兩個原生殼獨有的既存缺口並修掉：①掃到中繼 QR 時 WebSocket 路由是錯的（`resolveLiveRemote()` 會自動嘗試升級成區網直連，升不了就明講不支援）②`capacitor.config.ts` 的 `androidScheme` 是 `'https'` 導致 Mixed Content 政策擋掉角色頭像與遙控 WebSocket（改成 `'http'`，細節見 §5）。兩個修法 log 上都看得到效果（WS 首次 `open` 成功、Mixed Content 警告歸零）。**穩定性補驗證（同日稍後）**：手動延長螢幕逾時後，遙控·區網直連模式閒置 4 分鐘連線仍正常、`Mixed Content` 全程 0 筆——判定穩定收工。細節：`mobile-mode-switch-sync.md` §8.1 |
 | **S2 同步 M2（差異預覽，唯讀不搬資料）** | 完成，**真機驗證通過**（2026-08-12）。新端點 `GET /api/sync-manifest`；純差異邏輯在 `core/sync/`（平台無關，`npm test` 涵蓋）；切換前用既有的 `ui.confirm` 對話框（沒有另做 Sheet）顯示差異摘要，`ModeSwitcher.tsx` 掛入。**這一版只讀不寫基準**（`sync-baseline.json` 目前不存在，還沒有人寫過），所以真機上看到的是「無基準」的中性統計訊息，逐筆差異／衝突要等 M3 第一次寫入基準才會被真機驗證到。細節與落地筆記：`mobile-mode-switch-sync.md` §8.2 |
-| **下一步** | **S2 M3**（真的推／拉角色、預設組、情境、Lorebook、設定；對話還不動）——**開工指令：`docs/mobile-sync-m3-kickoff.md`（整份，照著開工）**。另：v0.4.0 真機煙測（配色／新聞泡泡／遙控） |
+| **S2 同步 M3（真的推／拉資料）** | **方向已修正，自動測試通過，尚未真機驗證。** 獨立→遙控＝手機→電腦推送（`syncPush.ts`，角色／人設／世界觀／Lorebook／情境，逐項成功即寫回基準）；遙控→獨立＝電腦→手機拉取（新檔 `syncPull.ts`，直接複用 S1 `runSyncImport()`，`onConflict='overwrite'`，且會拔掉電腦附的 API Key，S2 不碰金鑰）。路由抽成純函式 `runtime/modeSwitchSync.ts`，可被單元測試直接驗證方向沒接錯（`tests/mobile/modeSwitchSync.test.ts`、`syncPull.test.ts`）。**設定推送仍是死碼**（`pushSettings()` 沒有呼叫端）；**對話同步是 M4，完全沒做**。`npm run typecheck`／`npm test` 皆過（47 檔、600 項）——只證明邏輯正確，不是真機驗證。真機待驗兩條路徑見 `docs/mobile-sync-m3-kickoff.md` §9 |
+| **下一步** | **Pixel 10a 真機驗證 S2 M3 兩條切換路徑**（獨立→遙控的推送終點在電腦、遙控→獨立的拉取終點在手機），細節見 `docs/mobile-sync-m3-kickoff.md` §9。驗過後再補設定推送（M3 收尾）；之後做階段 7 正式 APK／散布；v0.4.0 另需真機煙測（配色／新聞泡泡／遙控）。 |
 | 延後／已排程 | 角色印象（B8）；系統通知（B5）；**飲食熱量模組（B9）** → `docs/future-nutrition-module.md`（owner 自用優先；含換機搬家包） |
 
 獨立模式**尚未實作**（會誠實擲 `not-supported`，不是 bug）：
@@ -157,6 +158,51 @@ src/mobile/ 手機 UI
   一按就結束 activity，使用者從最近使用回來時是全新啟動、停在聊天畫面，
   症狀是「操作到一半自己跳回首頁」。要用 `@capacitor/app` 的 `backButton` 事件
   （`ui/shell/useBackButton.ts`，瀏覽器仍走 popstate，兩條共用 `handleBack()`）
+- **「網址固定、內容會變」的資源一定要送 `Cache-Control: no-cache`**
+  （2026-08-13 owner 實機回報）。`GET /api/avatar/:id` 原本沒送任何快取標頭，
+  瀏覽器就套用**啟發式快取**自己猜一段有效期，連問都不問就用舊圖 ——
+  電腦端換了主圖，遙控版永遠停在舊那張。**症狀極容易誤判成同步壞掉**：
+  同一張角色卡的**文字會即時更新**（那是 JSON，畫面一掛載就重抓），
+  只有圖不動，看起來像「圖片同步沒做」。`no-cache` 不是「不要快取」，
+  是「用之前先來問我」，配 ETag 時沒變就回 304、不傳位元組。
+  ⚠️ 別照抄 `/api/message-image/` 的 `max-age=86400`：訊息圖片綁死在某一則
+  訊息的某一張、內容永不變，可以長快取；頭像剛好相反，兩者要反過來處理。
+  另一半在手機端：已經畫在畫面上的 `<img>` 就算 src 沒變也不會自己重抓，
+  所以 `state-invalidated` 要順手 `invalidateAllAvatars()`
+  （`ui/characters/useAvatarUrl.ts`，版本號故意全站共用一個——那個事件
+  不會告訴你是哪一隻角色變了）
+- **碰 settings 之前一定要 `await initCapacitorSecrets()`——漏了會安靜地毀掉 API Key**
+  （2026-08-13 owner 回報「獨立版的 API Key 不見了」）。沒初始化時
+  `capacitorSecrets` 退化成 `unavailableSecrets`：`decrypt()` 原樣回傳
+  `enc:v1:…` 密文 → `hydrateSettings()` 判定「解不開」而把記憶體裡那把金鑰設成
+  `''`（本意是別讓使用者看到亂碼）→ 之後**任何一次** `saveSettings()` 會
+  `encrypt('')` 回傳 `''`，磁碟上的密文就被空字串覆蓋、**永久消失**。
+  踩到的路徑：`ModeSwitcher` 在遙控模式下臨時 boot 一份 standalone session
+  （`App.tsx` 只在獨立模式分支初始化 secrets），S2 M3 的「從電腦帶回資料」
+  接著跑 `runSyncImport()` → `saveSettings()`。
+  現在 `session.saveSettings()` 有保險絲（secrets 不可用 ＋ 磁碟是密文 ＋
+  要寫入空字串 → 保留舊值，`tests/mobile/secretsFuse.test.ts`），
+  但**呼叫端照樣要先初始化**，別依賴保險絲。
+- **所有對電腦的 `fetch` 都要自己算逾時，一條都不能漏。** CapacitorHttp 忽略
+  `signal`（見上面那條），電腦**整台關機**時封包沒人回應，TCP 逾時可能超過一分鐘。
+  2026-08-13 一天內因為漏掉不同路徑踩了三次：①開機 `detectLanDirect()`
+  → 停在「載入中⋯⋯」②切到遙控 `resolveLiveRemote()`→`fetchSyncInitInfo()`
+  → 停在「連線中⋯⋯」③切換前預覽 `fetchRemoteManifest()`→`syncTransport.request()`
+  → 一樣卡死。**修一處不等於修完**，改連線相關程式時把 `mobile/` 底下所有
+  `await fetch(` 掃一遍（`connection.ts` 三支、`syncTransport.ts` 一支、
+  `httpClient.ts` 一支）。目前的逾時：探測 6 秒、切換前 manifest 8 秒、
+  `syncTransport` 預設 30 秒（要抓角色包，放寬）
+- **開機走遙控模式時一定要先探測、而且探測要自己算逾時**
+  （2026-08-13 owner 實機回報）。`fetch` 在 APK 上是 CapacitorHttp，`signal`
+  無效（見上面那條），電腦**整台關機**時封包沒人回應，作業系統的 TCP 逾時
+  可能超過一分鐘。`App.tsx` 的 attach effect 原本先 `await detectLanDirect()`
+  才 `attach()`，於是那一等就把整個開機流程卡死：`ready` 永遠 false、
+  `loadError` 永遠 null，畫面停在「載入中⋯⋯」，連既有的 `LoadFailed`
+  重試畫面都出不來——症狀是「上次停在遙控版、電腦關掉後開 App 沒東西」。
+  現在走 `connection.ts` 的 `probeRemote()`（`Promise.race` 自帶 6 秒逾時），
+  連不上就**問使用者**要不要改用本機（不自動切：電腦只是還沒開機的人會
+  莫名進到另一個資料庫，而兩邊對話是分開的，看起來像資料不見了），
+  而且一次開機只問一次
 - **資料遷移一定要「寫回磁碟」再看一次磁碟**：正規化／遷移若只寫在讀取路徑
   （純函式、作用在記憶體），磁碟要等下次有人存設定才會更新 ——
   在那之前每次讀都重跑遷移，**冪等旗標永遠不會生效**，使用者刪掉的東西會被建回來。
@@ -189,7 +235,7 @@ src/mobile/ 手機 UI
 | 改 QR／relay／手機建置 | 計畫書 **只讀 §4.20** | §4.10–4.18 |
 | S1／S2 同步 | roadmap **§4.7**（模式、S1–S3 分層、API Key 判定、星狀拓樸） | 整份 roadmap |
 | 手機模式切換／切換時帶資料走 | `mobile-mode-switch-sync.md`（整份，S2 第一階段的實作設計） | 整份 roadmap |
-| **實作 S2 M3（真的推／拉資料）** | `mobile-sync-m3-kickoff.md`（整份，開工指令） | 一切長文 |
+| **修正／驗證 S2 M3（真的推／拉資料）** | `mobile-sync-m3-kickoff.md`（整份；先讀文首的 P1 現況） | 一切長文 |
 | 打 APK／改 Capacitor | `src/mobile/README.md` | 一切長文 |
 | 動天氣（兩邊共用） | `core/weather/`（四個小檔，直接讀原始碼）＋ `progress-log.md` 搜「獨立版天氣」 | 舊的 `weather-realtime-query-spec.md`（那是桌面 CWA 規格） |
 | 問「獨立版還缺什麼」／挑下一項做 | `mobile-standalone-gap-inventory.md`（整份，不長） | 舊的 `mobile-html-feature-inventory.md` |

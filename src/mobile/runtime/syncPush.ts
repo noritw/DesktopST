@@ -19,6 +19,32 @@ import { request } from './syncTransport'
  * - 設定（需拆成多支呼叫，§3.3）
  */
 
+/** 電腦上已有同名角色、而且沒有同步記錄可以確認是不是同一隻。 */
+export interface NameConflict {
+  /** 手機端的角色 id */
+  id: string
+  name: string
+}
+
+/** 使用者在同名清單上按了取消 → 整趟推送不做。 */
+export class PushCancelled extends Error {
+  constructor() {
+    super('使用者取消了推送')
+    this.name = 'PushCancelled'
+  }
+}
+
+/** 名字比對用：去頭尾空白、統一大小寫，與電腦端 `importDstPackDirect` 的判定一致。 */
+function normalizeName(name: string): string {
+  return name.trim().toLowerCase()
+}
+
+/** 這隻角色有沒有被 diff 標記成要推（第一次同步時 diff 刻意全空，一律放行）。 */
+function passesCharacterDiff(diff: SyncDiff, id: string): boolean {
+  if (!diff.hasBaseline) return true
+  return diff.characters.localNew.includes(id) || diff.characters.localModified.includes(id)
+}
+
 export interface PushOptions {
   /** 使用者要帶過去的 id（characters, personas, worlds, scenes, lorebooks）。未勾的就不推。 */
   selectedIds: {
@@ -30,6 +56,13 @@ export interface PushOptions {
   }
   /** 推送進度回調。 */
   onProgress?: (message: string) => void
+  /**
+   * 遇到同名衝突時問使用者要覆蓋哪幾隻。
+   *
+   * 回傳要覆蓋的手機端角色 id 集合；回 `null` ＝ 取消整趟推送（丟 `PushCancelled`）。
+   * **不提供這個回調時一律不推**衝突的那幾隻——預設值不能是「默默建立重複角色」。
+   */
+  onNameConflicts?: (conflicts: NameConflict[]) => Promise<Set<string> | null>
 }
 
 /**
@@ -42,6 +75,8 @@ export interface PushSummary {
   worlds: string[]
   scenes: string[]
   lorebooks: string[]
+  /** 因為同名、使用者沒勾覆蓋而略過的角色名字（UI 要說出來，不能默默不推）。 */
+  skippedByName: string[]
 }
 
 /**
@@ -107,7 +142,7 @@ export async function pushSync(
     }
 
   const updates = { ...baseline }
-  const summary: PushSummary = { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [] }
+  const summary: PushSummary = { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [], skippedByName: [] }
 
   /**
    * 基準記錄「這隻角色先前推送成功過」不代表電腦上現在還真的有那個 id——
@@ -122,9 +157,47 @@ export async function pushSync(
    * 當查不到）就退回 `new`，讓電腦端照原本「同名不覆蓋、發新 id」的
    * 既有規則處理，不要冒著蓋掉不相關角色的風險去猜。
    */
-  const remoteCharacterIds = await fetchRemoteManifest(src, fetchImpl)
-    .then((m) => new Set(m.characters.map((c) => c.id)))
-    .catch(() => new Set<string>())
+  const remoteManifest = await fetchRemoteManifest(src, fetchImpl).catch(() => null)
+  const remoteCharacterIds = new Set((remoteManifest?.characters ?? []).map((c) => c.id))
+  /** 電腦上現有的角色名字（正規化後）→ 用來偵測同名衝突。 */
+  const remoteCharacterNames = new Set(
+    (remoteManifest?.characters ?? []).map((c) => normalizeName(c.name))
+  )
+
+  /**
+   * 同名衝突：手機要推的角色，電腦上已經有一隻同名、但**沒有同步記錄**的。
+   *
+   * 這是 2026-08-13 那場事故的正源頭。當時的處理是「一律當新角色送過去」，
+   * 於是電腦上每推一次就多一隻同名角色；owner 清理重複時留下的是手機推過去
+   * 的新複本，而所有舊對話指向的是原本那隻的 id —— 五月到八月的角色名字
+   * 一次全部消失。
+   *
+   * owner 2026-08-13 拍板：**列出同名清單讓使用者逐一勾選**（預設全選）。
+   * 打勾＝覆蓋電腦上那隻（電腦端會沿用它原本的 id，所以舊對話的連結不會斷）；
+   * 沒打勾＝這次不推這隻。**刻意不提供「另外建一隻新的」**——那正是出事的
+   * 那條路，真的想要第二隻同名角色，在手機上改個名字再推即可。
+   */
+  const conflicts: NameConflict[] = []
+  for (const id of opts.selectedIds.characters ?? new Set<string>()) {
+    if (!passesCharacterDiff(diff, id)) continue
+    const char = session.characters.find((c) => c.id === id)
+    if (!char) continue
+    // 基準記的 remoteId 還在電腦上 → 已知是同一隻，不必問
+    const recordedRemoteId = baseline.characters[id]?.remoteId
+    if (recordedRemoteId && remoteCharacterIds.has(recordedRemoteId)) continue
+    if (remoteCharacterNames.has(normalizeName(char.name))) conflicts.push({ id, name: char.name })
+  }
+
+  /**
+   * 沒有提供 `onNameConflicts` 時一律**不覆蓋也不推**（保守）。
+   * 舊行為是默默送出去變成重複角色，那個預設值已經害過一次，不留回頭路。
+   */
+  let approvedOverwrite = new Set<string>()
+  if (conflicts.length > 0) {
+    const answer = opts.onNameConflicts ? await opts.onNameConflicts(conflicts) : new Set<string>()
+    if (answer === null) throw new PushCancelled()
+    approvedOverwrite = answer
+  }
 
   /**
    * 每推成功一筆就立刻寫回基準——**不要等整趟迴圈跑完才寫一次**。
@@ -149,17 +222,32 @@ export async function pushSync(
   try {
     // ── 角色推送 ──
     const charIds = opts.selectedIds.characters ?? new Set()
+    const conflictIds = new Set(conflicts.map((c) => c.id))
     for (const id of charIds) {
       // 第一次同步（!diff.hasBaseline）時 diff 刻意全空，信任 selectedIds（見 buildPushSelection）
-      if (diff.hasBaseline && !diff.characters.localNew.includes(id) && !diff.characters.localModified.includes(id)) continue
+      if (!passesCharacterDiff(diff, id)) continue
       const char = session.characters.find((c) => c.id === id)
       const charName = char?.name || id
+
+      // 同名衝突而使用者沒勾 → 這次不推這隻（見上面 conflicts 的說明）
+      if (conflictIds.has(id) && !approvedOverwrite.has(id)) {
+        summary.skippedByName.push(charName)
+        continue
+      }
+
       opts.onProgress?.(`推送角色 ${charName}...`)
-      // 基準記過、而且那個 remoteId 現在真的還在電腦上 → 這次是同一隻角色
-      // 被改過、重新推，蓋掉電腦上那份；否則一律當新角色處理（見上面
-      // remoteCharacterIds 的說明——基準過期時退回 new 比冒險 overwrite 安全）。
+      /*
+       * `overwrite` 的兩種來源：
+       * 1. 基準記過、而且那個 remoteId 現在真的還在電腦上 → 已知是同一隻角色被改過重推
+       * 2. 同名衝突且使用者勾了要覆蓋 → 電腦端會用名字對到那隻並**沿用它的 id**
+       *    （`importDstPackDirect` 的 nameHit 分支），所以舊對話的連結不會斷
+       * 兩者皆非 → `new`（電腦上沒有同名的，本來就是新角色）
+       */
       const recordedRemoteId = baseline.characters[id]?.remoteId
-      const onConflict = recordedRemoteId && remoteCharacterIds.has(recordedRemoteId) ? 'overwrite' : 'new'
+      const onConflict =
+        (recordedRemoteId && remoteCharacterIds.has(recordedRemoteId)) || approvedOverwrite.has(id)
+          ? 'overwrite'
+          : 'new'
       await pushCharacter(src, session, id, onConflict, fetchImpl)
       summary.characters.push(charName)
       if (char) {
@@ -248,6 +336,8 @@ export async function pushSync(
 
     return summary
   } catch (err) {
+    // 使用者主動取消不是失敗，原樣往上丟，呼叫端才能安靜收工不跳錯誤。
+    if (err instanceof PushCancelled) throw err
     // 中途失敗：已經成功推的那幾筆基準在上面 persist() 時已經寫回去了，
     // 不會因為後面這步失敗而消失——不需要在這裡再寫一次，也不能整份倒退。
     throw new Error(`推送失敗：${err instanceof Error ? err.message : String(err)}`)

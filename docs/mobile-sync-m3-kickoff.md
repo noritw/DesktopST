@@ -1,7 +1,7 @@
 # S2 同步 M3 —— 真的推／拉資料（開工指令）
 
 > **建立時間**：2026-08-12（M2 真機驗證通過之後）
-> **狀態**：待開工。這份是給接手 AI 的完整指令，**照著這份就能開工，不必先讀長文**。
+> **狀態（2026-08-13 P1 修正後）**：**方向已修正，仍不是完整版。** ①基準寫回、②角色／人設／世界觀／Lorebook 推送、③情境欄位過濾與三選項 UI、④P1 方向錯置修正（獨立→遙控＝手機→電腦推送；遙控→獨立＝電腦→手機拉取，沿用既有 S1 `runSyncImport` 邏輯）都已落地並有單元測試（`tests/mobile/syncPush.test.ts`／`syncPull.test.ts`／`modeSwitchSync.test.ts`）。**設定推送**（`syncPush.ts` 的 `pushSettings()`）仍只是未接入主流程的 helper——獨立→遙控這個方向目前不會把手機的 LLM／記憶／主題／模組設定推上去。遙控→獨立方向則因為沿用整套 S1 `runSyncImport`，附帶把設定／預設組／情境一起拉下來了（這是重用既有邏輯的副作用，不是刻意新做的功能）。**對話同步是 M4，這次完全沒動。** 真機驗證仍待做，見 §9。
 > **前置**：`CLAUDE.md`（必讀）。其餘只在下面指名的段落才讀。
 
 ---
@@ -12,9 +12,37 @@ M1（模式可切換）與 M2（差異預覽，唯讀）都已經完成並真機
 這次要做的是讓 M2 算出來的差異**真的動手搬**：角色、人設、世界觀、情境、
 用語解說、設定——**對話這一版還不動**（那是 M4）。
 
-**不要重新設計差異演算法，不要重寫 M2 的 UI 骨架。** `core/sync/diff.ts` 的
-`computeDiff()` 已經算好「誰新增／誰修改／誰刪除／誰衝突」，這次只是把
-「帶過去」這個動作接上去，並且**成功之後才更新基準**。
+### 0.1 P1 修正記錄（2026-08-13）
+
+- 架構決議不變：**獨立 → 遙控**時才是手機 → 電腦推送；**遙控 → 獨立**時走既有
+  S1 匯入邏輯，把電腦資料拉回手機。方向定義見 `mobile-mode-switch-sync.md` §2。
+- **已修正**：`src/mobile/ui/shell/ModeSwitcher.tsx` 原本在「遙控 → 獨立」
+  （`goStandalone`）呼叫 `pushSync()`，把手機資料推去電腦；「獨立 → 遙控」
+  （`tryConnect`／`goRemote`）反而只做 M2 差異預覽、什麼都不搬。現在兩邊都接對了：
+  `tryConnect` 選「帶過去」時呼叫 `pushLocalToRemote()`（手機 → 電腦），
+  `goStandalone` 選「帶過去」時呼叫 `pullRemoteToLocal()`（電腦 → 手機）。
+- 路由邏輯抽到新檔 `src/mobile/runtime/modeSwitchSync.ts`（`pushLocalToRemote`／
+  `pullRemoteToLocal` 兩個純函式），讓「哪個方向打哪些端點」能被單元測試直接驗證，
+  不必掛整套 React／zustand／Capacitor 才能測到 P1 這種方向接錯的問題。
+  見 `tests/mobile/modeSwitchSync.test.ts`。
+- 拉取方向新增 `src/mobile/runtime/syncPull.ts`（`pullFromDesktop()`）：直接複用
+  S1 既有的 `runSyncImport()`，`onConflict` 固定 `'overwrite'`（使用者已經在切換
+  當下明確選了「帶過去」，同名視為電腦端改過要蓋掉手機舊版）。**在丟給
+  `runSyncImport()` 之前會先拔掉 `bundle.llm.apiKeys` 與
+  `bundle.weather.realtimeQuery.cwaApiKey`**——`runSyncImport()` 本來是給 S1
+  初始化用的，會把電腦端附的金鑰一併帶進來，但 S2 任何情況都不該碰金鑰
+  （roadmap §4.7、`mobile-mode-switch-sync.md` §3.2）。見
+  `tests/mobile/syncPull.test.ts` 的「S2 同步不帶 API Key」案例。
+- `src/mobile/runtime/syncPush.ts` 維持角色、人設、世界觀、Lorebook、情境的手機 →
+  電腦推送，且每成功一筆就寫回基準，避免中途失敗後重推已成功項目。**設定推送
+  （`pushSettings()`）仍是死碼，沒有任何呼叫端接它**——獨立 → 遙控這個方向目前
+  推不動手機端改過的 LLM／記憶／主題／模組設定。對話仍是 M4 範圍，兩個方向都沒動。
+
+**沒有重新設計差異演算法，沒有重寫 M2 的 UI 骨架、也沒有動 `computeDiff()`。**
+拉取方向甚至沒有用到 diff——直接沿用 S1 既有的「整包匯入」邏輯，這是
+`docs/mobile-sync-m3-kickoff.md` 開工指令本來就預期的複用方式（§1「已經存在、
+M3 可以直接拿來用的推送端點」表格下方那句「反向已經有 `SyncInitBundle` 與
+`syncImport.ts` 的既有拉取邏輯」）。
 
 ---
 
@@ -199,3 +227,30 @@ return await confirm({ title: '切換前預覽', message: formatDiffMessage(diff
 | 手機端資料模型（`StandaloneSession` 的欄位） | `src/mobile/runtime/session.ts` |
 
 **不要讀**：整份 roadmap、M4（對話合併）相關的 §6.2 ② 與 §9 未決清單（那是之後的事）。
+
+---
+
+## 8. P1 修正後的驗證狀態（2026-08-13）
+
+`npm run typecheck` 與 `npm test` 都通過（47 個測試檔、600 項，含這次新增的
+`syncPull.test.ts`、`modeSwitchSync.test.ts`）。**這只證明邏輯本身正確，不等於
+真機驗證過**——`modeSwitchSync.test.ts` 測的是純函式路由，沒有掛 Capacitor／
+真實網路／真機 WebView，見 CLAUDE.md §5「CapacitorHttp」那幾條坑。
+
+## 9. 真機仍待驗證的兩條路徑
+
+在 Pixel 10a（或任一台已經跑過 debug APK 的裝置）上，至少要各走一次：
+
+1. **獨立 → 遙控**：手機在獨立模式下改過一隻角色（或新增一隻），切到遙控時
+   選「帶過去並切換」。驗收終點：**電腦端**那份角色被更新／新增；
+   `adb shell run-as tw.nori.dest cat files/sync-baseline.json` 能看到這隻角色的
+   `EntityBaseline` 被寫入。
+2. **遙控 → 獨立**：電腦上改過一隻角色（或新增一隻），手機切到獨立模式時選
+   「帶過去並切換」。驗收終點：**手機端**的角色清單出現這隻新／改過的角色；
+   `adb shell run-as tw.nori.dest cat files/characters/<id>/card.json` 能看到內容
+   跟電腦一致。這條路徑**不會**更新 `sync-baseline.json`（拉取方向本來就不維護
+   基準，基準只記手機 → 電腦推送過什麼，見 §5.1／`mobile-mode-switch-sync.md`）。
+
+兩條都要確認：切換失敗時（斷線、401 過期）不會把使用者卡在原模式，且不會
+把基準寫壞——這部分有單元測試涵蓋（`syncPush.test.ts` 的「推送失敗時基準不被
+更新」），但實際斷線時機（例如推到一半 Wi-Fi 掉了）只有真機能測到。

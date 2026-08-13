@@ -24,7 +24,7 @@
 | [`mobile-android-widget-plan.md`](mobile-android-widget-plan.md) | **做 Android 桌面小工具 (Widget) 角色立繪與表情對白顯示** | 整份可讀；開發前閱讀§2架構與§6實作步驟 |
 | [`mobile-html-feature-inventory.md`](mobile-html-feature-inventory.md) | 對照還缺哪些功能（**歷史**：舊 mobile.html） | §6 勾選清單、§7 缺口總表 |
 | [`multi-device-platform-roadmap.md`](multi-device-platform-roadmap.md) | 提案架構／散布／同步 | **§2、§8**；必要時 §4.5–4.7。勿整份 |
-| [`mobile-mode-switch-sync.md`](mobile-mode-switch-sync.md) | **做手機的模式切換／切換時帶資料走（S2 第一階段）** | 整份可讀；先看 §2 決議與 §8 分階段 |
+| [`mobile-mode-switch-sync.md`](mobile-mode-switch-sync.md)＋[`mobile-sync-m3-kickoff.md`](mobile-sync-m3-kickoff.md) | **做手機的模式切換／切換時帶資料走（S2）** | 先讀前者 §2 的方向決議，再讀後者文首的 2026-08-13 P1 現況；M3 尚未完成，勿直接當成可驗收功能 |
 | [`DesktopST-Spec.md`](../DesktopST-Spec.md) | 實作某規格功能 | **對應章節**，勿整本 |
 | [`progress-log.md`](progress-log.md) | 查舊決策／已知坑 | **Grep 關鍵字**，勿整份 |
 | [`future-lorebook.md`](future-lorebook.md) | Lorebook 規格細節 | 整份可讀（不長） |

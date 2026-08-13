@@ -28,11 +28,36 @@ export function authHeaders(src: SyncSource): Record<string, string> {
   return { 'X-DesktopST-Token': src.token }
 }
 
-export async function request(src: SyncSource, path: string, fetchImpl: FetchImpl): Promise<Response> {
+/**
+ * 逾時上限。
+ *
+ * ⚠️ **一定要自己算，不能靠 `AbortSignal`。** APK 上 `fetch` 是 CapacitorHttp，
+ * 它完全忽略 `init.signal`（CLAUDE.md §5）；電腦整台關機時封包沒人回應，
+ * 作業系統的 TCP 逾時可能超過一分鐘。沒有這道上限的話，模式切換前抓
+ * manifest 那一步會一直等下去，畫面停在「連線中⋯⋯」完全沒反應
+ * （owner 2026-08-13 回報）。
+ *
+ * 預設放寬到 30 秒是因為這支也用來抓角色包（`getBinary`，可能好幾 MB，
+ * 走中繼時更慢）；只是要問一份小清單的呼叫端請自己傳短一點的值。
+ */
+const DEFAULT_TIMEOUT_MS = 30_000
+
+export async function request(
+  src: SyncSource,
+  path: string,
+  fetchImpl: FetchImpl,
+  timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<Response> {
   let res: Response
   try {
-    res = await fetchImpl(`${src.baseUrl.replace(/\/$/, '')}${path}`, { headers: authHeaders(src) })
+    res = await Promise.race([
+      fetchImpl(`${src.baseUrl.replace(/\/$/, '')}${path}`, { headers: authHeaders(src) }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new SyncError('unreachable', `${path} 等了 ${timeoutMs}ms 沒有回應`)), timeoutMs)
+      )
+    ])
   } catch (e) {
+    if (e instanceof SyncError) throw e
     throw new SyncError('unreachable', e instanceof Error ? e.message : String(e))
   }
   if (res.status === 401 || res.status === 403) {
@@ -43,8 +68,13 @@ export async function request(src: SyncSource, path: string, fetchImpl: FetchImp
   return res
 }
 
-export async function getJson<T>(src: SyncSource, path: string, fetchImpl: FetchImpl): Promise<T> {
-  const res = await request(src, path, fetchImpl)
+export async function getJson<T>(
+  src: SyncSource,
+  path: string,
+  fetchImpl: FetchImpl,
+  timeoutMs?: number
+): Promise<T> {
+  const res = await request(src, path, fetchImpl, timeoutMs)
   try {
     return (await res.json()) as T
   } catch {

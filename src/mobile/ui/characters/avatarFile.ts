@@ -105,7 +105,8 @@ export async function prepareAvatar(file: File): Promise<{ bytes: Uint8Array; ex
  * 本來就不認得的格式（HEIC…）解不開，真正的意思是「這個格式不支援」，
  * 不是「你的檔案壞了」——後者會讓使用者跑去檢查一張其實好好的照片。
  */
-function decode(file: File, unknownFormat = false): Promise<HTMLImageElement> {
+/** 匯出給裁切畫面（`AvatarCropView.tsx`）複用同一套解碼方式，不要重寫一份。 */
+export function decode(file: File, unknownFormat = false): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file)
     const img = new Image()

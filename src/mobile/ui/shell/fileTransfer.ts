@@ -100,13 +100,29 @@ async function shareViaNativeFilesystem(bytes: Uint8Array, filename: string): Pr
   const safeName = filename.replace(/[/\\]/g, '_').trim() || 'export'
 
   // Directory.Cache：分享完不必自己清，系統會照 app 快取的一般規則回收。
+  /*
+   * A character pack may include many original avatars and expressions. Sending one
+   * complete base64 string through the WebView-to-native bridge keeps the zip,
+   * base64 string, and bridge JSON copy alive at once, which can make Android kill
+   * the app. Write small chunks instead. Each chunk is a multiple of 3 bytes so
+   * its base64 representation does not add padding in the middle of the file.
+   */
+  const CHUNK_BYTES = 384 * 1024
   await Filesystem.writeFile({
     path: safeName,
-    data: bytesToBase64(bytes),
+    data: bytesToBase64(bytes.subarray(0, CHUNK_BYTES)),
     directory: Directory.Cache
   })
+  for (let offset = CHUNK_BYTES; offset < bytes.length; offset += CHUNK_BYTES) {
+    await Filesystem.appendFile({
+      path: safeName,
+      data: bytesToBase64(bytes.subarray(offset, offset + CHUNK_BYTES)),
+      directory: Directory.Cache
+    })
+  }
   const { uri } = await Filesystem.getUri({ path: safeName, directory: Directory.Cache })
-  await Share.share({ url: uri, title: safeName })
+  // Use the modern native-file path so Android always invokes FileProvider sharing.
+  await Share.share({ files: [uri], title: safeName })
 }
 
 export function mimeForFilename(filename: string): string {
