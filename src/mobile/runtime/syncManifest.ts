@@ -41,7 +41,8 @@ export async function buildLocalSettingsSnapshot(session: StandaloneSession): Pr
     llm: {
       provider: llm.provider,
       models: { ...(llm.models ?? {}) },
-      endpoint: llm.endpoint ?? '',
+      endpoints: { ...(llm.endpoints ?? {}) },
+      extraInstruction: llm.extraInstruction ?? '',
       maxResponseTokens: llm.maxResponseTokens,
       maxGroupRounds: llm.maxGroupRounds,
       maxImagesPerMessage: llm.maxImagesPerMessage

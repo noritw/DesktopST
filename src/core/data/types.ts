@@ -328,8 +328,14 @@ export interface PresetsApi {
   removeScene(id: string): Promise<void>
 }
 
-/** 四家供應商，與桌面 `AppSettings['llm']['provider']` 同一組值。 */
-export type LlmProvider = 'openai' | 'claude' | 'gemini' | 'grok'
+/**
+ * 供應商，與桌面 `AppSettings['llm']['provider']` 同一組值。
+ *
+ * `local` = 使用者自架的 OpenAI 相容端點（Ollama、LM Studio、llama.cpp server…）。
+ * 刻意不叫 `ollama`：協定才是重點，Ollama 只是其中一種伺服器，
+ * 而且這個字串會寫進設定檔，之後很難改名。細節見 `docs/local-llm-provider-plan.md`。
+ */
+export type LlmProvider = 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
 
 /**
  * LLM 設定的手機端快照。
@@ -344,7 +350,19 @@ export interface LlmSettingsSnapshot {
   /** 目前供應商生效的那個模型（等同 `models[provider]`，先攤平方便顯示）。 */
   model: string
   models: Partial<Record<LlmProvider, string>>
+  /**
+   * 目前供應商生效的端點（等同 `endpoints[provider]`，攤平方便顯示）。
+   * @deprecated 顯示用；要改值請走 `endpoints`。
+   */
   endpoint?: string
+  /**
+   * 各供應商各自的端點。**主模型與輔助模型共用這張表**——
+   * 兩者 provider 不同時自然拿到不同端點，這就是
+   * 「主＝Claude 雲端／輔助＝本機 Ollama」得以成立的機制。
+   */
+  endpoints: Partial<Record<LlmProvider, string>>
+  /** 附加在 system prompt 尾端的自訂指示，對所有供應商生效（不限本機模型）。 */
+  extraInstruction: string
   hasApiKey: Record<LlmProvider, boolean>
   /** 最大回應字數（token 上限，與桌面「最大回應字數」同一欄）。 */
   maxResponseTokens: number
@@ -417,7 +435,10 @@ export interface SettingsApi {
   getLlm(): Promise<LlmSettingsSnapshot>
   setLlmProvider(provider: LlmProvider): Promise<void>
   setLlmModel(provider: LlmProvider, model: string): Promise<void>
-  setLlmEndpoint(endpoint: string): Promise<void>
+  /** 設定端點。`provider` 省略＝目前生效的供應商（各家端點各自獨立）。 */
+  setLlmEndpoint(endpoint: string, provider?: LlmProvider): Promise<void>
+  /** 附加在 system prompt 尾端的自訂指示；套用於所有供應商，不分主／輔助模型。 */
+  setLlmExtraInstruction(text: string): Promise<void>
   /** 開關輔助模型（提醒發話、情緒分類；群組對話不受影響）。 */
   setLlmUtilityEnabled(enabled: boolean): Promise<void>
   /** 切輔助供應商；沒選過型號時比照 `setLlmProvider` 補一個目錄預設值。 */
@@ -430,6 +451,12 @@ export interface SettingsApi {
    * `Capabilities.apiKeyAccess` 隱藏欄位，不應該讓使用者走到這步。
    */
   setLlmApiKey(provider: LlmProvider, apiKey: string): Promise<void>
+  /**
+   * 「連線」按鈕：驗證金鑰／端點可用。local 供應商沒有寫死的型號目錄，
+   * 這是手機唯一能拿到型號清單的管道（`GET /v1/models`），成功時會帶回 `models`。
+   * `endpoint` 省略時沿用目前存檔的值。
+   */
+  testLlmConnection(provider: LlmProvider, endpoint?: string): Promise<{ ok: true; models?: string[] } | { ok: false; error: string }>
   /** 回應字數／群組回應數／圖片上限（與桌面 LLM 設定同一欄）。 */
   setLlmChatLimits(limits: {
     maxResponseTokens: number

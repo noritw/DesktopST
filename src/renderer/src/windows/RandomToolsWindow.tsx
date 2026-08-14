@@ -2,16 +2,83 @@ import { useState, useEffect } from 'react'
 
 const DICE_FACES = [4, 6, 8, 10, 12, 20, 100]
 
+/** localStorage key 前綴 */
+const DESKTOP_STORAGE_KEY = 'dest-dice-custom-desktop'
+const KH_STORAGE_KEY = 'dest-dice-kh-desktop'
+
+/** 讀取上次保存的進階骰子設定 */
+function loadDicePreset(): { count: number; faces: number; modifier: number } {
+  try {
+    const saved = localStorage.getItem(DESKTOP_STORAGE_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      if (typeof parsed.count === 'number' && typeof parsed.faces === 'number' && typeof parsed.modifier === 'number') {
+        return parsed
+      }
+    }
+  } catch {
+    // localStorage 讀取失敗，使用預設值
+  }
+  return { count: 2, faces: 6, modifier: 0 }
+}
+
+/** 讀取上次保存的保留最高/最低設定 */
+function loadKhPreset(): { count: number; faces: number; keep: number; isHigh: boolean } {
+  try {
+    const saved = localStorage.getItem(KH_STORAGE_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      if (typeof parsed.count === 'number' && typeof parsed.faces === 'number' && typeof parsed.keep === 'number' && typeof parsed.isHigh === 'boolean') {
+        return parsed
+      }
+    }
+  } catch {
+    // localStorage 讀取失敗，使用預設值
+  }
+  return { count: 3, faces: 6, keep: 3, isHigh: true }
+}
+
+/** 保存進階骰子設定 */
+function saveDicePreset(count: number, faces: number, modifier: number): void {
+  try {
+    localStorage.setItem(DESKTOP_STORAGE_KEY, JSON.stringify({ count, faces, modifier }))
+  } catch {
+    // localStorage 寫入失敗，無聲吞掉
+  }
+}
+
+/** 保存保留最高/最低設定 */
+function saveKhPreset(count: number, faces: number, keep: number, isHigh: boolean): void {
+  try {
+    localStorage.setItem(KH_STORAGE_KEY, JSON.stringify({ count, faces, keep, isHigh }))
+  } catch {
+    // localStorage 寫入失敗，無聲吞掉
+  }
+}
+
 export default function RandomToolsWindow() {
+  const advPreset = loadDicePreset()
+  const khPreset = loadKhPreset()
+  
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [advFaces, setAdvFaces] = useState(6)
-  const [advCount, setAdvCount] = useState(2)
-  const [advModifier, setAdvModifier] = useState(0)
-  const [khCount, setKhCount] = useState(3)
-  const [khFaces, setKhFaces] = useState(6)
-  const [khKeep, setKhKeep] = useState(3)
-  const [khIsHigh, setKhIsHigh] = useState(true)
+  const [advFaces, setAdvFaces] = useState(advPreset.faces)
+  const [advCount, setAdvCount] = useState(advPreset.count)
+  const [advModifier, setAdvModifier] = useState(advPreset.modifier)
+  const [khCount, setKhCount] = useState(khPreset.count)
+  const [khFaces, setKhFaces] = useState(khPreset.faces)
+  const [khKeep, setKhKeep] = useState(khPreset.keep)
+  const [khIsHigh, setKhIsHigh] = useState(khPreset.isHigh)
   const [sendToLlm, setSendToLlm] = useState(true)
+
+  // 監聽進階骰子設定的變化，即時存到 localStorage
+  useEffect(() => {
+    saveDicePreset(advCount, advFaces, advModifier)
+  }, [advCount, advFaces, advModifier])
+
+  // 監聽保留最高/最低設定的變化，即時存到 localStorage
+  useEffect(() => {
+    saveKhPreset(khCount, khFaces, khKeep, khIsHigh)
+  }, [khCount, khFaces, khKeep, khIsHigh])
 
   useEffect(() => {
     const onBlur = () => window.api.invoke('random-tools:close')

@@ -10,6 +10,8 @@ import { DesktopPullSection } from './DesktopPullSection'
 import { describeSettingsError } from './settingsErrors'
 import {
   HIGH_PRICE_GROUP_LABEL,
+  LOCAL_ENDPOINT_PRESETS,
+  apiKeyOptional,
   NORMAL_PRICE_GROUP_LABEL,
   PROVIDERS,
   PROVIDER_KEY_PLACEHOLDER,
@@ -62,10 +64,31 @@ export function SettingsView(): JSX.Element {
 
   const [modelDraft, setModelDraft] = useState('')
   const [apiKeyDraft, setApiKeyDraft] = useState('')
-  const [endpointDraft, setEndpointDraft] = useState('')
+  /*
+   * 端點有兩個各自獨立的編輯框，因為它們是**兩件不同的事**：
+   *
+   *   `localEndpointDraft`  永遠指向 `endpoints.local` —— 本機模型伺服器的網址，
+   *                         主／輔助只要有一邊選了本機就要能填（兩邊共用同一個值）。
+   *   `customEndpointDraft` 指向目前主供應商那格 —— 雲端改走相容代理時才用得到。
+   *
+   * 合成同一個 draft 的話，「主＝OpenAI 自訂代理／輔助＝本機」這種組合會互相蓋掉。
+   */
+  const [localEndpointDraft, setLocalEndpointDraft] = useState('')
+  const [customEndpointDraft, setCustomEndpointDraft] = useState('')
+  const [extraInstructionDraft, setExtraInstructionDraft] = useState('')
   const [savingModel, setSavingModel] = useState(false)
   const [savingKey, setSavingKey] = useState(false)
   const [savingEndpoint, setSavingEndpoint] = useState(false)
+  const [savingExtraInstruction, setSavingExtraInstruction] = useState(false)
+
+  /*
+   * local 供應商沒有寫死的型號目錄，「連線」按鈕打 `GET /v1/models` 抓回來的清單
+   * 存在這裡（不進 draft、不存檔，純粹是當下探測到的狀態）。主／輔助模型若都選
+   * local，兩者用的是同一個 provider key（`endpoints.local`），共用同一份清單即可。
+   */
+  const [localModels, setLocalModels] = useState<string[]>([])
+  const [testingConn, setTestingConn] = useState(false)
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   // 輔助模型（提醒發話、情緒分類；群組對話一律用扮演主模型）
   const [utilityModelDraft, setUtilityModelDraft] = useState('')
@@ -93,7 +116,13 @@ export function SettingsView(): JSX.Element {
       })
       setMemory(memoryData)
       setModelDraft(llmData.model)
-      setEndpointDraft(llmData.endpoint ?? '')
+      setLocalEndpointDraft(llmData.endpoints?.local ?? '')
+      setCustomEndpointDraft(
+        llmData.provider === 'local'
+          ? ''
+          : llmData.endpoints?.[llmData.provider] ?? llmData.endpoint ?? ''
+      )
+      setExtraInstructionDraft(llmData.extraInstruction ?? '')
       setApiKeyDraft('')
       setUtilityModelDraft(llmData.utilityModel)
       setUtilityApiKeyDraft('')
@@ -188,18 +217,65 @@ export function SettingsView(): JSX.Element {
     }
   }
 
-  const saveEndpoint = async (): Promise<void> => {
-    if (!llm) return
-    if (endpointDraft.trim() === (llm.endpoint ?? '')) return
+  const saveEndpointFor = async (target: LlmProvider, value: string, current: string): Promise<void> => {
+    if (value.trim() === current) return
     setSavingEndpoint(true)
     try {
-      await getData().settings.setLlmEndpoint(endpointDraft.trim())
+      await getData().settings.setLlmEndpoint(value.trim(), target)
       await load()
       toast('已儲存端點')
     } catch (e) {
       toast(describeSettingsError(e, '儲存端點'), 'error')
     } finally {
       setSavingEndpoint(false)
+    }
+  }
+
+  const saveLocalEndpoint = async (): Promise<void> => {
+    if (!llm) return
+    await saveEndpointFor('local', localEndpointDraft, llm.endpoints?.local ?? '')
+  }
+
+  const saveCustomEndpoint = async (): Promise<void> => {
+    if (!llm || llm.provider === 'local') return
+    await saveEndpointFor(
+      llm.provider,
+      customEndpointDraft,
+      llm.endpoints?.[llm.provider] ?? llm.endpoint ?? ''
+    )
+  }
+
+  const testConnection = async (): Promise<void> => {
+    if (!llm) return
+    setTestingConn(true)
+    setTestMsg(null)
+    try {
+      const r = await getData().settings.testLlmConnection('local', localEndpointDraft.trim() || undefined)
+      if (r.ok) {
+        setLocalModels(r.models ?? [])
+        setTestMsg({ ok: true, text: `已連線，找到 ${r.models?.length ?? 0} 個模型` })
+      } else {
+        setTestMsg({ ok: false, text: r.error })
+      }
+    } catch (e) {
+      setTestMsg({ ok: false, text: describeSettingsError(e, '測試連線') })
+    } finally {
+      setTestingConn(false)
+    }
+  }
+
+  const saveExtraInstruction = async (): Promise<void> => {
+    if (!llm) return
+    if (extraInstructionDraft === (llm.extraInstruction ?? '')) return
+    setSavingExtraInstruction(true)
+    try {
+      await getData().settings.setLlmExtraInstruction(extraInstructionDraft)
+      await load()
+      toast('已儲存')
+    } catch (e) {
+      toast(describeSettingsError(e, '儲存補充指示'), 'error')
+    } finally {
+      setSavingExtraInstruction(false)
     }
   }
 
@@ -403,7 +479,71 @@ export function SettingsView(): JSX.Element {
 
   if (!llm || !memory) return <div className="py-8 text-center text-sm text-[var(--text-sub)]">載入中⋯⋯</div>
 
-  const { normal, high } = splitModelsByPrice(modelsFor(llm.provider))
+  /** local 沒有寫死目錄；「連線」測過之後改用抓回來的清單。 */
+  const modelOptionsFor = (p: LlmProvider): string[] =>
+    p === 'local' && localModels.length > 0 ? localModels : modelsFor(p)
+
+  /*
+   * 本機端點編輯器。**只在選了「本機」的那一區出現**——主模型選雲端時，
+   * 「端點網址」擠在供應商下拉底下會讓人以為那是雲端服務要填的東西
+   * （owner 2026-08-15 回報）。主／輔助各自獨立判斷，兩邊都選本機時會出現兩份，
+   * 但編輯的是同一個 `endpoints.local`，存完 `load()` 會把兩邊拉回一致。
+   */
+  const localEndpointField = (
+    <Field
+      label="端點網址（必填）"
+      hint="本機模型伺服器的網址。跨機連線請填該機 IP，並確認伺服器已開放區網（Ollama 需 OLLAMA_HOST=0.0.0.0）。手機不在同一個網路時會連不上。"
+    >
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-[var(--text-sub)]">快速填入：</span>
+        {LOCAL_ENDPOINT_PRESETS.map((p) => (
+          <button
+            key={p.label}
+            type="button"
+            className="btn-ghost px-2 py-1 text-[11px]"
+            onClick={() => setLocalEndpointDraft(p.url)}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="text"
+          className="field flex-1"
+          placeholder="http://localhost:11434/v1"
+          value={localEndpointDraft}
+          onChange={(e) => setLocalEndpointDraft(e.target.value)}
+          onBlur={() => void saveLocalEndpoint()}
+        />
+        <button
+          type="button"
+          disabled={savingEndpoint || localEndpointDraft.trim() === (llm.endpoints?.local ?? '')}
+          onClick={() => void saveLocalEndpoint()}
+          className="btn-ghost px-4 disabled:opacity-40"
+        >
+          儲存
+        </button>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          disabled={testingConn || !localEndpointDraft.trim()}
+          onClick={() => void testConnection()}
+          className="btn-secondary px-3 py-1.5 text-xs disabled:opacity-40"
+        >
+          {testingConn ? '連線中…' : '連線（取得模型清單）'}
+        </button>
+        {testMsg && (
+          <span className={`text-[11px] ${testMsg.ok ? 'text-[#4CAF50]' : 'text-[#E85D3F]'}`}>
+            {testMsg.text}
+          </span>
+        )}
+      </div>
+    </Field>
+  )
+
+  const { normal, high } = splitModelsByPrice(modelOptionsFor(llm.provider))
 
   return (
     <div className="space-y-4 pb-2">
@@ -423,6 +563,8 @@ export function SettingsView(): JSX.Element {
           </select>
         </Field>
 
+        {llm.provider === 'local' && localEndpointField}
+
         <Field
           label="模型"
           hint={`括號內是參考價：每百萬 tokens 的美金價（輸入 / 輸出），更新於 ${MODEL_DATA_UPDATED}。`}
@@ -430,15 +572,17 @@ export function SettingsView(): JSX.Element {
           <select
             className="field"
             disabled={savingModel}
-            value={modelsFor(llm.provider).includes(modelDraft) ? modelDraft : ''}
+            value={modelOptionsFor(llm.provider).includes(modelDraft) ? modelDraft : ''}
             onChange={(e) => {
               setModelDraft(e.target.value)
               void saveModel(e.target.value)
             }}
           >
             {/* 自訂／快照型號不在目錄裡時，保留一個代表目前值的選項，避免顯示成空白 */}
-            {!modelsFor(llm.provider).includes(modelDraft) && (
-              <option value="">{modelDraft || '（尚未選擇）'}</option>
+            {!modelOptionsFor(llm.provider).includes(modelDraft) && (
+              <option value="">
+                {modelDraft || (llm.provider === 'local' ? '（先按下方「連線」取得模型清單）' : '（尚未選擇）')}
+              </option>
             )}
             <optgroup label={NORMAL_PRICE_GROUP_LABEL}>
               {normal.map((m) => (
@@ -462,7 +606,10 @@ export function SettingsView(): JSX.Element {
         {apiKeyAccess ? (
           <Field
             label={`API Key（${PROVIDER_LABELS[llm.provider]}）`}
-            hint={llm.hasApiKey[llm.provider] ? '已設定。輸入新的內容並儲存即可覆蓋，看不到舊金鑰。' : '尚未設定。'}
+            hint={apiKeyOptional(llm.provider)
+              // 本機端點多半沒有 auth；顯示「尚未設定」會讓人以為還缺一步
+              ? (llm.hasApiKey[llm.provider] ? '已設定。' : '不需要填。只有自架端點另外設了驗證時才需要。')
+              : (llm.hasApiKey[llm.provider] ? '已設定。輸入新的內容並儲存即可覆蓋，看不到舊金鑰。' : '尚未設定。')}
           >
             <div className="flex gap-2">
               <input
@@ -568,29 +715,35 @@ export function SettingsView(): JSX.Element {
               </select>
             </Field>
 
+            {/* 輔助選本機時端點也要能在這裡填 —— 「主＝雲端／輔助＝本機」是核心情境，
+                主模型那一區不會顯示端點欄位（那時主模型是雲端的） */}
+            {llm.utilityProvider === 'local' && localEndpointField}
+
             <Field label="輔助模型">
               <select
                 className="field"
                 disabled={savingUtilityModel}
-                value={modelsFor(llm.utilityProvider).includes(utilityModelDraft) ? utilityModelDraft : ''}
+                value={modelOptionsFor(llm.utilityProvider).includes(utilityModelDraft) ? utilityModelDraft : ''}
                 onChange={(e) => {
                   setUtilityModelDraft(e.target.value)
                   void saveUtilityModel(e.target.value)
                 }}
               >
-                {!modelsFor(llm.utilityProvider).includes(utilityModelDraft) && (
-                  <option value="">{utilityModelDraft || '（尚未選擇）'}</option>
+                {!modelOptionsFor(llm.utilityProvider).includes(utilityModelDraft) && (
+                  <option value="">
+                    {utilityModelDraft || (llm.utilityProvider === 'local' ? '（先按下方「連線」取得模型清單）' : '（尚未選擇）')}
+                  </option>
                 )}
                 <optgroup label={NORMAL_PRICE_GROUP_LABEL}>
-                  {splitModelsByPrice(modelsFor(llm.utilityProvider)).normal.map((m) => (
+                  {splitModelsByPrice(modelOptionsFor(llm.utilityProvider)).normal.map((m) => (
                     <option key={m} value={m}>
                       {modelOptionLabel(m)}
                     </option>
                   ))}
                 </optgroup>
-                {splitModelsByPrice(modelsFor(llm.utilityProvider)).high.length > 0 && (
+                {splitModelsByPrice(modelOptionsFor(llm.utilityProvider)).high.length > 0 && (
                   <optgroup label={HIGH_PRICE_GROUP_LABEL}>
-                    {splitModelsByPrice(modelsFor(llm.utilityProvider)).high.map((m) => (
+                    {splitModelsByPrice(modelOptionsFor(llm.utilityProvider)).high.map((m) => (
                       <option key={m} value={m}>
                         {modelOptionLabel(m)}
                       </option>
@@ -603,11 +756,11 @@ export function SettingsView(): JSX.Element {
             {apiKeyAccess ? (
               <Field
                 label={`API Key（${PROVIDER_LABELS[llm.utilityProvider]}）`}
-                hint={
-                  llm.hasApiKey[llm.utilityProvider]
+                hint={apiKeyOptional(llm.utilityProvider)
+                  ? (llm.hasApiKey[llm.utilityProvider] ? '已設定。' : '不需要填。只有自架端點另外設了驗證時才需要。')
+                  : (llm.hasApiKey[llm.utilityProvider]
                     ? '已設定。輸入新的內容並儲存即可覆蓋，看不到舊金鑰。'
-                    : '尚未設定。'
-                }
+                    : '尚未設定。')}
               >
                 <div className="flex gap-2">
                   <input
@@ -803,30 +956,57 @@ export function SettingsView(): JSX.Element {
         </Section>
       )}
 
-      {/* ── 進階：只剩自訂端點 ──────────────────────────── */}
+      {/* ── 進階：本機端點在上面各自那一區，這裡只剩雲端改走相容代理的情況 ── */}
       <Section
         title="進階"
         hint="一般不需要動"
         expanded={open === 'advanced'}
         onToggle={() => setOpen(open === 'advanced' ? null : 'advanced')}
       >
+        {llm.provider !== 'local' && (
+          <Field
+            label={`自訂端點（${PROVIDER_LABELS[llm.provider]}）`}
+            hint="用官方 API 的話請留空。只有當你改走相容的第三方服務（例如 OpenRouter、自架代理）時才需要填。"
+          >
+            <div className="flex gap-2">
+              <input
+                type="text"
+                className="field flex-1"
+                placeholder="https://api.example.com/v1"
+                value={customEndpointDraft}
+                onChange={(e) => setCustomEndpointDraft(e.target.value)}
+                onBlur={() => void saveCustomEndpoint()}
+              />
+              <button
+                type="button"
+                disabled={savingEndpoint || customEndpointDraft.trim() === (llm.endpoints?.[llm.provider] ?? llm.endpoint ?? '')}
+                onClick={() => void saveCustomEndpoint()}
+                className="btn-ghost px-4 disabled:opacity-40"
+              >
+                儲存
+              </button>
+            </div>
+          </Field>
+        )}
+
         <Field
-          label="自訂端點"
-          hint="用官方 API 的話請留空。只有當你改走相容的第三方服務（例如 OpenRouter、自架代理、本機模型）時才需要填。"
+          label="自訂補充指示（選填）"
+          hint="附加在角色設定尾端，對目前選用的供應商生效。用來加強本機模型不容易遵守的規則、或任何你想額外強調的指示。"
         >
-          <div className="flex gap-2">
-            <input
-              type="text"
-              className="field flex-1"
-              placeholder="https://api.example.com/v1"
-              value={endpointDraft}
-              onChange={(e) => setEndpointDraft(e.target.value)}
-              onBlur={() => void saveEndpoint()}
-            />
+          <textarea
+            className="field w-full resize-none"
+            rows={3}
+            maxLength={2000}
+            placeholder="例：請一律使用繁體中文（台灣用語），避免簡體或中國大陸慣用語。"
+            value={extraInstructionDraft}
+            onChange={(e) => setExtraInstructionDraft(e.target.value)}
+            onBlur={() => void saveExtraInstruction()}
+          />
+          <div className="mt-2 flex justify-end">
             <button
               type="button"
-              disabled={savingEndpoint || endpointDraft.trim() === (llm.endpoint ?? '')}
-              onClick={() => void saveEndpoint()}
+              disabled={savingExtraInstruction || extraInstructionDraft === (llm.extraInstruction ?? '')}
+              onClick={() => void saveExtraInstruction()}
               className="btn-ghost px-4 disabled:opacity-40"
             >
               儲存

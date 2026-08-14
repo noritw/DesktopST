@@ -70,6 +70,22 @@ export function hydrateSettings(
   }
 
   const typed = s as Partial<AppSettings>
+
+  // Migrate: 單一 `llm.endpoint` → per-provider 的 `llm.endpoints`（本機供應商需要）。
+  //
+  // 舊 UI 只在 openai／grok 兩種供應商下顯示端點欄位（SettingsWindow 的 provider 判斷），
+  // 所以舊值必定屬於其中一個，靠 api.x.ai 分辨即可——不能無腦寫進當時的 provider，
+  // 使用者可能填完端點後又切去 Claude，那時 provider 是 claude 但端點是 OpenAI 的。
+  //
+  // ⚠️ 這個遷移**必須寫回磁碟**（下面併進 needsResave），不能只作用在記憶體：
+  // 只寫在讀取路徑的話每次開機都重跑，磁碟永遠是舊格式，
+  // 使用者清空端點也會被舊值一再復活（CLAUDE.md §5 那條「資料遷移要寫回磁碟」）。
+  const legacyEndpoint = typeof typed.llm?.endpoint === 'string' ? typed.llm.endpoint.trim() : ''
+  const needsEndpointMigration = !!legacyEndpoint && !typed.llm?.endpoints
+  const migratedEndpoints: Record<string, string> | undefined = needsEndpointMigration
+    ? { [legacyEndpoint.includes('api.x.ai') ? 'grok' : 'openai']: legacyEndpoint }
+    : undefined
+
   const hasLegacyPinnedNotesField = !!typed.ui && Object.prototype.hasOwnProperty.call(typed.ui, 'pinnedNotes')
   const legacyPinnedNotes = Array.isArray(typed.ui?.pinnedNotes) ? typed.ui.pinnedNotes.filter(isPinnedNote) : []
   const shouldMigratePinnedNotes = pinnedNotesFromFile.length === 0 && legacyPinnedNotes.length > 0
@@ -88,6 +104,7 @@ export function hydrateSettings(
       model: renameModelId(typed.llm?.model) ?? DEFAULT_SETTINGS.llm.model,
       models: renameModelIdMap(typed.llm?.models) ?? DEFAULT_SETTINGS.llm.models,
       utilityModels: renameModelIdMap(typed.llm?.utilityModels) ?? DEFAULT_SETTINGS.llm.utilityModels,
+      endpoints: typed.llm?.endpoints ?? migratedEndpoints ?? DEFAULT_SETTINGS.llm.endpoints ?? {},
       // Migrate: if apiKeys missing but legacy apiKey exists, seed openai key
       apiKeys: typed.llm?.apiKeys ?? {
         openai: typed.llm?.apiKey ?? '',
@@ -162,7 +179,7 @@ export function hydrateSettings(
 
   return {
     settings,
-    needsResave: needsMigration || hasLegacyPinnedNotesField || needsKeyMigration,
+    needsResave: needsMigration || hasLegacyPinnedNotesField || needsKeyMigration || needsEndpointMigration,
     shouldSavePinnedNotes: shouldMigratePinnedNotes,
     personaToSave,
     worldToSave,

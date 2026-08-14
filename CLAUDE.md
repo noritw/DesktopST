@@ -87,6 +87,7 @@ src/mobile/ 手機 UI
 | **S2 同步 M3（真的推／拉資料）** | **方向已修正，自動測試通過，尚未真機驗證。** 獨立→遙控＝手機→電腦推送（`syncPush.ts`，角色／人設／世界觀／Lorebook／情境，逐項成功即寫回基準）；遙控→獨立＝電腦→手機拉取（新檔 `syncPull.ts`，直接複用 S1 `runSyncImport()`，`onConflict='overwrite'`，且會拔掉電腦附的 API Key，S2 不碰金鑰）。路由抽成純函式 `runtime/modeSwitchSync.ts`，可被單元測試直接驗證方向沒接錯（`tests/mobile/modeSwitchSync.test.ts`、`syncPull.test.ts`）。**設定推送仍是死碼**（`pushSettings()` 沒有呼叫端）；**對話同步是 M4，完全沒做**。`npm run typecheck`／`npm test` 皆過（47 檔、600 項）——只證明邏輯正確，不是真機驗證。真機待驗兩條路徑見 `docs/mobile-sync-m3-kickoff.md` §9 |
 | **S2 同步 M4（逐項比對）** | **已實作，自動測試通過，尚未真機驗證**（2026-08-14）。M3 真機實測發現「資料有過去但重複愈來愈多」——電腦端長出 23 個情境（真正 7 個）、各 10 份世界觀與使用者設定。根因是**基準表整份是假的**（推送時記 `remoteId: id`，但電腦端 `savePersonaPresetDirect` 會丟掉送來的 id 另發 uuid，手機從沒讀過回應）＋ diff 的名字後備配對讓同名資料永遠不推也永遠不收斂 ＋ 推情境沒翻譯交叉參照（電腦上留下 10 處死參照）＋ 取消被誤報成「連不上」。**改成每次切換當場逐項比對**（`core/sync/pair.ts`，身分＝id 相同 or 名稱相同，不依賴基準），左手機右電腦逐列選，含「全部用手機／全部用電腦／保留差異」；內容是否相同看 `contentHash`（**不能看 `updatedAt`**，推送會把接收端時間設成現在）。方向變成資料而非程式分支，M3「掛錯呼叫端就整個反了」的錯誤類別消失。電腦端資料已用一次性腳本清理完（備份 `Data.backup-2026-08-13T15-59-48`），手機端刻意留著當真機驗證素材。細節與待驗清單：`docs/mobile-sync-m4-compare.md` |
 | **S2 M5（設定同步）** | **已實作，真機驗證進行中**（2026-08-14）。M4 比對畫面加開「設定」分頁，逐欄位比對 LLM 供應商／各供應商模型／對話限制／記憶／配色主題／模組開關／天氣潤飾；不碰 API Key。跟資料比對是兩套獨立系統（`core/sync/settingsPair.ts`）——設定欄位兩邊永遠都有值，沒有「單邊獨有」，選項只有 本機／電腦／不動，預設一律不動。桌面／手機的設定子集定義統一到 `core/sync/settingsSnapshot.ts`（避免重蹈 M4 `contentHash.ts` 那次雙邊定義漂移的坑）；新增 `GET /api/settings/sync-snapshot`。**owner 2026-08-14 真機測出一個遺漏**：`weather.polish`（天氣輔助模型潤飾）是模組底下的子設定、不在原本沿用的舊子集裡，已補上（§8.5b）——這類「模組除了 enabled 還有自己的子設定」的遺漏還沒逐一排查完，之後如有人回報某模組的某個開關沒同步，大概率是同一類坑。細節：`docs/mobile-sync-m4-compare.md` §8 |
+| **本機 LLM 供應商（`local`）** | **已實作，core 路徑端到端驗過；桌面 UI 與手機真機未驗**（2026-08-15）。新增供應商 `local` = 任何 OpenAI 相容端點（Ollama／LM Studio／llama.cpp）。**主模型與輔助模型都能選**，可各自用不同端點——`llm.endpoint` 單一欄位拆成 per-provider 的 `llm.endpoints`（有遷移，會寫回磁碟），`applyUtilitySettings()` 換 provider 時端點跟著換，所以「主＝Claude 雲端／輔助＝本機 Qwen3」成立。**不必寫新 adapter**：實測 Ollama 支援 Responses API，沿用 `openai.ts`，只多送 `reasoning:{effort:'none'}`（思考模型會把 token 預算吃光、正文回空字串，情緒分類只有 20 tokens 必中）。金鑰選填。模型清單靠「測試連線」打 `GET /v1/models` 動態取得。順手修掉兩個既有 bug：輔助模型連線測試用錯端點、`httpAdapter` 的 30 秒天花板套在有 signal 的請求上（**這條影響所有手機請求，不只本機模型**）。細節：`docs/local-llm-provider-plan.md` §9 |
 | **下一步** | **Pixel 10a 真機驗證 S2 M4／M5 比對畫面**：M4 六條見 `docs/mobile-sync-m4-compare.md` §7，M5 六條見 §8.6（含新補的 `weather.polish`）。驗過後考慮做對話同步（範圍大、需另外設計衝突呈現方式，見 §6）；之後做階段 7 正式 APK／散布；v0.4.0 另需真機煙測（配色／新聞泡泡／遙控）。 |
 | 延後／已排程 | 角色印象（B8）；系統通知（B5）；**飲食熱量模組（B9）** → `docs/future-nutrition-module.md`（owner 自用優先；含換機搬家包） |
 
@@ -223,6 +224,31 @@ src/mobile/ 手機 UI
   `adb shell dumpsys notification` 看通知有沒有真的送出。
   ⚠️ **配對的 Wear OS 手錶會把通知轉走並連帶清掉手機那則**（`WearNotifRemoval`），
   通知欄看不到不代表沒發出去
+- **`llm.endpoint` 是遺留欄位，真正的來源是 `llm.endpoints[provider]`**
+  （2026-08-15，本機 LLM 供應商）。舊欄位仍在、且會跟著目前 provider 同步更新，
+  所以讀它多半「看起來對」——但主模型與輔助模型是不同供應商時就會拿到錯的那個。
+  新程式一律用 `resolveEndpoint(settings, provider)`
+- **改 `llm.provider` 的地方一定要順手更新 `llm.endpoint` 鏡像**
+  （2026-08-15 owner 實機回報：手機獨立版切到本機模型、再切回雲端就連不上）。
+  「`endpoints` 裡沒有這一家」是雲端供應商的**正常狀態**（用官方端點就不填），
+  而舊欄位是個跟著目前 provider 更新的鏡像 —— 舊的 `resolveEndpoint` 只要查不到
+  就退回鏡像，於是切去 local 時鏡像被寫成 `http://…:11434/v1`，切回 OpenAI 後
+  雲端請求整個被送去本機那台。**症狀很難聯想到「切換」**：端點欄位看起來是空的
+  （UI 讀的是 `endpoints`），設定畫面完全正常，只有送訊息會失敗。
+  現在 `resolveEndpoint` 只在**整張表都是空的**（真的還沒遷移）時才退回舊欄位，
+  但四個改 provider 的地方照樣都要同步鏡像：桌面 `setLlmProviderDirect`＋設定視窗的
+  下拉、手機 `localDataSource.setLlmProvider`、`syncSettingsApply.setLocalProvider`
+  （後兩個原本都漏了）
+- **要擋「沒有 API Key」一律用 `hasUsableApiKey(settings)`**，不要手寫
+  `settings.llm.apiKeys[settings.llm.provider]?.trim()`。本機供應商不需要金鑰，
+  而這種手寫檢查原本散在桌面＋手機共 9 處（送訊息、群組、提醒、摘要…），
+  漏掉任何一處就會在那條路徑回「尚未設定 API Key」——**而且訊息是錯的**，
+  使用者根本不需要填。判斷來源只有 `providerNeedsApiKey()` 一支
+- **接本機／自架 OpenAI 相容端點時一定要送 `reasoning:{effort:'none'}`**：
+  思考模型（Qwen3 等）預設會把 `max_output_tokens` 全花在 reasoning 上、
+  正文回空字串。情緒分類的預算只有 20 tokens、新聞主觀度 40，**必中**，
+  而錯誤訊息是 `Empty response from model`，完全看不出根因。
+  helper 在 `core/llm/index.ts` 的 `localReasoningParams()`，四個呼叫點都要帶
 - 動 LLM 供應商設定時注意 `llm.model` 是早期單一供應商的遺留欄位，
   `resolveModel()` 仍會拿它墊底 —— 不同步會把 A 家型號送去 B 家
 
@@ -245,6 +271,7 @@ src/mobile/ 手機 UI
 | **實作獨立版個人新聞報（缺口 #6）** | `news-standalone-kickoff.md`（整份，開工指令） | 一切長文 |
 | 地方新聞為什麼不是獨立欄了 | `news-local-merge-plan.md`（已完成，看 §9） | 一切長文 |
 | 實作 Android 桌面小工具 (Widget) | `mobile-android-widget-plan.md`（整份） | 一切長文 |
+| 接本地 LLM（Ollama／LM Studio）當輔助模型 | `local-llm-provider-plan.md`（整份，規劃中未動工） | 一切長文 |
 | 查「以前為什麼這樣做／已知坑」 | `progress-log.md` **Grep 關鍵字** | 整份 log |
 | 實作某桌面／資料規格 | `DesktopST-Spec.md` **對應章節** | 整本 Spec |
 | 提案跨平台／散布／同步架構 | roadmap **§2、§8**（必要時 §4.5–4.7） | 整份 roadmap、§10 舊順序敘事 |

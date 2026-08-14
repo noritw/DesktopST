@@ -64,7 +64,7 @@ export interface Message {
    */
   characterName?: string
   content: string
-  llmProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
+  llmProvider?: 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
   llmModel?: string
   debugPrompt?: string
   emotion?: string
@@ -328,14 +328,19 @@ export interface AppSettings {
   mobile?: MobileSettings
   remoteControl?: RemoteControlSettings
   llm: {
-    provider: 'openai' | 'claude' | 'gemini' | 'grok'
+    provider: 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
     /** @deprecated use apiKeys[provider] instead */
     apiKey: string
     apiKeys: Record<string, string>
     model: string
     /** Per-provider model selection; takes precedence over single `model` field */
     models?: Record<string, string>
+    /** @deprecated use endpoints[provider] instead */
     endpoint?: string
+    /** 各供應商各自的端點（主模型與輔助模型共用這張表） */
+    endpoints?: Record<string, string>
+    /** 附加在 system prompt 尾端的自訂指示，對所有供應商生效。 */
+    extraInstruction?: string
     maxResponseTokens: number
     maxGroupRounds: number
     maxImagesPerMessage: number
@@ -343,7 +348,7 @@ export interface AppSettings {
     /** 提醒發話、情緒分類是否使用獨立輔助模型（群組對話一律用扮演主模型） */
     utilityEnabled?: boolean
     /** 輔助模型的供應商（未設定時跟隨 provider） */
-    utilityProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
+    utilityProvider?: 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
     /** 各供應商的輔助模型名稱 */
     utilityModels?: Record<string, string>
   }

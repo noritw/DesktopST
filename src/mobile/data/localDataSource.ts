@@ -175,6 +175,7 @@ export class LocalDataSource implements DataSource {
       this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     },
     getLlm: async () => this.session.llmSnapshot(),
+    testLlmConnection: async (provider, endpoint) => this.session.testLlmConnection(provider, endpoint),
     /*
      * `llm.model` 是早期單一供應商時代的欄位，但 `core` 的 `resolveModel()` 仍會
      * 在 `models[provider]` 空的時候拿它來墊 —— 不同步的話，切到 Claude 卻沒挑模型
@@ -188,6 +189,9 @@ export class LocalDataSource implements DataSource {
         llm.models = { ...llm.models, [provider]: model }
         llm.model = model
       }
+      // 攤平的舊欄位也要跟著換家（桌面 `setLlmProviderDirect` 同樣做這件事）。
+      // 漏掉的話它會一直停在上一家的端點，切去本機再切回雲端就會帶著本機網址走。
+      llm.endpoint = llm.endpoints?.[provider]
       await this.session.saveSettings()
       this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     },
@@ -197,8 +201,20 @@ export class LocalDataSource implements DataSource {
       if (llm.provider === provider) llm.model = model
       await this.session.saveSettings()
     },
-    setLlmEndpoint: async (endpoint) => {
-      this.session.settings.llm.endpoint = endpoint
+    setLlmEndpoint: async (endpoint, provider) => {
+      const llm = this.session.settings.llm
+      const target = provider ?? llm.provider
+      const trimmed = endpoint.trim()
+      const next = { ...llm.endpoints }
+      if (trimmed) next[target] = trimmed
+      else delete next[target]
+      llm.endpoints = next
+      // 攤平欄位跟著目前 provider 走
+      if (target === llm.provider) llm.endpoint = trimmed || undefined
+      await this.session.saveSettings()
+    },
+    setLlmExtraInstruction: async (text) => {
+      this.session.settings.llm.extraInstruction = text.slice(0, 2000)
       await this.session.saveSettings()
     },
     setLlmUtilityEnabled: async (enabled) => {

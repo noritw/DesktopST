@@ -151,6 +151,8 @@ export interface MobileBridge {
     model: string
     models: Record<string, string | undefined>
     endpoint?: string
+    endpoints: Record<string, string | undefined>
+    extraInstruction: string
     hasApiKey: Record<string, boolean>
     maxResponseTokens: number
     maxGroupRounds: number
@@ -162,11 +164,14 @@ export interface MobileBridge {
   }
   setLlmProvider: (provider: string) => { ok: true } | { error: string }
   setLlmModel: (provider: string, model: string) => { ok: true } | { error: string }
-  setLlmEndpoint: (endpoint: string) => { ok: true } | { error: string }
+  setLlmEndpoint: (endpoint: string, provider?: string) => { ok: true } | { error: string }
+  setLlmExtraInstruction: (text: string) => { ok: true } | { error: string }
   setLlmUtilityEnabled: (enabled: boolean) => { ok: true } | { error: string }
   setLlmUtilityProvider: (provider: string) => { ok: true } | { error: string }
   setLlmUtilityModel: (provider: string, model: string) => { ok: true } | { error: string }
   setLlmApiKey: (provider: string, apiKey: string) => { ok: true } | { error: string }
+  /** 「連線」按鈕：local 供應商會把探測到的型號清單一起帶回去。 */
+  testLlmConnection: (provider: string, endpoint?: string) => Promise<{ ok: true; models?: string[] } | { error: string }>
   setLlmChatLimits: (limits: {
     maxResponseTokens: number
     maxGroupRounds: number
@@ -494,7 +499,8 @@ function buildSettingsSnapshot(bridge: MobileBridge): SettingsSnapshot {
     llm: {
       provider: llm.provider,
       models: Object.fromEntries(Object.entries(llm.models).filter((e): e is [string, string] => !!e[1])),
-      endpoint: llm.endpoint ?? '',
+      endpoints: Object.fromEntries(Object.entries(llm.endpoints ?? {}).filter((e): e is [string, string] => !!e[1])),
+      extraInstruction: llm.extraInstruction ?? '',
       maxResponseTokens: llm.maxResponseTokens,
       maxGroupRounds: llm.maxGroupRounds,
       maxImagesPerMessage: llm.maxImagesPerMessage
@@ -1740,11 +1746,26 @@ async function handleRequest(
 
   if (method === 'POST' && url === '/api/settings/llm-endpoint') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-    const payload = await readJson<{ endpoint?: string }>(req, res)
+    // provider 可省略（舊版手機只送 endpoint）→ 由桌面端沿用目前生效的供應商
+    const payload = await readJson<{ endpoint?: string; provider?: string }>(req, res)
     if (!payload) return
-    const r = bridge.setLlmEndpoint(String(payload.endpoint ?? ''))
+    const r = bridge.setLlmEndpoint(
+      String(payload.endpoint ?? ''),
+      payload.provider === undefined ? undefined : String(payload.provider)
+    )
     if ('error' in r) { jsonError(res, 400, r.error); return }
     jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-test-connection') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ provider?: string; endpoint?: string }>(req, res)
+    if (!payload) return
+    const r = await bridge.testLlmConnection(String(payload.provider ?? ''), payload.endpoint?.trim() || undefined)
+    // 200 一律回，成功／失敗都靠 body 的 `ok` 分辨 —— 失敗是連線測試常見的預期結果
+    // （沒開機、模型跑很慢），不是傳輸層錯誤，不用 jsonError／DataError 那條路。
+    jsonOk(res, 'error' in r ? { ok: false, error: r.error } : r)
     return
   }
 
@@ -1806,6 +1827,16 @@ async function handleRequest(
       maxGroupRounds: Number(payload.maxGroupRounds),
       maxImagesPerMessage: Number(payload.maxImagesPerMessage)
     })
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-extra-instruction') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ text?: string }>(req, res)
+    if (!payload) return
+    const r = bridge.setLlmExtraInstruction(String(payload.text ?? ''))
     if ('error' in r) { jsonError(res, 400, r.error); return }
     jsonOk(res, { ok: true })
     return

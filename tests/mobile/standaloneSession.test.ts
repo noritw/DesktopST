@@ -4,6 +4,8 @@ import type { PlatformAdapters } from '@core/adapters'
 import { createMemoryStorage } from '../../src/mobile/adapters/memoryStorage'
 import { unavailableSecrets } from '../../src/mobile/adapters/secretCrypto'
 import { bootStandaloneSession, type StandaloneSession } from '../../src/mobile/runtime/session'
+import { LocalDataSource } from '../../src/mobile/data/localDataSource'
+import { resolveEndpoint } from '@core/llm'
 
 function testAdapters(): PlatformAdapters {
   return {
@@ -375,6 +377,27 @@ describe('StandaloneSession：模組開關', () => {
     // 關掉也要能落地
     await reopened.setModuleEnabled('desktopst.news', false)
     expect((await reopened.listModules()).find((m) => m.id === 'desktopst.news')!.enabled).toBe(false)
+  })
+
+  it('切換供應商時攤平的 endpoint 欄位要跟著換家，切回雲端不可殘留本機網址', async () => {
+    /*
+     * owner 2026-08-15 手機獨立版實測：切到本機模型、再切回雲端就連不上。
+     * 獨立版的 `setLlmProvider` 漏了桌面 `setLlmProviderDirect` 有做的鏡像同步，
+     * 舊欄位就一直停在本機網址上。`resolveEndpoint` 那邊也補了防線，
+     * 但這裡是源頭：存進磁碟的值本身就不該是錯的。
+     */
+    const session = await bootStandaloneSession(testAdapters(), { skipPackFetch: true })
+    const data = new LocalDataSource(session)
+
+    await data.settings.setLlmEndpoint('http://100.70.201.116:11434/v1', 'local')
+    await data.settings.setLlmProvider('local')
+    expect(session.settings.llm.endpoint).toBe('http://100.70.201.116:11434/v1')
+
+    await data.settings.setLlmProvider('openai')
+    expect(session.settings.llm.endpoint).toBeUndefined()
+    // 本機那份沒被弄丟，切回去還在
+    expect(session.settings.llm.endpoints?.local).toBe('http://100.70.201.116:11434/v1')
+    expect(resolveEndpoint(session.settings, 'openai')).toBeUndefined()
   })
 
   it('模組開關：其餘三個模組仍走 settings.json，沒被新聞那條路徑影響', async () => {

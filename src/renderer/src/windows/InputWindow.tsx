@@ -16,6 +16,7 @@ export default function InputWindow() {
 
   const [text, setText] = useState('')
   const [images, setImages] = useState<string[]>([])
+  const [newsChip, setNewsChip] = useState<{ title: string } | null>(null)
   const [isCapturing, setIsCapturing] = useState(false)
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
   const [randomToolsOpen, setRandomToolsOpen] = useState(false)
@@ -79,10 +80,11 @@ export default function InputWindow() {
   // 個人新聞報：插入話題到輸入框
   useEffect(() => {
     const unsub = window.api.on('input:insert-news-topic', (payload: unknown) => {
-      const p = payload as { text?: string }
+      const p = payload as { text?: string; meta?: { title?: string } }
       const insertText = typeof p.text === 'string' ? p.text : ''
       if (!insertText) return
       setText(prev => (prev.trim() ? `${prev}\n${insertText}` : insertText))
+      setNewsChip({ title: p.meta?.title || insertText })
       requestAnimationFrame(() => {
         const el = textareaRef.current
         if (!el) return
@@ -93,6 +95,11 @@ export default function InputWindow() {
     })
     return unsub
   }, [])
+
+  const clearNewsChip = () => {
+    setNewsChip(null)
+    void window.api.invoke('news:clear-pending-link')
+  }
 
   // Receive selected emoji from the picker window
   useEffect(() => {
@@ -157,6 +164,7 @@ export default function InputWindow() {
 
     setText('')
     setImages([])
+    setNewsChip(null)
     await sendMessage(finalContent, images.length > 0 ? images : undefined, randomResults, skipLlm)
   }
 
@@ -329,6 +337,22 @@ export default function InputWindow() {
                 </div>
               </div>
               <div className="flex-1 min-h-0">
+                {newsChip && (
+                  <div className="mb-1 flex items-center gap-1.5 rounded-full border border-teal bg-mint-20 px-2 py-1 no-drag">
+                    <MonoIcon name="news" className="w-3.5 h-3.5 shrink-0 text-teal" />
+                    <span className="min-w-0 flex-1 truncate text-xs text-primary" title={newsChip.title}>
+                      {newsChip.title}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={clearNewsChip}
+                      className="shrink-0 w-4 h-4 rounded-full text-secondary hover:text-primary hover:bg-mint transition-colors flex items-center justify-center"
+                      title="移除附加的新聞"
+                    >
+                      <MonoIcon name="close" className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
                 <div className="h-full min-h-[66px] flex items-stretch gap-2">
                   <textarea
                     ref={textareaRef}

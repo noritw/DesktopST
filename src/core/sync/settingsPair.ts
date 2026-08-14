@@ -43,7 +43,8 @@ const PROVIDER_LABEL: Record<string, string> = {
   openai: 'OpenAI',
   claude: 'Anthropic Claude',
   gemini: 'Google Gemini',
-  grok: 'xAI Grok'
+  grok: 'xAI Grok',
+  local: '本機／自訂端點'
 }
 
 export function pairSettings(local: SettingsSnapshot, remote: SettingsSnapshot): SettingsFieldRow[] {
@@ -52,7 +53,18 @@ export function pairSettings(local: SettingsSnapshot, remote: SettingsSnapshot):
     ...SYNC_LLM_PROVIDERS.map((p) =>
       row(`llm.models.${p}`, 'llm', `${PROVIDER_LABEL[p]} 模型`, local.llm.models[p] ?? '', remote.llm.models[p] ?? '')
     ),
-    row('llm.endpoint', 'llm', '自訂 API 端點', local.llm.endpoint, remote.llm.endpoint),
+    // 端點比照模型逐 provider 一列。原本是單一「自訂 API 端點」一列，
+    // 拆表之後若還併成一列，使用者會看到「不同」卻不知道是哪一家不同。
+    ...SYNC_LLM_PROVIDERS.map((p) =>
+      row(
+        `llm.endpoints.${p}`,
+        'llm',
+        `${PROVIDER_LABEL[p]} 端點`,
+        local.llm.endpoints[p] ?? '',
+        remote.llm.endpoints[p] ?? ''
+      )
+    ),
+    row('llm.extraInstruction', 'llm', '自訂補充指示', local.llm.extraInstruction, remote.llm.extraInstruction),
     row('llm.maxResponseTokens', 'chat', '最大回應字數', local.llm.maxResponseTokens, remote.llm.maxResponseTokens),
     row('llm.maxGroupRounds', 'chat', '群組最多角色回應數', local.llm.maxGroupRounds, remote.llm.maxGroupRounds),
     row('llm.maxImagesPerMessage', 'chat', '單則訊息圖片上限', local.llm.maxImagesPerMessage, remote.llm.maxImagesPerMessage),

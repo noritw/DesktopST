@@ -84,7 +84,9 @@ function ReminderForm({
   desktopCharacterIds: string[]
 }) {
   const settings = useAppStore(s => s.settings)
-  const hasApiKey = !!settings?.llm?.apiKeys?.[settings?.llm?.provider ?? 'openai']?.trim()
+  // 本機供應商不需要金鑰，這裡只是「能不能生成風格化台詞」的判斷，別誤報成離線模式
+  const hasApiKey = settings?.llm?.provider === 'local'
+    || !!settings?.llm?.apiKeys?.[settings?.llm?.provider ?? 'openai']?.trim()
 
   const [label, setLabel] = useState(initial.label)
   const [charId, setCharId] = useState(initial.characterId ?? '')

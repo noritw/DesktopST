@@ -2,7 +2,7 @@ import { chatWithLLM } from '@core/llm'
 import type { PlatformAdapters } from '@core/adapters'
 import { stripOtherCharacterSpeakerLines } from '@core/group/dialogueCleanup'
 import { normalizeCharacterDialogue } from '@core/prompt/dialogue'
-import { messageLlmMeta } from '@core/prompt/promptUtils'
+import { hasUsableApiKey, messageLlmMeta } from '@core/prompt/promptUtils'
 import {
   offlineFallbackAllowed as allowOfflineFallback,
   plainReminderNotice
@@ -264,7 +264,7 @@ export async function speakStandaloneReminder(opts: {
   }
 
   const extraSystemContext = ctxParts.join('\n\n') || undefined
-  const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+  const hasApiKey = hasUsableApiKey(settings)
 
   // ── 沒有 API Key：生不出東西，走底線 ──
   if (!hasApiKey) return useFallback(conv, '沒有可用的 API Key')

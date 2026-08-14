@@ -112,6 +112,35 @@ describe('buildSystemPrompt', () => {
   })
 })
 
+describe('buildSystemPrompt：llm.extraInstruction', () => {
+  it('沒填時 prompt 完全不受影響（不多一個空段落）', () => {
+    const withEmpty = buildSystemPrompt(makeSettings({ llm: { ...makeSettings().llm, extraInstruction: '' } }), CHAR, PERSONA, WORLD, ['小綠'])
+    const without = buildSystemPrompt(makeSettings(), CHAR, PERSONA, WORLD, ['小綠'])
+    expect(withEmpty).toBe(without)
+  })
+
+  it('填了會附加在最尾端，蓋過前面的通用規則而不是被稀釋', () => {
+    const settings = makeSettings({
+      llm: { ...makeSettings().llm, extraInstruction: '請一律使用繁體中文（台灣用語）。' }
+    })
+    const out = buildSystemPrompt(settings, CHAR, PERSONA, WORLD, ['小綠'])
+    expect(out.trim().endsWith('請一律使用繁體中文（台灣用語）。')).toBe(true)
+  })
+
+  it('不綁定 provider——對任何供應商都一樣附加', () => {
+    const local = buildSystemPrompt(
+      makeSettings({ llm: { ...makeSettings().llm, provider: 'local', extraInstruction: '測試指示' } }),
+      CHAR, PERSONA, WORLD, ['小綠']
+    )
+    const claude = buildSystemPrompt(
+      makeSettings({ llm: { ...makeSettings().llm, provider: 'claude', extraInstruction: '測試指示' } }),
+      CHAR, PERSONA, WORLD, ['小綠']
+    )
+    expect(local.endsWith('測試指示')).toBe(true)
+    expect(claude.endsWith('測試指示')).toBe(true)
+  })
+})
+
 describe('buildTriggerMessage', () => {
   it('基本形：只有角色名', () => {
     expect(buildTriggerMessage('小綠')).toBe('[Write the next in-character reply as "小綠" only.]')

@@ -423,9 +423,10 @@ async function pushSettings(src: SyncSource, session: StandaloneSession, fetchIm
   await pushJson(src, '/api/settings/llm-provider', { provider: llm.provider }, fetchImpl)
   await pushJson(src, '/api/settings/llm-model', { provider: llm.provider, model: llm.model }, fetchImpl)
 
-  // LLM endpoint（可選）
-  if (llm.endpoint) {
-    await pushJson(src, '/api/settings/llm-endpoint', { endpoint: llm.endpoint }, fetchImpl)
+  // LLM endpoint（可選）：逐 provider 各推一次，不能只推目前這家——
+  // 本機端點多半設在非當前 provider 上（主＝雲端／輔助＝本機）
+  for (const [p, ep] of Object.entries(llm.endpoints ?? {})) {
+    if (ep) await pushJson(src, '/api/settings/llm-endpoint', { provider: p, endpoint: ep }, fetchImpl)
   }
 
   // LLM chat limits（一次送所有值）

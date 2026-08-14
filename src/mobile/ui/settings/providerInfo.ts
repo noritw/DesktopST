@@ -12,21 +12,40 @@ import { MODELS_BY_PROVIDER, modelPriceText, splitModelsByPrice } from '@core/ll
  * 依 roadmap §3.3 這些不得進 `core/`。
  */
 
-export const PROVIDERS: LlmProvider[] = ['openai', 'claude', 'gemini', 'grok']
+export const PROVIDERS: LlmProvider[] = ['openai', 'claude', 'gemini', 'grok', 'local']
 
 export const PROVIDER_LABELS: Record<LlmProvider, string> = {
   openai: 'OpenAI',
   claude: 'Anthropic Claude',
   gemini: 'Google Gemini',
-  grok: 'xAI Grok'
+  grok: 'xAI Grok',
+  local: '本機／自訂端點'
 }
 
 export const PROVIDER_KEY_PLACEHOLDER: Record<LlmProvider, string> = {
   openai: 'sk-...',
   claude: 'sk-ant-...',
   gemini: 'AIza...',
-  grok: 'xai-...'
+  grok: 'xai-...',
+  local: '通常留空'
 }
+
+/** 需要端點欄位的供應商。local 必填（沒有預設可猜），openai／grok 選填。 */
+export function needsEndpoint(provider: LlmProvider): boolean {
+  return provider === 'local' || provider === 'openai' || provider === 'grok'
+}
+
+/** local 沒有金鑰也能用；其餘供應商沒金鑰等於不能用。 */
+export function apiKeyOptional(provider: LlmProvider): boolean {
+  return provider === 'local'
+}
+
+/** 本機端點常見預設值，UI 拿去做快速填入按鈕。 */
+export { LOCAL_ENDPOINT_PRESETS } from '@core/llm/modelCatalog'
+
+export const LOCAL_ENDPOINT_HINT =
+  'Ollama 預設 http://localhost:11434/v1，LM Studio 預設 http://localhost:1234/v1。'
+  + '連別台電腦請填該機 IP，並確認伺服器已開放區網連線。'
 
 /** 該供應商的完整模型清單（與桌面同步）。 */
 export function modelsFor(provider: LlmProvider): string[] {

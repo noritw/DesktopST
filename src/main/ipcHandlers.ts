@@ -9,7 +9,7 @@ import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM, generateLoreEntryForCharacter } from './llm/index'
 import { DEFAULT_MODEL_BY_PROVIDER } from '../core/llm/modelCatalog'
 import { summarizeConversation, countUncoveredMessages, listSummarizableMessages } from './llm/summarizer'
-import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
+import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta, hasUsableApiKey } from './llm/promptUtils'
 import { formatSystemTimeStamp } from '../core/prompt/systemTime'
 import { isActiveSceneDirty } from '../core/scene/dirty'
 import { applySceneSettings } from '../core/scene/apply'
@@ -914,7 +914,7 @@ export async function generateLoreEntryDirect(
 // 手機第一層只需要「填 API Key ＋ 供應商／模型」，這裡只做資料面的讀寫，
 // 供應商清單／模型建議清單等 UI 文案留在 `src/mobile/ui/`（roadmap §3.3）。
 
-const MOBILE_LLM_PROVIDERS: AppSettings['llm']['provider'][] = ['openai', 'claude', 'gemini', 'grok']
+const MOBILE_LLM_PROVIDERS: AppSettings['llm']['provider'][] = ['openai', 'claude', 'gemini', 'grok', 'local']
 
 function isMobileLlmProvider(v: unknown): v is AppSettings['llm']['provider'] {
   return typeof v === 'string' && (MOBILE_LLM_PROVIDERS as string[]).includes(v)
@@ -946,7 +946,10 @@ export function getLlmSettingsSummaryDirect(): {
   provider: AppSettings['llm']['provider']
   model: string
   models: Partial<Record<AppSettings['llm']['provider'], string>>
+  /** 目前 provider 生效的端點（攤平顯示用） */
   endpoint?: string
+  endpoints: Partial<Record<AppSettings['llm']['provider'], string>>
+  extraInstruction: string
   hasApiKey: Record<AppSettings['llm']['provider'], boolean>
   maxResponseTokens: number
   maxGroupRounds: number
@@ -965,7 +968,9 @@ export function getLlmSettingsSummaryDirect(): {
     provider: settings.llm.provider,
     model: settings.llm.models?.[settings.llm.provider] ?? settings.llm.model,
     models: { ...settings.llm.models },
-    endpoint: settings.llm.endpoint,
+    endpoint: settings.llm.endpoints?.[settings.llm.provider] ?? settings.llm.endpoint,
+    endpoints: { ...settings.llm.endpoints },
+    extraInstruction: settings.llm.extraInstruction ?? '',
     hasApiKey,
     maxResponseTokens: Math.max(100, Math.floor(Number(settings.llm.maxResponseTokens) || 400)),
     maxGroupRounds: Math.max(1, Math.floor(Number(settings.llm.maxGroupRounds) || 1)),
@@ -982,6 +987,8 @@ export function setLlmProviderDirect(provider: string): { ok: true } | { error: 
   settings.llm.provider = provider
   const savedModel = settings.llm.models?.[provider]
   if (savedModel) settings.llm.model = savedModel
+  // 攤平的舊欄位要跟著換家，否則切到本機後仍帶著上一家的端點
+  settings.llm.endpoint = settings.llm.endpoints?.[provider]
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return { ok: true }
@@ -1031,11 +1038,43 @@ export function setLlmUtilityModelDirect(provider: string, model: string): { ok:
   return { ok: true }
 }
 
-export function setLlmEndpointDirect(endpoint: string): { ok: true } | { error: string } {
-  settings.llm.endpoint = endpoint.trim() || undefined
+/**
+ * 設定某供應商的端點。`provider` 省略時沿用目前生效的供應商
+ * （舊版手機／遙控只送 `endpoint` 一個欄位，不能因此改到別家的設定）。
+ */
+export function setLlmEndpointDirect(endpoint: string, provider?: string): { ok: true } | { error: string } {
+  const target = provider ?? settings.llm.provider
+  if (!isMobileLlmProvider(target)) return { error: '不支援的供應商' }
+  const trimmed = endpoint.trim()
+  if (!settings.llm.endpoints) settings.llm.endpoints = {}
+  if (trimmed) settings.llm.endpoints[target] = trimmed
+  else delete settings.llm.endpoints[target]
+  // 舊的單一欄位跟著目前 provider 走，讓還沒改讀 endpoints 的呼叫端不會拿到過期值
+  if (target === settings.llm.provider) settings.llm.endpoint = trimmed || undefined
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return { ok: true }
+}
+
+/**
+ * 手機「連線」按鈕：驗證金鑰／端點可用，local 供應商順便把 `GET /v1/models`
+ * 抓到的型號清單帶回去（那是手機唯一能拿到本機型號清單的管道，見
+ * `docs/local-llm-provider-plan.md` §3.5）。`endpoint` 省略時沿用目前存檔的值。
+ */
+export async function testLlmConnectionDirect(
+  provider: string,
+  endpoint?: string
+): Promise<{ ok: true; models?: string[] } | { error: string }> {
+  if (!isMobileLlmProvider(provider)) return { error: '不支援的供應商' }
+  const apiKey = settings.llm.apiKeys?.[provider]?.trim() || ''
+  const r = await testLLMConnection({
+    provider,
+    apiKey,
+    apiKeys: settings.llm.apiKeys,
+    endpoint: endpoint?.trim() || settings.llm.endpoints?.[provider] || (provider === settings.llm.provider ? settings.llm.endpoint : undefined)
+  })
+  if (!r.ok) return { error: r.error || '連線失敗' }
+  return { ok: true, models: r.models }
 }
 
 /**
@@ -1047,6 +1086,13 @@ export function setLlmApiKeyDirect(provider: string, apiKey: string): { ok: true
   if (!settings.llm.apiKeys) settings.llm.apiKeys = {}
   settings.llm.apiKeys[provider] = apiKey
   fileStore.encryptedApiKeyFallbacks.delete(provider)
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+export function setLlmExtraInstructionDirect(text: string): { ok: true } | { error: string } {
+  settings.llm.extraInstruction = String(text ?? '').slice(0, 2000)
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return { ok: true }
@@ -2573,7 +2619,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   const extraSystemContext = ctxParts.join('\n\n') || undefined
 
   // 檢查是否有 API Key
-  const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+  const hasApiKey = hasUsableApiKey(settings)
 
   setThinking(charId, true)
   deferRaiseCharacterAbovePinnedNotes(charId)
@@ -3015,7 +3061,7 @@ export async function forceSpeakDirect(
     if (!conv || !char) return { error: 'Not found' }
 
     // 沒有 API Key 時直接說提示訊息，不進 LLM
-    const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+    const hasApiKey = hasUsableApiKey(settings)
     if (!hasApiKey) {
       const noKeyText = '（系統提示：尚未設定 API Key，我沒辦法回應你喔。請點右上角的設定圖示，前往「LLM」分頁填入 API Key，就可以開始聊天囉！）'
       const msg: Message = {
@@ -3302,7 +3348,7 @@ async function runConversationSummarize(conv: Conversation): Promise<{ ok: boole
 /** 自動摘要：未涵蓋訊息達閾值時在背景執行（fire-and-forget，失敗只留 console 警告） */
 function maybeAutoSummarize(conv: Conversation): void {
   if (!settings.memory.autoSummarizeEnabled) return
-  if (!settings.llm.apiKeys[settings.llm.provider]?.trim()) return
+  if (!hasUsableApiKey(settings)) return
   const threshold = Math.max(1, Number(settings.memory.autoSummarizeAfter) || 50)
   if (countUncoveredMessages(conv) < threshold) return
   void runConversationSummarize(conv).then(r => {
@@ -3326,7 +3372,7 @@ export function getConversationMemoryDirect(id: string): { ok: true; summary: st
 export async function summarizeConversationNowDirect(id: string): Promise<{ ok: boolean; noNew?: boolean; error?: string; summary?: string; coveredCount?: number }> {
   const conv = getOrLoadConversation(id)
   if (!conv) return { ok: false, error: '找不到這個對話' }
-  if (!settings.llm.apiKeys[settings.llm.provider]?.trim()) return { ok: false, error: '尚未設定 API Key' }
+  if (!hasUsableApiKey(settings)) return { ok: false, error: '尚未設定 API Key' }
   const r = await runConversationSummarize(conv)
   if (!r.ok || r.noNew) return r
   const coversTs = conv.summaryCoversTs ?? 0
@@ -4270,7 +4316,7 @@ export function registerIpcHandlers() {
   ipcMain.handle('conversation:summarize-now', async () => {
     const conv = getActiveConversation()
     if (!conv) return { ok: false, error: '沒有進行中的對話' }
-    if (!settings.llm.apiKeys[settings.llm.provider]?.trim()) return { ok: false, error: '尚未設定 API Key' }
+    if (!hasUsableApiKey(settings)) return { ok: false, error: '尚未設定 API Key' }
     return runConversationSummarize(conv)
   })
 
@@ -4498,7 +4544,7 @@ export function registerIpcHandlers() {
     if (!primaryChar) return { ok: true }
 
     // 檢查是否有 API Key
-    const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+    const hasApiKey = hasUsableApiKey(settings)
     if (!hasApiKey) {
       const noKeyText = '（系統提示：尚未設定 API Key，我沒辦法回應你喔。請點右上角的設定圖示，前往「LLM」分頁填入 API Key，就可以開始聊天囉！）'
       const noApiKeyMsg: Message = {
@@ -4845,7 +4891,7 @@ export function registerIpcHandlers() {
     const conv = getActiveConversation()
     if (!conv) return { error: 'No active conversation' }
 
-    const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+    const hasApiKey = hasUsableApiKey(settings)
     if (!hasApiKey) return { error: 'No API key' }
 
     const nonMuted = settings.ui.desktopCharacters

@@ -1,8 +1,33 @@
 import type { AppSettings, Message, PersonaPreset, WorldPreset } from '../types'
 
 /** Returns the API key for the active provider, falling back to legacy apiKey field */
+/**
+ * 這個供應商需不需要 API Key。
+ *
+ * `local`（使用者自架的 OpenAI 相容端點）不需要——多數本地伺服器沒有 auth，
+ * 逼使用者填一把假的只會讓人以為自己設定錯了。
+ */
+export function providerNeedsApiKey(provider: string): boolean {
+  return provider !== 'local'
+}
+
+/**
+ * 「現在能不能發請求」。**所有擋在 LLM 呼叫前面的檢查都要用這支**，
+ * 不要各自寫 `apiKeys[provider]?.trim()`——那樣寫的地方目前有十幾處，
+ * 漏掉任何一處，本機模型就會在那條路徑上被擋下並顯示
+ * 「尚未設定 API Key」（而使用者根本不需要金鑰，訊息本身就是錯的）。
+ */
+export function hasUsableApiKey(settings: AppSettings): boolean {
+  if (!providerNeedsApiKey(settings.llm.provider)) return true
+  return !!settings.llm.apiKeys?.[settings.llm.provider]?.trim()
+}
+
 export function resolveApiKey(settings: AppSettings): string {
-  return settings.llm.apiKeys?.[settings.llm.provider] || settings.llm.apiKey || ''
+  const key = settings.llm.apiKeys?.[settings.llm.provider] || settings.llm.apiKey || ''
+  // 自架端點通常不驗金鑰，但 OpenAI SDK 不接受空字串。塞個 placeholder，
+  // 伺服器一律忽略；使用者若真的設了金鑰（LiteLLM、有 auth 的反向代理）照樣走上面。
+  if (!key && settings.llm.provider === 'local') return 'local'
+  return key
 }
 
 /** Returns the model for the active provider, falling back to the legacy single model field */
@@ -425,7 +450,12 @@ export function applyUtilitySettings(settings: AppSettings): AppSettings {
       models: {
         ...(settings.llm.models ?? {}),
         [utilityProvider]: utilityModel
-      }
+      },
+      // 端點跟著 provider 走：主模型與輔助模型共用 `endpoints` 表，換 provider
+      // 就自然換到那家的端點，這是「主＝雲端／輔助＝本機」成立的機制。
+      // ⚠️ 舊的單一 `endpoint` 欄位必須清掉——否則主模型的端點會被輔助模型沿用，
+      // 拿著雲端 URL 去找本機模型（或反過來）。
+      endpoint: settings.llm.endpoints?.[utilityProvider]
     }
   }
 }
@@ -596,6 +626,11 @@ export function buildSystemPrompt(
     )
     parts.push(outputLines.join('\n'))
   }
+
+  // ── [5] USER-DEFINED EXTRA INSTRUCTION ──────────────────────────────────
+  // 放在最後：使用者的補充規則理應蓋過前面的通用規則，而不是被稀釋。
+  const extra = sanitizePromptText(settings.llm.extraInstruction)
+  if (extra) parts.push(extra)
 
   return parts.join('\n\n')
 }

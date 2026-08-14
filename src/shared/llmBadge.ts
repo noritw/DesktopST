@@ -12,7 +12,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   claude: 'Claude',
   gemini: 'Gemini',
-  grok: 'Grok'
+  grok: 'Grok',
+  local: '本機'
 }
 
 /** 單一字母的圖示內容。認不得的供應商回 `L`（LLM）。 */
@@ -21,6 +22,9 @@ export function llmBadgeGlyph(provider?: string): string {
   if (provider === 'claude') return 'C'
   if (provider === 'gemini') return 'G'
   if (provider === 'grok') return 'X'
+  // 本機沒有品牌字母可用（Ollama／LM Studio 都可能）；用「本」比 'L' 好認，
+  // 而且 'L' 已經是「認不得的供應商」的後備值，不能撞。
+  if (provider === 'local') return '本'
   return 'L'
 }
 

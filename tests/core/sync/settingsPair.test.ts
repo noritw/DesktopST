@@ -12,7 +12,8 @@ function snapshot(over: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     llm: {
       provider: 'openai',
       models: { openai: 'gpt-5' },
-      endpoint: '',
+      endpoints: {},
+      extraInstruction: '',
       maxResponseTokens: 400,
       maxGroupRounds: 3,
       maxImagesPerMessage: 5
@@ -49,6 +50,29 @@ describe('pairSettings', () => {
     expect(openaiRow.differs).toBe(false)
     expect(claudeRow.differs).toBe(true)
     expect(claudeRow.remoteValue).toBe('opus-5')
+  })
+
+  it('每個 provider 的端點各自拆成一列（本機端點不會跟雲端端點混在同一列）', () => {
+    const rows = pairSettings(
+      snapshot({ llm: { ...snapshot().llm, endpoints: { local: 'http://192.168.1.9:11434/v1' } } }),
+      snapshot({ llm: { ...snapshot().llm, endpoints: { local: 'http://100.70.201.116:11434/v1' } } })
+    )
+    const localRow = rows.find((r) => r.key === 'llm.endpoints.local')!
+    const openaiRow = rows.find((r) => r.key === 'llm.endpoints.openai')!
+    expect(localRow.differs).toBe(true)
+    expect(localRow.remoteValue).toBe('http://100.70.201.116:11434/v1')
+    // 沒設過的那家兩邊都是空字串 → 不該被報成差異
+    expect(openaiRow.differs).toBe(false)
+  })
+
+  it('本機供應商有自己的比對列（SYNC_LLM_PROVIDERS 含 local）', () => {
+    const rows = pairSettings(
+      snapshot({ llm: { ...snapshot().llm, models: { local: 'qwen3:8b' } } }),
+      snapshot({ llm: { ...snapshot().llm, models: {} } })
+    )
+    const row = rows.find((r) => r.key === 'llm.models.local')!
+    expect(row.differs).toBe(true)
+    expect(row.localValue).toBe('qwen3:8b')
   })
 
   it('模組：本機有、電腦沒有的模組（舊版電腦）仍然出現，且不算差異', () => {

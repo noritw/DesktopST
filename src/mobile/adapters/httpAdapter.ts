@@ -36,17 +36,31 @@ const HARD_CEILING_MS = 30_000
  * 呼叫端拿到的行為與標準 fetch 一致：abort 時丟 `AbortError`。
  */
 function withAbort<T>(work: Promise<T>, signal: AbortSignal | null | undefined): Promise<T> {
-  const ceiling = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(abortError('timeout')), HARD_CEILING_MS)
-  })
+  // 沒有 signal → 套保底天花板，不讓 UI 永遠轉圈。
+  if (!signal) {
+    const ceiling = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(abortError('timeout')), HARD_CEILING_MS)
+    })
+    return Promise.race([work, ceiling])
+  }
 
-  if (!signal) return Promise.race([work, ceiling])
   if (signal.aborted) return Promise.reject(abortError('aborted'))
 
-  const aborted = new Promise<never>((_, reject) => {
-    signal.addEventListener('abort', () => reject(abortError('aborted')), { once: true })
-  })
-  return Promise.race([work, aborted, ceiling])
+  /*
+   * 有 signal 就**只聽呼叫端的**，不再疊那個 30 秒天花板。
+   *
+   * 原本兩者都 race，等於任何請求最多 30 秒——與上面「放得比任何呼叫端自己的
+   * 逾時都寬」的註解自相矛盾，呼叫端想等更久也等不到。
+   * 本機 LLM 冷啟動（8B 模型載進記憶體）在一般機器上就可能超過 30 秒，
+   * 症狀會是「第一次問一定失敗、之後才正常」，很難聯想到是 HTTP adapter 在攔。
+   * OpenAI SDK 本來就會帶自己的逾時 signal 進來，交給它即可。
+   */
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      signal.addEventListener('abort', () => reject(abortError('aborted')), { once: true })
+    })
+  ])
 }
 
 function abortError(reason: string): Error {

@@ -107,6 +107,11 @@ export async function chatWithOpenAI(params: ChatLLMParams, deps: LLMDeps): Prom
   if (!shouldOmitTemperature(model)) {
     body.temperature = settings.llm.temperature
   }
+  if (settings.llm.provider === 'local') {
+    // 思考模型會把 max_output_tokens 全花在 reasoning 上、正文回空字串，
+    // 下面的空回應檢查就會丟出根因不明的錯誤。見 index.ts 的 localReasoningParams()。
+    body.reasoning = { effort: 'none' }
+  }
 
   const resp = await client.responses.create(body as any, { signal: params.signal })
   const raw = extractResponseText(resp)

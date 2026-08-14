@@ -19,13 +19,23 @@ import { stableStringify } from '../util/stableJson'
  */
 
 /** provider 順序固定，UI 逐 provider 顯示模型比對列時用同一個順序，不要動態排序造成畫面跳動。 */
-export const SYNC_LLM_PROVIDERS = ['openai', 'claude', 'gemini', 'grok'] as const
+export const SYNC_LLM_PROVIDERS = ['openai', 'claude', 'gemini', 'grok', 'local'] as const
 
 export interface LlmSyncSubset {
   provider: string
   /** 每個供應商各自記住的模型；比對時逐 provider 拆成一列，不是整包比。 */
   models: Record<string, string>
-  endpoint: string
+  /**
+   * 每個供應商各自的端點；比照 `models` 逐 provider 拆成一列。
+   *
+   * ⚠️ **本機端點同步過去不一定連得到**：手機在外面時 `localhost:11434`
+   * 指向手機自己、內網 IP 也不通。但仍然要同步——使用者回到家就會通，
+   * 而且「同步了卻連不上」比「兩邊設定不一樣、要手動再填一次」好懂。
+   * 連不連得上是連線測試的事，不是同步該擋的。
+   */
+  endpoints: Record<string, string>
+  /** 附加在 system prompt 尾端的自訂指示，對所有供應商生效。 */
+  extraInstruction: string
   maxResponseTokens: number
   maxGroupRounds: number
   maxImagesPerMessage: number

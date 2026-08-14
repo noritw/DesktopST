@@ -70,12 +70,19 @@ export const GROK_MODELS = [
   'grok-4.20-0309-non-reasoning'
 ]
 
+/**
+ * 本機／自訂端點沒有固定型號 —— 使用者自己 pull 什麼就有什麼。
+ * 清單刻意留空，由「測試連線」打 `GET /v1/models` 動態填入（見 `testLLMConnection`）。
+ */
+export const LOCAL_MODELS: string[] = []
+
 /** 供應商 → 該家的模型清單。手機的下拉選單直接吃這個。 */
 export const MODELS_BY_PROVIDER: Record<LlmProvider, string[]> = {
   openai: OPENAI_MODELS,
   claude: CLAUDE_MODELS,
   gemini: GEMINI_MODELS,
-  grok: GROK_MODELS
+  grok: GROK_MODELS,
+  local: LOCAL_MODELS
 }
 
 /**
@@ -89,8 +96,17 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProvider, string> = {
   openai: 'gpt-5.6-luna',
   claude: 'claude-haiku-4-5',
   gemini: 'gemini-3.1-flash-lite',
-  grok: 'grok-4.3'
+  grok: 'grok-4.3',
+  // 本機沒有「大家都有」的型號，猜一個只會讓連線測試失敗得莫名其妙。
+  // 留空 → UI 逼使用者先測連線再從實際清單挑。
+  local: ''
 }
+
+/** 本機端點常見預設值，UI 拿去當 placeholder／快速填入。 */
+export const LOCAL_ENDPOINT_PRESETS: Array<{ label: string; url: string }> = [
+  { label: 'Ollama', url: 'http://localhost:11434/v1' },
+  { label: 'LM Studio', url: 'http://localhost:1234/v1' }
+]
 
 /** 每百萬 tokens 美金價（輸入, 輸出）；未列出的模型（如官方快照 ID、自訂 ID）不顯示價格 */
 export const MODEL_PRICES: Record<string, [number, number]> = {

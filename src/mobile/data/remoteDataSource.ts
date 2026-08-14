@@ -263,11 +263,17 @@ export class RemoteDataSource implements DataSource {
     getLlm: async () => (await this.http.get<{ llm: LlmSettingsSnapshot }>('/api/settings/llm')).llm,
     setLlmProvider: async (provider) => { await this.http.post('/api/settings/llm-provider', { provider }) },
     setLlmModel: async (provider, model) => { await this.http.post('/api/settings/llm-model', { provider, model }) },
-    setLlmEndpoint: async (endpoint) => { await this.http.post('/api/settings/llm-endpoint', { endpoint }) },
+    setLlmEndpoint: async (endpoint, provider) => { await this.http.post('/api/settings/llm-endpoint', { endpoint, provider }) },
+    setLlmExtraInstruction: async (text) => { await this.http.post('/api/settings/llm-extra-instruction', { text }) },
     setLlmUtilityEnabled: async (enabled) => { await this.http.post('/api/settings/llm-utility-enabled', { enabled }) },
     setLlmUtilityProvider: async (provider) => { await this.http.post('/api/settings/llm-utility-provider', { provider }) },
     setLlmUtilityModel: async (provider, model) => { await this.http.post('/api/settings/llm-utility-model', { provider, model }) },
     setLlmApiKey: async (provider, apiKey) => { await this.http.post('/api/settings/llm-apikey', { provider, apiKey }) },
+    testLlmConnection: async (provider, endpoint) =>
+      this.http.post<{ ok: true; models?: string[] } | { ok: false; error: string }>(
+        '/api/settings/llm-test-connection',
+        { provider, endpoint }
+      ),
     setLlmChatLimits: async (limits) => { await this.http.post('/api/settings/llm-chat-limits', limits) },
 
     getMemory: async () => (await this.http.get<{ memory: MemorySettingsSnapshot }>('/api/settings/memory')).memory,

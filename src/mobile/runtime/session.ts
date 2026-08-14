@@ -2,6 +2,7 @@ import { SECRET_PREFIX, type PlatformAdapters } from '@core/adapters'
 import { hydrateSettings, toPersistedSettings } from '@core/store/settings'
 import { applySceneSettings } from '@core/scene/apply'
 import { stampCharacterNames } from '@core/chat/characterName'
+import { hasUsableApiKey } from '@core/prompt/promptUtils'
 import { isActiveSceneDirty } from '@core/scene/dirty'
 import * as keys from '@core/store/keys'
 import type {
@@ -33,9 +34,11 @@ import {
 } from '@core/reminder/cache'
 import { DEFAULT_SETTINGS } from '@core/types'
 import { DEFAULT_MODEL_BY_PROVIDER, MODELS_BY_PROVIDER } from '@core/llm/modelCatalog'
+import { testLLMConnection } from '@core/llm'
 import { DataError } from '@core/data'
 import type {
   AppStateSnapshot,
+  LlmProvider,
   LlmSettingsSnapshot,
   LoreGenerateResult,
   MessageDebug,
@@ -670,8 +673,31 @@ export class StandaloneSession {
     this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
   }
 
+  /**
+   * 「連線」按鈕：獨立版直接對端點打 `GET /v1/models`（走 `adapters.http`，
+   * 不是桌面的 Node fetch）。local 供應商沒有寫死的型號目錄，這是唯一能拿到
+   * 型號清單的管道，見 `docs/local-llm-provider-plan.md` §3.5。
+   */
+  async testLlmConnection(provider: LlmProvider, endpoint?: string): Promise<{ ok: true; models?: string[] } | { ok: false; error: string }> {
+    const apiKey = this.settings.llm.apiKeys?.[provider]?.trim() || ''
+    const r = await testLLMConnection(
+      {
+        provider,
+        apiKey,
+        apiKeys: this.settings.llm.apiKeys,
+        endpoint: endpoint?.trim() || this.settings.llm.endpoints?.[provider] || (provider === this.settings.llm.provider ? this.settings.llm.endpoint : undefined)
+      },
+      { http: this.adapters.http }
+    )
+    if (!r.ok) {
+      const errorText = r.error || (r.errorCode === 'no-api-key' ? '尚未填寫 API Key' : r.errorCode === 'no-model' ? '尚未填寫模型名稱' : '連線失敗')
+      return { ok: false, error: errorText }
+    }
+    return { ok: true, models: r.models }
+  }
+
   llmSnapshot(): LlmSettingsSnapshot {
-    const providers = ['openai', 'claude', 'gemini', 'grok'] as const
+    const providers = ['openai', 'claude', 'gemini', 'grok', 'local'] as const
     const hasApiKey = {} as LlmSettingsSnapshot['hasApiKey']
     for (const p of providers) {
       hasApiKey[p] = !!this.settings.llm.apiKeys[p]?.trim()
@@ -687,7 +713,11 @@ export class StandaloneSession {
        */
       model: this.settings.llm.models?.[provider] || '',
       models: { ...(this.settings.llm.models ?? {}) },
-      endpoint: this.settings.llm.endpoint,
+      // 攤平值取目前 provider 的端點（比照上面的 model）；舊的單一欄位只在
+      // 設定檔尚未被遷移寫回時才有值，所以放在後備位置。
+      endpoint: this.settings.llm.endpoints?.[provider] ?? this.settings.llm.endpoint,
+      endpoints: { ...(this.settings.llm.endpoints ?? {}) },
+      extraInstruction: this.settings.llm.extraInstruction ?? '',
       hasApiKey,
       maxResponseTokens: this.settings.llm.maxResponseTokens ?? 360,
       maxGroupRounds: this.settings.llm.maxGroupRounds ?? 3,
@@ -1002,7 +1032,7 @@ export class StandaloneSession {
   ): Promise<{ ok: boolean; noNew?: boolean; error?: string; summary?: string; coveredCount?: number }> {
     const conv = this.conversationIndex.get(id)
     if (!conv) throw new DataError('not-found', id)
-    if (!this.settings.llm.apiKeys[this.settings.llm.provider]?.trim()) {
+    if (!hasUsableApiKey(this.settings)) {
       return { ok: false, error: '尚未設定 API Key' }
     }
     if (listSummarizableMessages(conv, this.settings.memory.keepRecentN).length === 0) {

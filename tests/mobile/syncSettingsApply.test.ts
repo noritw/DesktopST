@@ -26,7 +26,8 @@ function snapshot(over: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     llm: {
       provider: 'openai',
       models: { openai: 'gpt-5' },
-      endpoint: '',
+      endpoints: {},
+      extraInstruction: '',
       maxResponseTokens: 400,
       maxGroupRounds: 3,
       maxImagesPerMessage: 5

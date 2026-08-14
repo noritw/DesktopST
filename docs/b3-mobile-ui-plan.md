@@ -11,14 +11,12 @@
 > - 懷疑踩已知坑 → Grep §4.10–§4.16；資訊架構 → §4.19
 > - 新對話預設讀 [`CLAUDE.md`](../CLAUDE.md)，本檔屬選讀（見 [`docs/README.md`](README.md)）
 >
-> **狀態：階段 0–6、8、9 程式與契約測試完成（0-③／1／2a–2d／3a／3b／4／5／6／8／9）；
-> 另含資訊架構重整（§4.19）與 relay 硬約束（§4.20）。**
-> 階段 5／6／8／9 與 §4.19 畫面尚待 owner 真機確認。
+> **狀態：階段 0–9、資訊架構重整（§4.19）與 relay 硬約束（§4.20）已落地；
+> B6 遙控 UI 已完成，且手機獨立版 W1–W3（含同步切換／設定同步／新聞）也已補上實作與驗證。**
+> 當前 P1 是 **B3 階段 7（正式 APK／散布）**，不是重新回到舊的 M3 同步方向。
 >
-> **下一步：** 先修 S2 M3 模式切換的同步方向（P1，見 `mobile-sync-m3-kickoff.md`），再進入階段 7 的正式 APK 打包／散布。Spotify／日曆授權仍只在桌面。
-> 新聞進 prompt 上下文補強已實作（見 [`news-article-context-design.md`](news-article-context-design.md)）。
-> `mobile.html` 與舊版 QR 已於 2026-08-07（B6 真機驗證通過後）依 §4.23 移除；
-> 手機遠端為**單一入口 `/`**。
+> **目前進度：** 手機 UI 以單一入口 `/` 運作，`mobile.html` 已移除；新聞進 prompt 上下文補強已實作（見 [`news-article-context-design.md`](news-article-context-design.md)）。
+> 真機驗證已涵蓋模式切換、M4/M5 設定比對、個人新聞報、提醒與匯出流程；
 > 沒開 DeST 時的驗證方式見 §4.9 與 `scripts/README-mobile-stub.md`。
 >
 > **B6（遙控 UI 搬新版）已完成**：程式／stub／真機驗證均通過 —— 落地筆記見 §4.22。

@@ -94,7 +94,7 @@ export interface Message {
    */
   personaName?: string
   content: string
-  llmProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
+  llmProvider?: 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
   llmModel?: string
   debugPrompt?: string
   emotion?: string
@@ -371,14 +371,27 @@ export interface AppSettings {
   mobile?: MobileSettings
   remoteControl?: RemoteControlSettings
   llm: {
-    provider: 'openai' | 'claude' | 'gemini' | 'grok'
+    provider: 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
     /** @deprecated use apiKeys[provider] instead; kept for migration */
     apiKey: string
     apiKeys: Record<string, string>
     model: string
     /** Per-provider model selection; takes precedence over single `model` field */
     models?: Record<string, string>
+    /** @deprecated use endpoints[provider] instead; kept for migration（見 core/store/settings.ts） */
     endpoint?: string
+    /**
+     * 各供應商各自的端點。主模型與輔助模型共用這張表，
+     * 所以「主＝Claude 雲端／輔助＝本機 Ollama」不需要額外欄位就成立
+     * （`applyUtilitySettings()` 換 provider，端點查表自然跟著換）。
+     */
+    endpoints?: Record<string, string>
+    /**
+     * 使用者自訂、附加在 system prompt 尾端的一段指示，對所有供應商生效。
+     * 不綁定特定 provider——本機模型指令遵從度較弱時常會用到，
+     * 但雲端模型想加任何客製規則一樣能填，程式不對內容做任何假設。
+     */
+    extraInstruction?: string
     maxResponseTokens: number
     maxGroupRounds: number
     maxImagesPerMessage: number
@@ -386,7 +399,7 @@ export interface AppSettings {
     /** 提醒發話、情緒分類是否使用獨立輔助模型（群組對話一律用扮演主模型） */
     utilityEnabled?: boolean
     /** 輔助模型的供應商（未設定時跟隨 provider） */
-    utilityProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
+    utilityProvider?: 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
     /** 各供應商的輔助模型名稱 */
     utilityModels?: Record<string, string>
   }
@@ -578,8 +591,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   llm: {
     provider: 'openai',
     apiKey: '',
-    apiKeys: { openai: '', claude: '', gemini: '', grok: '' },
+    apiKeys: { openai: '', claude: '', gemini: '', grok: '', local: '' },
     model: 'gpt-5.4-nano-2026-03-17',
+    endpoints: {},
+    extraInstruction: '',
     maxResponseTokens: 360,
     maxGroupRounds: 3,
     maxImagesPerMessage: 5,

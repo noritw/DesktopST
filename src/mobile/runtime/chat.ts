@@ -10,7 +10,7 @@ import {
 import { stripOtherCharacterSpeakerLines } from '@core/group/dialogueCleanup'
 import { normalizeCharacterDialogue } from '@core/prompt/dialogue'
 import { formatRandomResultForPrompt } from '@core/prompt/randomResult'
-import { messageLlmMeta, resolveModel } from '@core/prompt/promptUtils'
+import { hasUsableApiKey, messageLlmMeta, resolveModel } from '@core/prompt/promptUtils'
 import { getWeatherContextString } from '@core/weather'
 import { getNewsInjectionForSpeak, type NewsInjectionDeps } from '@core/news/injection'
 import { getActiveNewsTopic } from '@core/news/topicState'
@@ -49,7 +49,7 @@ function maybeAutoSummarize(opts: {
 }): void {
   const { settings, conv } = opts
   if (!settings.memory.autoSummarizeEnabled) return
-  if (!settings.llm.apiKeys[settings.llm.provider]?.trim()) return
+  if (!hasUsableApiKey(settings)) return
   if (summarizingConvIds.has(conv.id)) return
   const threshold = Math.max(1, Number(settings.memory.autoSummarizeAfter) || 50)
   if (countUncoveredMessages(conv) < threshold) return
@@ -162,7 +162,7 @@ export async function forceSpeakStandalone(opts: {
   const char = opts.characters.find((c) => c.id === opts.characterId)
   if (!conv || !char) throw new Error('Not found')
 
-  const hasApiKey = !!opts.settings.llm.apiKeys[opts.settings.llm.provider]?.trim()
+  const hasApiKey = hasUsableApiKey(opts.settings)
   if (!hasApiKey) {
     const noKeyText = '（系統提示：尚未設定 API Key，我沒辦法回應你喔。請到設定填入 API Key，就可以開始聊天囉！）'
     const msg: Message = {
@@ -397,7 +397,7 @@ export async function sendStandaloneMessage(opts: {
   const primaryChar = charById(primaryId)
   if (!primaryChar) return
 
-  const hasApiKey = !!opts.settings.llm.apiKeys[opts.settings.llm.provider]?.trim()
+  const hasApiKey = hasUsableApiKey(opts.settings)
   if (!hasApiKey) {
     const noKeyText =
       '（系統提示：尚未設定 API Key，我沒辦法回應你喔。請到設定填入 API Key，就可以開始聊天囉！）'

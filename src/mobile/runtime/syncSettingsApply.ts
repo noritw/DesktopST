@@ -104,22 +104,47 @@ export async function applySettingsSync(
     }
   }
 
-  // ── llm.endpoint ──
-  const endpointRow = byKey.get('llm.endpoint')
-  if (endpointRow && endpointRow.differs) {
-    const choice = choiceOf('llm.endpoint')
+  // ── llm.endpoints.<provider>（比照 models 逐 provider 一列）──
+  for (const p of SYNC_LLM_PROVIDERS) {
+    const key = `llm.endpoints.${p}`
+    const r = byKey.get(key)
+    if (!r || !r.differs) continue
+    const choice = choiceOf(key)
     if (choice === 'local') {
-      await track(endpointRow.label, async () => {
-        onProgress?.(`推送「${endpointRow.label}」⋯⋯`)
-        await postJson(src, '/api/settings/llm-endpoint', { endpoint: endpointRow.localValue }, fetchImpl)
-        result.pushed.push(endpointRow.label)
+      await track(r.label, async () => {
+        onProgress?.(`推送「${r.label}」⋯⋯`)
+        await postJson(src, '/api/settings/llm-endpoint', { provider: p, endpoint: r.localValue }, fetchImpl)
+        result.pushed.push(r.label)
       })
     } else if (choice === 'remote') {
-      await track(endpointRow.label, async () => {
-        onProgress?.(`帶回「${endpointRow.label}」⋯⋯`)
-        session.settings.llm.endpoint = String(endpointRow.remoteValue)
+      await track(r.label, async () => {
+        onProgress?.(`帶回「${r.label}」⋯⋯`)
+        const llm = session.settings.llm
+        llm.endpoints = { ...llm.endpoints, [p]: String(r.remoteValue) }
+        // 攤平欄位跟著更新，否則畫面上「目前端點」會停在舊值
+        if (llm.provider === p) llm.endpoint = String(r.remoteValue)
         await session.saveSettings()
-        result.pulled.push(endpointRow.label)
+        result.pulled.push(r.label)
+      })
+    }
+  }
+
+  // ── llm.extraInstruction（單一欄位、單一端點，比照 llm.provider）──
+  const extraInstructionRow = byKey.get('llm.extraInstruction')
+  if (extraInstructionRow && extraInstructionRow.differs) {
+    const choice = choiceOf('llm.extraInstruction')
+    if (choice === 'local') {
+      await track(extraInstructionRow.label, async () => {
+        onProgress?.(`推送「${extraInstructionRow.label}」⋯⋯`)
+        await postJson(src, '/api/settings/llm-extra-instruction', { text: extraInstructionRow.localValue }, fetchImpl)
+        result.pushed.push(extraInstructionRow.label)
+      })
+    } else if (choice === 'remote') {
+      await track(extraInstructionRow.label, async () => {
+        onProgress?.(`帶回「${extraInstructionRow.label}」⋯⋯`)
+        session.settings.llm.extraInstruction = String(extraInstructionRow.remoteValue)
+        await session.saveSettings()
+        result.pulled.push(extraInstructionRow.label)
       })
     }
   }
@@ -317,4 +342,7 @@ function setLocalProvider(session: StandaloneSession, provider: string): void {
     llm.models = { ...llm.models, [provider]: model }
     llm.model = model
   }
+  // 攤平的 `endpoint` 鏡像也要跟著換家，理由同上面那條：留著上一家的值，
+  // 切去本機再切回雲端就會帶著本機網址走。
+  llm.endpoint = llm.endpoints?.[provider]
 }
