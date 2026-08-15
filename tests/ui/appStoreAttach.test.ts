@@ -9,6 +9,26 @@ function fakeSource(build: () => Partial<DataSource>): DataSource {
   return build() as unknown as DataSource
 }
 
+/**
+ * 補齊 `AppStateSnapshot` 的必填欄位。
+ *
+ * 這幾個測試只在意 `conversation`，但 `getState()` 的回傳型別是完整的
+ * `AppStateSnapshot`——只寫 `{ conversation }` 會讓 `npm run typecheck` 紅
+ * （tsconfig.node.json 有含 `tests/`）。集中在這裡補，之後型別再加欄位
+ * 也只要改這一處。
+ */
+function makeState(conversation: AppStateSnapshot['conversation']): AppStateSnapshot {
+  return {
+    presentCharacters: [],
+    conversation,
+    colorTheme: 'mint',
+    randomToolsEnabled: false,
+    showLlmBadge: true,
+    showPersonaName: true,
+    maxImagesPerMessage: 1
+  }
+}
+
 describe('isAttached()', () => {
   it('attach() 之前回傳 false', () => {
     expect(isAttached()).toBe(false)
@@ -18,7 +38,7 @@ describe('isAttached()', () => {
     const events = new LocalEventSource()
     const data = fakeSource(() => ({
       async getState(): Promise<AppStateSnapshot> {
-        return { conversation: { id: 'c1', title: 't', messages: [] } }
+        return makeState({ id: 'c1', title: 't', messages: [] })
       }
     }))
     useAppStore.getState().attach({ data, events })
@@ -29,7 +49,7 @@ describe('isAttached()', () => {
     const events = new LocalEventSource()
     const data = fakeSource(() => ({
       async getState(): Promise<AppStateSnapshot> {
-        return { conversation: { id: 'c1', title: 't', messages: [] } }
+        return makeState({ id: 'c1', title: 't', messages: [] })
       }
     }))
     const detach = useAppStore.getState().attach({ data, events })
@@ -54,13 +74,11 @@ describe('send() 的 unreachable 對帳分支', () => {
         // 成功
       },
       async getState(): Promise<AppStateSnapshot> {
-        return {
-          conversation: {
-            id: 'c1',
-            title: 't',
-            messages: []
-          }
-        }
+        return makeState({
+          id: 'c1',
+          title: 't',
+          messages: []
+        })
       }
     }))
 
@@ -89,20 +107,18 @@ describe('send() 的 unreachable 對帳分支', () => {
       async getState(): Promise<AppStateSnapshot> {
         getStateCalls++
         // 模擬對帳時發現訊息已送達（不在樂觀訊息清單裡）
-        return {
-          conversation: {
-            id: 'c1',
-            title: 't',
-            messages: [
-              {
-                id: 'server-1',
-                role: 'user' as const,
-                content: '嗨',
-                timestamp: 1000
-              }
-            ]
-          }
-        }
+        return makeState({
+          id: 'c1',
+          title: 't',
+          messages: [
+            {
+              id: 'server-1',
+              role: 'user' as const,
+              content: '嗨',
+              timestamp: 1000
+            }
+          ]
+        })
       }
     }))
 
@@ -159,13 +175,11 @@ describe('send() 的 unreachable 對帳分支', () => {
       },
       async getState(): Promise<AppStateSnapshot> {
         getStateCalls++
-        return {
-          conversation: {
-            id: 'c1',
-            title: 't',
-            messages: []
-          }
-        }
+        return makeState({
+          id: 'c1',
+          title: 't',
+          messages: []
+        })
       }
     }))
 
