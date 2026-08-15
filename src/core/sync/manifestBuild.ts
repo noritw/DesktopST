@@ -8,7 +8,30 @@ import {
   sceneContentHash,
   worldContentHash
 } from './contentHash'
+import { conversationFingerprint } from './convHash'
+import type { Conversation } from '../types'
 import type { Manifest, ManifestConversation } from './types'
+
+/**
+ * 一則對話的清單描述。**桌面與手機都走這一支**，不要各自組物件字面量——
+ * 指紋要算哪些欄位一旦兩邊漂移，比對畫面會把每一則都判成「不一樣」，
+ * 而且不會有任何錯誤訊息（`contentHash.ts` 與 `settingsSnapshot.ts` 都踩過）。
+ *
+ * `linkedRemoteId` 只有手機端傳得出來（電腦端沒有「對面的 id」這個概念）。
+ */
+export function buildConversationManifestEntry(
+  conv: Conversation,
+  linkedRemoteId?: string
+): ManifestConversation {
+  return {
+    id: conv.id,
+    title: conv.title,
+    updatedAt: conv.updatedAt,
+    messageCount: (conv.messages ?? []).length,
+    ...conversationFingerprint(conv),
+    ...(linkedRemoteId ? { linkedRemoteId } : {})
+  }
+}
 
 /**
  * 從完整資料組出 `/api/sync-manifest` 形狀的輕量清單（S2 M4）。

@@ -60,6 +60,25 @@ export interface ManifestConversation {
   title: string
   updatedAt: number
   messageCount: number
+  /**
+   * 訊息 id 集合的指紋（S2 對話同步，`core/sync/convHash.ts`）。
+   *
+   * **只雜湊 id，不雜湊內容**：訊息帶圖片 data URI，清單端點的存在意義就是
+   * 不傳內容。有了它才判得出「這則兩邊完全一樣、不必顯示在比對畫面上」。
+   *
+   * 可選是為了相容還沒升級的舊桌面端：缺這個欄位時 `convPair.ts` 標成
+   * `compare: 'unknown'`，保守地跑一趟合併（合併本身冪等，重跑無副作用）。
+   */
+  messageIdsHash?: string
+  /** 摘要內容的指紋。摘要走「二選一」而不是聯集，所以跟訊息分開算。 */
+  summaryHash?: string
+  /** 摘要涵蓋到的時間點。判斷「誰的摘要比較新」只能看這個，不能看 `updatedAt`。 */
+  summaryCoversTs?: number
+  /**
+   * 這則對話在**對面那台**的 id（只有手機端會有值，來自 `importedFrom.sourceId`）。
+   * 配對時的第二道身分線索，詳見 `convPair.ts` 的 `ConvEntity.linkedRemoteId`。
+   */
+  linkedRemoteId?: string
 }
 
 /** 雙邊都用這個形狀描述自己的資料量，供 `computeDiff` 比對。 */

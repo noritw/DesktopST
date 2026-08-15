@@ -12,6 +12,9 @@ import { summarizeConversation, countUncoveredMessages, listSummarizableMessages
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta, hasUsableApiKey } from './llm/promptUtils'
 import { formatSystemTimeStamp } from '../core/prompt/systemTime'
 import { isActiveSceneDirty } from '../core/scene/dirty'
+import { buildConversationManifestEntry } from '../core/sync/manifestBuild'
+import { mergeMessages, pickSummary } from '../core/sync/convHash'
+import type { ManifestConversation } from '../core/sync/types'
 import { applySceneSettings } from '../core/scene/apply'
 import { normalizeForCompare, escapeRegExp } from '../core/util/text'
 import { safeJsonParse } from '../core/util/json'
@@ -520,6 +523,101 @@ export function getConversationForSyncDirect(id: string): Conversation | null {
       return { ...rest, hasDebugPrompt: false, hasNewsDebug: false }
     })
   }
+}
+
+/**
+ * S2 對話同步：`/api/sync-manifest` 用的對話清單，**帶指紋**。
+ *
+ * 跟 `getConversationsForSyncDirect` 分開的理由：那支是 S1 勾選畫面用的
+ * （要角色名字給人看），這支是機器比對用的（要訊息 id 指紋）。兩個用途
+ * 硬併成一支的話，S1 那個畫面每開一次都要多算一輪雜湊。
+ *
+ * 組欄位一律走 `buildConversationManifestEntry`，不要在這裡手打物件——
+ * 手機端算的是同一支，兩邊漂移的話比對畫面會把每一則都判成不一樣。
+ */
+export function getConversationsManifestDirect(): ManifestConversation[] {
+  return fileStore.listConversationIds()
+    .map(id => getOrLoadConversation(id))
+    .filter((c): c is NonNullable<typeof c> => !!c)
+    .map(conv => buildConversationManifestEntry(conv))
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+}
+
+/**
+ * S2 對話同步：把手機送來的一批訊息併進電腦端的某則對話。
+ *
+ * 合併規則的唯一定義處是 `docs/mobile-mode-switch-sync.md` §6.2 ②，
+ * 實作在 `core/sync/convHash.ts` 的 `mergeMessages()`／`pickSummary()`——
+ * 這裡只負責讀寫檔與廣播，不自己重寫一套合併邏輯。
+ *
+ * ## 為什麼要能分批
+ *
+ * 訊息帶圖片 data URI，整則送會在 CapacitorHttp 的 base64 bridge 上爆掉
+ * （`/api/sync-pack` 與 `/api/message-image` 都為了同一個理由拆過）。
+ * 所以手機會依累計位元組把一則對話切成好幾塊送進來：
+ *
+ * - `targetId` 沒有值 ＝ 電腦上還沒有這則，**第一塊**負責建立並回傳真實 id
+ * - 後續塊帶著那顆 id 回來（手機一定要讀回應，見下）
+ *
+ * ## 回傳的 `id` 是合約的一部分
+ *
+ * 新建時電腦會自己發 uuid。手機**必須**把它記回本地那則的 `importedFrom`，
+ * 否則下一次切換配不起來、每趟都多推一份 —— S2 M3 就是死在「推完不讀回應」
+ * （`docs/mobile-sync-m4-compare.md` §1.1）。
+ *
+ * 同一塊重送兩次是安全的：聯集合併以 id 判重，重複的計進 `skipped`。
+ */
+export function mergeConversationMessagesDirect(input: {
+  targetId?: string
+  title?: string
+  participantIds?: string[]
+  messages?: Message[]
+  summary?: string
+  summaryCoversTs?: number
+}): { id: string; written: number; skipped: number; messageCount: number } | { error: string } {
+  const incoming = input.messages ?? []
+
+  let conv: Conversation | null = null
+  if (input.targetId) {
+    conv = getOrLoadConversation(input.targetId)
+    if (!conv) return { error: 'Conversation not found' }
+  } else {
+    conv = createNewConversation()
+    // 新建的那則沿用手機的標題；沒給就留 createNewConversation 的預設
+    const title = String(input.title ?? '').trim()
+    if (title) conv.title = title
+  }
+
+  const { merged, written, skipped } = mergeMessages(conv.messages ?? [], incoming)
+  conv.messages = merged
+
+  /*
+   * 參與角色取聯集。少了這一步，從手機帶過來的訊息作者不在 participantIds 裡，
+   * 之後在電腦上接著聊時那隻角色不會被算進上下文。
+   * 手機送來的已經是電腦端的角色 id（翻譯在手機端做，見 syncConversations.ts）。
+   */
+  conv.participantIds = [...new Set([...(conv.participantIds ?? []), ...(input.participantIds ?? [])])]
+
+  /*
+   * 摘要二選一：涵蓋範圍較大的那份贏。
+   * ⚠️ 不能拿 `updatedAt` 判斷誰比較新——推送本身就會把這裡設成現在。
+   */
+  if (pickSummary(conv, { summary: input.summary, summaryCoversTs: input.summaryCoversTs }) === 'incoming') {
+    conv.summary = input.summary ?? ''
+    conv.summaryCoversTs = input.summaryCoversTs
+  }
+
+  conv.updatedAt = Date.now()
+  conversations.set(conv.id, conv)
+  fileStore.saveConversation(conv)
+
+  // 併進正在看的那則時畫面要跟著更新，否則電腦上停在舊訊息直到切換對話
+  if (conv.id === activeConversationId) {
+    broadcastConversationUpdate(conv)
+    syncCharacterContextsFromConversation(conv)
+  }
+
+  return { id: conv.id, written, skipped, messageCount: conv.messages.length }
 }
 
 export function loadConversationDirect(id: string): boolean {
