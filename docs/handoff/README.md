@@ -7,7 +7,8 @@
 
 | 文件 | 給誰 | 內容 |
 |---|---|---|
-| `local-llm-tasks.md` | 本機模型（Continue） | 5 個獨立任務，每個附可直接貼的 prompt |
+| **`execution-order.md`** | **owner** | **兩路並行的順序、撞車點、16GB 的實務注意——先讀這份** |
+| `local-llm-tasks.md` | 本機模型（Continue） | 6 個獨立任務，每個附可直接貼的 prompt |
 | `copilot-tasks.md` | GitHub Copilot | 副駕型工作，不是獨立工單 |
 | `claude-code-prompt.md` | Claude Code 新對話 | 對話同步（真正的 S2 M4）開工 prompt |
 

@@ -73,6 +73,23 @@ mobileServer.ts 已經為了同樣的理由，把訊息圖片的「讀取」做�
 不隨快照走（搜 `/api/message-image`，那段註解寫明了原因）。
 **推送同樣要分批**：建議一次一則對話，單則內再依訊息數切塊。
 
+## 有另一路在同時進行（重要）
+
+我同時讓一個本機小模型在做雜項清理，兩路共用 feat/mobile-standalone 這個分支。
+分工是：**本機那路擁有 docs/ 底下全部（除了 mobile-mode-switch-sync.md）
+與 tests/ui/appStoreAttach.test.ts；你擁有 src/ 全部與其餘 tests/。**
+
+具體約束兩條：
+
+1. **src/mobile/runtime/syncPush.ts 裡有一支死碼 pushSettings()，本機那路會刪掉它。**
+   你動這個檔案之前先 git pull。如果拉下來還在，就當它不存在、不要參考它
+   （那是 S2 M3 的舊架構，M5 已經用 syncSettingsApply.ts 整個取代掉）。
+2. **docs/progress-log.md 本機那路會補三筆 08-14／08-15 的條目。**
+   你完工要寫 progress-log 時，先 git pull，確認那三筆在了，再把你這筆**追加在最後**。
+   如果拉下來還沒有，先跟我說一聲，不要自己補那三筆。
+
+每次 commit 前都 git pull --rebase。
+
 ## 硬規則
 
 - 業務邏輯寫在 src/core/，src/mobile/ 與 mobileServer.ts 只做薄轉呼叫
