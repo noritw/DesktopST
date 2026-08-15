@@ -1,6 +1,6 @@
 import MonoIcon, { type MonoIconName } from '@shared/MonoIcon'
 import { useUiStore, type ViewKind } from '../stores/uiStore'
-import { getData } from '../stores/appStore'
+import { getData, isAttached } from '../stores/appStore'
 import { getStandaloneSession } from '../../runtime/sessionHolder'
 
 /**
@@ -54,7 +54,7 @@ export function MainMenu(): JSX.Element {
   const replace = useUiStore((s) => s.replace)
   const standalone = getStandaloneSession() !== null
   const items = ITEMS.filter((item) => {
-    if (item.kind === 'remote') return getData().capabilities.remoteControl
+    if (item.kind === 'remote') return isAttached() && getData().capabilities.remoteControl
     if (item.kind === 'sync-import') return standalone
     return true
   })

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { applyTheme } from './theme'
 import { useUiStore } from './stores/uiStore'
-import { useAppStore, describeError } from './stores/appStore'
+import { useAppStore, describeError, notifyForeground } from './stores/appStore'
 import { useBackButton } from './shell/useBackButton'
 import { ViewStack } from './shell/ViewStack'
 import { ToastHost } from './shell/ToastHost'
@@ -270,7 +270,13 @@ export function App(): JSX.Element {
     const onVisible = (): void => {
       const session = getStandaloneSession()
       if (document.visibilityState === 'visible') {
-        useAppStore.getState().refresh()
+        // `notifyForeground()` 一定要在這裡呼叫（`EventSource` 介面本來就是這樣
+        // 設計的，見 `core/events/types.ts`）：漏了這行，切背景時被系統斷線的
+        // WebSocket 只能乾等一般的退避重連，回前景那一刻本來可以立刻重連／
+        // 立刻對帳卻沒有觸發（owner 2026-08-15 實測踩到：本地模型回應慢時
+        // 切出去，回來只看到一則「網路錯誤」，答案要再等好一下子才自己冒出來）。
+        notifyForeground()
+        void useAppStore.getState().refresh()
         // 亮屏／回到前景：補發押後的提醒（inactiveBehavior: notify_on_unlock）
         session?.onAppResumed()
       } else {
@@ -315,9 +321,10 @@ export function App(): JSX.Element {
         {ready ? <HeaderChips /> : <span className="min-w-0 flex-1 text-[13px] font-semibold text-[var(--text)]">DeST</span>}
         <button
           type="button"
-          onClick={() => push('menu')}
+          onClick={() => ready && push('menu')}
+          disabled={!ready}
           aria-label="選單"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--text)] active:bg-[var(--surface)]/60"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--text)] active:bg-[var(--surface)]/60 disabled:opacity-40"
         >
           <MonoIcon name="menu" className="h-5 w-5" />
         </button>

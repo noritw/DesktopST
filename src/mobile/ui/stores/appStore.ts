@@ -80,6 +80,22 @@ export function getData(): DataSource {
   return deps.data
 }
 
+/**
+ * 還沒 `attach()` 完成時安全地問「有沒有連上」，不會 throw。
+ *
+ * 選單一類的元件理論上只在 `ready` 之後才會被打開，但保險起見還是提供
+ * 一支不會炸掉整個 render 的版本 —— 少一個「哪天多一條路徑在 `ready`
+ * 之前就摸到這裡」就把全畫面弄白的坑。
+ */
+export function isAttached(): boolean {
+  return deps !== null
+}
+
+/** 回前景時補一次對帳／視情況立刻重連（遙控模式才有作用，獨立模式是 no-op）。 */
+export function notifyForeground(): void {
+  deps?.events.notifyForeground()
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   status: 'idle',
   ready: false,
@@ -151,6 +167,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await deps.data.sendMessage(input)
     } catch (e) {
+      // `unreachable`：送出當下手機切到背景，系統把連線砍斷讓這個 fetch
+      // 失敗 —— 但 LLM 是在電腦那邊獨立跑的，不會因為手機這頭的連線斷了
+      // 就停。對帳一次：`refresh()` 拿到的是伺服器權威的訊息列表，
+      // 如果這則已經不在裡面（換成真的了，或至少使用者的話已經送達），
+      // 代表其實有送到，不該在使用者回來時給一則假的「網路錯誤」。
+      // 真的沒送到（電腦真的關機／離線）才會落回下面的錯誤泡泡。
+      if (e instanceof DataError && e.code === 'unreachable') {
+        await get().refresh().catch(() => {})
+        if (!get().messages.some((m) => m.id === optimistic.id)) {
+          if (get().sending) set({ sending: false })
+          return
+        }
+      }
       // 失敗：把樂觀那則換成系統錯誤訊息（清單 A8）。
       // 錯誤代碼在這裡就翻成中文 —— core 只給代碼（roadmap §3.3）。
       set((s) => ({
