@@ -87,8 +87,9 @@ src/mobile/ 手機 UI
 | **S2 同步 M3（真的推／拉資料）** | **方向已修正，自動測試通過，尚未真機驗證。** 獨立→遙控＝手機→電腦推送（`syncPush.ts`，角色／人設／世界觀／Lorebook／情境，逐項成功即寫回基準）；遙控→獨立＝電腦→手機拉取（新檔 `syncPull.ts`，直接複用 S1 `runSyncImport()`，`onConflict='overwrite'`，且會拔掉電腦附的 API Key，S2 不碰金鑰）。路由抽成純函式 `runtime/modeSwitchSync.ts`，可被單元測試直接驗證方向沒接錯（`tests/mobile/modeSwitchSync.test.ts`、`syncPull.test.ts`）。**設定推送仍是死碼**（`pushSettings()` 沒有呼叫端）；**對話同步是 M4，完全沒做**。`npm run typecheck`／`npm test` 皆過（47 檔、600 項）——只證明邏輯正確，不是真機驗證。真機待驗兩條路徑見 `docs/mobile-sync-m3-kickoff.md` §9 |
 | **S2 同步 M4（逐項比對）** | **已實作，自動測試通過，尚未真機驗證**（2026-08-14）。M3 真機實測發現「資料有過去但重複愈來愈多」——電腦端長出 23 個情境（真正 7 個）、各 10 份世界觀與使用者設定。根因是**基準表整份是假的**（推送時記 `remoteId: id`，但電腦端 `savePersonaPresetDirect` 會丟掉送來的 id 另發 uuid，手機從沒讀過回應）＋ diff 的名字後備配對讓同名資料永遠不推也永遠不收斂 ＋ 推情境沒翻譯交叉參照（電腦上留下 10 處死參照）＋ 取消被誤報成「連不上」。**改成每次切換當場逐項比對**（`core/sync/pair.ts`，身分＝id 相同 or 名稱相同，不依賴基準），左手機右電腦逐列選，含「全部用手機／全部用電腦／保留差異」；內容是否相同看 `contentHash`（**不能看 `updatedAt`**，推送會把接收端時間設成現在）。方向變成資料而非程式分支，M3「掛錯呼叫端就整個反了」的錯誤類別消失。電腦端資料已用一次性腳本清理完（備份 `Data.backup-2026-08-13T15-59-48`），手機端刻意留著當真機驗證素材。細節與待驗清單：`docs/mobile-sync-m4-compare.md` |
 | **S2 M5（設定同步）** | **已實作，真機驗證進行中**（2026-08-14）。M4 比對畫面加開「設定」分頁，逐欄位比對 LLM 供應商／各供應商模型／對話限制／記憶／配色主題／模組開關／天氣潤飾；不碰 API Key。跟資料比對是兩套獨立系統（`core/sync/settingsPair.ts`）——設定欄位兩邊永遠都有值，沒有「單邊獨有」，選項只有 本機／電腦／不動，預設一律不動。桌面／手機的設定子集定義統一到 `core/sync/settingsSnapshot.ts`（避免重蹈 M4 `contentHash.ts` 那次雙邊定義漂移的坑）；新增 `GET /api/settings/sync-snapshot`。**owner 2026-08-14 真機測出一個遺漏**：`weather.polish`（天氣輔助模型潤飾）是模組底下的子設定、不在原本沿用的舊子集裡，已補上（§8.5b）——這類「模組除了 enabled 還有自己的子設定」的遺漏還沒逐一排查完，之後如有人回報某模組的某個開關沒同步，大概率是同一類坑。細節：`docs/mobile-sync-m4-compare.md` §8 |
+| **S2 對話同步** | **已實作，自動測試通過，尚未真機驗證**（2026-08-15）。S2 同步的最後一塊；代號提醒：規劃書裡的「M4」本來指這個，但實際開發時 M4／M5 被拿去命名逐項比對與設定同步，**對話同步在此之前從未做過**。對話**不能套用 `pair.ts` 的三選一**——「兩邊都有對方沒有的訊息」是常態不是衝突，套下去等於逼使用者選一個必然丟資料的答案。所以另立 `core/sync/convPair.ts`：主控制是「合併（兩邊補齊）／不動」兩態，左右二選一只用在真的只能有一個答案的單值欄位（標題／摘要）。快捷鍵只有兩顆，**這個分頁不刪任何東西**。配對順序 id →`importedFrom.sourceId`→ 標題，第二步漏掉的話每則 S1 匯入過的對話都會被再推一份（M3 的失敗模式重演，有測試守）。只傳輸「對面缺的那幾則」（新增 `?idsOnly=1`），依累計位元組分批。細節與真機待驗八條：`docs/mobile-mode-switch-sync.md` §8.3／§8.4 |
 | **本機 LLM 供應商（`local`）** | **已實作，core 路徑端到端驗過；桌面 UI 與手機真機未驗**（2026-08-15）。新增供應商 `local` = 任何 OpenAI 相容端點（Ollama／LM Studio／llama.cpp）。**主模型與輔助模型都能選**，可各自用不同端點——`llm.endpoint` 單一欄位拆成 per-provider 的 `llm.endpoints`（有遷移，會寫回磁碟），`applyUtilitySettings()` 換 provider 時端點跟著換，所以「主＝Claude 雲端／輔助＝本機 Qwen3」成立。**不必寫新 adapter**：實測 Ollama 支援 Responses API，沿用 `openai.ts`，只多送 `reasoning:{effort:'none'}`（思考模型會把 token 預算吃光、正文回空字串，情緒分類只有 20 tokens 必中）。金鑰選填。模型清單靠「測試連線」打 `GET /v1/models` 動態取得。順手修掉兩個既有 bug：輔助模型連線測試用錯端點、`httpAdapter` 的 30 秒天花板套在有 signal 的請求上（**這條影響所有手機請求，不只本機模型**）。細節：`docs/local-llm-provider-plan.md` §9 |
-| **下一步** | **Pixel 10a 真機驗證 S2 M4／M5 比對畫面**：M4 六條見 `docs/mobile-sync-m4-compare.md` §7，M5 六條見 §8.6（含新補的 `weather.polish`）。驗過後考慮做對話同步（範圍大、需另外設計衝突呈現方式，見 §6）；之後做階段 7 正式 APK／散布；v0.4.0 另需真機煙測（配色／新聞泡泡／遙控）。 |
+| **下一步** | **Pixel 10a 真機驗證 S2 的三塊比對畫面**：M4 六條見 `docs/mobile-sync-m4-compare.md` §7，M5 六條見 §8.6（含新補的 `weather.polish`），**對話同步八條見 `docs/mobile-mode-switch-sync.md` §8.4**（最重要的是第 1 條：同一則推兩次不能長出第二份）。驗過後 S2 就完整了；之後做階段 7 正式 APK／散布；v0.4.0 另需真機煙測（配色／新聞泡泡／遙控）。 |
 | 延後／已排程 | 角色印象（B8）；系統通知（B5）；**飲食熱量模組（B9）** → `docs/future-nutrition-module.md`（owner 自用優先；含換機搬家包） |
 
 獨立模式**尚未實作**（會誠實擲 `not-supported`，不是 bug）：
@@ -249,6 +250,20 @@ src/mobile/ 手機 UI
   正文回空字串。情緒分類的預算只有 20 tokens、新聞主觀度 40，**必中**，
   而錯誤訊息是 `Empty response from model`，完全看不出根因。
   helper 在 `core/llm/index.ts` 的 `localReasoningParams()`，四個呼叫點都要帶
+- **同步「聯集型」資料時不要沿用 `pair.ts` 的三選一**（2026-08-15，對話同步）。
+  角色／情境那些是整份覆蓋，一邊贏另一邊；對話是 append-only 的訊息集合，
+  **「兩邊都有對方沒有的訊息」是正常狀態，不是衝突**。套上「手機／電腦／不動」
+  等於每次都逼使用者選一個必然丟資料的答案，而且他不會察覺——畫面看起來
+  跟其他分頁一模一樣。對話走 `core/sync/convPair.ts`：主控制兩態（合併／不動），
+  左右二選一只留給真的只能有一個答案的單值欄位（標題／摘要）
+- **推送到電腦之後一定要讀回應裡的 id**（S2 M3 的死因，對話同步再次踩到同一個
+  形狀）。電腦端收到沒見過的 id 時會**丟掉送來的、自己發一顆新 uuid**
+  （`id: existing?.id ?? uuidv4()`／`createNewConversation()`），把手機自己的 id
+  記成對應的話，下一趟配不起來、每推一次就多一份，而且**沒有任何自我修復路徑**。
+  分批推送時第一塊就要接住 id，後續塊帶著它走
+- **跨裝置判斷「哪份比較新」永遠不能看 `updatedAt`**：推送本身會把接收端設成
+  現在，推完永遠是對面比較新。內容一不一樣看 contentHash；對話摘要看
+  `summaryCoversTs`（那是從訊息時間戳推導的，跨裝置可比）
 - 動 LLM 供應商設定時注意 `llm.model` 是早期單一供應商的遺留欄位，
   `resolveModel()` 仍會拿它墊底 —— 不同步會把 A 家型號送去 B 家
 
@@ -264,6 +279,7 @@ src/mobile/ 手機 UI
 | S1／S2 同步 | roadmap **§4.7**（模式、S1–S3 分層、API Key 判定、星狀拓樸） | 整份 roadmap |
 | 手機模式切換／切換時帶資料走 | `mobile-mode-switch-sync.md`（整份，S2 第一階段的實作設計） | 整份 roadmap |
 | **改／驗證切換模式的同步** | `mobile-sync-m4-compare.md`（整份，M4 逐項比對，**已取代 M3 流程**） | `mobile-sync-m3-kickoff.md`（只在追歷史時才讀） |
+| **改／驗證對話同步** | `mobile-mode-switch-sync.md` **§3.1／§6.2 ②／§8.3／§8.4**；`core/sync/convPair.ts` 檔頭 | 整份 roadmap、M3 那幾份 |
 | 打 APK／改 Capacitor | `src/mobile/README.md` | 一切長文 |
 | 動天氣（兩邊共用） | `core/weather/`（四個小檔，直接讀原始碼）＋ `progress-log.md` 搜「獨立版天氣」 | 舊的 `weather-realtime-query-spec.md`（那是桌面 CWA 規格） |
 | 問「獨立版還缺什麼」／挑下一項做 | `mobile-standalone-gap-inventory.md`（整份，不長） | 舊的 `mobile-html-feature-inventory.md` |
