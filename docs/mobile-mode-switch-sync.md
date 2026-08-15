@@ -63,8 +63,8 @@ owner 2026-08-09：
 | 角色卡（含圖檔、Lorebook） | 以 `updatedAt` 判斷變動，整隻覆蓋 | 走既有 `.dstpack`，**一隻一包** |
 | Persona／World | 同上 | |
 | 情境 Scene | 同上，但**保留目的端的桌寵欄位** | 見 §7.4 |
-| 對話訊息 | 以 message id **聯集追加**（append-only） | 見 §6.4 |
-| `conv.summary`／`summaryCoversTs` | 隨所屬對話走，取較新者 | |
+| 對話訊息 | 以 message id **聯集追加**（append-only） | 見 §6.2 ② |
+| `conv.summary`／`summaryCoversTs` | 隨所屬對話走，取 `summaryCoversTs` 較大者 | 見 §6.2 ② |
 | Lorebook | 以 `updatedAt` 判斷，整本覆蓋 | 獨立版編輯尚未實作（缺口 #2），做完才有意義 |
 | LLM 模型／endpoint／記憶參數／主題 | 整組覆蓋 | 已有 `/api/sync-init` 的既有邏輯 |
 
@@ -243,19 +243,39 @@ S1 匯入時角色是以**新 id** 落地、**靠名字**跟電腦端對上
 {
   targetId?: string,        // 有＝併進電腦既有那則；無＝在電腦上新建
   title: string,
-  participantIds: string[], // 以電腦端的角色 id 表示（手機查基準轉換）
+  participantIds: string[], // 以電腦端的角色 id 表示（切換當下即時配對，不查基準）
   messages: Message[],      // 只送電腦沒有的那些
   summary?: string,
-  summaryCoversTs?: number
+  summaryCoversTs?: number,
+  chunkIndex?: number,      // 分批用，見下面的 ⚠️
+  chunkTotal?: number
 }
 ```
 
-**以 message id 聯集併入，已存在的 id 直接略過**（roadmap §4.7 的合併規則）。
-回傳實際寫入則數，手機拿去更新基準。
+回傳 `{ id, written, skipped }`。**`id` 是電腦端實際落地的那顆**——新建時電腦會
+自己發 uuid，手機一定要讀回應並記下來，否則下一趟配不起來、每次切換都多一份
+（S2 M3 就是死在「推完不讀回應」，見 `mobile-sync-m4-compare.md` §1.1）。
+
+**合併規則（本節是唯一定義處）**
+
+1. **訊息以 message id 聯集追加**，已存在的 id 直接略過（roadmap §4.7）。
+   略過的計進 `skipped` 回報，不靜默。
+2. **同一個 id 兩邊內容不同**（在某一邊編輯過）＝接收端保留自己那份。
+   不做欄位級合併、不做逐則挑選——那會炸出無限的 UI，而且沒有正確答案。
+   完成訊息要誠實講「N 則兩邊都改過，各自保留原本的版本」。
+3. **合併後按 `timestamp` 重排**，相同時用 message id 當穩定 tiebreak。
+   少了 tiebreak 的話兩台裝置排出來的順序會不一樣，下一趟指紋又對不上。
+4. **`summary`／`summaryCoversTs` 取 `summaryCoversTs` 較大者。**
+   ⚠️ **不能用 `updatedAt` 判斷**：那是寫檔時間，推送本身就會把接收端設成現在
+   （M4 §2.2）。`summaryCoversTs` 是從訊息時間戳推導的，跨裝置可比。
+5. **刪除不同步**：這一版只補、不刪。某一邊少了幾則訊息一律當成「還沒收到」。
 
 > ⚠️ 訊息帶圖片 data URI，整批送會在 CapacitorHttp 的 base64 bridge 上爆掉
 > （`mobileServer.ts:1443` 已經為了這個把讀取拆成一則一支）。
-> **推送同樣要分批**，建議一次一則對話、單則內再依訊息數切塊。
+> **推送同樣要分批**，一次一則對話、單則內**依累計位元組**切塊
+> （不是依則數：單則帶三張圖就可能自己超過上限）。
+> `targetId` 沒有值時**只有第一塊**會建新對話，後續塊要帶著回應給的 `id` 進來。
+> 同一塊重送兩次必須是冪等的（靠規則 1 自然成立）。
 
 ---
 
@@ -484,6 +504,131 @@ secure-context 能力，但頁面來源不再是 https，區網的 `http://`／`
 上實際跑一次模式切換確認 `ui.confirm` 對話框正常彈出——目前沒有基準，
 能驗證到的只有「無基準」這條路徑（中性統計訊息），(c)(d) 兩種狀態要等
 M3 寫入基準後才有東西可以真機驗證。
+
+### 8.3 對話同步落地筆記（2026-08-15）
+
+> 代號提醒：本文 §8 的原始規劃裡「M4」指的就是對話同步，但實際開發時
+> 「M4」被拿去命名逐項比對、「M5」命名設定同步。**對話同步在此之前
+> 從未被實作過**，不管代號怎麼叫。
+
+#### 對話為什麼不能套用 M4 的 `PairRow`
+
+`mobile-sync-m4-compare.md` §6 已經預告過。核心是一句話：
+
+> **同一則對話裡「兩邊都有對方沒有的訊息」是正常狀態，不是衝突。**
+
+`PairRow` 的三選一（手機／電腦／不動）語意是「用這一邊蓋掉另一邊」。套在
+append-only 的訊息集合上，等於每次都逼使用者選一個**必然丟資料**的答案，
+而 §3.1／§6.2 ② 講的是聯集追加。所以對話有自己的一套（`core/sync/convPair.ts`）：
+
+| 狀態 | 選項 | 預設 |
+|---|---|---|
+| 兩邊都有、訊息集合不同 | `merge`／`keep` | `merge` |
+| 兩邊都有、完全相同 | （不必決定） | `keep` |
+| 只有一邊有 | `copy`／`keep` | `copy` |
+
+左右二選一仍然存在，但**只用在真的只能有一個答案的單值欄位**：標題與摘要。
+那兩個長成跟設定分頁一樣的子列，掛在該列底下，只有真的不同才顯示。
+
+**快捷鍵在對話分頁只有兩顆**（全部補齊／全部不動）。「全部用手機／電腦」
+在這裡沒有意義而且危險——使用者會以為選了一個安全的選項，實際上每按一次
+就丟掉對面獨有的訊息。
+
+**這個分頁不會刪任何東西**：沒有「選空的一邊＝刪除」的語意、沒有 `--danger`
+配色。刪除同步不在這一版範圍。
+
+#### 身分判定：`importedFrom.sourceId` 是漏不得的第二步
+
+配對順序是 ①id 相同 ②手機的 `importedFrom.sourceId` 指到電腦某則 ③正規化標題。
+
+第二步最容易漏、漏了症狀最嚴重：S1 匯入進來的對話，本地 id 是手機自己發的，
+跟電腦端那則完全不同，只有 `sourceId` 記得它們是同一則。少了它，**每一則
+匯入過的對話都會被判成「手機獨有」而再推一份回電腦**——S2 M3 重複增生的
+失敗模式原封不動換個地方重演。`tests/core/sync/convPair.test.ts` 有專門守它。
+
+沿用 `importedFrom` 而不是另開欄位：兩者記的是同一件事（「這則對話對應到
+電腦上的哪一則」），分成兩份只會讓配對要查兩個地方，而且遲早不同步。
+
+#### 推送一定要讀回應裡的 id
+
+電腦端新建對話會自己發 uuid（`createNewConversation`）。`pushMessages()` 第一塊
+送完就接住回應的 `id`，後續塊帶著它走，全部成功後才 `linkConversationToRemote()`
+寫回本機。M3 的死因就是推完不讀回應（`mobile-sync-m4-compare.md` §1.1）。
+
+#### 只傳輸「對面缺的那幾則」
+
+新增 `GET /api/sync-conversation?idsOnly=1`，只回訊息 id 與時間戳。推送前先拿
+它算差集，再依**累計位元組**（不是則數——單則帶三張圖就可能自己超過上限）
+切塊送出。拉取方向仍要完整內容，走原本那條路，但只挑本機缺的 id。
+
+清單端點的 `messageIdsHash` 也**只雜湊 id、不雜湊內容**：訊息帶圖片 data URI，
+把內容雜湊一次等於在電腦端把整個資料庫讀進記憶體。
+
+#### 角色 id 翻譯：跟情境**方向相反**
+
+- **訊息**的 `characterId` 翻不出來時**原樣保留**。訊息是內容本身，丟掉就是
+  聊天記錄真的少一段；而且還有 `characterName` 當備援（`core/types.ts` 記了
+  2026-08-13 七隻角色 id 被同步重建、五月到八月對話全部查不到人的事故）。
+- **`participantIds`** 翻不出來時**丟掉**。留一顆對面不存在的 id 沒有備援可以
+  接回去，只會變成死參照。
+
+兩者長得很像、抄錯不會有任何錯誤訊息，各有一條測試釘住。
+
+對應表要用 `applySync()` 回傳的 `ApplyResult.idMaps`，**不是比對畫面上那張表**：
+表裡有一部分角色對應是這一趟推送當下才由電腦回應決定的，只看比對畫面的話，
+剛推過去的角色一律查不到。所以**對話同步排在資料同步之後**。
+
+#### 一個原本想錯、測試才抓出來的地方
+
+規則 2 說「同 id 內容不同 ＝ 接收端保留自己那份」，我原本以為可以回報
+「N 則兩邊都改過」。實際上**偵測不到**：推送只送對面缺的 id、拉取只拉本機
+缺的，同 id 的訊息根本不會上路，所以無從得知對面把它編輯過。要偵測就得比對
+內容，而那正是 `idsOnly` 與分批想避免的整份傳輸。
+
+結果仍然符合規格（兩邊各留各的），但這件事是**靜默**發生且無從回報的。
+`ConvApplyResult.keptOwnVersion` 的語意因此改成「重試／重送時的判重計數」，
+不是編輯衝突則數——註解與測試都寫明了，避免下一個人照字面理解。
+
+#### 改了哪些檔
+
+**新增**
+- `core/sync/convHash.ts`：訊息 id 指紋、聯集合併、摘要二選一
+- `core/sync/convPair.ts`：對話專屬的配對與決定模型
+- `mobile/runtime/syncConversations.ts`：逐列執行推／拉／雙向補齊，含分批
+- `tests/core/sync/convPair.test.ts`（31 項）、`tests/mobile/syncConversations.test.ts`（13 項）
+
+**修改**
+- `core/sync/types.ts`：`ManifestConversation` 加指紋與 `linkedRemoteId`
+- `core/sync/manifestBuild.ts`：`buildConversationManifestEntry`（雙邊共用）
+- `main/ipcHandlers.ts`：`getConversationsManifestDirect`、`mergeConversationMessagesDirect`
+- `main/mobileServer.ts`：新增 `POST /api/sync-conversation-merge`（body 上限
+  放到 `MEDIA_MAX_BODY`）、`/api/sync-conversation` 加 `?idsOnly=1`
+- `mobile/runtime/session.ts`：`getConversation()`、`linkConversationToRemote()`
+- `mobile/runtime/syncApply.ts`：`ApplyResult` 多回 `idMaps`
+- `mobile/ui/shell/SyncComparePicker.tsx`：對話分頁（獨立的 row 元件）
+- `mobile/ui/shell/ModeSwitcher.tsx`／`syncDiffMessage.ts`／`stores/uiStore.ts`
+
+**驗證**：`npm test`（新增 44 項，全套 781 passed；`tests/prompt/promptUtils.test.ts`
+那 2 個時區 snapshot 在這台機器上本來就失敗，與此無關）、`npm run typecheck`、
+`npm run build:mobile` 皆過。**真機尚未驗證**，清單見 §8.4。
+
+### 8.4 對話同步真機待驗
+
+1. 手機上開一則新對話聊幾句 → 切到遙控 → 對話分頁該列顯示「合併」→
+   同步後電腦上出現那則，**且再切一次不會長出第二份**（這條最重要）
+2. S1 匯入過的對話：兩邊都不動 → 比對畫面該則應顯示「完全相同」，
+   **不是**「手機上獨有」
+3. 兩邊各自在同一則對話裡聊幾句 → 合併後兩邊都看得到對方那幾句，
+   而且**順序照時間戳交錯正確**，不是一邊接在另一邊後面
+4. **帶圖片的對話**：手機上傳幾張圖 → 合併 → 電腦上圖片正常顯示
+   （這條在驗分批：單則帶三張圖就可能自己超過一塊）
+5. 電腦上把某則對話改名 → 比對畫面該列應仍配成同一列，並長出「⚠ 標題兩邊
+   不同」子列 → 選一邊 → 同步後兩邊標題一致
+6. 對話很多時（十幾則）確認畫面不會卡，且「另有 N 則兩邊相同」預設收起
+7. 合併正在看的那則對話 → 手機畫面應立刻出現補進來的訊息（`state-invalidated`）
+8. 同步途中拔掉網路 → 完成訊息要列出哪幾則沒成功，**其餘照樣完成**；
+   重連後再同步一次應該收斂，不會產生重複訊息
+
 
 ---
 

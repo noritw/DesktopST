@@ -74,6 +74,8 @@ import { LocalEventSource } from '../events/localEventSource'
 import { detectMobileLocation } from './weather'
 import { newId } from './id'
 import { toConversationSnapshot } from './messages'
+import { buildConversationManifestEntry } from '@core/sync/manifestBuild'
+import type { ManifestConversation } from '@core/sync/types'
 import {
   blankCharacter,
   importCharactersFromDstPack,
@@ -920,13 +922,51 @@ export class StandaloneSession {
   }
 
   /** 對話的輕量清單，多帶 `messageCount`。給 S2 M2 差異預覽用（見 `syncManifest.ts`）。 */
-  listConversationsManifest(): { id: string; title: string; updatedAt: number; messageCount: number }[] {
-    return [...this.conversationIndex.values()].map((c) => ({
-      id: c.id,
-      title: c.title,
-      updatedAt: c.updatedAt,
-      messageCount: c.messages.length
-    }))
+  /**
+   * S2 比對用的對話清單。
+   *
+   * 欄位一律走 `buildConversationManifestEntry`，**不要在這裡手打物件**——
+   * 電腦端 `getConversationsManifestDirect()` 算的是同一支，兩邊漂移的話
+   * 比對畫面會把每一則都判成「不一樣」而且零錯誤訊息（`contentHash.ts`
+   * 與 `settingsSnapshot.ts` 都踩過這個坑）。
+   *
+   * `importedFrom.sourceId` 要一起帶出去當 `linkedRemoteId`：那是 S1 匯入
+   * 進來的對話唯一的身分線索，漏掉的話每則都會被判成「手機獨有」再推一份
+   * 回電腦（見 `core/sync/convPair.ts`）。
+   */
+  listConversationsManifest(): ManifestConversation[] {
+    return [...this.conversationIndex.values()].map((c) =>
+      buildConversationManifestEntry(c, c.importedFrom?.sourceId)
+    )
+  }
+
+  /**
+   * S2 對話同步：取一整則對話（含訊息）。合併時要拿它算「對面缺哪些」。
+   */
+  getConversation(id: string): Conversation | null {
+    return this.conversationIndex.get(id) ?? null
+  }
+
+  /**
+   * S2 對話同步：記住「這則對話在電腦上是哪一則」。
+   *
+   * ⚠️ **推送完一定要呼叫這支。** 電腦端新建對話時會自己發 uuid，手機不記
+   * 回來的話下一趟配不起來，每次切換都多推一份 —— S2 M3 就是死在這裡
+   * （`docs/mobile-sync-m4-compare.md` §1.1）。
+   *
+   * 沿用 S1 的 `importedFrom` 欄位而不是另開一個：兩者記的是同一件事
+   * （「這則對話對應到電腦上的哪一則」），分成兩份只會讓配對邏輯要查兩個
+   * 地方，而且遲早不同步。
+   */
+  async linkConversationToRemote(localId: string, remoteId: string, sourceUpdatedAt: number): Promise<void> {
+    const conv = this.conversationIndex.get(localId)
+    if (!conv) return
+    conv.importedFrom = {
+      sourceId: remoteId,
+      sourceUpdatedAt,
+      importedAt: conv.importedFrom?.importedAt ?? Date.now()
+    }
+    await this.saveConversation(conv)
   }
 
   async loadConversation(id: string): Promise<void> {

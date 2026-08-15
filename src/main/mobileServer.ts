@@ -49,6 +49,17 @@ export interface MobileBridge {
   }[]
   /** 取一整則對話給手機匯入。**不切換電腦上正在看的那則。** */
   getConversationForSync: (id: string) => import('./types').Conversation | null
+  /** S2 對話同步：`/api/sync-manifest` 用的清單，帶訊息 id 指紋。 */
+  getConversationsManifest: () => import('../core/sync/types').ManifestConversation[]
+  /** S2 對話同步：把手機送來的一批訊息聯集併入（見 `/api/sync-conversation-merge`）。 */
+  mergeConversationMessages: (input: {
+    targetId?: string
+    title?: string
+    participantIds?: string[]
+    messages?: import('./types').Message[]
+    summary?: string
+    summaryCoversTs?: number
+  }) => { id: string; written: number; skipped: number; messageCount: number } | { error: string }
   loadConversation: (id: string) => boolean
   createConversation: (title?: string) => { id: string; title: string; updatedAt: number; active: boolean }
   renameConversation: (id: string, title: string) => { ok: true; conversation: { id: string; title: string; updatedAt: number; active: boolean } } | { error: string }
@@ -1657,6 +1668,28 @@ async function handleRequest(
     if (!wanted) { jsonError(res, 400, 'id required'); return }
     const conv = bridge.getConversationForSync(wanted)
     if (!conv) { jsonError(res, 404, 'Conversation not found'); return }
+    /*
+     * S2 對話同步：`?idsOnly=1` 只回訊息 id 與時間戳，不回內容。
+     *
+     * 推送方向要先算「電腦缺哪幾則」才知道要送什麼，但為了這個把整則對話
+     * （含所有圖片 data URI）拉下來，等於為了問一個問題先付整份的傳輸成本，
+     * 而且大對話會直接在 CapacitorHttp 的 base64 bridge 上爆掉。
+     * 拉取方向仍然要完整內容，走原本那條路。
+     */
+    if (requestUrl.searchParams.get('idsOnly') === '1') {
+      jsonOk(res, {
+        conversation: {
+          id: conv.id,
+          title: conv.title,
+          updatedAt: conv.updatedAt,
+          summary: conv.summary,
+          summaryCoversTs: conv.summaryCoversTs,
+          participantIds: conv.participantIds ?? [],
+          messageIds: (conv.messages ?? []).map((m) => m.id)
+        }
+      })
+      return
+    }
     jsonOk(res, { conversation: conv })
     return
   }
@@ -1686,14 +1719,42 @@ async function handleRequest(
       worlds: b.getWorldPresets(),
       scenes: b.getScenes(),
       lorebooks: books,
-      conversations: b.getConversationsForSync().map((c) => ({
-        id: c.id,
-        title: c.title,
-        updatedAt: c.updatedAt,
-        messageCount: c.messageCount
-      })),
+      // S2 對話同步：多帶訊息 id 指紋，手機才判得出「這則兩邊完全一樣」。
+      // 算法在 `core/sync/manifestBuild.ts`，跟手機共用同一支。
+      conversations: b.getConversationsManifest(),
       settingsHash: settingsSnapshotHash(buildSettingsSnapshot(b))
     }))
+    return
+  }
+
+  /*
+   * ── POST /api/sync-conversation-merge ── S2 對話同步：手機 → 電腦的訊息追加
+   *
+   * 規格與合併規則見 `docs/mobile-mode-switch-sync.md` §6.2 ②，實作在
+   * `core/sync/convHash.ts`（手機端合併走同一支，兩邊不可能漂移）。
+   *
+   * ⚠️ **body 上限要放寬到 MEDIA_MAX_BODY**：訊息帶圖片 data URI，而 base64
+   * 又比原檔大 1/3。手機端已經依累計位元組切塊，但單則帶三張圖就可能自己
+   * 超過預設上限——被 413 擋掉的話症狀是「大部分對話同步得好好的，唯獨帶圖
+   * 那幾則永遠過不去」，而且錯誤訊息只說檔案太大，看不出是哪一則。
+   *
+   * 回應的 `id` 是合約的一部分：新建時電腦自己發 uuid，手機要記回去，
+   * 否則下一趟配不起來、每次切換都多一份（S2 M3 的死因）。
+   */
+  if (method === 'POST' && url === '/api/sync-conversation-merge') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{
+      targetId?: string
+      title?: string
+      participantIds?: string[]
+      messages?: import('./types').Message[]
+      summary?: string
+      summaryCoversTs?: number
+    }>(req, res, MEDIA_MAX_BODY)
+    if (!payload) return
+    const out = bridge.mergeConversationMessages(payload)
+    if ('error' in out) { jsonError(res, 404, out.error); return }
+    jsonOk(res, out)
     return
   }
 
