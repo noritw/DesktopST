@@ -5,17 +5,36 @@
 
 ## 怎麼用這份文件
 
-每個任務都是獨立的，彼此沒有相依，順序隨意。流程固定：
+**⚠️ 2026-08-15 修正：一律用 Continue 的「Chat」模式，不要用「Agent」模式。**
+
+實測 Qwen3:8B／Gemma4:12B 在 Agent 模式下，面對一個 500 行的檔案會卡死——
+Qwen 直接喊超過上下文限制；Gemma 陷在「自己決定要不要搜尋、搜什麼」的迴圈裡
+反覆呼叫空字串搜尋，永遠沒有進度。這不是提示詞的問題，是**這個量級的模型在
+16GB 這種資源緊繃的環境下，多輪工具呼叫的可靠度本來就差**——它們擅長的是
+「給一段完整文字、輸出修改後的文字」這種單輪轉換，不擅長「自己判斷要不要
+去讀哪個檔案的哪一段」。
+
+關鍵區別：**「Chat 模式手動附加檔案」跟「Agent 模式讓模型自己決定要不要搜尋」
+是兩件完全不同的事**——前者是靜態塞進 prompt，模型不用自己判斷、不用呼叫工具，
+後者才是卡住的元凶。T5／T9 這兩個任務我已經把需要的程式碼片段直接寫進 prompt 裡，
+連附加檔案都不用；T6／T7／T8／T2 這幾個還是要附檔案到 context，但一樣走
+**Chat 模式手動附加**，不要給它自主搜尋的能力。
 
 ```
 1. git pull（分支 feat/mobile-standalone）
-2. 把「要附進上下文的檔案」逐一加進 Continue 的 context
-3. 貼「可直接貼的 prompt」那一段
-4. 模型改完 → owner 自己跑 npm run typecheck && npm test
-5. 通過才 commit，一個任務一個 commit
+2. Continue 切到「Chat」模式（不是 Agent／不是有工具呼叫能力的模式）
+3. 若該任務有「要附進上下文的檔案」，手動一個個加進 Continue 的 context
+   （這是靜態附加，不是讓模型自己搜尋——兩者在 Continue 介面上是不同操作）
+4. 貼「可直接貼的 prompt」那一整段
+5. 模型直接在對話裡回你修改後的內容
+6. owner 手動把回覆貼回對應檔案（複製貼上，不是讓模型自己寫檔）
+7. owner 自己跑 npm run typecheck && npm test（純文件任務跳過這步）
+8. 通過才 commit，一個任務一個 commit
 ```
 
 **測試一律由 owner 跑，不採信模型「我已經測過了」的說法。**
+**寫檔也一律由 owner 動手貼上，不要讓模型自己呼叫寫檔工具**——
+Agent 模式的失敗已經證明這類工具呼叫在這台機器上不夠穩。
 
 ---
 
@@ -31,42 +50,99 @@ M3 那支從頭到尾**沒有任何呼叫端**，是死碼。留著會讓下一�
 
 已確認：`grep -rn "pushSettings" src/` 只有定義那一行，沒有呼叫。
 
-## 要附進上下文的檔案
+## 已經確認過的事實（不需要模型自己驗證）
 
-- `src/mobile/runtime/syncPush.ts`
+- `pushSettings()` 只用到檔案頂端**共用**的 import（`SyncSource`／`StandaloneSession`／
+  `FetchImpl`），沒有專屬的 import 或 helper——它唯一呼叫的 `pushJson()` 是別的
+  函式也在用的共用 helper，**不能刪**。
+- `tests/mobile/syncPush.test.ts` 裡完全沒有提到 `pushSettings`，測試檔不用動。
+- 所以這次改動**只有一件事**：把 `syncPush.ts` 裡從第 409 行空行開始、到第 459 行
+  空行結束（含那段 JSDoc 註解與整支函式）刪掉，前後其他程式碼一字不動。
+
+## 可直接貼的 prompt（Chat 模式，不用附加任何檔案）
+
+```
+以下是 src/mobile/runtime/syncPush.ts 檔案裡連續的一段（第 404～463 行，
+前後各留一個相鄰函式當定位點，避免貼錯位置）：
+
+------ 原始內容開始 ------
+async function pushLorebook(src: SyncSource, session: StandaloneSession, id: string, fetchImpl: FetchImpl): Promise<void> {
+  const lore = await session.getLorebook(id)
+  if (!lore) throw new Error(`Lorebook ${id} not found`)
+  await pushJson(src, '/api/lorebooks/save', { book: lore }, fetchImpl)
+}
+
+/**
+ * 推送設定到電腦（§5 步驟④）。
+ *
+ * **重要**（§3.3）：設定沒有整包端點，要拆成好幾支呼叫。
+ * `buildLocalManifest()` 算 `settingsHash` 用的子集是：
+ * { llm: { provider, model, models, endpoint, maxResponseTokens, maxGroupRounds, maxImagesPerMessage },
+ *   memory, colorTheme, modules }
+ */
+async function pushSettings(src: SyncSource, session: StandaloneSession, fetchImpl: FetchImpl): Promise<void> {
+  const s = session.settings
+  const llm = s.llm
+
+  // LLM 設定：拆成多個端點
+  await pushJson(src, '/api/settings/llm-provider', { provider: llm.provider }, fetchImpl)
+  await pushJson(src, '/api/settings/llm-model', { provider: llm.provider, model: llm.model }, fetchImpl)
+
+  // LLM endpoint（可選）：逐 provider 各推一次，不能只推目前這家——
+  // 本機端點多半設在非當前 provider 上（主＝雲端／輔助＝本機）
+  for (const [p, ep] of Object.entries(llm.endpoints ?? {})) {
+    if (ep) await pushJson(src, '/api/settings/llm-endpoint', { provider: p, endpoint: ep }, fetchImpl)
+  }
+
+  // LLM chat limits（一次送所有值）
+  await pushJson(src, '/api/settings/llm-chat-limits', {
+    maxResponseTokens: llm.maxResponseTokens,
+    maxGroupRounds: llm.maxGroupRounds,
+    maxImagesPerMessage: llm.maxImagesPerMessage
+  }, fetchImpl)
+
+  // 記憶設定
+  if (s.memory) {
+    await pushJson(src, '/api/settings/memory', {
+      keepRecentN: s.memory.keepRecentN,
+      autoSummarizeAfter: s.memory.autoSummarizeAfter,
+      autoSummarizeEnabled: s.memory.autoSummarizeEnabled
+    }, fetchImpl)
+  }
+
+  // 配色主題
+  if (s.ui?.colorTheme) {
+    await pushJson(src, '/api/settings/color-theme', { theme: s.ui.colorTheme }, fetchImpl)
+  }
+
+  // 模組開關（逐個推送）
+  const modules = await session.listModules()
+  for (const m of modules) {
+    await pushJson(src, '/api/settings/modules/toggle', { id: m.id, enabled: m.enabled }, fetchImpl)
+  }
+}
+
+/**
+ * 推送 JSON 到電腦。
+ */
+async function pushJson(src: SyncSource, path: string, payload: unknown, fetchImpl: FetchImpl): Promise<void> {
+------ 原始內容結束 ------
+
+請輸出「刪掉 pushSettings 這整支函式（含它上面那段 JSDoc 註解）之後」的版本，
+也就是只保留 pushLorebook 那個函式、一個空行、然後直接接 pushJson 那行。
+pushLorebook 跟 pushJson 一個字都不要改，包括縮排與空行都要維持原樣。
+只要輸出改完的這段程式碼，不要加任何解釋文字。
+```
+
+貼回檔案時：用模型的輸出**取代**原檔案第 404～463 行（含頭尾兩支函式，
+因為那是拿來定位、確保貼對地方的），存檔。
 
 ## 驗收
 
-- `pushSettings()` 整支移除，連同**只被它用到**的 import／helper 一起清掉
-  （沒有其他人用才可以刪，有人用就留著）
 - `npm run typecheck` 過
-- `npm test` 過（`tests/mobile/syncPush.test.ts` 若有針對 `pushSettings` 的測試，
-  一併移除那幾個 case；其餘測試不准改）
-
-## 可直接貼的 prompt
-
-```
-你在 DesktopST 這個專案（Electron + React + TypeScript）的 feat/mobile-standalone 分支上工作。
-
-任務：移除 src/mobile/runtime/syncPush.ts 裡的死碼函式 pushSettings()。
-
-背景：這支函式是 S2 M3 時期寫的設定推送邏輯，後來 S2 M5 改用另一套架構
-（src/mobile/runtime/syncSettingsApply.ts）重做，pushSettings() 從此沒有任何呼叫端。
-
-要做的事：
-1. 刪掉 pushSettings() 整支函式。
-2. 檢查它上面的 import 和它專用的 helper 函式——只有它在用的才一起刪，
-   還有別人在用的一律保留。
-3. 如果 tests/mobile/syncPush.test.ts 裡有測 pushSettings 的 case，刪掉那幾個 case。
-   其他測試一個字都不要改。
-
-不要做的事：
-- 不要順手重構、重新命名、調整格式，或「清理」任何註解。
-  這個專案的中文註解是刻意寫的，記錄了踩過的坑，一律原樣保留。
-- 不要改 syncSettingsApply.ts 或任何其他檔案。
-
-改完直接告訴我你刪了哪些東西，不要宣稱測試通過——測試我自己跑。
-```
+- `npm test` 過（`tests/mobile/syncPush.test.ts` 不需要改，維持原樣即可全過）
+- `git diff` 確認**只有** `pushSettings()` 那 50 行被刪掉，`pushLorebook`／`pushJson`
+  跟檔案其他地方一個字元都沒變
 
 ---
 
@@ -89,12 +165,12 @@ M3 那支從頭到尾**沒有任何呼叫端**，是死碼。留著會讓下一�
    如果樂觀訊息已經被伺服器版本取代，就不顯示錯誤泡泡（否則使用者會看到一則
    假的「連不上電腦」，然後真正的回覆過一下子才自己冒出來）。
 
-## 要附進上下文的檔案
+## 這次不附檔案——需要的東西全部寫進下面的 prompt 裡了
 
-- `src/mobile/ui/stores/appStore.ts`（受測對象）
-- `tests/ui/messageMerge.test.ts`（**風格範本**——同一支 store 的既有測試，照它的寫法）
-- `src/core/data/types.ts`（`DataSource`／`DataError` 型別，寫假物件要用）
-- `src/core/events/types.ts`（`EventSource` 型別，同上）
+Continue 用 Chat 模式，**不用**把 `appStore.ts` 整支附進去（396 行，
+就是這個任務讓 Qwen3:8B 喊超過上下文限制的元凶）。下面的 prompt 已經把
+受測函式的精確行為、風格範本、型別定義全部節錄好，模型只要照著生成新測試檔，
+不用自己去讀或搜尋任何檔案。
 
 ## 驗收
 
@@ -107,37 +183,191 @@ M3 那支從頭到尾**沒有任何呼叫端**，是死碼。留著會讓下一�
 
 `npm test` 全過（時區那 2 個既有失敗不算）。
 
-## 可直接貼的 prompt
+## 可直接貼的 prompt（Chat 模式，不用附加任何檔案）
 
 ```
-你在 DesktopST 這個專案（Electron + React + TypeScript + Zustand + vitest）的
-feat/mobile-standalone 分支上工作。
+你要幫我寫一個 vitest 測試檔，測試對象是一個 Zustand store（appStore）。
+以下把你需要的所有背景資訊都列出來了，不需要去讀取或搜尋任何檔案。
 
-任務：為 src/mobile/ui/stores/appStore.ts 最近新增的兩處邏輯補單元測試，
-新增檔案 tests/ui/appStoreAttach.test.ts。
+## 受測 store 的相關程式碼（節錄自 src/mobile/ui/stores/appStore.ts）
 
-受測目標一：isAttached()
-  這支讓元件在 store 還沒 attach() 完成前能安全查詢連線狀態，不像 getData() 會 throw。
-  要測：attach() 之前是 false、之後是 true、呼叫 attach() 回傳的 detach 函式之後回到 false。
+型別與模組層變數：
 
-受測目標二：send() 裡處理 DataError('unreachable') 的對帳分支
-  行為規格：
-  - sendMessage() 丟出 unreachable → 先呼叫一次 refresh() 對帳
-    - 對帳後樂觀訊息（id 以 "optimistic:" 開頭那則）已經不在 messages 裡
-      → 視為其實有送達，不要留下任何 role: 'system' 的錯誤訊息，sending 要回到 false
-    - 對帳後樂觀訊息還在 → 照原本流程把它換成 role: 'system' 的錯誤泡泡
-  - sendMessage() 丟出其他錯誤碼（例如 unauthorized）→ 不做對帳，直接顯示錯誤泡泡
+  interface AppState {
+    ready: boolean
+    messages: MessageSnapshot[]
+    sending: boolean
+    attach: (deps: { data: DataSource; events: EventSource }) => () => void
+    refresh: () => Promise<void>
+    send: (input: SendMessageInput) => Promise<void>
+  }
 
-寫法要求：
-- 照 tests/ui/messageMerge.test.ts 的風格（同一支 store 的既有測試），
-  describe/it 的敘述用繁體中文，跟既有測試一致。
-- 用假的 DataSource 與 EventSource 物件注入 attach()，不要碰真的網路。
-  refresh() 會呼叫 data.getState()，你可以讓假物件回傳你要的 messages 來模擬對帳結果。
-- 每個 it() 開始前把 store 重設乾淨，避免測試互相污染。
+  let deps: { data: DataSource; events: EventSource } | null = null
 
-不要改 src/ 底下任何程式，只新增這一個測試檔。
-不要宣稱測試通過——測試我自己跑。
+  export function isAttached(): boolean {
+    return deps !== null
+  }
+
+  export const useAppStore = create<AppState>((set, get) => ({
+    ready: false,
+    messages: [],
+    sending: false,
+    // ...其餘初始值省略...
+
+    attach: (d) => {
+      deps = d
+      const offEvent = d.events.subscribe((e) => handleEvent(e, set, get))
+      const offStatus = d.events.onStatusChange((status) => set({ status }))
+      d.events.start()
+      void get().refresh()
+      return () => {
+        offEvent()
+        offStatus()
+        d.events.stop()
+        deps = null
+      }
+    },
+
+    refresh: async () => {
+      if (!deps) return
+      try {
+        const snapshot = await deps.data.getState()
+        const messages = snapshot.conversation?.messages ?? []
+        set({ snapshot, messages, ready: true, loadError: null })
+      } catch (e) {
+        if (get().ready) return
+        set({ loadError: e instanceof DataError ? e : new DataError('unknown', String(e)) })
+      }
+    },
+
+    send: async (input) => {
+      if (!deps) return
+      const optimistic: MessageSnapshot = {
+        id: `optimistic:${Date.now()}`,
+        role: 'user',
+        content: input.content,
+        timestamp: Date.now()
+      }
+      set((s) => ({ messages: [...s.messages, optimistic], sending: true }))
+
+      try {
+        await deps.data.sendMessage(input)
+      } catch (e) {
+        // 這是這次要測的重點分支：unreachable 時先對帳一次
+        if (e instanceof DataError && e.code === 'unreachable') {
+          await get().refresh().catch(() => {})
+          if (!get().messages.some((m) => m.id === optimistic.id)) {
+            set({ sending: false })
+            return   // 對帳後發現其實有送達，不顯示錯誤
+          }
+        }
+        // 對帳後樂觀訊息還在（或不是 unreachable）：換成錯誤泡泡
+        set((s) => ({
+          sending: false,
+          messages: s.messages.map((m) =>
+            m.id === optimistic.id
+              ? { ...m, role: 'system' as const, content: describeError(e, 'send') }
+              : m
+          )
+        }))
+        throw e
+      }
+      set({ sending: false })
+    }
+  }))
+
+## 需要的型別定義（節錄自 src/core/data/types.ts、src/core/events/types.ts）
+
+  interface DataSource {
+    sendMessage(input: SendMessageInput): Promise<void>
+    getState(): Promise<AppStateSnapshot>
+    // 其餘成員這次用不到，寫假物件時用 `as unknown as DataSource` 略過型別檢查即可
+  }
+
+  interface AppStateSnapshot {
+    conversation: { id: string; title: string; messages: MessageSnapshot[] } | null
+    // 其餘欄位這次用不到
+  }
+
+  interface MessageSnapshot {
+    id: string
+    role: 'user' | 'character' | 'system'
+    content: string
+    timestamp: number
+  }
+
+  class DataError extends Error {
+    constructor(public code: 'unreachable' | 'unauthorized' | 'invalid-input' | 'not-supported' | 'unknown', detail?: string)
+  }
+
+  interface EventSource {
+    start(): void
+    stop(): void
+    subscribe(listener: (e: AppEvent) => void): () => void
+    onStatusChange(listener: (status: ConnectionStatus) => void): () => void
+    getStatus(): ConnectionStatus
+    notifyForeground(): void
+  }
+
+## 專案裡已經有的、可以直接用的 EventSource 實作（src/mobile/events/localEventSource.ts，原封不動搬過去用即可，不用自己重寫）
+
+  import { EventHub } from '@core/events'
+  import type { AppEvent, ConnectionStatus, EventSource } from '@core/events'
+
+  export class LocalEventSource implements EventSource {
+    private hub = new EventHub()
+    subscribe = (l) => this.hub.subscribe(l)
+    onStatusChange = (l) => this.hub.onStatusChange(l)
+    getStatus = () => this.hub.getStatus()
+    start(): void { this.hub.setStatus('online') }
+    stop(): void { this.hub.setStatus('idle') }
+    notifyForeground(): void {}
+    push(event: AppEvent): void { this.hub.emit(event) }
+  }
+
+## 專案裡既有測試的假資料寫法慣例（節錄自 tests/ui/newsStoreInvalidate.test.ts，照這個寫 DataSource 假物件）
+
+  function fakeSource(build: () => Partial<DataSource>): DataSource {
+    return build() as unknown as DataSource
+  }
+
+  // 用法範例：
+  const data = fakeSource(() => ({
+    async getState() { return { conversation: { id: 'c1', title: 't', messages: [] } } },
+    async sendMessage(input) { /* 依測試情境決定 resolve 或 throw */ }
+  }))
+  useAppStore.getState().attach({ data, events: new LocalEventSource() })
+
+## 任務
+
+新增檔案 tests/ui/appStoreAttach.test.ts，繁體中文撰寫 describe/it 敘述，
+匯入路徑用 '../../src/mobile/ui/stores/appStore'、'../../src/mobile/events/localEventSource'、
+'../../src/core/data'、'../../src/core/events'（照上面兩個範例檔的相對路徑寫法）。
+
+至少要有這些測試案例：
+
+1. isAttached() 在呼叫 attach() 之前回傳 false
+2. isAttached() 在 attach() 之後回傳 true
+3. isAttached() 在呼叫 attach() 回傳的 detach 函式之後回到 false
+4. send() 情境：sendMessage() 丟出 new DataError('unreachable')，但接下來 refresh()
+   （也就是假物件的 getState()）回傳的 conversation.messages 已經不包含那則樂觀訊息
+   （代表其實有送達）→ messages 裡不應該出現任何 role: 'system' 的錯誤訊息，
+   而且 sending 最後要是 false
+5. send() 情境：sendMessage() 丟出 unreachable，且 getState() 回傳的 messages 仍不含
+   那則使用者訊息（代表電腦真的斷線沒送到）→ messages 裡原本那則樂觀訊息要被換成
+   role: 'system' 的錯誤訊息
+6. send() 情境：sendMessage() 丟出 new DataError('unauthorized')（不是 unreachable）
+   → 不應該呼叫對帳（可以用一個計數器變數確認 getState 沒被多呼叫一次），
+   直接把樂觀訊息換成錯誤訊息
+
+每個 it() 開始前用 useAppStore.setState({...}) 把 store 重設乾淨（messages: []、
+sending: false、ready: false），避免測試互相污染。
+
+只要輸出這一個新檔案的完整內容，不要輸出其他說明文字，也不要修改任何既有檔案。
 ```
+
+拿到輸出後：另存成 `tests/ui/appStoreAttach.test.ts`，跑 `npm test` 驗證。
+如果它同時輸出了對其他檔案的建議，一律不採用——只要新測試檔那一個。
 
 ---
 
