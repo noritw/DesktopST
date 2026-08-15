@@ -4,6 +4,7 @@ import type { PushSummary } from '../../runtime/syncPush'
 import type { SyncResult } from '../../runtime/syncImport'
 import type { ApplyResult } from '../../runtime/syncApply'
 import type { SettingsApplyResult } from '../../runtime/syncSettingsApply'
+import type { ConvApplyResult } from '../../runtime/syncConversations'
 
 /** M4 摘要的顯示順序與字樣。 */
 const APPLY_LABELS: [PairKind, string][] = [
@@ -135,7 +136,11 @@ export function formatPullSummaryMessage(result: SyncResult): string {
  * 資料與設定各自跑一套 apply（`syncApply.ts`／`syncSettingsApply.ts`），
  * 但使用者只在乎「這趟同步到底做了什麼」，所以合成一則訊息，不分兩個對話框。
  */
-export function formatApplyMessage(data: ApplyResult, settings?: SettingsApplyResult): string {
+export function formatApplyMessage(
+  data: ApplyResult,
+  settings?: SettingsApplyResult,
+  conv?: ConvApplyResult
+): string {
   const section = (title: string, bucket: Record<PairKind, string[]>): string[] => {
     const lines = APPLY_LABELS.map(([key, label]) => {
       const names = bucket[key]
@@ -155,7 +160,30 @@ export function formatApplyMessage(data: ApplyResult, settings?: SettingsApplyRe
     if (settings.pulled.length > 0) out.push('設定 帶回手機：', `・${settings.pulled.join('、')}`)
   }
 
-  const failed = [...data.failed, ...(settings?.failed.map((f) => ({ name: f.label, error: f.error })) ?? [])]
+  /*
+   * 對話的合併是雙向的，不能塞進「送到電腦／帶回手機」那兩段——那會讓
+   * 使用者以為某一邊被覆蓋了。分開講，而且要講出實際補了幾則訊息：
+   * 「3 則對話」看不出是補了 3 句還是 300 句。
+   */
+  if (conv) {
+    if (conv.merged.length > 0) {
+      out.push(`對話兩邊補齊（${conv.merged.length}）：`, `・${conv.merged.join('、')}`)
+    }
+    if (conv.pushed.length > 0) out.push(`對話 送到電腦（${conv.pushed.length}）：`, `・${conv.pushed.join('、')}`)
+    if (conv.pulled.length > 0) out.push(`對話 帶回手機（${conv.pulled.length}）：`, `・${conv.pulled.join('、')}`)
+    if (conv.messagesToRemote > 0 || conv.messagesToLocal > 0) {
+      const bits: string[] = []
+      if (conv.messagesToRemote > 0) bits.push(`電腦補了 ${conv.messagesToRemote} 則訊息`)
+      if (conv.messagesToLocal > 0) bits.push(`手機補了 ${conv.messagesToLocal} 則訊息`)
+      out.push(`（${bits.join('，')}）`)
+    }
+  }
+
+  const failed = [
+    ...data.failed,
+    ...(settings?.failed.map((f) => ({ name: f.label, error: f.error })) ?? []),
+    ...(conv?.failed.map((f) => ({ name: f.title, error: f.error })) ?? [])
+  ]
   if (failed.length > 0) {
     out.push('', `⚠️ 有 ${failed.length} 筆沒成功：`)
     for (const f of failed) out.push(`・${f.name}（${f.error}）`)

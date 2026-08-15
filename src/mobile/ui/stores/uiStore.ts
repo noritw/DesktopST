@@ -2,11 +2,16 @@ import { create } from 'zustand'
 import type { ColorTheme } from '@core/types'
 import type { ChoiceMap, PairTable } from '@core/sync/pair'
 import type { SettingsChoiceMap, SettingsFieldRow } from '@core/sync/settingsPair'
+import type { ConvChoiceMap, ConvFieldChoiceMap, ConvRow } from '@core/sync/convPair'
 
-/** `openSyncCompare` 的成功結果——資料的決定與設定的決定各自一份 map。 */
+/** `openSyncCompare` 的成功結果——資料／設定／對話各自一份 map。 */
 export interface SyncCompareResult {
   choices: ChoiceMap
   settingsChoices: SettingsChoiceMap
+  /** 對話走完全不同的合併模型（聯集，不是二選一），見 `core/sync/convPair.ts`。 */
+  convChoices: ConvChoiceMap
+  /** 對話裡標題／摘要那些單值欄位的二選一。 */
+  convFieldChoices: ConvFieldChoiceMap
 }
 
 /**
@@ -162,9 +167,14 @@ interface UiState {
   syncCompare: {
     table: PairTable
     settingsRows: SettingsFieldRow[]
+    convRows: ConvRow[]
     resolve: (result: SyncCompareResult | null) => void
   } | null
-  openSyncCompare: (table: PairTable, settingsRows: SettingsFieldRow[]) => Promise<SyncCompareResult | null>
+  openSyncCompare: (
+    table: PairTable,
+    settingsRows: SettingsFieldRow[],
+    convRows: ConvRow[]
+  ) => Promise<SyncCompareResult | null>
   closeSyncCompare: (result: SyncCompareResult | null) => void
 
   stack: ViewEntry[]
@@ -259,9 +269,9 @@ export const useUiStore = create<UiState>((set, get) => ({
   },
 
   syncCompare: null,
-  openSyncCompare: (table, settingsRows) =>
+  openSyncCompare: (table, settingsRows, convRows) =>
     new Promise<SyncCompareResult | null>((resolve) => {
-      set({ syncCompare: { table, settingsRows, resolve } })
+      set({ syncCompare: { table, settingsRows, convRows, resolve } })
     }),
   closeSyncCompare: (result) => {
     const c = get().syncCompare

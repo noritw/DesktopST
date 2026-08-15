@@ -23,11 +23,25 @@ import {
   type SettingsGroup,
   type SettingsPlanCounts
 } from '@core/sync/settingsPair'
+import {
+  applyConvPreset,
+  convActionFor,
+  countConvPlan,
+  defaultConvChoices,
+  defaultConvFieldChoices,
+  type ConvChoice,
+  type ConvChoiceMap,
+  type ConvFieldChoice,
+  type ConvFieldChoiceMap,
+  type ConvFieldKey,
+  type ConvPlanCounts,
+  type ConvRow
+} from '@core/sync/convPair'
 import { useUiStore } from '../stores/uiStore'
 
 /** 分頁籤：五類資料 ＋ 一個「設定」。用字面量聯集而不是塞進 `PairKind`，
  * 因為設定走完全不同的比對系統（`core/sync/settingsPair.ts`），沒有 id 配對。 */
-type Tab = PairKind | 'settings'
+type Tab = PairKind | 'settings' | 'conversations'
 
 const SETTINGS_GROUP_LABEL: Record<SettingsGroup, string> = {
   llm: 'AI 模型',
@@ -38,12 +52,14 @@ const SETTINGS_GROUP_LABEL: Record<SettingsGroup, string> = {
 }
 
 /** 底部那一行「這次會做什麼」。 */
-function summary(plan: PairPlanCounts, settingsPlan: SettingsPlanCounts): string {
+function summary(plan: PairPlanCounts, settingsPlan: SettingsPlanCounts, convPlan: ConvPlanCounts): string {
   const parts: string[] = []
-  const push = plan.push + settingsPlan.push
-  const pull = plan.pull + settingsPlan.pull
+  const push = plan.push + settingsPlan.push + convPlan.push
+  const pull = plan.pull + settingsPlan.pull + convPlan.pull
   if (push > 0) parts.push(`${push} 筆送到電腦`)
   if (pull > 0) parts.push(`${pull} 筆帶回手機`)
+  // 對話的合併是雙向的，跟「送過去／帶回來」不是同一回事，分開講
+  if (convPlan.merge > 0) parts.push(`${convPlan.merge} 則對話兩邊補齊`)
   if (plan.deleteLocal > 0) parts.push(`從手機刪掉 ${plan.deleteLocal} 筆`)
   if (plan.deleteRemote > 0) parts.push(`從電腦刪掉 ${plan.deleteRemote} 筆`)
   return parts.length === 0 ? '這樣不會搬動任何資料' : `會${parts.join('、')}`
@@ -81,6 +97,8 @@ export function SyncComparePicker(): JSX.Element | null {
 
   const [choices, setChoices] = useState<ChoiceMap | null>(null)
   const [settingsChoices, setSettingsChoices] = useState<SettingsChoiceMap | null>(null)
+  const [convChoices, setConvChoices] = useState<ConvChoiceMap | null>(null)
+  const [convFieldChoices, setConvFieldChoices] = useState<ConvFieldChoiceMap>({})
   const [tab, setTab] = useState<Tab>('characters')
   const [showSame, setShowSame] = useState(false)
 
@@ -89,6 +107,8 @@ export function SyncComparePicker(): JSX.Element | null {
     if (!box) return
     setChoices(defaultChoices(box.table))
     setSettingsChoices(defaultSettingsChoices(box.settingsRows))
+    setConvChoices(defaultConvChoices(box.convRows))
+    setConvFieldChoices(defaultConvFieldChoices(box.convRows))
     // 預設停在第一個「有東西要決定」的分頁，不要開在空的角色頁
     const firstBusy = KINDS.find((k) => box.table[k].some((r) => r.compare !== 'same'))
     const settingsBusy = box.settingsRows.some((r) => r.differs)
@@ -98,6 +118,7 @@ export function SyncComparePicker(): JSX.Element | null {
 
   const table = box?.table
   const settingsRows = box?.settingsRows
+  const convRows = box?.convRows
   const plan = useMemo(
     (): PairPlanCounts =>
       table && choices ? countPlan(table, choices) : { push: 0, pull: 0, deleteLocal: 0, deleteRemote: 0, untouched: 0 },
@@ -109,7 +130,15 @@ export function SyncComparePicker(): JSX.Element | null {
     [settingsRows, settingsChoices]
   )
 
-  if (!box || !choices || !table || !settingsChoices || !settingsRows) return null
+  const convPlan = useMemo(
+    (): ConvPlanCounts =>
+      convRows && convChoices
+        ? countConvPlan(convRows, convChoices, convFieldChoices)
+        : { merge: 0, push: 0, pull: 0, untouched: 0, fieldEdits: 0 },
+    [convRows, convChoices, convFieldChoices]
+  )
+
+  if (!box || !choices || !table || !settingsChoices || !settingsRows || !convChoices || !convRows) return null
 
   const setOne = (kind: PairKind, key: string, choice: PairChoice): void => {
     setChoices((prev) => (prev ? { ...prev, [kind]: { ...prev[kind], [key]: choice } } : prev))
@@ -117,10 +146,24 @@ export function SyncComparePicker(): JSX.Element | null {
   const setOneSetting = (key: string, choice: SettingsChoice): void => {
     setSettingsChoices((prev) => (prev ? { ...prev, [key]: choice } : prev))
   }
+  const setOneConv = (key: string, choice: ConvChoice): void => {
+    setConvChoices((prev) => (prev ? { ...prev, [key]: choice } : prev))
+  }
+  const setOneConvField = (key: string, field: ConvFieldKey, choice: ConvFieldChoice): void => {
+    setConvFieldChoices((prev) => ({ ...prev, [key]: { ...prev[key], [field]: choice } }))
+  }
 
   const deleteCount = plan.deleteLocal + plan.deleteRemote
   const nothingToDo =
-    plan.push === 0 && plan.pull === 0 && deleteCount === 0 && settingsPlan.push === 0 && settingsPlan.pull === 0
+    plan.push === 0 &&
+    plan.pull === 0 &&
+    deleteCount === 0 &&
+    settingsPlan.push === 0 &&
+    settingsPlan.pull === 0 &&
+    convPlan.merge === 0 &&
+    convPlan.push === 0 &&
+    convPlan.pull === 0 &&
+    convPlan.fieldEdits === 0
 
   /**
    * 送出前的第二道關卡（owner 2026-08-14 要求）。
@@ -141,15 +184,19 @@ export function SyncComparePicker(): JSX.Element | null {
       })
       if (!ok) return
     }
-    close({ choices, settingsChoices })
+    close({ choices, settingsChoices, convChoices, convFieldChoices })
   }
 
   const isSettingsTab = tab === 'settings'
-  const rows = isSettingsTab ? [] : table[tab]
+  const isConvTab = tab === 'conversations'
+  const rows = isSettingsTab || isConvTab ? [] : table[tab as PairKind]
   const visible = showSame ? rows : rows.filter((r) => r.compare !== 'same')
   const sameCount = rows.length - rows.filter((r) => r.compare !== 'same').length
   const visibleSettings = showSame ? settingsRows : settingsRows.filter((r) => r.differs)
   const sameSettingsCount = settingsRows.length - settingsRows.filter((r) => r.differs).length
+  const convTodo = (r: ConvRow): boolean => r.compare !== 'same' || r.conflicts.length > 0
+  const visibleConv = showSame ? convRows : convRows.filter(convTodo)
+  const sameConvCount = convRows.length - convRows.filter(convTodo).length
 
   return (
     <div className="anim-fade-in fixed inset-0 z-[62] flex flex-col bg-black/45" role="dialog" aria-label="比對手機與電腦的資料">
@@ -167,28 +214,45 @@ export function SyncComparePicker(): JSX.Element | null {
           </p>
         </div>
 
-        {/* 三顆快捷（只影響目前分頁：資料分頁動 table，設定分頁動設定欄位） */}
+        {/*
+          快捷鍵。**對話分頁刻意只有兩顆**：「全部用手機／電腦」的語意是
+          「用這一邊蓋掉另一邊」，套在訊息聯集上等於每按一次就丟掉對面獨有的
+          訊息——而使用者會以為自己選了一個安全的選項。詳見 `core/sync/convPair.ts`。
+        */}
         <div className="flex gap-2 border-b border-[var(--border)] px-4 py-2">
-          <PresetButton
-            label="全部用手機"
-            onClick={() =>
-              isSettingsTab ? setSettingsChoices(applySettingsPreset(settingsRows, 'local')) : setChoices(applyPreset(table, 'local'))
-            }
-          />
-          <PresetButton
-            label="全部用電腦"
-            onClick={() =>
-              isSettingsTab
-                ? setSettingsChoices(applySettingsPreset(settingsRows, 'remote'))
-                : setChoices(applyPreset(table, 'remote'))
-            }
-          />
-          <PresetButton
-            label="保留差異"
-            onClick={() =>
-              isSettingsTab ? setSettingsChoices(applySettingsPreset(settingsRows, 'keep')) : setChoices(applyPreset(table, 'keep'))
-            }
-          />
+          {isConvTab ? (
+            <>
+              <PresetButton label="全部補齊" onClick={() => setConvChoices(applyConvPreset(convRows, 'all'))} />
+              <PresetButton label="全部不動" onClick={() => setConvChoices(applyConvPreset(convRows, 'none'))} />
+            </>
+          ) : (
+            <>
+              <PresetButton
+                label="全部用手機"
+                onClick={() =>
+                  isSettingsTab
+                    ? setSettingsChoices(applySettingsPreset(settingsRows, 'local'))
+                    : setChoices(applyPreset(table, 'local'))
+                }
+              />
+              <PresetButton
+                label="全部用電腦"
+                onClick={() =>
+                  isSettingsTab
+                    ? setSettingsChoices(applySettingsPreset(settingsRows, 'remote'))
+                    : setChoices(applyPreset(table, 'remote'))
+                }
+              />
+              <PresetButton
+                label="保留差異"
+                onClick={() =>
+                  isSettingsTab
+                    ? setSettingsChoices(applySettingsPreset(settingsRows, 'keep'))
+                    : setChoices(applyPreset(table, 'keep'))
+                }
+              />
+            </>
+          )}
         </div>
 
         {/* 分頁籤 */}
@@ -212,6 +276,18 @@ export function SyncComparePicker(): JSX.Element | null {
           })}
           <button
             type="button"
+            onClick={() => setTab('conversations')}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] ${
+              isConvTab ? 'bg-[var(--mint)] text-[var(--text)]' : 'border border-[var(--border)] text-[var(--text-sub)]'
+            }`}
+          >
+            對話
+            {convRows.filter(convTodo).length > 0 && (
+              <span className="ml-1 text-[10px]">{convRows.filter(convTodo).length}</span>
+            )}
+          </button>
+          <button
+            type="button"
             onClick={() => setTab('settings')}
             className={`shrink-0 rounded-full px-3 py-1.5 text-[12px] ${
               isSettingsTab ? 'bg-[var(--mint)] text-[var(--text)]' : 'border border-[var(--border)] text-[var(--text-sub)]'
@@ -225,7 +301,34 @@ export function SyncComparePicker(): JSX.Element | null {
         </div>
 
         <div className="scroll-y min-h-0 flex-1 px-2 py-2">
-          {isSettingsTab ? (
+          {isConvTab ? (
+            <>
+              {visibleConv.length === 0 && (
+                <p className="px-2 py-6 text-center text-[12px] leading-relaxed text-[var(--text-sub)]">
+                  {convRows.length === 0 ? '兩邊都沒有對話。' : '對話兩邊完全相同，沒有要決定的。'}
+                </p>
+              )}
+              {visibleConv.map((row) => (
+                <ConvCompareRow
+                  key={row.key}
+                  row={row}
+                  choice={convChoices[row.key] ?? 'keep'}
+                  fieldChoices={convFieldChoices[row.key]}
+                  onChoose={(c) => setOneConv(row.key, c)}
+                  onChooseField={(f, c) => setOneConvField(row.key, f, c)}
+                />
+              ))}
+              {sameConvCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowSame((v) => !v)}
+                  className="mt-2 w-full rounded-[12px] py-2 text-[11px] text-[var(--text-sub)] active:bg-[var(--surface)]"
+                >
+                  {showSame ? '收起' : `另有 ${sameConvCount} 則兩邊相同`}
+                </button>
+              )}
+            </>
+          ) : isSettingsTab ? (
             <>
               {visibleSettings.length === 0 && (
                 <p className="px-2 py-6 text-center text-[12px] leading-relaxed text-[var(--text-sub)]">
@@ -288,7 +391,7 @@ export function SyncComparePicker(): JSX.Element | null {
         </div>
 
         <div className="border-t border-[var(--border)] px-4 py-3">
-          <p className="mb-2 text-center text-[11px] text-[var(--text-sub)]">{summary(plan, settingsPlan)}</p>
+          <p className="mb-2 text-center text-[11px] text-[var(--text-sub)]">{summary(plan, settingsPlan, convPlan)}</p>
           {deleteCount > 0 && (
             <p className="mb-2 rounded-[8px] bg-[var(--danger)] px-2 py-1 text-center text-[11px] text-[var(--danger-text)]">
               ⚠️ 其中 {deleteCount} 筆會被刪掉，按下去之後會再問一次
@@ -402,6 +505,129 @@ function CompareRow({
       {action === 'delete-remote' && <DeleteHint text="會從電腦刪掉" />}
     </div>
   )
+}
+
+/**
+ * 對話的比對列。
+ *
+ * ## 為什麼版型跟其他分頁不一樣
+ *
+ * 其他分頁是「左手機、右電腦，選一邊」，因為那些資料是整份覆蓋。對話是
+ * **訊息層的聯集**——同一則裡兩邊都有對方沒有的訊息是**正常狀態，不是衝突**。
+ * 套用左右二選一的話，使用者每次都被逼在「要手機的還是電腦的」之間選一個
+ * 必然丟資料的答案。所以這裡的主控制只有兩態：合併／不動。
+ *
+ * 左右二選一仍然存在，但只用在它成立的地方：**單值欄位**（標題、摘要）。
+ * 那些真的只能有一個答案，長成跟設定分頁一樣的子列。
+ *
+ * ## 這個分頁不會刪東西
+ *
+ * 沒有 `--danger` 那套配色，也沒有「選空的一邊＝刪除」的語意——那是
+ * `CompareRow` 給實體資料用的。這裡按下去只會補齊，不會失去。
+ */
+function ConvCompareRow({
+  row,
+  choice,
+  fieldChoices,
+  onChoose,
+  onChooseField
+}: {
+  row: ConvRow
+  choice: ConvChoice
+  fieldChoices: ConvFieldChoiceMap[string] | undefined
+  onChoose: (c: ConvChoice) => void
+  onChooseField: (field: ConvFieldKey, c: ConvFieldChoice) => void
+}): JSX.Element {
+  const both = !!row.localId && !!row.remoteId
+  const action = convActionFor(row, choice)
+  const primaryLabel = both ? '合併（兩邊補齊）' : row.localId ? '送到電腦' : '帶回手機'
+
+  return (
+    <div className="mb-2 rounded-[14px] border border-[var(--border)] px-2 py-2">
+      <div className="flex items-baseline justify-between gap-2 px-1 pb-1">
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--text)]">{row.title}</span>
+        {!row.localId && <span className="shrink-0 text-[10px] text-[var(--text-sub)]">手機上沒有</span>}
+        {!row.remoteId && <span className="shrink-0 text-[10px] text-[var(--text-sub)]">電腦上沒有</span>}
+      </div>
+
+      {/* 兩邊各自的則數。使用者要判斷「合併之後會變怎樣」，數字比時間有用得多 */}
+      <p className="px-1 pb-1.5 text-[10px] text-[var(--text-sub)]">
+        {both
+          ? `手機 ${row.localCount ?? 0} 則 · 電腦 ${row.remoteCount ?? 0} 則`
+          : `${row.localCount ?? row.remoteCount ?? 0} 則訊息`}
+        {row.compare === 'unknown' && ' · 無法比對，會照合併處理'}
+      </p>
+
+      {row.remoteTitle && (
+        <p className="px-1 pb-1.5 text-[10px] text-[var(--text-sub)]">電腦上叫「{row.remoteTitle}」</p>
+      )}
+
+      <div className="flex items-stretch gap-1">
+        <button
+          type="button"
+          onClick={() => onChoose(both ? 'merge' : 'copy')}
+          className={`min-w-0 flex-1 rounded-[10px] py-1.5 text-[12px] ${
+            choice !== 'keep' ? 'bg-[var(--mint)] text-[var(--text)]' : 'border border-[var(--border)] text-[var(--text)]'
+          }`}
+        >
+          <span className="flex items-center justify-center gap-1">
+            {choice !== 'keep' && <MonoIcon name="check" className="h-3 w-3" />}
+            {primaryLabel}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => onChoose('keep')}
+          className={`shrink-0 rounded-[10px] px-3 text-[11px] ${
+            choice === 'keep' ? 'bg-[var(--mint)] text-[var(--text)]' : 'border border-[var(--border)] text-[var(--text-sub)]'
+          }`}
+        >
+          不動
+        </button>
+      </div>
+
+      {action === 'none' && choice !== 'keep' && row.compare === 'same' && (
+        <p className="mt-1.5 px-1 text-[10px] text-[var(--text-sub)]">訊息兩邊已經一樣，不必補</p>
+      )}
+
+      {/* 單值欄位：這些真的只能有一個答案，才用左右二選一 */}
+      {row.conflicts.map((c) => (
+        <div key={c.field} className="mt-2 rounded-[10px] border border-[var(--border)] px-2 py-1.5">
+          <p className="pb-1 text-[11px] text-[var(--text-sub)]">
+            {c.field === 'title' ? '⚠ 標題兩邊不同' : '⚠ 摘要兩邊不同（涵蓋範圍一樣，沒有比較新的那份）'}
+          </p>
+          <div className="flex items-stretch gap-1">
+            <ValueButton
+              label="手機"
+              value={c.field === 'title' ? c.localValue : whenSummary(c.localCoversTs)}
+              active={fieldChoices?.[c.field] === 'local'}
+              onClick={() => onChooseField(c.field, 'local')}
+            />
+            <button
+              type="button"
+              onClick={() => onChooseField(c.field, 'keep')}
+              className={`shrink-0 rounded-[10px] px-2 text-[11px] ${
+                (fieldChoices?.[c.field] ?? 'keep') === 'keep' ? 'bg-[var(--mint)] text-[var(--text)]' : 'text-[var(--text-sub)]'
+              }`}
+            >
+              不動
+            </button>
+            <ValueButton
+              label="電腦"
+              value={c.field === 'title' ? c.remoteValue : whenSummary(c.remoteCoversTs)}
+              active={fieldChoices?.[c.field] === 'remote'}
+              onClick={() => onChooseField(c.field, 'remote')}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** 摘要本文不進清單端點（可能很長），使用者靠涵蓋到哪裡就足以判斷要哪一份。 */
+function whenSummary(ts: number | undefined): string {
+  return ts ? `涵蓋到 ${when(ts)}` : '有摘要'
 }
 
 /** 依 `group` 分段，但保留 `pairSettings()` 原本的欄位順序（不重新排序）。 */

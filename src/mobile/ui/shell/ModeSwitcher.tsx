@@ -10,6 +10,7 @@ import * as keys from '@core/store/keys'
 import { capacitorAdapters, initCapacitorSecrets } from '../../adapters'
 import { countPlan, pairManifests, type PairTable } from '@core/sync/pair'
 import { countSettingsPlan, pairSettings, type SettingsFieldRow } from '@core/sync/settingsPair'
+import { countConvPlan, pairConversations, type ConvRow } from '@core/sync/convPair'
 import { getStandaloneSession } from '../../runtime/sessionHolder'
 import { bootStandaloneSession, type StandaloneSession } from '../../runtime/session'
 import {
@@ -21,6 +22,7 @@ import {
 } from '../../runtime/syncManifest'
 import { applySync } from '../../runtime/syncApply'
 import { applySettingsSync } from '../../runtime/syncSettingsApply'
+import { applyConversationSync } from '../../runtime/syncConversations'
 import { formatApplyMessage } from './syncDiffMessage'
 import { countdownLabel, useCountdown } from './useCountdown'
 import type { SyncSource } from '../../runtime/syncTransport'
@@ -113,6 +115,7 @@ export function ModeSwitcher(): JSX.Element | null {
     let localSession: StandaloneSession
     let table: PairTable
     let settingsRows: SettingsFieldRow[]
+    let convRows: ConvRow[]
     try {
       localSession = await localSessionForSync()
       setWaiting({ label: '讀取電腦資料', totalMs: MANIFEST_TIMEOUT_MS })
@@ -125,6 +128,12 @@ export function ModeSwitcher(): JSX.Element | null {
         ])
         table = pairManifests(local, remote)
         settingsRows = pairSettings(localSettings, remoteSettings)
+        /*
+         * 對話走完全不同的比對模型（訊息層聯集，不是二選一），所以獨立配對。
+         * 清單裡的 `messageIdsHash` 只雜湊 id、不含內容，抓這一份不會把
+         * 幾十 MB 的圖片一起拉下來。
+         */
+        convRows = pairConversations(local.conversations, remote.conversations)
       } finally {
         setWaiting(null)
       }
@@ -141,14 +150,19 @@ export function ModeSwitcher(): JSX.Element | null {
       return go ? 'ok' : 'cancelled'
     }
 
-    const result0 = await openSyncCompare(table, settingsRows)
+    const result0 = await openSyncCompare(table, settingsRows, convRows)
     if (!result0) return 'cancelled'
-    const { choices, settingsChoices } = result0
+    const { choices, settingsChoices, convChoices, convFieldChoices } = result0
 
     const plan = countPlan(table, choices)
     const settingsPlan = countSettingsPlan(settingsRows, settingsChoices)
+    const convPlan = countConvPlan(convRows, convChoices, convFieldChoices)
     // 使用者選了全部不動 → 不必跑 apply，直接切
-    if (plan.push + plan.pull + plan.deleteLocal + plan.deleteRemote + settingsPlan.push + settingsPlan.pull === 0) {
+    if (
+      plan.push + plan.pull + plan.deleteLocal + plan.deleteRemote +
+      settingsPlan.push + settingsPlan.pull +
+      convPlan.merge + convPlan.push + convPlan.pull + convPlan.fieldEdits === 0
+    ) {
       return 'ok'
     }
 
@@ -161,9 +175,26 @@ export function ModeSwitcher(): JSX.Element | null {
        */
       const dataResult = await applySync(remoteSrc, localSession, { table, choices, onProgress: (m) => toast(m) })
       const settingsResult = await applySettingsSync(remoteSrc, localSession, settingsRows, settingsChoices, (m) => toast(m))
+      /*
+       * 對話**一定要排在資料之後**：訊息裡的 `characterId` 要靠角色的 id 對應表
+       * 翻譯，而那張表有一部分是這一趟推送當下才由電腦回應決定的（新建角色時
+       * 電腦會發新 uuid）。先跑對話的話，剛推過去的角色一律翻不出來。
+       * 所以拿的是 `dataResult.idMaps`，不是比對畫面上那張表。
+       */
+      const convResult = await applyConversationSync(
+        remoteSrc,
+        localSession,
+        {
+          rows: convRows,
+          choices: convChoices,
+          fieldChoices: convFieldChoices,
+          characterIds: { l2r: dataResult.idMaps.l2r.characters, r2l: dataResult.idMaps.r2l.characters },
+          onProgress: (m) => toast(m)
+        }
+      )
       await confirm({
         title: '同步完成',
-        message: formatApplyMessage(dataResult, settingsResult),
+        message: formatApplyMessage(dataResult, settingsResult, convResult),
         confirmLabel: '好'
       })
       return 'ok'
