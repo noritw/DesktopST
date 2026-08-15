@@ -16,7 +16,11 @@
 
 | 類別 | 缺什麼 |
 |---|---|
-| C. 進行中 | 對話與電腦雙向同步（S2；S1 單向匯入與「重新拉設定」已完成，M1「模式可切換」2026-08-12 已完成，M2–M5 待做） |
+| C. 待真機驗證 | 對話與電腦雙向同步（S2）。S1 單向匯入與「重新拉設定」已完成；**M1–M5 全部已實作完成**（M1 模式可切換、M2 差異預覽、M3 推／拉資料、M4 逐項比對、M5 設定同步）；**對話同步（訊息層聯集合併）2026-08-15 也已實作完成**，尚未真機驗證 |
+
+也就是說，S2 這一整條線在程式面已經沒有未實作的部分了，剩下的是 owner 拿 Pixel 10a
+逐條驗證（清單見 `docs/handoff/real-device-checklist.md` 與
+`mobile-mode-switch-sync.md` §8.4）。
 
 情境整組、天氣（含定位與 CWA）2026-08-08 已補上；角色卡／設定包匯出 2026-08-12 已補上。
 
@@ -27,7 +31,11 @@
 
 ---
 
-## 0. 額外發現：Persona 清單分頁切換 bug（非缺口，是既有 bug）
+## 0. 額外發現：Persona 清單分頁切換 bug（**已於 2026-08-09 修復**）
+
+> **這個 bug 已經修好了**，修復記錄見第 5 節（`open` 改成寫回 `uiStore` 堆疊
+> entry 的 `param`）。以下的現象／根因／修法方向原樣保留——同一類「元件被卸載後
+> local state 重置」的問題之後還會再遇到，這段是排查範本，不是待辦事項。
 
 **現象**：在「情境與設定組」展開「使用者設定」分頁、編輯或刪除一筆 persona 後，
 畫面會跳回「情境」分頁，而不是留在「使用者設定」。
@@ -54,7 +62,7 @@
 | ~~4~~ | ~~天氣定位／即時查詢~~ | 設定頁有天氣區塊 | **2026-08-08 完成**（背景 `[Weather]` 含 CWA；地震／颱風關鍵詞查詢仍桌面限定） | — | 已做 |
 | ~~5~~ | ~~**提醒**~~ | `RemindersView`／`ReminderEditor` 完整 | **2026-08-09 完成**：CRUD 接上 `StandaloneSession`；手機端排程器（`reminderScheduler.ts`）與 Capacitor LocalNotifications；新增 `notificationDevice` 欄位（desktop/mobile/both，預設 mobile）；測試通過 13/13 排程邏輯。**2026-08-10 補齊**：① `startup` 排程在手機版靜默失效（`nextFireDelayMs` 明確不處理 startup，手機 `scheduleOne` 補對應分支）；② `ReminderEditor` 補 `notificationDevice` 選擇 UI（獨立模式才顯示）| — | 已做 |
 | ~~6~~ | ~~**個人新聞報**~~ | `NewsView`／設定／關鍵字面板完整 | **2026-08-12 完成**：`news.*` 15 支全部接上（`core/news/` 新增 `moduleId`／`rssAdapter`／`sources`／`readerState`／`settings`／`readerFetch`／`enrich`／`schedule`／`injection`）；桌面 `main/modules/news/*` 改薄殼、行為逐字等價；手機 RSS 解析改用瀏覽器原生 `DOMParser`（`mobile/adapters/rssParseAdapter.ts`，`rss-parser` 在 WebView 下無法用，已在真的 Chromium 環境驗證解析正確）；`chat.ts`／`reminderSpeak.ts` 都接上「挑一則新聞當話題」的自動注入與 `newsLink` 掛回訊息；`MainMenu` 與 `ReminderEditor` 的灰字解除。**不做**：背景定時抓新聞（仍只在前景開 App 時抓）、對話新聞搜尋、搬家包。 | — | 已做 |
-| 7 | **對話與電腦同步（S2）** | 只有 S1「從電腦匯入」 | **進行中**：M1（模式可在 App 內切換、記住偏好，完全不同步）2026-08-12 完成。M2–M5 待做 | roadmap §4.7 已定分層與星狀拓樸；**實作設計見 `mobile-mode-switch-sync.md`**（改成「切換模式時帶資料走」，§8.1 有 M1 落地筆記） | ⑤（owner 2026-08-09：排在獨立版功能補完之後） |
+| 7 | **對話與電腦同步（S2）** | 只有 S1「從電腦匯入」 | **實作完成、待真機驗證**：M1 模式可切換（2026-08-12）、M2 差異預覽（2026-08-12）、M3 推／拉資料、M4 逐項比對＋M5 設定同步（2026-08-14）、對話同步（2026-08-15，訊息層聯集合併，新端點 `POST /api/sync-conversation-merge`）全部已實作。**沒有未實作的部分了**，剩真機逐條驗證 | roadmap §4.7 已定分層與星狀拓樸；**實作設計見 `mobile-mode-switch-sync.md`**（§8.1 M1、§8.2 M2、§8.3 對話同步落地筆記）與 `mobile-sync-m4-compare.md`（M4／M5） | ⑤（owner 2026-08-09：排在獨立版功能補完之後） |
 
 > **2026-08-11 提醒補強（缺口 #5 的延伸，非新缺口）**：台詞生成策略定案為
 > 「現場生成為主、快取為底」（`mobile-standalone-reminder-plan.md` §2.1），

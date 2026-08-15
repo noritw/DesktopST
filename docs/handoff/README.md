@@ -43,6 +43,26 @@
 
 ---
 
+## 2b. 完成狀況（2026-08-15 收尾盤點）
+
+**全部任務已完成**，三條分支已合回 `feat/mobile-standalone`。
+
+| # | 狀態 | 備註 |
+|---|---|---|
+| T1 對話同步 | ✅ | 新增 44 項測試；落地筆記 `mobile-mode-switch-sync.md` §8.3／§8.4 |
+| T5 清死碼 | ✅ | `grep pushSettings src/` 已無殘留 |
+| T9 補測試 | ⚠️→✅ | **測試邏輯正確、四個情境都涵蓋，但當初是帶著 `npm run typecheck` 失敗 commit 的**（假的 `getState()` 只寫 `{ conversation }`，少了 `AppStateSnapshot` 六個必填欄位，TS2740 ×5）。`vitest` 是綠的，所以只跑 `npm test` 看不出來。已補 `makeState()` 修好，測試行為未變 |
+| T6 progress-log | ✅ | 08-14／08-15 三筆都在，日期順序正確 |
+| T7 gap-inventory | ✅ | §0 標已修復、§1 與 §2 第 7 列一併更新（原任務只寫 §0／§1，但 §2 那列講的是同一件事，留著會自相矛盾） |
+| T8 模組子設定盤點 | ✅ | `module-settings-audit.md`。最像下一個 `weather.polish` 的是 `llm.utility*` 那組 |
+| T2 真機 checklist | ✅ | `real-device-checklist.md`。**實際是 23 條不是 12 條**——交接單寫 12 是 08-15 早上的狀態，之後 §7 追加三條、對話同步整組八條也做完了 |
+
+> **給下一個驗收本機模型產出的人**：T9 那個坑的教訓是
+> **`npm test` 綠不等於 `npm run typecheck` 綠**（`tsconfig.node.json` 有含 `tests/`）。
+> 兩個指令要分開跑、分開確認，不要只看測試。
+
+---
+
 ## 3. 只有人能做的（不分派給模型）
 
 | 項目 | 需要什麼 | 出處 |
