@@ -408,56 +408,6 @@ async function pushLorebook(src: SyncSource, session: StandaloneSession, id: str
 }
 
 /**
- * 推送設定到電腦（§5 步驟④）。
- *
- * **重要**（§3.3）：設定沒有整包端點，要拆成好幾支呼叫。
- * `buildLocalManifest()` 算 `settingsHash` 用的子集是：
- * { llm: { provider, model, models, endpoint, maxResponseTokens, maxGroupRounds, maxImagesPerMessage },
- *   memory, colorTheme, modules }
- */
-async function pushSettings(src: SyncSource, session: StandaloneSession, fetchImpl: FetchImpl): Promise<void> {
-  const s = session.settings
-  const llm = s.llm
-
-  // LLM 設定：拆成多個端點
-  await pushJson(src, '/api/settings/llm-provider', { provider: llm.provider }, fetchImpl)
-  await pushJson(src, '/api/settings/llm-model', { provider: llm.provider, model: llm.model }, fetchImpl)
-
-  // LLM endpoint（可選）：逐 provider 各推一次，不能只推目前這家——
-  // 本機端點多半設在非當前 provider 上（主＝雲端／輔助＝本機）
-  for (const [p, ep] of Object.entries(llm.endpoints ?? {})) {
-    if (ep) await pushJson(src, '/api/settings/llm-endpoint', { provider: p, endpoint: ep }, fetchImpl)
-  }
-
-  // LLM chat limits（一次送所有值）
-  await pushJson(src, '/api/settings/llm-chat-limits', {
-    maxResponseTokens: llm.maxResponseTokens,
-    maxGroupRounds: llm.maxGroupRounds,
-    maxImagesPerMessage: llm.maxImagesPerMessage
-  }, fetchImpl)
-
-  // 記憶設定
-  if (s.memory) {
-    await pushJson(src, '/api/settings/memory', {
-      keepRecentN: s.memory.keepRecentN,
-      autoSummarizeAfter: s.memory.autoSummarizeAfter,
-      autoSummarizeEnabled: s.memory.autoSummarizeEnabled
-    }, fetchImpl)
-  }
-
-  // 配色主題
-  if (s.ui?.colorTheme) {
-    await pushJson(src, '/api/settings/color-theme', { theme: s.ui.colorTheme }, fetchImpl)
-  }
-
-  // 模組開關（逐個推送）
-  const modules = await session.listModules()
-  for (const m of modules) {
-    await pushJson(src, '/api/settings/modules/toggle', { id: m.id, enabled: m.enabled }, fetchImpl)
-  }
-}
-
-/**
  * 推送 JSON 到電腦。
  */
 async function pushJson(src: SyncSource, path: string, payload: unknown, fetchImpl: FetchImpl): Promise<void> {
