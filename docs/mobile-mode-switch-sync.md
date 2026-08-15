@@ -63,8 +63,8 @@ owner 2026-08-09：
 | 角色卡（含圖檔、Lorebook） | 以 `updatedAt` 判斷變動，整隻覆蓋 | 走既有 `.dstpack`，**一隻一包** |
 | Persona／World | 同上 | |
 | 情境 Scene | 同上，但**保留目的端的桌寵欄位** | 見 §7.4 |
-| 對話訊息 | 以 message id **聯集追加**（append-only） | 見 §6.4 |
-| `conv.summary`／`summaryCoversTs` | 隨所屬對話走，取較新者 | |
+| 對話訊息 | 以 message id **聯集追加**（append-only） | 見 §6.2 ② |
+| `conv.summary`／`summaryCoversTs` | 隨所屬對話走，取 `summaryCoversTs` 較大者 | 見 §6.2 ② |
 | Lorebook | 以 `updatedAt` 判斷，整本覆蓋 | 獨立版編輯尚未實作（缺口 #2），做完才有意義 |
 | LLM 模型／endpoint／記憶參數／主題 | 整組覆蓋 | 已有 `/api/sync-init` 的既有邏輯 |
 
@@ -243,19 +243,39 @@ S1 匯入時角色是以**新 id** 落地、**靠名字**跟電腦端對上
 {
   targetId?: string,        // 有＝併進電腦既有那則；無＝在電腦上新建
   title: string,
-  participantIds: string[], // 以電腦端的角色 id 表示（手機查基準轉換）
+  participantIds: string[], // 以電腦端的角色 id 表示（切換當下即時配對，不查基準）
   messages: Message[],      // 只送電腦沒有的那些
   summary?: string,
-  summaryCoversTs?: number
+  summaryCoversTs?: number,
+  chunkIndex?: number,      // 分批用，見下面的 ⚠️
+  chunkTotal?: number
 }
 ```
 
-**以 message id 聯集併入，已存在的 id 直接略過**（roadmap §4.7 的合併規則）。
-回傳實際寫入則數，手機拿去更新基準。
+回傳 `{ id, written, skipped }`。**`id` 是電腦端實際落地的那顆**——新建時電腦會
+自己發 uuid，手機一定要讀回應並記下來，否則下一趟配不起來、每次切換都多一份
+（S2 M3 就是死在「推完不讀回應」，見 `mobile-sync-m4-compare.md` §1.1）。
+
+**合併規則（本節是唯一定義處）**
+
+1. **訊息以 message id 聯集追加**，已存在的 id 直接略過（roadmap §4.7）。
+   略過的計進 `skipped` 回報，不靜默。
+2. **同一個 id 兩邊內容不同**（在某一邊編輯過）＝接收端保留自己那份。
+   不做欄位級合併、不做逐則挑選——那會炸出無限的 UI，而且沒有正確答案。
+   完成訊息要誠實講「N 則兩邊都改過，各自保留原本的版本」。
+3. **合併後按 `timestamp` 重排**，相同時用 message id 當穩定 tiebreak。
+   少了 tiebreak 的話兩台裝置排出來的順序會不一樣，下一趟指紋又對不上。
+4. **`summary`／`summaryCoversTs` 取 `summaryCoversTs` 較大者。**
+   ⚠️ **不能用 `updatedAt` 判斷**：那是寫檔時間，推送本身就會把接收端設成現在
+   （M4 §2.2）。`summaryCoversTs` 是從訊息時間戳推導的，跨裝置可比。
+5. **刪除不同步**：這一版只補、不刪。某一邊少了幾則訊息一律當成「還沒收到」。
 
 > ⚠️ 訊息帶圖片 data URI，整批送會在 CapacitorHttp 的 base64 bridge 上爆掉
 > （`mobileServer.ts:1443` 已經為了這個把讀取拆成一則一支）。
-> **推送同樣要分批**，建議一次一則對話、單則內再依訊息數切塊。
+> **推送同樣要分批**，一次一則對話、單則內**依累計位元組**切塊
+> （不是依則數：單則帶三張圖就可能自己超過上限）。
+> `targetId` 沒有值時**只有第一塊**會建新對話，後續塊要帶著回應給的 `id` 進來。
+> 同一塊重送兩次必須是冪等的（靠規則 1 自然成立）。
 
 ---
 
