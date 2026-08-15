@@ -1668,6 +1668,28 @@ async function handleRequest(
     if (!wanted) { jsonError(res, 400, 'id required'); return }
     const conv = bridge.getConversationForSync(wanted)
     if (!conv) { jsonError(res, 404, 'Conversation not found'); return }
+    /*
+     * S2 對話同步：`?idsOnly=1` 只回訊息 id 與時間戳，不回內容。
+     *
+     * 推送方向要先算「電腦缺哪幾則」才知道要送什麼，但為了這個把整則對話
+     * （含所有圖片 data URI）拉下來，等於為了問一個問題先付整份的傳輸成本，
+     * 而且大對話會直接在 CapacitorHttp 的 base64 bridge 上爆掉。
+     * 拉取方向仍然要完整內容，走原本那條路。
+     */
+    if (requestUrl.searchParams.get('idsOnly') === '1') {
+      jsonOk(res, {
+        conversation: {
+          id: conv.id,
+          title: conv.title,
+          updatedAt: conv.updatedAt,
+          summary: conv.summary,
+          summaryCoversTs: conv.summaryCoversTs,
+          participantIds: conv.participantIds ?? [],
+          messageIds: (conv.messages ?? []).map((m) => m.id)
+        }
+      })
+      return
+    }
     jsonOk(res, { conversation: conv })
     return
   }

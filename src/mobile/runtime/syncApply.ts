@@ -28,9 +28,9 @@ import { getJson, postJson, type FetchImpl, type SyncSource } from './syncTransp
  */
 
 /** 一邊的 id → 另一邊的 id。 */
-type IdMap = Map<string, string>
+export type IdMap = Map<string, string>
 
-interface Maps {
+export interface Maps {
   /** 手機 id → 電腦 id */
   l2r: Record<PairKind, IdMap>
   /** 電腦 id → 手機 id */
@@ -64,6 +64,15 @@ export interface ApplyResult {
   deletedRemote: Record<PairKind, string[]>
   /** 個別失敗的項目——**單筆失敗不中斷整趟**，最後一起回報。 */
   failed: { kind: PairKind; name: string; error: string }[]
+  /**
+   * 這一趟結束時的 id 對應表。
+   *
+   * **對話同步一定要拿這一份，不能自己重算。** 表裡的角色對應有一部分是
+   * 這趟推送當下才由電腦端回應決定的（新建角色時電腦會發新 uuid），
+   * 只看比對畫面上那張表的話，剛推過去的角色一律查不到 —— 對話裡那些訊息
+   * 的 `characterId` 就會翻不出來。
+   */
+  idMaps: Maps
 }
 
 export interface ApplyOptions {
@@ -99,7 +108,8 @@ export async function applySync(
     pulled: empty(),
     deletedLocal: empty(),
     deletedRemote: empty(),
-    failed: []
+    failed: [],
+    idMaps: maps
   }
 
   /** 這一趟要做的事，先全部算出來再執行——刪除必須排到最後（見下面）。 */
