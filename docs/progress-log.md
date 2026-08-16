@@ -2579,3 +2579,13 @@ WS 廣播早被電腦端 `mobileServer.ts` 的 `sanitizeMessage()` 拿掉 `image
 
 三個都只是**自動測試通過，尚未真機驗證**。`npm run typecheck`／`npm test`
 （62 檔、810 項）全過。
+
+---
+
+## 2026-08-16（續三）｜B-2／B-4／B-5／B-6 真機驗證通過
+
+owner 在 Pixel 10a 逐項驗證了今天修的四個小 bug（B-2 保留差異快捷鍵、B-4
+同步後載入失敗、B-5 圖片縮圖沒有樂觀更新、B-6 對話標題沒即時更新），
+三項全部通過。`docs/handoff/real-device-checklist.md` 的「本次測試結論」
+B-1～B-6 除了 B-3（無法重現，擱置）跟 M4 第 6 條補驗（開電腦端檔案核對），
+其餘全部收尾。
