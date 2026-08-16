@@ -29,6 +29,7 @@
 | [`progress-log.md`](progress-log.md) | 查舊決策／已知坑 | **Grep 關鍵字**，勿整份 |
 | [`future-lorebook.md`](future-lorebook.md) | Lorebook 規格細節 | 整份可讀（不長） |
 | [`future-nutrition-module.md`](future-nutrition-module.md) | 飲食熱量模組 B9（含換機搬家包） | 開工該模組時整份讀 |
+| [`nutrition-module-kickoff.md`](nutrition-module-kickoff.md) | **飲食熱量模組 B9a MVP 開工指令**（2026-08-17 owner 插隊自用優先，接手 AI 照這份做） | 選讀，開工時整份讀 |
 | `news-standalone-kickoff.md` | **獨立版新聞報開工指令**（缺口 #6，接手 AI 照這份做） | 選讀 |
 | [`news-reader-mobile-plan.md`](news-reader-mobile-plan.md) | B3 階段 6 個人新聞報 | 開工階段 6 時 |
 | [`news-article-context-design.md`](news-article-context-design.md) | 新聞進 prompt 上下文補強（摘要／全文） | 實作該功能前 |
@@ -48,7 +49,7 @@
 | [`news-module-*.md`](news-module-design.md)、[`news-feed-spec.md`](news-feed-spec.md)、[`news-conversation-search-spec.md`](news-conversation-search-spec.md)、[`weather-realtime-query-spec.md`](weather-realtime-query-spec.md) | 新聞／天氣已實作規格；改行為時對照 |
 | [`news-future-*.md`](news-future-keyword-groups.md) | **構想／未定案**，勿當待辦強制實作 |
 | [`future-character-impression.md`](future-character-impression.md) | B8，完全延後 |
-| [`future-nutrition-module.md`](future-nutrition-module.md) | **B9 飲食熱量模組（已定案待辦）**；換機匯出匯入見該檔 §5。開工前讀；勿與 B3 搶主線 |
+| [`future-nutrition-module.md`](future-nutrition-module.md) | **B9 飲食熱量模組（已定案待辦，2026-08-17 owner 插隊自用優先）**；換機匯出匯入見該檔 §5。開工請直接看 [`nutrition-module-kickoff.md`](nutrition-module-kickoff.md) |
 | [`bubble-layer-state-machine.md`](bubble-layer-state-machine.md) | 桌面泡泡層 |
 | [`performance-optimization-review-2026-05-30.md`](performance-optimization-review-2026-05-30.md) | 舊效能筆記 |
 | `*-setup.html`／`license.html`／`api-key-guide.html` | 給使用者的教學頁，不是 AI 開工讀物 |

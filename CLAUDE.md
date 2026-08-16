@@ -89,8 +89,8 @@ src/mobile/ 手機 UI
 | **S2 M5（設定同步）** | **已實作，真機驗證進行中**（2026-08-14）。M4 比對畫面加開「設定」分頁，逐欄位比對 LLM 供應商／各供應商模型／對話限制／記憶／配色主題／模組開關／天氣潤飾；不碰 API Key。跟資料比對是兩套獨立系統（`core/sync/settingsPair.ts`）——設定欄位兩邊永遠都有值，沒有「單邊獨有」，選項只有 本機／電腦／不動，預設一律不動。桌面／手機的設定子集定義統一到 `core/sync/settingsSnapshot.ts`（避免重蹈 M4 `contentHash.ts` 那次雙邊定義漂移的坑）；新增 `GET /api/settings/sync-snapshot`。**owner 2026-08-14 真機測出一個遺漏**：`weather.polish`（天氣輔助模型潤飾）是模組底下的子設定、不在原本沿用的舊子集裡，已補上（§8.5b）——這類「模組除了 enabled 還有自己的子設定」的遺漏還沒逐一排查完，之後如有人回報某模組的某個開關沒同步，大概率是同一類坑。細節：`docs/mobile-sync-m4-compare.md` §8 |
 | **S2 對話同步** | **已實作，自動測試通過，尚未真機驗證**（2026-08-15）。S2 同步的最後一塊；代號提醒：規劃書裡的「M4」本來指這個，但實際開發時 M4／M5 被拿去命名逐項比對與設定同步，**對話同步在此之前從未做過**。對話**不能套用 `pair.ts` 的三選一**——「兩邊都有對方沒有的訊息」是常態不是衝突，套下去等於逼使用者選一個必然丟資料的答案。所以另立 `core/sync/convPair.ts`：主控制是「合併（兩邊補齊）／不動」兩態，左右二選一只用在真的只能有一個答案的單值欄位（標題／摘要）。快捷鍵只有兩顆，**這個分頁不刪任何東西**。配對順序 id →`importedFrom.sourceId`→ 標題，第二步漏掉的話每則 S1 匯入過的對話都會被再推一份（M3 的失敗模式重演，有測試守）。只傳輸「對面缺的那幾則」（新增 `?idsOnly=1`），依累計位元組分批。細節與真機待驗八條：`docs/mobile-mode-switch-sync.md` §8.3／§8.4 |
 | **本機 LLM 供應商（`local`）** | **已實作，core 路徑端到端驗過；桌面 UI 與手機真機未驗**（2026-08-15）。新增供應商 `local` = 任何 OpenAI 相容端點（Ollama／LM Studio／llama.cpp）。**主模型與輔助模型都能選**，可各自用不同端點——`llm.endpoint` 單一欄位拆成 per-provider 的 `llm.endpoints`（有遷移，會寫回磁碟），`applyUtilitySettings()` 換 provider 時端點跟著換，所以「主＝Claude 雲端／輔助＝本機 Qwen3」成立。**不必寫新 adapter**：實測 Ollama 支援 Responses API，沿用 `openai.ts`，只多送 `reasoning:{effort:'none'}`（思考模型會把 token 預算吃光、正文回空字串，情緒分類只有 20 tokens 必中）。金鑰選填。模型清單靠「測試連線」打 `GET /v1/models` 動態取得。順手修掉兩個既有 bug：輔助模型連線測試用錯端點、`httpAdapter` 的 30 秒天花板套在有 signal 的請求上（**這條影響所有手機請求，不只本機模型**）。細節：`docs/local-llm-provider-plan.md` §9 |
-| **下一步** | **看根目錄的 [`TODO.md`](TODO.md)** —— 待辦的唯一入口，狀態以那份為準。現在的第一順位是 Pixel 10a 真機驗證 S2 的三塊比對畫面（23 條，照 `docs/handoff/real-device-checklist.md` 勾；最重要的是對話同步第 1 條：同一則推兩次不能長出第二份）。 |
-| 延後／已排程 | 角色印象（B8）；系統通知（B5）；**飲食熱量模組（B9）** → `docs/future-nutrition-module.md`（owner 自用優先；含換機搬家包） |
+| **下一步** | **看根目錄的 [`TODO.md`](TODO.md)** —— 待辦的唯一入口，狀態以那份為準。**2026-08-17 owner 插隊**：飲食熱量模組（B9a MVP）自用優先，開工指令在 `docs/nutrition-module-kickoff.md`（整份可讀，照著做就能開工）。S2 相關待辦（提醒同步等）暫緩，等飲食模組告一段落再回頭。 |
+| 延後／已排程 | 角色印象（B8）；系統通知（B5）；飲食熱量模組其餘分期（B9b／B9c，B9a 見上面「下一步」） |
 
 獨立模式**尚未實作**（會誠實擲 `not-supported`，不是 bug）：
 天氣的地震／颱風關鍵詞查詢。Spotify／日曆授權仍只在桌面。
@@ -294,7 +294,8 @@ src/mobile/ 手機 UI
 | 提案跨平台／散布／同步架構 | roadmap **§2、§8**（必要時 §4.5–4.7） | 整份 roadmap、§10 舊順序敘事 |
 | 對照舊 mobile.html 功能清單（歷史） | `mobile-html-feature-inventory.md` **§6／§7** | 整份 inventory |
 | Lorebook 規格 | `future-lorebook.md` | — |
-| 飲食熱量模組（B9） | `future-nutrition-module.md` | — |
+| **實作飲食熱量模組（B9a MVP，2026-08-17 起 owner 插隊自用優先）** | `nutrition-module-kickoff.md`（整份，開工指令）＋ `future-nutrition-module.md` **§8／§4／§6** | `future-nutrition-module.md` 其餘章節、§9（開工前可微調） |
+| 飲食熱量模組規格（產品形狀細節） | `future-nutrition-module.md` | — |
 | 新聞報 | `news-reader-mobile-plan.md`（舊版規格／UX）＋ b3 **§4.21**（React 版落地） | 所有 `news-future-*`（那是構想） |
 | 新聞進 prompt 斷章／摘要設計 | `news-article-context-design.md` | — |
 | 假伺服器怎麼驗 | `scripts/README-mobile-stub.md` | — |
