@@ -148,11 +148,16 @@ describe('applyPreset', () => {
     expect(c.personas.onlyR).toBe('remote')
   })
 
-  it('保留差異：只補缺的，衝突的一律不動', () => {
+  /*
+   * B-2（2026-08-16）：owner 實機測試照字面理解「保留差異」＝整批維持原樣，
+   * 結果單邊獨有的列還是被自動補到對面去，跟按鈕名字不符。改成一律 `keep`，
+   * 要補齊單邊缺的資料改用「全部用手機／電腦」或逐列自己按。
+   */
+  it('保留差異：全部真的不動，包含單邊獨有的列', () => {
     const c = applyPreset(t, 'keep')
     expect(c.personas.both).toBe('keep')
-    expect(c.personas.onlyL).toBe('local')
-    expect(c.personas.onlyR).toBe('remote')
+    expect(c.personas.onlyL).toBe('keep')
+    expect(c.personas.onlyR).toBe('keep')
   })
 })
 

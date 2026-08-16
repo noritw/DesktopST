@@ -209,14 +209,27 @@ export function defaultChoices(table: PairTable): ChoiceMap {
  * 這一條在 owner 2026-08-14 加入「選空的那一邊＝刪除」之後**更重要**，不是
  * 更不重要：一顆按鈕如果能一次刪掉幾十筆，那使用者總有一天會手滑按到。
  * 刪除一律只能逐列明確指定。
+ *
+ * ## 「保留差異」是真的全部不動（B-2，2026-08-16 修正）
+ *
+ * 這顆原本沿用 `defaultChoice()` 當結果，於是**兩邊都有**的列變成不動沒錯，
+ * 但**單邊獨有**的列會被 `defaultChoice` 判成 `local`／`remote`（＝照樣補到
+ * 對面去），跟按鈕字面上「保留差異」的意思不符。owner 實機測試時就是照字面
+ * 理解——按下去預期整批維持原樣，結果單邊獨有的還是被同步過去了，等於
+ * 這顆按鈕名不符實。改成 `preset === 'keep'` 時**一律回 `'keep'`**，不再呼叫
+ * `defaultChoice()`；要補齊單邊缺的資料，逐列自己按或用「全部用手機／電腦」。
  */
 export function applyPreset(table: PairTable, preset: PairChoice): ChoiceMap {
   const out = {} as ChoiceMap
   for (const kind of KINDS) {
     out[kind] = {}
     for (const row of table[kind]) {
+      if (preset === 'keep') {
+        out[kind][row.key] = 'keep'
+        continue
+      }
       const both = !!row.localId && !!row.remoteId
-      out[kind][row.key] = both && preset !== 'keep' ? preset : defaultChoice(row)
+      out[kind][row.key] = both ? preset : defaultChoice(row)
     }
   }
   return out
