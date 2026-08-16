@@ -1,20 +1,33 @@
-# 飲食熱量模組（B9a MVP）—— 開工指令
+# 飲食記錄 App（B9a MVP）—— 開工指令
 
-> **建立時間**：2026-08-17。owner 要自用優先，插隊到 B3 APK 正式發布之前。
+> **建立時間**：2026-08-17，2026-08-17 當天下午改版（獨立 App 決議）。
+> owner 要自用優先，插隊到 B3 APK 正式發布之前。
 > **狀態**：待開工，尚未寫過一行程式碼。
 > **這份是給接手 AI 的完整指令，照著這份就能開工，不必先讀長文。**
 > **前置**：`CLAUDE.md`（必讀，尤其 §3 硬規則、§5 踩過的坑）。
 > 完整規格在 `docs/future-nutrition-module.md`——**這份文件已經定案**，
 > 不要重新設計產品形狀，有疑問先看那份的對應章節，不要自己另外決定。
+>
+> ⚠️ **2026-08-17 owner 推翻了原本「DeST 底下可關的模組」設計**，改成
+> **獨立 App、獨立安裝包**——這份文件已經照新決議整份改寫過。如果你手上
+> 還留著這份文件的舊版本或舊記憶，**以這份現在的內容為準**，不要照舊的
+> 「模組開關」邏輯做。
 
 ---
 
 ## 0. 一句話
 
-新增一個可選模組（`desktopst.nutrition`，比照天氣／新聞模組），讓使用者記錄
-飲食熱量與蛋白質：本機食物庫＋關鍵字快速入帳（免 LLM）、新食物才用便宜模型
-估營養、每日飲食列表、TDEE 抓建議但上限可手改。**桌面與手機都要做**（跟天氣／
-新聞一樣是「一套邏輯、兩個 UI」），且**第一期就要有搬家包匯出／匯入**（不等 S2）。
+新的**獨立 App**（暫名「DeST 飲食記錄」，正式名稱未定，見 §3.1），跟 DeST
+是兩個各自安裝、各自更新的東西——手機上是另一個 App 圖示／另一個 APK，
+桌面上是另一個執行檔／安裝包。**不是 DeST 選單裡的一個功能，使用者不裝這個
+App 就完全看不到任何飲食相關的東西。**
+
+功能本身：本機食物庫＋關鍵字快速入帳（免 LLM）、新食物才用便宜模型估營養、
+每日飲食列表、TDEE 抓建議但上限可手改。**桌面與手機都要做**，且**第一期就要
+有搬家包匯出／匯入**（不等 S2）。
+
+跟 DeST 共用的東西**只有** `src/core/nutrition/` 的純邏輯（同一個 git repo
+裡的另一個入口，import 共用程式碼）——UI 殼、安裝包、儲存根目錄都是全新的。
 
 owner 自用優先，只要 B9a（MVP）能動、能記、能搬家就算完工——B9b（拍照 LLM
 估價、桌面小工具、報表頁）與 B9c（Health、接 S2、角色偏好注入）**這次都不做**。
@@ -25,12 +38,14 @@ owner 自用優先，只要 B9a（MVP）能動、能記、能搬家就算完工�
 
 | 順序 | 讀什麼 | 為什麼 |
 |---|---|---|
-| 1 | `CLAUDE.md` 全文（本來就短） | 硬規則、目錄結構、踩過的坑 |
-| 2 | `docs/future-nutrition-module.md` **§8「已定案摘要」＋ §4 資料模型＋ §6 分期表** | 這就是規格，B9a 範圍以 §6 那一列為準 |
-| 3 | 需要時再讀 §3（產品形狀）、§5（換機／搬家包） | 細節，不必一開始就啃完 |
+| 1 | `CLAUDE.md` 全文（本來就短） | 硬規則、目錄結構、踩過的坑——**尤其是 core/ 分層規則跟視覺規則，新 App 一樣要遵守** |
+| 2 | `docs/future-nutrition-module.md` **§3.1（獨立 App 決議，最新）＋ §8「已定案摘要」＋ §4 資料模型＋ §6 分期表** | 這就是規格，B9a 範圍以 §6 那一列為準 |
+| 3 | 需要時再讀 §3.2 以後（產品形狀細節）、§5（換機／搬家包） | 細節，不必一開始就啃完 |
 
-**不要讀**：§9（開工前可微調，那些是次要問題，卡住就照常識選一個，不要為此停工）、
-`docs/multi-device-platform-roadmap.md` 整份（只在需要對照四大目標時才翻）。
+**不要讀**：§3.1 底下標成「歷史決議（已推翻）」的段落——那是舊設計，留著只是
+存檔；§9（開工前可微調，那些是次要問題，卡住就照常識選一個，不要為此停工）；
+`docs/multi-device-platform-roadmap.md` 整份（只在需要對照四大目標時才翻，
+而且那份文件討論的是 DeST 本體的架構，跟這個獨立 App 關係不大）。
 
 ---
 
@@ -38,22 +53,27 @@ owner 自用優先，只要 B9a（MVP）能動、能記、能搬家就算完工�
 
 ### 要做
 
-1. **資料模型 ＋ core 純函式**：`FoodItem`／`MealLog`／`BodyProfile`／模組設定，
-   關鍵字對庫比對、每日/週/月聚合、TDEE 計算——全部放 `core/nutrition/`
-   （比照 `core/weather/`／`core/news/`），**不 import electron／fs／path**。
-2. **每日飲食列表**（規格 §3.2b）：翻日、當日合計、點名稱編 `FoodItem`。
-3. **關鍵字入帳**（免 LLM）：打關鍵字比對食物庫別名，選了就記一筆。
-4. **手建食物**：名稱／別名／品牌／店家／口味／每份營養／1～3 張照片。
-5. **TDEE**：身高／體重／年齡／活動量算建議，「套用」寫進
+1. **新 App 的專案骨架**（手機＋桌面各一套，見 §3.1）——這是這次最先要處理
+   的，因為後面所有功能都建立在「有一個能跑的空殼 App」上面。
+2. **資料模型 ＋ core 純函式**：`FoodItem`／`MealLog`／`BodyProfile`／
+   App 設定，關鍵字對庫比對、每日/週/月聚合、TDEE 計算——全部放
+   `src/core/nutrition/`（比照 `src/core/weather/`／`src/core/news/`），
+   **不 import electron／fs／path**。
+3. **每日飲食列表**（規格 §3.2b）：翻日、當日合計、點名稱編 `FoodItem`。
+4. **關鍵字入帳**（免 LLM）：打關鍵字比對食物庫別名，選了就記一筆。
+5. **手建食物**：名稱／別名／品牌／店家／口味／每份營養／1～3 張照片。
+6. **TDEE**：身高／體重／年齡／活動量算建議，「套用」寫進
    `dailyKcalLimit`／`dailyProteinGoalG`，兩者之後**隨時手改**、TDEE 只是墊初始值。
-6. **應用內快覽**：今日 `kcal／上限`、`蛋白／目標`，超標紅字。
-7. **N1 搬家包匯出／匯入**（規格 §5.2）：`.destnutrition`，含食物庫＋照片＋
-   餐次＋身體檔＋模組設定，**不含 API Key**。合併規則：同 id 取 `updatedAt`
+7. **應用內快覽**：今日 `kcal／上限`、`蛋白／目標`，超標紅字。
+8. **N1 搬家包匯出／匯入**（規格 §5.2）：`.destnutrition`，含食物庫＋照片＋
+   餐次＋身體檔＋App 設定，**不含 API Key**。合併規則：同 id 取 `updatedAt`
    較新者勝，衝突可選；也要有「僅補缺」「覆蓋本機」兩個選項。
-8. **N2 手動編輯**：改食物／餐次/上限都要能改，不能只有「新增」沒有「編輯」。
-9. **雙入口可互關**：模組關閉時飲食 icon／選單全隱；只開飲食可不填 API Key
-   （關鍵字入帳本來就不用 LLM）。
-10. **桌面＋手機都要有**：跟天氣／新聞一樣，UI 各自做，邏輯共用 `core/`。
+9. **N2 手動編輯**：改食物／餐次/上限都要能改，不能只有「新增」沒有「編輯」。
+10. **LLM 設定共用（一次性）**：有裝 DeST 時可以帶入它的供應商／模型／
+    API Key 設定，省得重填；沒裝 DeST 時這個 App 自己有一份獨立設定。
+    **手機做法是一次性匯入，不是即時共用**（見 §3.3，Android 沙盒限制）。
+11. **桌面＋手機都要有**：跟天氣／新聞的邏輯共用模式一樣，UI 各自做，
+    純邏輯共用 `core/`，但這次是兩個獨立的 App 殼，不是 DeST 底下的分頁。
 
 ### 不要做（B9b／B9c，這次不碰）
 
@@ -63,53 +83,85 @@ owner 自用優先，只要 B9a（MVP）能動、能記、能搬家就算完工�
 - 桌面小工具（Widget）、本機報表頁（日/週/月圖表）。
 - Health 讀寫（Google Health／Health Connect）。
 - 接 S2 同步（規格 §5.4 的 N3）——手機／桌面各自獨立運作，換機靠 N1 搬家包。
-- 角色聊天素材注入（§3.3／§3.3b 的「愛吃什麼」「攝取消耗差異」）——B9a 不接
-  聊天管線，飲食模組先當獨立帳本用。
+- 角色聊天素材注入（§3.3／§3.3b 的「愛吃什麼」「攝取消耗差異」）——這件事
+  現在牽涉到**跨 App 通訊**（飲食 App 要把資料傳給 DeST 讓角色看到），
+  比舊設計（同一個 App 內部）複雜很多，B9a 完全不碰，留給 B9c 再重新設計。
 
 ---
 
-## 3. 架構決定（照抄既有模組的做法，不要自己另外發明一套）
+## 3. 架構決定
 
-### 3.1 模組註冊
+### 3.1 這是一個新 App，不是 DeST 的模組——先把骨架立起來
 
-- module id：`desktopst.nutrition`，label「飲食記錄」。
-- 手機端模組清單：`src/mobile/runtime/session.ts` 的 `MODULE_DEFS`
-  （目前有 weather／news／spotify／calendar 四項，照樣加一項，預設 `enabled: false`）。
-- 桌面端對應清單：搜尋 `WEATHER_MODULE_ID`／`listMobileModuleTogglesDirect`
-  在 `src/main/ipcHandlers.ts` 的用法，照抄同一套。
-- **不要**把飲食開關塞進 `settings.json`——比照新聞模組，開關住在
-  `modules/desktopst.nutrition/settings.json`（`session.ts` 的
-  `listModules`／`setModuleEnabled` 對新聞是 async 的，飲食也要是）。
+這是這次跟舊版最大的不同，**開工第一步就要決定清楚**：
+
+- **App 名稱**：規格文件沒有定案，暫時可以叫「DeST 飲食記錄」或任何合理的
+  名字（不確定就先用一個，之後 owner 想改再改，**不要卡在取名字上**）。
+- **手機**：需要一個**全新、獨立的 Capacitor 專案**（獨立 `appId`、獨立
+  圖示、獨立 `android/` 資料夾），不是在 DeST 現有的 `capacitor.config.ts`
+  底下加一個路由。具體要另開一個 vite config（比照 `vite.mobile.config.ts`
+  的寫法）＋另一份 `capacitor.config.ts`＋另一個 `android/` 專案。
+  **這部分請先花時間確認 Capacitor 專案怎麼在同一個 repo 裡跟 DeST 的
+  `android/` 資料夾共存而不互相干擾**（例如放在 `nutrition/android/`），
+  這是需要實測的技術細節，不要憑印象假設。
+- **桌面**：需要**另一個 Electron 應用程式**（獨立執行檔、獨立安裝包），
+  不是 DeST 主程式裡的一個視窗。**這部分的 build tooling 需要另外研究**
+  ——目前 repo 只有一個 `electron-builder` 設定對應 DeST 一個程式，
+  要嘛在同一個 `package.json` 加第二個 build target，要嘛整個桌面殼
+  另開一個資料夾＋自己的 `package.json`（類似 monorepo 的第二個 workspace）。
+  **開工時先花點時間查證這條路線可不可行、哪種做法風險最低，不要沒驗證
+  就假設某種 electron-builder 設定「應該可以」。**
+- **共用的東西只有 `src/core/nutrition/`**（跟 `src/core/adapters/` 的
+  介面型別，例如 `HttpAdapter`／`StorageAdapter`）。UI 層完全獨立——
+  **可以** import `src/shared/MonoIcon.tsx` 跟 DeST 的 `theme.ts`／
+  `theme.css`（同一個 repo，這些是給任何 UI 殼共用的呈現層，不是 DeST
+  專屬），但**不要** import DeST 的聊天邏輯、`mobile/runtime/session.ts`
+  的 `StandaloneSession`（那是整個聊天 App 的 session，太重、耦合太深，
+  飲食 App 需要自己一個更簡單的本地 session／store，只管食物庫跟餐次）。
 
 ### 3.2 儲存
 
-- 桌面根目錄：`%APPDATA%\DesktopST\modules\desktopst.nutrition\`
-  （比照規格 §4，`core/store/keys.ts` 的 `MODULES_DIR` 慣例）。
-- 手機：透過 `StorageAdapter`，key 佈局要跟桌面**逐字一致**（不然日後接 S2
-  或搬家包互通會對不起來——`news-standalone-kickoff.md` §3.2 踩過這個坑，
-  這次直接照做，不要重蹈覆轍）。
-- 照片：**不進 APK**，存進資料目錄，key 形如
-  `modules/desktopst.nutrition/food-items/<id>/01.webp`，壓縮後存
-  （比照 `characterCardKey`／頭像的做法，`session.ts` 裡的 `ALLOWED_AVATAR_EXT`
-  與壓縮邏輯可以直接抄，不要重新設計圖片管線）。
+- **不要用 DeST 的資料夾**（`%APPDATA%\DesktopST\`）。這是獨立 App，要有
+  自己的儲存根目錄，例如 `%APPDATA%\DeSTNutrition\`（實際名稱跟著 §3.1
+  的 App 名稱走）。
+- 手機：透過 `StorageAdapter`（沿用 `core/adapters/` 的介面，不要重新設計
+  一套），key 佈局桌面／手機**逐字一致**（不然日後搬家包互通會對不起來
+  ——`news-standalone-kickoff.md` §3.2 踩過這個坑，這次直接照做）。
+- 照片：存進 App 自己的資料目錄，key 形如 `food-items/<id>/01.webp`，
+  壓縮後存（比照 DeST 角色頭像的壓縮邏輯——`session.ts` 裡的
+  `ALLOWED_AVATAR_EXT` 與壓縮流程可以參考做法，但**程式碼本身不要跨 App
+  互相 import**，各自有一份實作或抽成 `core/` 共用函式都可以，只是這個
+  App 不能直接 import DeST app 殼層的程式碼）。
 
-### 3.3 LLM（B9a 用得到的部分只有「共用金鑰判斷」，不用真的呼叫 vision）
+### 3.3 LLM 設定共用（owner 2026-08-17 決定：有裝 DeST 就共用它的設定）
 
-- B9a 不呼叫任何 LLM（關鍵字入帳免 LLM，手動輸入不用 LLM）。
-- 但**只開飲食模組時不該要求填 API Key**——沿用既有的
-  `hasUsableApiKey(settings)` / `providerNeedsApiKey()` 判斷（CLAUDE.md §5
-  已經寫死這條規則：不要自己手寫 `apiKeys[provider]?.trim()`），飲食模組的
-  入口判斷邏輯要跟著這套，不要另開一條「有沒有填金鑰」的檢查。
+- **桌面**：兩個程式在同一台電腦、同一個 Windows 使用者，飲食 App 可以
+  直接**唯讀**讀取 DeST 的 `%APPDATA%\DesktopST\settings.json` 取得供應商／
+  模型／端點；API Key 走 Electron 的 `safeStorage`，同一台機器同一個使用者
+  帳號本來就解得開，可以直接讀。**開工時先確認 DeST 的 `settings.json` 實際
+  存了哪些欄位（讀 `src/core/types.ts` 的 `AppSettings`），只挑用得到的欄位，
+  不要整份塞進飲食 App 的記憶體。** 沒裝 DeST 的電腦：飲食 App 走自己一份
+  獨立設定，使用者自己填供應商與金鑰。
+- **手機**：⚠️ **Android 的 App 沙盒讓這件事沒有桌面那麼簡單**——兩個各自
+  安裝的 APK **無法直接互相讀對方的儲存空間**。做法是**一次性匯入**，
+  不是即時共用：飲食 App 第一次啟動（或設定頁）提供「從 DeST 匯入 LLM
+  設定」，實作方式可以是掃 QR（比照 DeST 本身的配對流程）或讓使用者從
+  DeST 匯出一小段設定文字/檔案再貼進飲食 App——**開工時再決定哪種最省事**，
+  不用現在就定案，但務必記得：**這是一次性複製，不是活的連結**，之後
+  在其中一邊改設定不會反映到另一邊，畫面文案要講清楚這件事，不要讓使用者
+  誤以為兩邊會保持同步。沒裝 DeST 的手機：飲食 App 自己有一份獨立設定。
+- B9a 本身**不呼叫任何 LLM**（關鍵字入帳免 LLM，手動輸入不用 LLM），
+  所以上面這整段其實是「先把管線接好，等 B9b 拍照估價要用的時候，
+  金鑰已經在那邊了」，不是 B9a 這次會實際觸發 LLM 呼叫的路徑。
 
 ### 3.4 UI
 
-- 手機：新畫面放 `src/mobile/ui/nutrition/`（比照 `src/mobile/ui/news/`
-  的目錄結構：一個列表頁、一個詳情/編輯頁、一個設定頁）。
-- 桌面：新視窗或新分頁，比照 `src/renderer/` 既有模組（天氣／新聞）的掛法。
-- 配色**只能用 `theme.ts`／`theme.css` 既有的 CSS 變數**，不要自己配新顏色
-  （CLAUDE.md §3「視覺」硬規則）。圖示只改 `src/shared/MonoIcon.tsx`。
-- 手機 sheet／modal 記得留 `paddingBottom: calc(var(--safe-bottom) + Npx)`——
-  這次 v0.4.0 煙測才因為漏了這個讓按鈕被手勢列擋住（`Composer.tsx`／
+- 沿用 DeST 既有的視覺語言（CLAUDE.md §3「視覺」硬規則：扁平、圓潤，
+  配色只能用 `theme.ts`／`theme.css` 既有的 CSS 變數，不要自己配新顏色）
+  ——**這是刻意的**，即使是獨立 App，也希望使用者感覺是同一個作者出品、
+  風格一致。圖示沿用 `src/shared/MonoIcon.tsx`，不要另開一套圖示系統。
+- 手機 sheet／modal 記得留 `paddingBottom: calc(var(--safe-bottom) + Npx)`
+  ——這次 v0.4.0 煙測才因為漏了這個讓按鈕被手勢列擋住（`Composer.tsx`／
   `NewsContextSheet.tsx` 都踩過），新畫面直接照抄這個慣例，不要重踩。
 
 ---
@@ -118,77 +170,90 @@ owner 自用優先，只要 B9a（MVP）能動、能記、能搬家就算完工�
 
 | 步驟 | 內容 | 驗證方式 |
 |---|---|---|
-| ① | `core/nutrition/types.ts` 定義 `FoodItem`／`MealLog`／`BodyProfile`／模組設定型別 | 純型別，`npm run typecheck` 過 |
-| ② | `core/nutrition/` 純函式：關鍵字比對、TDEE 計算、日/週/月聚合（吃 `MealLog[]`，可注入 `now`） | 各自寫 `tests/core/nutrition/*.test.ts`，餵固定資料驗證輸出 |
-| ③ | 模組設定讀寫（`StorageAdapter` 版），桌面／手機共用同一份 key 佈局（§3.2） | `npm test`；桌面／手機分別存一筆、重開還在 |
-| ④ | 手機：食物庫 CRUD＋照片（先不接列表 UI，只接資料層＋薄轉呼叫） | `LocalDataSource` 對應方法，vitest 走 `tests/mobile/` |
-| ⑤ | 手機 UI：每日飲食列表＋翻日＋合計（規格 §3.2b） | `MobileST.bat [3]` 或 `preview_start` 手動點一輪 |
-| ⑥ | 手機 UI：關鍵字入帳＋手建食物 | 同上 |
-| ⑦ | 手機 UI：TDEE 表單＋快覽 | 同上 |
-| ⑧ | 桌面：比照手機做同一套 UI（邏輯已經在 core，這步應該最快） | 開桌面版手動點一輪 |
-| ⑨ | N1 搬家包匯出／匯入（規格 §5.2），桌面／手機都要有入口 | 桌面匯出→手機匯入（或反過來），資料對得起來 |
-| ⑩ | N2 編輯（改食物／餐次／上限），確認「改主檔」跟「改單筆餐次」的邊界清楚 | 手動測：改一筆 `FoodItem` 名稱，該食物所有 `MealLog` 顯示跟著變 |
+| ① | **App 骨架**：手機新 Capacitor 專案＋vite config 能建置出一個空白畫面的 APK；桌面新 Electron 目標能跑出一個空視窗（§3.1，先花時間確認 tooling 可行） | 手機裝得上、桌面執行檔開得起來，畫面隨便寫個「Hello Nutrition」都算過 |
+| ② | `core/nutrition/types.ts` 定義 `FoodItem`／`MealLog`／`BodyProfile`／App 設定型別 | 純型別，`npm run typecheck` 過 |
+| ③ | `core/nutrition/` 純函式：關鍵字比對、TDEE 計算、日/週/月聚合（吃 `MealLog[]`，可注入 `now`） | 各自寫 `tests/core/nutrition/*.test.ts`，餵固定資料驗證輸出 |
+| ④ | 新 App 自己的本地儲存／session（不是 DeST 的 `StandaloneSession`，是全新的、只管食物庫跟餐次的簡單版本）＋ App 設定讀寫（§3.2） | `npm test`；桌面／手機分別存一筆、重開還在 |
+| ⑤ | 手機：食物庫 CRUD＋照片（先不接列表 UI，只接資料層） | vitest 走 `tests/` 對應目錄 |
+| ⑥ | 手機 UI：每日飲食列表＋翻日＋合計（規格 §3.2b） | 手機真機或模擬器手動點一輪 |
+| ⑦ | 手機 UI：關鍵字入帳＋手建食物 | 同上 |
+| ⑧ | 手機 UI：TDEE 表單＋快覽 | 同上 |
+| ⑨ | 桌面：比照手機做同一套 UI（邏輯已經在 core，這步應該最快） | 開桌面版手動點一輪 |
+| ⑩ | N1 搬家包匯出／匯入（規格 §5.2），桌面／手機都要有入口 | 桌面匯出→手機匯入（或反過來），資料對得起來 |
+| ⑪ | N2 編輯（改食物／餐次／上限），確認「改主檔」跟「改單筆餐次」的邊界清楚 | 手動測：改一筆 `FoodItem` 名稱，該食物所有 `MealLog` 顯示跟著變 |
+| ⑫ | LLM 設定共用：桌面唯讀讀 DeST 設定；手機一次性匯入流程（§3.3） | 裝了 DeST 的機器上測一輪，也測「沒裝 DeST」的狀況不會壞 |
 
 每步做完 `npm run typecheck` **與** `npm test` 都要過，兩個分開跑
 （CLAUDE.md §6：`npm test` 綠不等於 `typecheck` 綠，vitest 不做型別檢查）。
 
 ---
 
-## 5. 一定會踩、先寫在這裡的坑（抄 CLAUDE.md §5，套用到這個新模組）
+## 5. 一定會踩、先寫在這裡的坑
 
-1. **改完資料一定要 `events.push({ kind: 'state-invalidated', reason: 'desktop' })`**
-   （手機端），否則畫面停在舊清單。這是全站最常忘記的一步。
-2. **HTTP 一律走注入的 `HttpAdapter`，不要用全域 `fetch`**——B9a 雖然不呼叫
-   LLM，但如果任何一步意外需要打網路（例如日後接 vision），現在就要照這個
-   規則寫，不要留一個要重寫的坑給 B9b。
-3. **手機通知／逾時相關的坑跟這次無關**（飲食模組不涉及提醒排程），
-   但如果 B9c 之後要加「該記飲食了」提醒，要先讀
-   `docs/mobile-standalone-reminder-plan.md`，不要另開一套排程機制。
-4. **模組設定不要塞進 `settings.json`**——見 §3.1，這是新聞模組吃過的虧
-   （`session.ts` 的 `listModules` 原本沒接新聞，靠一次真機回報才發現）。
-5. **改 vite alias 或 tailwind `content` 後一定要重開 `dev:mobile`**，
-   否則圖示無聲消失（CLAUDE.md §5 已知坑，跟這次無關但常被踩到）。
-6. **搬家包裡絕對不能有 API Key**——B9a 雖然不涉及 LLM 金鑰，但如果模組設定
-   物件裡意外夾帶了 `nutrition.llm.apiKey` 之類的欄位，匯出時要記得剝除
-   （規格 §5.2 已經明講「API Key 永不進包」，跟 DST Pack／S2 同一條規則）。
-7. **同一 `foodItemId` 的多筆餐次要真的共用同一份資料**，不要在 `MealLog`
+1. **改完資料一定要推一個「資料變了」的事件給 UI 層**（DeST 的做法是
+   `events.push({ kind: 'state-invalidated', reason: 'desktop' })`）——新
+   App 自己的 session／store 也要有等價機制，否則畫面停在舊清單。這是
+   全站最常忘記的一步。
+2. **HTTP 一律走注入的 `HttpAdapter`，不要用全域 `fetch`**——B9a 雖然不
+   呼叫 LLM，但如果任何一步意外需要打網路，現在就要照這個規則寫，
+   不要留一個要重寫的坑給 B9b。手機的 CapacitorHttp 有一堆已知怪癖
+   （忽略 `signal`、JSON 回應可能被多編碼一次），細節見 `CLAUDE.md` §5，
+   同樣的坑這個新 App 一樣會踩到，先看過。
+3. **搬家包裡絕對不能有 API Key**——B9a 雖然不涉及 LLM 金鑰呼叫，但如果
+   App 設定物件裡意外夾帶了金鑰欄位，匯出時要記得剝除（規格 §5.2 已經
+   明講「API Key 永不進包」，跟 DeST 的 DST Pack／S2 同一條規則）。
+4. **同一 `foodItemId` 的多筆餐次要真的共用同一份資料**，不要在 `MealLog`
    裡複製一份營養數字快照——改食物主檔要能讓所有引用它的餐次顯示跟著變
    （規格 §3.2b 已經講明這是設計重點，不是可選的最佳化）。
+5. **不要真的去 import DeST app 殼層（`src/main/`／`src/renderer/`／
+   `src/mobile/`）的程式碼**——只 import `src/core/` 底下的東西。混用會讓
+   兩個 App 的建置系統糾纏在一起，違背「獨立安裝包」的初衷，日後也沒辦法
+   分開發布。
+6. **讀 DeST 的 `settings.json`（桌面唯讀共用那步）要對「檔案不存在」／
+   「格式跟預期不同」寬容處理**——使用者可能還沒裝 DeST、或裝的是舊版本，
+   讀失敗要當成「沒有可帶入的設定」，不能讓整個 App 打不開。
 
 ---
 
 ## 6. 完工判準（B9a）
 
+- [ ] 手機：獨立 APK 裝得上、有自己的圖示，開啟後跟 DeST 完全無關（沒裝
+      DeST 也能正常運作）
+- [ ] 桌面：獨立執行檔／安裝包跑得起來，跟 DeST 主程式是分開的視窗／程序
 - [ ] 桌面／手機都能：關鍵字入帳、手建食物（含 1～3 張照片）、看每日飲食列表
       （翻日、合計正確）
 - [ ] TDEE 套用建議後，`dailyKcalLimit`／`dailyProteinGoalG` 可再手改，
       改完 TDEE 重算不會覆蓋手改值
 - [ ] 應用內快覽顯示今日 `kcal／上限`、`蛋白／目標`，超標變紅
-- [ ] 模組關閉時，飲食入口（icon／選單）完全隱藏；只開飲食時不需要填 API Key
 - [ ] 搬家包匯出→在另一台裝置（或同裝置清空後）匯入，食物庫／餐次／身體檔／
       照片都正確還原，且**沒有 API Key 混進去**
 - [ ] 改一筆 `FoodItem` 的名稱或營養值，所有引用它的 `MealLog`（含歷史）
       顯示跟著變
+- [ ] 有裝 DeST 的機器上：桌面能唯讀帶入 DeST 的 LLM 設定；手機能一次性
+      匯入。沒裝 DeST 的機器上：兩邊都能走獨立設定正常運作
 - [ ] `npm run typecheck` 與 `npm test` 都過
 
-真機驗證（Pixel 10a 或你自己的機器）留到 B9a 全部功能做完、瀏覽器煙測過一輪
-之後再做，不用每一步都連真機。
+真機驗證（Pixel 10a 或你自己的機器）留到 B9a 全部功能做完、模擬器/瀏覽器
+煙測過一輪之後再做，不用每一步都連真機。
 
 ---
 
 ## 7. 完工後要更新的文件
 
-- `docs/future-nutrition-module.md` §6 分期表：B9a 打勾，補落地筆記（哪裡跟規格不同、為什麼）
-- `TODO.md`：從「延後／已排程」搬到「現在該做的」對應完成狀態
+- `docs/future-nutrition-module.md` §6 分期表：B9a 打勾，補落地筆記（哪裡跟規格不同、為什麼；正式 App 名稱定了的話也補進去）
+- `TODO.md`：從「§0 第一順位」更新完成狀態
 - `CLAUDE.md` §4 現況表：加一行
 - `docs/progress-log.md`：照慣例補一筆
+- 如果最後 App 名稱定案了，這份文件跟 `future-nutrition-module.md` 裡的
+  「暫名」都要跟著改成正式名稱
 
 ---
 
 ## 8. 給接手 AI 的一句話總結
 
-這是全新模組，不是接線任務。**先把 core 的資料模型與純函式做完並測過，
-UI 邏輯全部薄轉呼叫**——這是天氣／新聞模組已經驗證過的分工方式，照做就對，
-不要自己發明新的分層方式。手機跟桌面 UI 各自實作，但存檔格式、模組設定
-儲存位置、照片管線，兩邊必須從一開始就對齊，不要「先做完手機再讓桌面對齊」，
-那樣事後要花更多力氣調格式。
+這是全新的獨立 App，不是 DeST 的功能，也不是接線任務。**第一步先把兩個
+平台的空殼 App 立起來、能建置能跑**，再把 core 的資料模型與純函式做完並
+測過，UI 邏輯全部薄轉呼叫——後面這個分工方式是天氣／新聞模組已經驗證過的，
+照做就對。**唯一能跟 DeST 共用的是 `src/core/` 底下的純邏輯與 `src/shared/`
+的呈現層元件**，App 殼層、儲存根目錄、安裝包一律獨立，不要為了圖方便去
+import DeST app 殼層的程式碼。
