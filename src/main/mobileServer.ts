@@ -709,7 +709,14 @@ async function handleRequest(
     try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
     const content = String(payload.content ?? '').trim()
     const images = sanitizeIncomingImages(payload.images, bridge.getMaxImagesPerMessage())
-    if (!content && !images.length && !payload.randomResult && !(payload.randomResults && payload.randomResults.length)) { jsonError(res, 400, 'Empty message'); return }
+    /*
+     * 只掛新聞標題泡泡、不打字也不附圖也算「有東西可送」——手機端 Composer.tsx
+     * 的 `submit()` 本來就允許這種送法（`!raw && !images.length && !pendingNewsLink`
+     * 才擋），這裡原本漏了 `newsLink`，導致「聊這個」不打字直接送出時被這關
+     * 誤判成空訊息，回 400，手機顯示「送不出去：內容或圖片不符合限制」——
+     * 但其實根本沒有圖片，訊息也很清楚是誤導（owner 2026-08-16 真機回報）。
+     */
+    if (!content && !images.length && !payload.randomResult && !(payload.randomResults && payload.randomResults.length) && !payload.newsLink) { jsonError(res, 400, 'Empty message'); return }
     try {
       const sourceDeviceName = bridge.shouldIncludeDeviceNameInPrompt()
         ? getDeviceDisplayNameFromRequest(req)

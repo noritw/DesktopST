@@ -235,9 +235,18 @@ function MessageRow({ message, characterName, onEditNews }: {
             )}
             {renderInline(message.content)}
             {message.newsLink?.title && (
+              /*
+               * 顏色用 `--text`，不要用 `--mint2`（owner 2026-08-16 真機回報：
+               * 某幾組配色下標題幾乎看不到）。`--mint2` 在深色三組主題（深色／
+               * 復古／賽博）刻意調得偏暗（拿去當邊框／強調色用），跟同樣偏暗的
+               * `--user-bubble` 疊在一起對比度趨近於零；淺色系的粉彩主題裡
+               * 兩者也常是同色系的深淺相近版本，一樣不夠清楚。`--text` 是泡泡本文
+               * 本來就在用的顏色（見上面 `renderInline`），保證跟 `--user-bubble`
+               * 與 `--surface`（角色泡泡）在所有主題下都讀得清楚。
+               */
               <button
                 type="button"
-                className="mt-1 block max-w-full truncate text-left text-[12px] text-[var(--mint2)] underline decoration-dotted"
+                className="mt-1 block max-w-full truncate text-left text-[12px] text-[var(--text)] underline decoration-dotted"
                 onClick={() => onEditNews(message)}
               >
                 📰 {message.newsLink.title}

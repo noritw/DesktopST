@@ -204,8 +204,15 @@ export function Composer(): JSX.Element {
           className="fixed inset-0 z-[70] flex items-end bg-black/30"
           onClick={() => setNewsSheetOpen(false)}
         >
+          {/*
+            ⚠️ 底部要留手勢列安全區，不能只靠 `p-4`——Android 手勢列會吃掉畫面下緣，
+            「關閉」鈕原本擠在捲動內容最下面按不到（owner 2026-08-16 真機回報，
+            跟 `NewsContextSheet.tsx` 那次是同一個坑：見它檔頭的說明）。
+            高度也比照那邊改用 `dvh`：`vh` 不含網址列／手勢列的動態高度。
+          */}
           <div
-            className="max-h-[70vh] w-full overflow-y-auto rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+            className="max-h-[70dvh] w-full overflow-y-auto rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+            style={{ paddingBottom: 'calc(var(--safe-bottom) + 16px)' }}
             onClick={(e) => e.stopPropagation()}
           >
             <p className="text-sm font-semibold text-[var(--text)]">{pendingNewsLink.title}</p>
