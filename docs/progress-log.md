@@ -2465,3 +2465,35 @@ React 樹由 Error Boundary 卸載成白畫面。修法：選單按鈕在 ready 
 退避重連排程。
 
 `npm run typecheck`／`npm test`（52 檔、653 項）全過。
+
+---
+
+## 2026-08-16｜B-1 對話刪除（階段一：整則對話），真機驗證通過
+
+owner 2026-08-16 真機測試 S2 對話同步時回報：故意刪掉的對話，同步後又被另一邊
+補回來（`convPair.ts` 的 `copy` 預設行為）。收斂成 `TODO.md` §1.1b B-1，分兩階段，
+先做風險較低的階段一。
+
+`core/sync/convPair.ts` 的 `ConvChoice` 加一個 `'delete'`，只在**單邊獨有**的列
+有意義（`convActionFor` 對應到 `delete-local`／`delete-remote`）；兩邊都有的合併列
+不受影響——`merge` 仍然不刪東西，訊息聯集裡少的一律當「還沒收到」。執行端在
+`mobile/runtime/syncConversations.ts`：本機呼叫既有的 `session.removeConversation`，
+電腦呼叫既有的 `/api/conversations/delete`（rename 用的同一支端點，不用新開）。
+UI 複用資料分頁（`pair.ts`／`CompareRow`）已驗證過的那套：警告色外框、
+`DeleteHint` 副標、送出前逐筆確認清單（`listConvDeletions`）。
+
+**真機測出一個漏洞，過程中就地修掉**：`ModeSwitcher.tsx` 判斷「這趟同步要不要
+真的跑」的加總式（openSyncCompare 之後、要不要呼叫 apply 系列函式之前）沒算進
+新加的 `convPlan.deleteLocal`／`deleteRemote`。結果是使用者只選了刪除、其他列都
+不動時，`SyncComparePicker` 的確認流程整段都正常（外框變紅、二次確認清單都對），
+但 `ModeSwitcher` 把「合計為 0」誤判成「沒事要做」，**整個跳過 apply 步驟直接
+切換模式**——症狀是「畫面上看起來刪除成功，電腦端卻什麼也沒發生」，而且沒有
+任何錯誤訊息。修法：加總式補上那兩個欄位。這類「加了新的 plan 欄位、卻漏改
+某處既有的加總判斷」的坑，改 `ConvPlanCounts`／`PairPlanCounts` 之類的結構時
+要記得全域搜一次所有把各欄位加總的地方，不能只改定義那一處。
+
+階段二（訊息層刪除，哪幾句被刪）仍未做，理由見 `convPair.ts` 檔頭：`merge` 光看
+指紋分不出「對面新增的」跟「這邊被刪的」，要墓碑紀錄或逐句確認清單，等階段一
+用一陣子再決定要不要做。
+
+`npm run typecheck`／`npm test`（61 檔、797 項）全過。

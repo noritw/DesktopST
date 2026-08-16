@@ -30,10 +30,13 @@ import { getJson, postJson, type FetchImpl, type SyncSource } from './syncTransp
  * 照則數切的話那一塊照樣爆，而症狀是「大部分對話同步得好好的，唯獨
  * 帶圖那幾則永遠過不去」。
  *
- * ## 這一版不刪任何東西
+ * ## 訊息層還是不刪（B-1 階段一，2026-08-16）
  *
- * 某一邊少了幾則訊息一律當成「還沒收到」，補過去而不是刪掉對面。
- * 刪除同步不在這一版範圍內。
+ * `merge` 一列裡某一邊少了幾則訊息，仍然一律當成「還沒收到」，補過去而不是
+ * 刪掉對面——這條沒變。變的是**整則對話**：單邊獨有的列除了「複製過去」，
+ * 現在也可以選「刪掉現在有這則的那一邊」（`ConvAction` 的 `delete-local`／
+ * `delete-remote`），對應 owner 實機回報的「故意刪掉的對話又被同步送回來」。
+ * 訊息層的刪除（哪幾句被刪的）仍然不在這一版範圍內，見 `convPair.ts` 檔頭。
  */
 
 /**
@@ -63,6 +66,10 @@ export interface ConvApplyResult {
   pulled: string[]
   /** 雙向補齊的對話標題。 */
   merged: string[]
+  /** 從手機刪掉的對話標題（B-1 階段一：另一邊沒有，使用者選了刪除）。 */
+  deletedLocal: string[]
+  /** 從電腦刪掉的對話標題。 */
+  deletedRemote: string[]
   /** 總共補了多少則訊息到電腦／手機。 */
   messagesToRemote: number
   messagesToLocal: number
@@ -104,6 +111,8 @@ export async function applyConversationSync(
     pushed: [],
     pulled: [],
     merged: [],
+    deletedLocal: [],
+    deletedRemote: [],
     messagesToRemote: 0,
     messagesToLocal: 0,
     keptOwnVersion: 0,
@@ -173,8 +182,22 @@ async function runOne(
     return true
   }
 
+  // ── 刪掉電腦那份（電腦獨有的列，使用者選了「刪掉這邊」）──
+  if (action === 'delete-remote') {
+    await postJson<unknown>(src, '/api/conversations/delete', { id: row.remoteId }, fetchImpl)
+    result.deletedRemote.push(row.title)
+    return true
+  }
+
   const local = row.localId ? session.getConversation(row.localId) : null
   if (!local) throw new Error('本機找不到這則對話')
+
+  // ── 刪掉手機那份（手機獨有的列，使用者選了「刪掉這邊」）──
+  if (action === 'delete-local') {
+    await session.removeConversation(local.id)
+    result.deletedLocal.push(row.title)
+    return true
+  }
 
   // ── 整則推到電腦（手機獨有）──
   if (action === 'push') {

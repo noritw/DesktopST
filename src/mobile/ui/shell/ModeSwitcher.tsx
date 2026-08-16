@@ -161,7 +161,7 @@ export function ModeSwitcher(): JSX.Element | null {
     if (
       plan.push + plan.pull + plan.deleteLocal + plan.deleteRemote +
       settingsPlan.push + settingsPlan.pull +
-      convPlan.merge + convPlan.push + convPlan.pull + convPlan.fieldEdits === 0
+      convPlan.merge + convPlan.push + convPlan.pull + convPlan.deleteLocal + convPlan.deleteRemote + convPlan.fieldEdits === 0
     ) {
       return 'ok'
     }

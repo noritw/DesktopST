@@ -7,7 +7,9 @@ import {
   defaultConvChoices,
   defaultConvFieldChoices,
   hasFieldWork,
+  listConvDeletions,
   pairConversations,
+  type ConvChoiceMap,
   type ConvEntity,
   type ConvRow
 } from '../../../src/core/sync/convPair'
@@ -159,6 +161,41 @@ describe('convActionFor', () => {
     expect(convActionFor({ key: 'k', title: 't', localId: 'a', conflicts: [] }, 'copy')).toBe('push')
     expect(convActionFor({ key: 'k', title: 't', remoteId: 'b', conflicts: [] }, 'copy')).toBe('pull')
   })
+
+  /*
+   * B-1 階段一：單邊獨有的列選 delete＝刪掉「現在有這則」的那一邊，
+   * 讓對話真的從兩邊都消失，而不是每次同步都被 copy 補回來。
+   */
+  it('單邊獨有選 delete 就是刪掉有值的那一邊', () => {
+    expect(convActionFor({ key: 'k', title: 't', localId: 'a', conflicts: [] }, 'delete')).toBe('delete-local')
+    expect(convActionFor({ key: 'k', title: 't', remoteId: 'b', conflicts: [] }, 'delete')).toBe('delete-remote')
+  })
+
+  it('兩邊都有的列選 delete 不會做任何事（UI 不會給這個選項，但邏輯要保守）', () => {
+    expect(convActionFor(both('same'), 'delete')).toBe('none')
+    expect(convActionFor(both('differs'), 'delete')).toBe('none')
+  })
+})
+
+describe('listConvDeletions', () => {
+  it('逐則列出要刪除的對話與所在的那一邊', () => {
+    const rows: ConvRow[] = [
+      { key: 'L:a', title: '手機獨有', localId: 'a', conflicts: [] },
+      { key: 'R:b', title: '電腦獨有', remoteId: 'b', conflicts: [] },
+      { key: 'L:c', title: '兩邊都有，不受影響', localId: 'c', remoteId: 'c', compare: 'same', conflicts: [] }
+    ]
+    const choices: ConvChoiceMap = { 'L:a': 'delete', 'R:b': 'delete', 'L:c': 'keep' }
+    expect(listConvDeletions(rows, choices)).toEqual([
+      { title: '手機獨有', side: 'local' },
+      { title: '電腦獨有', side: 'remote' }
+    ])
+  })
+
+  it('沒有選 delete 的列不會出現', () => {
+    const rows: ConvRow[] = [{ key: 'L:a', title: '手機獨有', localId: 'a', conflicts: [] }]
+    expect(listConvDeletions(rows, { 'L:a': 'copy' })).toEqual([])
+    expect(listConvDeletions(rows, {})).toEqual([])
+  })
 })
 
 describe('快捷鍵', () => {
@@ -198,7 +235,16 @@ describe('countConvPlan', () => {
       [conv({ id: 'a', messageIdsHash: 'h2' }), conv({ id: 'b', messageIdsHash: 'same' }), conv({ id: 'only-r', title: '只有電腦' })]
     )
     const counts = countConvPlan(rows, defaultConvChoices(rows))
-    expect(counts).toMatchObject({ merge: 1, push: 1, pull: 1, untouched: 1 })
+    expect(counts).toMatchObject({ merge: 1, push: 1, pull: 1, deleteLocal: 0, deleteRemote: 0, untouched: 1 })
+  })
+
+  it('選 delete 的單邊獨有列分別算進 deleteLocal／deleteRemote', () => {
+    const rows = pairConversations(
+      [conv({ id: 'only-l', title: '只有手機' })],
+      [conv({ id: 'only-r', title: '只有電腦' })]
+    )
+    const choices: ConvChoiceMap = { 'L:only-l': 'delete', 'R:only-r': 'delete' }
+    expect(countConvPlan(rows, choices)).toMatchObject({ deleteLocal: 1, deleteRemote: 1, untouched: 0 })
   })
 
   it('訊息相同但標題被選了一邊時，仍算成一件要做的事', () => {

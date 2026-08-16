@@ -171,6 +171,8 @@ export function formatApplyMessage(
     }
     if (conv.pushed.length > 0) out.push(`對話 送到電腦（${conv.pushed.length}）：`, `・${conv.pushed.join('、')}`)
     if (conv.pulled.length > 0) out.push(`對話 帶回手機（${conv.pulled.length}）：`, `・${conv.pulled.join('、')}`)
+    if (conv.deletedLocal.length > 0) out.push(`對話 已從手機刪除（${conv.deletedLocal.length}）：`, `・${conv.deletedLocal.join('、')}`)
+    if (conv.deletedRemote.length > 0) out.push(`對話 已從電腦刪除（${conv.deletedRemote.length}）：`, `・${conv.deletedRemote.join('、')}`)
     if (conv.messagesToRemote > 0 || conv.messagesToLocal > 0) {
       const bits: string[] = []
       if (conv.messagesToRemote > 0) bits.push(`電腦補了 ${conv.messagesToRemote} 則訊息`)

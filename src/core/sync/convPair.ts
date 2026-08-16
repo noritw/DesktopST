@@ -18,14 +18,28 @@ import type { ManifestConversation } from './types'
  * |---|---|---|
  * | 兩邊都有、訊息集合不同 | `merge`／`keep` | `merge` |
  * | 兩邊都有、完全相同 | （不必決定） | `keep` |
- * | 只有一邊有 | `copy`／`keep` | `copy` |
+ * | 只有一邊有 | `copy`／`keep`／`delete` | `copy` |
  *
- * ## 這個分頁不會刪任何東西
+ * ## 「兩邊都有」的列仍然不會刪東西
  *
- * 沒有「選空的那一邊＝刪除」的語意（那是 `pair.ts` 給實體資料用的）。
- * 刪除同步這一版明確不做（交接說明的「明確不要做」清單第一條），所以
- * 某一邊少了幾則訊息一律當成「還沒收到」，補過去而不是刪掉對面。
- * UI 上也不要出現 `--danger` 那套配色——這個分頁按下去不會失去東西。
+ * `merge`／`keep` 沒有刪除語意——訊息聯集裡少的一律當成「還沒收到」，
+ * 不是「被刪的」（階段二才會處理墓碑，見下方 B-1）。
+ *
+ * ## 單邊獨有的列可以刪（2026-08-16，B-1 階段一）
+ *
+ * owner 實機測試回報：故意刪掉的對話，同步後又被另一邊補回來（`copy` 的
+ * 預設行為）。原因是「單邊獨有」有兩種成因——真的還沒同步過，或是
+ * 使用者在其中一邊刪掉了——這一版之前完全沒分辨。`delete` 選項讓使用者
+ * 明講「這是我刪的，另一邊也刪掉」：對還沒同步過的新對話沒有影響
+ * （反正它本來就不該被刪），只有使用者自己選了才會動。
+ *
+ * `delete` 只在單邊獨有時有意義，語意是「刪掉現在有這則的那一邊」——
+ * `localId` 有值就刪本機（`delete-local`），只有 `remoteId` 就刪電腦
+ * （`delete-remote`），完全複用 `pair.ts` 已驗證過的警告色＋逐筆確認清單。
+ * **`delete` 不適用於兩邊都有的列**（那是階段二的範圍，見下方）。
+ *
+ * 訊息層的刪除（階段二）還沒做：`merge` 光看指紋分不出「對面新增的」跟
+ * 「這邊被刪的」，要墓碑紀錄或逐句確認清單，等階段一用一陣子再決定。
  */
 
 /** 比對用的對話描述：清單端點給的輕量欄位 ＋ 指紋。 */
@@ -52,6 +66,8 @@ export type ConvChoice =
   | 'copy'
   /** 這列不動 */
   | 'keep'
+  /** 刪掉現在有這則的那一邊，只在單邊獨有時有意義（B-1 階段一） */
+  | 'delete'
 
 /** 單值欄位的衝突：這些走「二選一」，跟訊息的聯集是兩回事。 */
 export type ConvFieldKey = 'title' | 'summary'
@@ -255,11 +271,16 @@ export function applyConvPreset(rows: ConvRow[], preset: 'all' | 'none'): ConvCh
 }
 
 /** 這一列選了之後實際上要做什麼。 */
-export type ConvAction = 'none' | 'merge' | 'push' | 'pull'
+export type ConvAction = 'none' | 'merge' | 'push' | 'pull' | 'delete-local' | 'delete-remote'
 
 export function convActionFor(row: ConvRow, choice: ConvChoice): ConvAction {
   if (choice === 'keep') return 'none'
   const both = !!row.localId && !!row.remoteId
+  if (choice === 'delete') {
+    // 只在單邊獨有時有意義；兩邊都有的列選了也當不動處理（UI 不會給這個選項）
+    if (both) return 'none'
+    return row.localId ? 'delete-local' : 'delete-remote'
+  }
   if (choice === 'copy') {
     if (both) return 'none'
     return row.localId ? 'push' : 'pull'
@@ -268,6 +289,20 @@ export function convActionFor(row: ConvRow, choice: ConvChoice): ConvAction {
   // 但那條路徑由 `hasFieldWork()` 判斷，不由這裡回報。
   if (!both) return row.localId ? 'push' : 'pull'
   return row.compare === 'same' ? 'none' : 'merge'
+}
+
+/** 這次會被刪掉的對話，給確認視窗逐則列出來（不能只說數量），跟 `pair.ts` 的 `listDeletions` 同一套。 */
+export function listConvDeletions(
+  rows: ConvRow[],
+  choices: ConvChoiceMap
+): { title: string; side: 'local' | 'remote' }[] {
+  const out: { title: string; side: 'local' | 'remote' }[] = []
+  for (const row of rows) {
+    const action = convActionFor(row, choices[row.key] ?? defaultConvChoice(row))
+    if (action === 'delete-local') out.push({ title: row.title, side: 'local' })
+    else if (action === 'delete-remote') out.push({ title: row.title, side: 'remote' })
+  }
+  return out
 }
 
 /** 這一列有沒有「訊息不用動、但單值欄位要改」的工作。 */
@@ -287,6 +322,10 @@ export interface ConvPlanCounts {
   push: number
   /** 整則帶回手機的則數。 */
   pull: number
+  /** 要從手機刪掉的則數。 */
+  deleteLocal: number
+  /** 要從電腦刪掉的則數。 */
+  deleteRemote: number
   untouched: number
   /** 這次總共會補多少則訊息到電腦／手機（估計值，用指紋算不出來的以 0 計）。 */
   fieldEdits: number
@@ -297,12 +336,14 @@ export function countConvPlan(
   choices: ConvChoiceMap,
   fieldChoices: ConvFieldChoiceMap = {}
 ): ConvPlanCounts {
-  const counts: ConvPlanCounts = { merge: 0, push: 0, pull: 0, untouched: 0, fieldEdits: 0 }
+  const counts: ConvPlanCounts = { merge: 0, push: 0, pull: 0, deleteLocal: 0, deleteRemote: 0, untouched: 0, fieldEdits: 0 }
   for (const row of rows) {
     switch (convActionFor(row, choices[row.key] ?? defaultConvChoice(row))) {
       case 'merge': counts.merge++; break
       case 'push': counts.push++; break
       case 'pull': counts.pull++; break
+      case 'delete-local': counts.deleteLocal++; break
+      case 'delete-remote': counts.deleteRemote++; break
       default: counts.untouched++
     }
     if (hasFieldWork(row, fieldChoices)) counts.fieldEdits++

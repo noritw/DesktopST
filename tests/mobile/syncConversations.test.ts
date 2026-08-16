@@ -108,6 +108,11 @@ function makeFakeDesktop(opts: { conversations?: Conversation[]; newId?: string 
       return json({ ok: true })
     }
 
+    if (path === '/api/conversations/delete') {
+      remote.delete(body.id)
+      return json({ activeConversationId: 'whatever' })
+    }
+
     return new Response('unexpected ' + path, { status: 500 })
   }) as unknown as typeof fetch
 
@@ -332,6 +337,48 @@ describe('applyConversationSync', () => {
 
     expect(r.failed).toHaveLength(1)
     expect(r.pushed).toEqual(['正常的'])
+  })
+
+  /*
+   * B-1 階段一：owner 實機回報「故意刪掉的對話同步後又被送回來」——
+   * 單邊獨有的列選 delete 要真的刪掉有值的那一邊，不能只是不動。
+   */
+  it('手機獨有的列選 delete 會刪掉本機那份', async () => {
+    const session = await bootSession()
+    await onlyConversations(session, [conv({ id: 'phone-1', title: '想刪掉的', messages: [msg('m1', 1)] })])
+    const pc = makeFakeDesktop()
+    const rows = rowsFor(session, pc.remote)
+
+    const r = await applyConversationSync(
+      SRC,
+      session,
+      { rows, choices: { [rows[0]!.key]: 'delete' }, characterIds: noMaps() },
+      pc.fetchImpl
+    )
+
+    expect(r.deletedLocal).toEqual(['想刪掉的'])
+    expect(session.listConversations().some((c) => c.id === 'phone-1')).toBe(false)
+    expect(pc.calls).toHaveLength(0)
+  })
+
+  it('電腦獨有的列選 delete 會叫電腦刪掉，不會拉回手機', async () => {
+    const session = await bootSession()
+    await onlyConversations(session, [])
+    const pc = makeFakeDesktop({
+      conversations: [conv({ id: 'pc-1', title: '電腦上想刪的', messages: [msg('a', 1)] })]
+    })
+    const rows = rowsFor(session, pc.remote)
+
+    const r = await applyConversationSync(
+      SRC,
+      session,
+      { rows, choices: { [rows[0]!.key]: 'delete' }, characterIds: noMaps() },
+      pc.fetchImpl
+    )
+
+    expect(r.deletedRemote).toEqual(['電腦上想刪的'])
+    expect(pc.remote.has('pc-1')).toBe(false)
+    expect(session.listConversations().some((c) => c.title === '電腦上想刪的')).toBe(false)
   })
 
   it('選 keep 的列完全不動', async () => {

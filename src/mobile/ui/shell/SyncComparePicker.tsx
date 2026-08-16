@@ -29,6 +29,7 @@ import {
   countConvPlan,
   defaultConvChoices,
   defaultConvFieldChoices,
+  listConvDeletions,
   type ConvChoice,
   type ConvChoiceMap,
   type ConvFieldChoice,
@@ -60,8 +61,10 @@ function summary(plan: PairPlanCounts, settingsPlan: SettingsPlanCounts, convPla
   if (pull > 0) parts.push(`${pull} 筆帶回手機`)
   // 對話的合併是雙向的，跟「送過去／帶回來」不是同一回事，分開講
   if (convPlan.merge > 0) parts.push(`${convPlan.merge} 則對話兩邊補齊`)
-  if (plan.deleteLocal > 0) parts.push(`從手機刪掉 ${plan.deleteLocal} 筆`)
-  if (plan.deleteRemote > 0) parts.push(`從電腦刪掉 ${plan.deleteRemote} 筆`)
+  const deleteLocal = plan.deleteLocal + convPlan.deleteLocal
+  const deleteRemote = plan.deleteRemote + convPlan.deleteRemote
+  if (deleteLocal > 0) parts.push(`從手機刪掉 ${deleteLocal} 筆`)
+  if (deleteRemote > 0) parts.push(`從電腦刪掉 ${deleteRemote} 筆`)
   return parts.length === 0 ? '這樣不會搬動任何資料' : `會${parts.join('、')}`
 }
 
@@ -134,7 +137,7 @@ export function SyncComparePicker(): JSX.Element | null {
     (): ConvPlanCounts =>
       convRows && convChoices
         ? countConvPlan(convRows, convChoices, convFieldChoices)
-        : { merge: 0, push: 0, pull: 0, untouched: 0, fieldEdits: 0 },
+        : { merge: 0, push: 0, pull: 0, deleteLocal: 0, deleteRemote: 0, untouched: 0, fieldEdits: 0 },
     [convRows, convChoices, convFieldChoices]
   )
 
@@ -153,7 +156,7 @@ export function SyncComparePicker(): JSX.Element | null {
     setConvFieldChoices((prev) => ({ ...prev, [key]: { ...prev[key], [field]: choice } }))
   }
 
-  const deleteCount = plan.deleteLocal + plan.deleteRemote
+  const deleteCount = plan.deleteLocal + plan.deleteRemote + convPlan.deleteLocal + convPlan.deleteRemote
   const nothingToDo =
     plan.push === 0 &&
     plan.pull === 0 &&
@@ -173,13 +176,16 @@ export function SyncComparePicker(): JSX.Element | null {
    */
   const onConfirm = async (): Promise<void> => {
     const deletions = listDeletions(table, choices)
-    if (deletions.length > 0) {
-      const lines = deletions.map(
-        (d) => `・${KIND_LABEL[d.kind]}「${d.name}」← ${d.side === 'local' ? '從這支手機刪掉' : '從電腦刪掉'}`
-      )
+    const convDeletions = listConvDeletions(convRows, convChoices)
+    const totalDeletions = deletions.length + convDeletions.length
+    if (totalDeletions > 0) {
+      const lines = [
+        ...deletions.map((d) => `・${KIND_LABEL[d.kind]}「${d.name}」← ${d.side === 'local' ? '從這支手機刪掉' : '從電腦刪掉'}`),
+        ...convDeletions.map((d) => `・對話「${d.title}」← ${d.side === 'local' ? '從這支手機刪掉' : '從電腦刪掉'}`)
+      ]
       const ok = await confirm({
         title: '確定要刪掉這些嗎？',
-        message: [`以下 ${deletions.length} 筆會被永久刪除，無法復原：`, '', ...lines].join('\n'),
+        message: [`以下 ${totalDeletions} 筆會被永久刪除，無法復原：`, '', ...lines].join('\n'),
         confirmLabel: '確定刪除'
       })
       if (!ok) return
@@ -520,10 +526,12 @@ function CompareRow({
  * 左右二選一仍然存在，但只用在它成立的地方：**單值欄位**（標題、摘要）。
  * 那些真的只能有一個答案，長成跟設定分頁一樣的子列。
  *
- * ## 這個分頁不會刪東西
+ * ## 單邊獨有的列可以刪（B-1 階段一，2026-08-16）
  *
- * 沒有 `--danger` 那套配色，也沒有「選空的一邊＝刪除」的語意——那是
- * `CompareRow` 給實體資料用的。這裡按下去只會補齊，不會失去。
+ * 兩邊都有的列（合併）仍然不會刪東西——訊息聯集裡少的一律當成「還沒收到」。
+ * 但單邊獨有的列現在多一顆「刪除」，語意跟 `CompareRow` 的「選空的一邊」
+ * 完全一樣：刪掉現在有這則的那一邊，讓對話真的從兩邊都消失，而不是每次
+ * 同步都被補回來。複用同一套警告色外框＋ `DeleteHint`。
  */
 function ConvCompareRow({
   row,
@@ -540,10 +548,13 @@ function ConvCompareRow({
 }): JSX.Element {
   const both = !!row.localId && !!row.remoteId
   const action = convActionFor(row, choice)
+  const deleting = action === 'delete-local' || action === 'delete-remote'
   const primaryLabel = both ? '合併（兩邊補齊）' : row.localId ? '送到電腦' : '帶回手機'
+  // 刪的是「現在有這則的那一邊」：單邊獨有的列，有值的那一側就是被刪的一側
+  const deleteHintText = row.localId ? '會從這支手機刪掉' : '會從電腦刪掉'
 
   return (
-    <div className="mb-2 rounded-[14px] border border-[var(--border)] px-2 py-2">
+    <div className={`mb-2 rounded-[14px] border px-2 py-2 ${deleting ? 'border-[var(--danger)]' : 'border-[var(--border)]'}`}>
       <div className="flex items-baseline justify-between gap-2 px-1 pb-1">
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--text)]">{row.title}</span>
         {!row.localId && <span className="shrink-0 text-[10px] text-[var(--text-sub)]">手機上沒有</span>}
@@ -584,11 +595,26 @@ function ConvCompareRow({
         >
           不動
         </button>
+        {/* 只有單邊獨有的列才能刪——兩邊都有的（合併）沒有這個選項 */}
+        {!both && (
+          <button
+            type="button"
+            onClick={() => onChoose('delete')}
+            className={`shrink-0 rounded-[10px] px-2 text-[11px] ${
+              choice === 'delete'
+                ? 'bg-[var(--danger)] text-[var(--danger-text)]'
+                : 'border border-[var(--border)] text-[var(--text-sub)]'
+            }`}
+          >
+            刪除
+          </button>
+        )}
       </div>
 
       {action === 'none' && choice !== 'keep' && row.compare === 'same' && (
         <p className="mt-1.5 px-1 text-[10px] text-[var(--text-sub)]">訊息兩邊已經一樣，不必補</p>
       )}
+      {deleting && <DeleteHint text={deleteHintText} />}
 
       {/* 單值欄位：這些真的只能有一個答案，才用左右二選一 */}
       {row.conflicts.map((c) => (
