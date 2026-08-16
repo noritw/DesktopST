@@ -11,7 +11,7 @@ import { capacitorAdapters, initCapacitorSecrets } from '../../adapters'
 import { countPlan, pairManifests, type PairTable } from '@core/sync/pair'
 import { countSettingsPlan, pairSettings, type SettingsFieldRow } from '@core/sync/settingsPair'
 import { countConvPlan, pairConversations, type ConvRow } from '@core/sync/convPair'
-import { getStandaloneSession } from '../../runtime/sessionHolder'
+import { getStandaloneSession, setPendingStandaloneSession } from '../../runtime/sessionHolder'
 import { bootStandaloneSession, type StandaloneSession } from '../../runtime/session'
 import {
   MANIFEST_TIMEOUT_MS,
@@ -92,7 +92,29 @@ export function ModeSwitcher(): JSX.Element | null {
    */
   const localSessionForSync = async (): Promise<StandaloneSession> => {
     await initCapacitorSecrets()
-    return getStandaloneSession() ?? (await bootStandaloneSession(capacitorAdapters, { skipPackFetch: true }))
+    const existing = getStandaloneSession()
+    if (existing) return existing
+    /*
+     * 這個分支只有「目前在遙控模式」會走到（standalone→remote 方向
+     * `getStandaloneSession()` 一定已經有值，上面就 return 了）。
+     * **不能傳 `skipPackFetch: true`**：這裡 boot 出來的 session 現在會被
+     * `App.tsx` 接手當成真正在用的那份（見下面），如果這台裝置從沒用過
+     * 獨立模式（角色庫全空），跳過 fetch 會讓使用者第一次切過去看到的是
+     * 一張空白角色卡，而不是正常的預設角色包——這種裝置不多，但也不該
+     * 為了省一次 fetch 讓使用者踩到「怎麼只有一張空白卡」。真正有資料的
+     * 裝置這個 fetch 一定會被 `seedDefaultCharactersIfEmpty` 的
+     * `existingKeys.length > 0` 短路掉，不會多花任何時間。
+     */
+    const session = await bootStandaloneSession(capacitorAdapters)
+    /*
+     * 這裡是**新 boot 的、還沒人在用**的 session（B-6）——同步接下來會把改動
+     * （例如對面改過的對話標題）寫進它。留給 `App.tsx` 接手，不然切完模式後
+     * `App.tsx` 會另外重新 boot 一份只認磁碟的新 session，白白多讀一次磁碟，
+     * 還可能因為時序而暫時看到舊資料。細節見 `sessionHolder.ts` 的
+     * `setPendingStandaloneSession` 檔頭。
+     */
+    setPendingStandaloneSession(session)
+    return session
   }
 
   const guardSending = (): boolean => {

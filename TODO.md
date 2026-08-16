@@ -49,9 +49,32 @@ S2 M3 的重複增生沒有重演。
       正確設成 `keep`，但單邊獨有的列會呼叫 `defaultChoice()` 判成 `local`／`remote`（照樣補到
       對面），跟按鈕字面上的「保留差異」不符。owner 決定：改成整批真的不動，要補齊單邊缺的
       資料改用「全部用手機／電腦」或逐列自己按。`npm run typecheck`／`npm test` 皆過
-- [ ] **B-4** 同步完馬上點設定／角色會顯示「載入失敗」（該擋住操作或顯示載入中）
-- [ ] **B-5** 手機上傳圖片送出後第一時間看不到縮圖（像是缺樂觀更新，非同步 bug）
-- [ ] **B-6** 電腦上改對話名稱，上方標題列沒即時更新（顯示層沒重讀）
+- [x] **B-4** 同步完馬上點設定／角色會顯示「載入失敗」——**已修正，自動測試通過，尚未真機驗證**
+      （2026-08-16）。切換模式時 `App.tsx` 的 attach effect 先同步 `detach()` 舊的、再非同步
+      `attach()` 新的，中間有一段 `deps === null` 的空窗，但 `ready` 沒有跟著歸零——`SettingsView`／
+      `CharacterEditor` 的 `load()` 在這段空窗呼叫 `getData()` 會 throw，被當成真的失敗顯示
+      「載入失敗」。新增 `appStore` 的 `attached` 欄位並在 detach 時把 `ready` 一起歸零；
+      兩個畫面的 `load()` 改成「還沒接上就安靜放棄（不設 failed）＋ `attached` 變 true 時自動重試」，
+      已有的 `if (!llm) 載入中⋯⋯`／`if (!draft) 載入中⋯⋯` 自然接手顯示，不會看起來像壞掉
+- [x] **B-5** 手機上傳圖片送出後第一時間看不到縮圖——**已修正，自動測試通過，尚未真機驗證**
+      （2026-08-16）。`appStore.ts` 的 `handleEvent` 對 `'message'` 事件原本直接
+      `as MessageSnapshot` 硬轉型，但獨立模式送出的訊息回音其實是帶 `images` 沒有 `imageCount`
+      的完整 `Message`；取代樂觀訊息時把原本正確的 `imageCount` 蓋成 `undefined`，
+      `MessageList` 的縮圖判斷 `if (message.imageCount)` 就不渲染——圖確實送出去了，只是
+      手機自己那則沒縮圖，要等下一次 `state-invalidated` 重抓才冒出來。新增
+      `toEventMessageSnapshot()`，兩種形狀（獨立模式的 `images`／遙控模式已經算好的
+      `imageCount`）都接得住
+- [x] **B-6** 電腦上改對話名稱，上方標題列沒即時更新——**已修正，自動測試通過，尚未真機驗證**
+      （2026-08-16）。遙控模式下切去獨立模式前，`ModeSwitcher.localSessionForSync()` 會自己
+      boot 一份「拋棄式」session 來跑同步比對，同步把改動（例如對面改過的標題）寫進**這份**
+      session，但緊接著的 `switchTo()` 觸發 `App.tsx` 重新 boot 又是**另一份**新 session——
+      理論上兩份都讀同一份磁碟所以最終仍會收斂，但中間有雙重 boot 與時序造成的空窗，
+      使用者會看到標題暫時沒更新。新增 `sessionHolder.ts` 的
+      `setPendingStandaloneSession`／`takePendingStandaloneSession`（跟 `current` 完全獨立的
+      另一個變數，繞開 `App.tsx` attach effect 的 cleanup 一定會 `setStandaloneSession(null)`
+      這件事），讓 `App.tsx` 進入獨立模式時優先收下同步剛用過的那份 session，
+      不再重複 boot。順手拿掉 `localSessionForSync()` 原本傳的 `skipPackFetch: true`——
+      這份 session 現在真的會被拿來用，裝置角色庫全空時不該跳過抓預設角色包
 - [ ] **B-3** 對話角色名稱多次同步後會掉 —— **目前無法重現，先擱著**。
       再遇到請記：①哪一則對話 ②哪個同步方向 ③該角色在另一邊存不存在
 - [ ] M4 第 6 條補驗：實際打開電腦端 `scenes/*.json` 看 `activePersonaId`

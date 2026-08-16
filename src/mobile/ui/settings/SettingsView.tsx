@@ -4,7 +4,7 @@ import { MODEL_DATA_UPDATED } from '@core/llm/modelCatalog'
 import MonoIcon from '@shared/MonoIcon'
 import { capacitorSecrets } from '../../adapters'
 import { resolveConnection } from '../connection'
-import { getData, useAppStore } from '../stores/appStore'
+import { getData, isAttached, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { DesktopPullSection } from './DesktopPullSection'
 import { describeSettingsError } from './settingsErrors'
@@ -48,6 +48,7 @@ import { moduleDescription } from './moduleInfo'
  */
 export function SettingsView(): JSX.Element {
   const toast = useUiStore((s) => s.toast)
+  const attached = useAppStore((s) => s.attached)
 
   const [llm, setLlm] = useState<LlmSettingsSnapshot | null>(null)
   const [memory, setMemory] = useState<MemorySettingsSnapshot | null>(null)
@@ -127,7 +128,14 @@ export function SettingsView(): JSX.Element {
       setUtilityModelDraft(llmData.utilityModel)
       setUtilityApiKeyDraft('')
     } catch {
-      setFailed(true)
+      /*
+       * B-4：切換模式的空窗期間 `getData()` 會 throw「appStore not attached」，
+       * 那不是真的失敗，是還沒接上。這種情況不設 `failed`——保持 `llm === null`，
+       * 畫面會自然落到下面 `if (!llm) 載入中⋯⋯` 那條，`attached` 一變 true
+       * 下面的 effect 就會自動重試，使用者不會看到「載入失敗」。
+       * 真的接上了卻還是失敗，才是貨真價實的失敗。
+       */
+      if (isAttached()) setFailed(true)
     }
   }, [])
 
@@ -148,8 +156,10 @@ export function SettingsView(): JSX.Element {
   }, [])
 
   useEffect(() => {
+    // `attached` 是依賴之一：切換模式的空窗期間掛進來（或本來就開著）的話，
+    // 這次 load() 會安靜放棄（見上面），等 `attached` 變 true 這裡會自動重跑。
     void load()
-  }, [load])
+  }, [load, attached])
 
   useEffect(() => {
     if (open === 'modules' && modules === null) void loadModules()

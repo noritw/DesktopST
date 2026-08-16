@@ -26,7 +26,7 @@ import { countdownLabel, useCountdown } from './shell/useCountdown'
 import { isReconnected, nextOfflineSince } from './shell/offlineWatch'
 import { initCapacitorSecrets, capacitorAdapters } from '../adapters'
 import { bootStandaloneSession } from '../runtime/session'
-import { getStandaloneSession, setStandaloneSession } from '../runtime/sessionHolder'
+import { getStandaloneSession, setStandaloneSession, takePendingStandaloneSession } from '../runtime/sessionHolder'
 
 /**
  * 手機 UI 的根元件。
@@ -115,7 +115,13 @@ export function App(): JSX.Element {
       if (conn.mode === 'standalone') {
         await initCapacitorSecrets()
         if (cancelled) return
-        const session = await bootStandaloneSession(capacitorAdapters)
+        /*
+         * B-6：切模式前 `ModeSwitcher.localSessionForSync()` 可能已經 boot 好
+         * 一份 session 並把同步結果（例如對面改過的對話標題）寫進去了——
+         * 優先收下那份，不要重新 boot 一份只認磁碟的新的（見
+         * `sessionHolder.ts` 的 `takePendingStandaloneSession` 檔頭）。
+         */
+        const session = takePendingStandaloneSession() ?? (await bootStandaloneSession(capacitorAdapters))
         if (cancelled) return
         // S1 匯入要直接對 session 動手（不經 DataSource，見 sessionHolder 檔頭）
         setStandaloneSession(session)

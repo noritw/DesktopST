@@ -59,6 +59,106 @@ describe('isAttached()', () => {
   })
 })
 
+describe('attached／ready 在 detach 時歸零（B-4）', () => {
+  it('attach() 之後 attached 為 true，detach 之後歸零', async () => {
+    const events = new LocalEventSource()
+    const data = fakeSource(() => ({
+      async getState(): Promise<AppStateSnapshot> {
+        return makeState({ id: 'c1', title: 't', messages: [] })
+      }
+    }))
+    const detach = useAppStore.getState().attach({ data, events })
+    expect(useAppStore.getState().attached).toBe(true)
+    detach()
+    expect(useAppStore.getState().attached).toBe(false)
+  })
+
+  /*
+   * 這是 B-4 的核心：切換模式時 `ready` 若停在舊的 `true`，App.tsx 頂層的
+   * 選單按鈕、設定／角色編輯畫面都會誤判「已經接上」，在真正的空窗期間
+   * 呼叫 `getData()` 撞見 throw，被當成「載入失敗」而不是「還沒接上」。
+   */
+  it('detach 之後 ready 也要歸零，不能停在上一輪的 true', async () => {
+    const events = new LocalEventSource()
+    const data = fakeSource(() => ({
+      async getState(): Promise<AppStateSnapshot> {
+        return makeState({ id: 'c1', title: 't', messages: [] })
+      }
+    }))
+    const detach = useAppStore.getState().attach({ data, events })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(useAppStore.getState().ready).toBe(true)
+
+    detach()
+    expect(useAppStore.getState().ready).toBe(false)
+  })
+})
+
+describe('message 事件會正確帶著 imageCount 併入（B-5）', () => {
+  let detachFn: (() => void) | null = null
+
+  afterEach(() => {
+    if (detachFn) detachFn()
+    detachFn = null
+  })
+
+  /*
+   * 這是真機回報的實際路徑：獨立模式送出帶圖訊息後，`chat.ts` 把完整的
+   * `Message`（有 `images`，沒有 `imageCount`）推上 `'message'` 事件。
+   * 原本直接 `as MessageSnapshot` 硬轉型會讓 `imageCount` 是 `undefined`，
+   * `MessageList` 的縮圖判斷 `if (message.imageCount)` 就不渲染。
+   */
+  it('獨立模式的完整 Message（帶 images）併入後 imageCount 正確', async () => {
+    const events = new LocalEventSource()
+    const data = fakeSource(() => ({
+      async getState(): Promise<AppStateSnapshot> {
+        return makeState({ id: 'c1', title: 't', messages: [] })
+      }
+    }))
+    detachFn = useAppStore.getState().attach({ data, events })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    events.push({
+      kind: 'message',
+      message: {
+        id: 'real-1',
+        role: 'user',
+        content: '一張圖',
+        timestamp: Date.now(),
+        images: ['data:image/png;base64,aaa', 'data:image/png;base64,bbb']
+      } as never
+    })
+
+    const msg = useAppStore.getState().messages.find((m) => m.id === 'real-1')
+    expect(msg?.imageCount).toBe(2)
+  })
+
+  it('遙控模式已經只有 imageCount（沒有 images）時直接信任那個數字', async () => {
+    const events = new LocalEventSource()
+    const data = fakeSource(() => ({
+      async getState(): Promise<AppStateSnapshot> {
+        return makeState({ id: 'c1', title: 't', messages: [] })
+      }
+    }))
+    detachFn = useAppStore.getState().attach({ data, events })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    events.push({
+      kind: 'message',
+      message: {
+        id: 'real-2',
+        role: 'character',
+        content: '收到圖了',
+        timestamp: Date.now(),
+        imageCount: 3
+      } as never
+    })
+
+    const msg = useAppStore.getState().messages.find((m) => m.id === 'real-2')
+    expect(msg?.imageCount).toBe(3)
+  })
+})
+
 describe('send() 的 unreachable 對帳分支', () => {
   let detachFn: (() => void) | null = null
 

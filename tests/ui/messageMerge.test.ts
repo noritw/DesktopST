@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { DataError } from '../../src/core/data'
 import type { MessageSnapshot } from '../../src/core/data'
+import type { Message } from '../../src/core/types'
 import {
   mergeIncoming,
   describeError,
   isOptimistic,
-  findOptimisticMatch
+  findOptimisticMatch,
+  toEventMessageSnapshot
 } from '../../src/mobile/ui/stores/appStore'
 
 /**
@@ -98,6 +100,43 @@ describe('findOptimisticMatch 與 mergeIncoming 的判斷一致', () => {
   it('連送兩則相同內容時指向最舊的那則（與取代的目標同一則）', () => {
     const list = [msg({ id: 'optimistic:1', content: '嗨' }), msg({ id: 'optimistic:2', content: '嗨' })]
     expect(findOptimisticMatch(list, msg({ id: 'r', content: '嗨' }))).toBe('optimistic:1')
+  })
+})
+
+/*
+ * B-5：`'message'` 事件的 `message` 欄位型別上寫的是 `Message`，但獨立模式
+ * 塞的是真的完整 `Message`（帶 `images`，沒有 `imageCount`），遙控模式收到的
+ * WS 廣播早被電腦端 `sanitizeMessage()` 拿掉 `images` 換成 `imageCount`——
+ * 兩條路徑實際形狀不一樣，轉換時兩種都要接得住。
+ */
+describe('toEventMessageSnapshot', () => {
+  const base = {
+    id: 'm1',
+    role: 'user' as const,
+    content: '一張圖',
+    timestamp: 1000
+  }
+
+  it('獨立模式：只有 images，從長度算出 imageCount', () => {
+    const m = { ...base, images: ['data:1', 'data:2'] } as unknown as Message
+    expect(toEventMessageSnapshot(m).imageCount).toBe(2)
+  })
+
+  it('遙控模式：已經有 imageCount、沒有 images，直接信任那個數字', () => {
+    const m = { ...base, imageCount: 3 } as unknown as Message
+    expect(toEventMessageSnapshot(m).imageCount).toBe(3)
+  })
+
+  it('兩種欄位都沒有時 imageCount 是 0，不是 undefined（沒有圖片的一般訊息）', () => {
+    const m = { ...base } as Message
+    expect(toEventMessageSnapshot(m).imageCount).toBe(0)
+  })
+
+  it('回傳值不帶 images／debugPrompt 這些不該進快照的欄位', () => {
+    const m = { ...base, images: ['data:1'], debugPrompt: '祕密' } as unknown as Message
+    const snap = toEventMessageSnapshot(m) as Record<string, unknown>
+    expect(snap.images).toBeUndefined()
+    expect(snap.debugPrompt).toBeUndefined()
   })
 })
 

@@ -3,7 +3,7 @@ import type { ReactElement, TextareaHTMLAttributes } from 'react'
 import type { Character } from '@core/types'
 import type { PresetListItem } from '@core/data'
 import MonoIcon from '@shared/MonoIcon'
-import { getData, useAppStore } from '../stores/appStore'
+import { getData, isAttached, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeCharacterError } from './characterErrors'
 import { extOf, prepareAvatar } from './avatarFile'
@@ -28,6 +28,7 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
   const setCloseGuard = useUiStore((s) => s.setCloseGuard)
   const openAvatarCrop = useUiStore((s) => s.openAvatarCrop)
   const refresh = useAppStore((s) => s.refresh)
+  const attached = useAppStore((s) => s.attached)
 
   const [draft, setDraft] = useState<Character | null>(null)
   const [failed, setFailed] = useState(false)
@@ -56,13 +57,16 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
       setDraft(card)
       setLorebooks(books)
     } catch {
-      setFailed(true)
+      // B-4：切換模式的空窗期間 getData() 會 throw，不是真的失敗——見
+      // SettingsView.tsx 同一套修法的註解。保持 draft === null，下面
+      // `if (!draft) 載入中⋯⋯` 會自然接手，`attached` 變 true 後自動重試。
+      if (isAttached()) setFailed(true)
     }
   }, [characterId])
 
   useEffect(() => {
     void load()
-  }, [load])
+  }, [load, attached])
 
   const save = useCallback(async (): Promise<boolean> => {
     const current = draft

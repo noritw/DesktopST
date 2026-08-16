@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { AppStateSnapshot, DataSource, MessageSnapshot, SendMessageInput } from '@core/data'
 import { DataError } from '@core/data'
 import type { AppEvent, ConnectionStatus, EventSource } from '@core/events'
+import type { Message } from '@core/types'
 import { useUiStore } from './uiStore'
 import { useNewsStore } from '../news/newsStore'
 import { invalidateAllAvatars } from '../characters/useAvatarUrl'
@@ -21,6 +22,16 @@ import { invalidateAllAvatars } from '../characters/useAvatarUrl'
 interface AppState {
   status: ConnectionStatus
   ready: boolean
+  /**
+   * 現在有沒有掛著 `DataSource`／`EventSource`（B-4，2026-08-16）。
+   *
+   * 切換模式時 `App.tsx` 的 attach effect 會先同步 `detach()` 舊的、再非同步
+   * `attach()` 新的，中間有一段 `deps === null` 的空窗。這段時間呼叫
+   * `getData()` 會 throw，設定／角色編輯畫面原本把這個 throw 當成「真的失敗」
+   * 顯示「載入失敗」——其實只是還沒接上，不是壞掉。這個欄位讓那些畫面能
+   * 分辨「還沒接上，等一下自動重試」跟「真的連不上，該顯示失敗＋重試鍵」。
+   */
+  attached: boolean
   /** 首次載入失敗（例如電腦沒開）。UI 顯示重試，不是空白畫面。 */
   loadError: DataError | null
 
@@ -99,6 +110,7 @@ export function notifyForeground(): void {
 export const useAppStore = create<AppState>((set, get) => ({
   status: 'idle',
   ready: false,
+  attached: false,
   loadError: null,
   snapshot: null,
   messages: [],
@@ -109,6 +121,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   attach: (d) => {
     deps = d
+    set({ attached: true })
     const offEvent = d.events.subscribe((e) => handleEvent(e, set, get))
     const offStatus = d.events.onStatusChange((status) => set({ status }))
     d.events.start()
@@ -119,6 +132,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       offStatus()
       d.events.stop()
       deps = null
+      /*
+       * `ready` 也要跟著歸零（B-4）：不歸零的話，切換模式的空窗期間
+       * `ready` 還停在上一輪的 `true`，`App.tsx` 頂層的選單按鈕／載入畫面
+       * 判斷不出「現在其實接不上」，使用者照樣點得進設定／角色編輯，
+       * 才會撞上 `attached` 這個欄位原本要擋的那個空窗。
+       */
+      set({ attached: false, ready: false })
     }
   },
 
@@ -276,12 +296,40 @@ export function describeError(e: unknown, context: 'send' | 'load'): string {
   }
 }
 
+/**
+ * `'message'` 事件的 `message` 欄位型別上寫的是 `Message`，但兩種模式塞進去的
+ * 實際形狀不一樣（B-5，2026-08-16）：
+ *
+ * - 獨立模式（`chat.ts`）塞的是真的完整 `Message`，帶 `images: string[]`，
+ *   沒有 `imageCount`。
+ * - 遙控模式（`remoteEventSource.ts`）收到的是電腦端 WS 廣播，早就被
+ *   `mobileServer.ts` 的 `sanitizeMessage()` 拿掉 `images`、換算成
+ *   `imageCount` 送過來——型別標成 `Message`是騙的，運行時其實沒有 `images`。
+ *
+ * 兩種都要接得住：有 `imageCount` 就直接信，沒有才用 `images.length` 現算。
+ * 原本直接 `as MessageSnapshot` 硬轉型，兩條路徑都吃得下去看似沒事，但
+ * 獨立模式送出去的使用者訊息回音（`chat.ts` 的 `sendStandaloneMessage`）
+ * 完全沒有 `imageCount` 欄位，取代樂觀訊息時把原本正確的 `imageCount`
+ * 蓋成 `undefined`，畫面上的縮圖元件因此判定「這則沒有圖」直接不渲染——
+ * 圖確實送出去了、角色也正確看得到，只是手機自己的訊息泡泡沒有縮圖，
+ * 要等下一次 `state-invalidated` 重抓（`refresh()` 走的是
+ * `toMessageSnapshot()`，那支沒有這個問題）才會冒出來。
+ */
+export function toEventMessageSnapshot(m: Message): MessageSnapshot {
+  const raw = m as Message & { imageCount?: number }
+  const { images, debugPrompt: _d, utilityDebugPrompt: _u, ...rest } = raw
+  return {
+    ...rest,
+    imageCount: typeof raw.imageCount === 'number' ? raw.imageCount : (images?.length ?? 0)
+  }
+}
+
 type Setter = (partial: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void
 
 function handleEvent(e: AppEvent, set: Setter, get: () => AppState): void {
   switch (e.kind) {
     case 'message': {
-      const incoming = e.message as MessageSnapshot
+      const incoming = toEventMessageSnapshot(e.message)
       set((s) => {
         const replacedId = findOptimisticMatch(s.messages, incoming)
         return {

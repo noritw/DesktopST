@@ -2517,3 +2517,65 @@ M4 第 8 條真機測試發現：按「保留差異」，單邊獨有的列沒�
 期待 `'keep'`。
 
 `npm run typecheck`／`npm test`（61 檔、797 項）全過。**尚未真機驗證。**
+
+---
+
+## 2026-08-16（續二）｜B-4／B-5／B-6 修正：真機測試揪出的三個小 bug
+
+### B-4：同步完馬上點設定／角色會顯示「載入失敗」
+
+切換模式時 `App.tsx` 的 attach effect 先同步 `detach()` 舊的、再非同步 `attach()`
+新的，中間有一段 `deps === null` 的空窗。`appStore.ts` 原本只有 `getData()`
+throw 一個「appStore not attached」——`SettingsView.tsx`／`CharacterEditor.tsx`
+的 `load()` 把這個 throw 跟真的失敗混在一起看待，兩者都設 `failed = true`，
+顯示「載入失敗」。
+
+新增 `appStore` 的 `attached` 欄位（`attach()` 設 true，detach 的 cleanup 設
+false），並讓 detach 順便把 `ready` 也歸零——不歸零的話 `App.tsx` 頂層的選單
+按鈕判斷不出「現在其實接不上」，使用者照樣點得進設定／角色編輯。兩個畫面的
+`load()` 改成：`catch` 裡先問 `isAttached()`，沒接上就安靜放棄（不設
+`failed`），讓已有的 `if (!llm) 載入中⋯⋯`／`if (!draft) 載入中⋯⋯` 自然接手；
+`useEffect` 依賴加上 `attached`，變 true 時自動重跑 `load()`。真的接上了卻還
+失敗，才是貨真價實的失敗，才顯示「載入失敗」＋重試鍵。
+
+### B-5：手機上傳圖片送出後第一時間看不到縮圖
+
+`appStore.ts` 的 `handleEvent` 對 `'message'` 事件原本直接 `e.message as
+MessageSnapshot` 硬轉型——但 `AppEvent` 的 `message` 欄位型別雖然標成
+`Message`，兩種模式實際塞進去的形狀不一樣：獨立模式（`chat.ts`）塞的是真的
+完整 `Message`（帶 `images: string[]`，沒有 `imageCount`）；遙控模式收到的
+WS 廣播早被電腦端 `mobileServer.ts` 的 `sanitizeMessage()` 拿掉 `images`、
+換算成 `imageCount` 送過來。獨立模式送出的使用者訊息回音取代樂觀訊息時，
+把原本正確算好的 `imageCount`（`appStore.ts` 的 `send()` 那邊有算）蓋成
+`undefined`，`MessageList.tsx` 的縮圖判斷 `if (message.imageCount)` 因此不
+渲染——圖確實送出去了、角色也正確看得到，只是手機自己那則泡泡沒縮圖，
+要等下一次 `state-invalidated` 重抓（`refresh()` 走的是不同的
+`toMessageSnapshot()`，那支沒這問題）才會冒出來。
+
+新增 `toEventMessageSnapshot()`：有 `imageCount` 就直接信，沒有才用
+`images.length` 現算，兩條路徑都接得住。
+
+### B-6：電腦上改對話名稱，手機上方標題列沒即時更新
+
+遙控模式下切去獨立模式前，`ModeSwitcher.localSessionForSync()` 會自己 boot
+一份「拋棄式」session 來跑同步比對（比對當下 `sessionHolder` 的 `current`
+還是 null，遙控模式沒有活著的獨立 session）。同步把改動（例如對面改過的
+對話標題）寫進**這份** session 的記憶體與磁碟，但緊接著的 `switchTo()` 會讓
+`App.tsx` 的 attach effect 重跑，重新 boot **另一份**新 session——理論上兩份
+都讀同一份磁碟，最終仍會收斂，但中間有雙重 boot 造成的時序空窗，使用者會
+看到標題暫時沒更新。
+
+直接讓 `ModeSwitcher` 把剛 boot 好的 session 塞進 `sessionHolder` 的
+`current` 沒有用：`App.tsx` attach effect 的 cleanup **無條件**
+`setStandaloneSession(null)`，而且 cleanup 一定搶在新 effect 本體之前跑，
+塞進去的東西會在被讀到之前就被清掉（那段 cleanup 邏輯本身踩過好幾次坑，
+不敢直接改）。改用另一個完全獨立的變數繞開：`sessionHolder.ts` 新增
+`setPendingStandaloneSession`／`takePendingStandaloneSession`，`App.tsx`
+進入獨立模式時優先收下這裡的 session，不再重複 boot。順手拿掉
+`localSessionForSync()` 原本傳的 `skipPackFetch: true`——這份 session 現在
+真的會被拿來用，裝置角色庫全空時（第一次用獨立模式）不該跳過抓預設角色包；
+其餘裝置這個 fetch 一定會被 `seedDefaultCharactersIfEmpty` 的
+`existingKeys.length > 0` 短路掉，不會多花時間。
+
+三個都只是**自動測試通過，尚未真機驗證**。`npm run typecheck`／`npm test`
+（62 檔、810 項）全過。
