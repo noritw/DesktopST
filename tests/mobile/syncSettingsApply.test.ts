@@ -30,12 +30,17 @@ function snapshot(over: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
       extraInstruction: '',
       maxResponseTokens: 400,
       maxGroupRounds: 3,
-      maxImagesPerMessage: 5
+      maxImagesPerMessage: 5,
+      utilityEnabled: false,
+      utilityProvider: 'openai',
+      utilityModels: {}
     },
     memory: { keepRecentN: 20, autoSummarizeAfter: 30, autoSummarizeEnabled: true },
     colorTheme: 'mint',
     modules: [],
     weather: { polish: false },
+    news: { speakButton: 'sometimes' },
+    appearance: { showLlmBadge: true, showPersonaName: true },
     ...over
   }
 }
@@ -165,13 +170,13 @@ describe('applySettingsSync 模組', () => {
     const local = snapshot({
       modules: [
         { id: 'desktopst.weather', label: '天氣', enabled: true },
-        { id: 'desktopst.spotify', label: 'Spotify', enabled: true }
+        { id: 'desktopst.news', label: '個人新聞報', enabled: true }
       ]
     })
     const remote = snapshot({
       modules: [
         { id: 'desktopst.weather', label: '天氣', enabled: false },
-        { id: 'desktopst.spotify', label: 'Spotify', enabled: false }
+        { id: 'desktopst.news', label: '個人新聞報', enabled: false }
       ]
     })
     const rows = pairSettings(local, remote)
@@ -181,7 +186,7 @@ describe('applySettingsSync 模組', () => {
       SRC,
       session,
       rows,
-      { 'module.desktopst.weather': 'local', 'module.desktopst.spotify': 'local' } as SettingsChoiceMap,
+      { 'module.desktopst.weather': 'local', 'module.desktopst.news': 'local' } as SettingsChoiceMap,
       undefined,
       fetchImpl
     )
@@ -192,9 +197,31 @@ describe('applySettingsSync 模組', () => {
     expect(toggleCalls.map((c) => c.body)).toEqual(
       expect.arrayContaining([
         { id: 'desktopst.weather', enabled: true },
-        { id: 'desktopst.spotify', enabled: true }
+        { id: 'desktopst.news', enabled: true }
       ])
     )
+  })
+
+  /*
+   * owner 2026-08-17 決定：Spotify／日曆的授權只接桌面，手機同步 `enabled`
+   * 開了也沒用，容易讓人誤以為手機上能用，所以這兩個模組不進比對範圍。
+   */
+  it('Spotify／日曆的 enabled 不進比對範圍，即使兩邊不同也不會產生列', async () => {
+    const local = snapshot({
+      modules: [
+        { id: 'desktopst.spotify', label: 'Spotify', enabled: true },
+        { id: 'desktopst.calendar', label: 'Google 日曆', enabled: true }
+      ]
+    })
+    const remote = snapshot({
+      modules: [
+        { id: 'desktopst.spotify', label: 'Spotify', enabled: false },
+        { id: 'desktopst.calendar', label: 'Google 日曆', enabled: false }
+      ]
+    })
+    const rows = pairSettings(local, remote)
+    expect(rows.find((r) => r.key === 'module.desktopst.spotify')).toBeUndefined()
+    expect(rows.find((r) => r.key === 'module.desktopst.calendar')).toBeUndefined()
   })
 
   it("choice 'remote' 走 session.setModuleEnabled，套用模組各自的特殊欄位", async () => {
@@ -261,5 +288,122 @@ describe('applySettingsSync 供應商切換', () => {
 
     expect(session.settings.llm.provider).toBe('claude')
     expect(session.settings.llm.models?.claude).toBeTruthy()
+  })
+})
+
+/*
+ * §2.1（2026-08-17）：輔助模型設定原本沒進同步範圍，跟 `weather.polish` 那次
+ * 是同一個形狀——手機 UI 已經做得出來、卻永遠不會同步、也沒有任何錯誤訊息。
+ */
+describe('applySettingsSync 輔助模型（§2.1）', () => {
+  it("utilityEnabled 選 'local' 推送到電腦的 llm-utility-enabled 端點", async () => {
+    const session = await bootSession()
+    const local = snapshot({ llm: { ...snapshot().llm, utilityEnabled: true } })
+    const remote = snapshot({ llm: { ...snapshot().llm, utilityEnabled: false } })
+    const rows = pairSettings(local, remote)
+    const { fetchImpl, calls } = makeFakeDesktop()
+
+    const res = await applySettingsSync(
+      SRC, session, rows, { 'llm.utilityEnabled': 'local' } as SettingsChoiceMap, undefined, fetchImpl
+    )
+
+    expect(res.pushed).toEqual(['輔助模型：使用獨立模型'])
+    const call = calls.find((c) => c.path === '/api/settings/llm-utility-enabled')
+    expect(call?.body).toEqual({ enabled: true })
+  })
+
+  it("utilityProvider 選 'remote' 寫回手機，沒有型號時補目錄預設值", async () => {
+    const session = await bootSession()
+    session.settings.llm.utilityProvider = 'openai'
+    session.settings.llm.utilityModels = {}
+    const local = snapshot({ llm: { ...snapshot().llm, utilityProvider: 'openai' } })
+    const remote = snapshot({ llm: { ...snapshot().llm, utilityProvider: 'claude' } })
+    const rows = pairSettings(local, remote)
+    const { fetchImpl } = makeFakeDesktop()
+
+    await applySettingsSync(
+      SRC, session, rows, { 'llm.utilityProvider': 'remote' } as SettingsChoiceMap, undefined, fetchImpl
+    )
+
+    expect(session.settings.llm.utilityProvider).toBe('claude')
+    expect(session.settings.llm.utilityModels?.claude).toBeTruthy()
+  })
+
+  it("utilityModels.<provider> 選 'local' 推送對應的型號", async () => {
+    const session = await bootSession()
+    const local = snapshot({ llm: { ...snapshot().llm, utilityModels: { openai: 'gpt-5-mini' } } })
+    const remote = snapshot({ llm: { ...snapshot().llm, utilityModels: {} } })
+    const rows = pairSettings(local, remote)
+    const { fetchImpl, calls } = makeFakeDesktop()
+
+    await applySettingsSync(
+      SRC, session, rows, { 'llm.utilityModels.openai': 'local' } as SettingsChoiceMap, undefined, fetchImpl
+    )
+
+    const call = calls.find((c) => c.path === '/api/settings/llm-utility-model')
+    expect(call?.body).toEqual({ provider: 'openai', model: 'gpt-5-mini' })
+  })
+})
+
+/*
+ * §2.2（2026-08-17）：外觀的模型徽章／發話身分名稱跟 colorTheme 同一類——
+ * 兩邊都有這個功能、語意完全一致，只是原本沒被列進比對子集。
+ */
+describe('applySettingsSync 外觀（§2.2）', () => {
+  it("showLlmBadge 選 'local' 推送到電腦端點", async () => {
+    const session = await bootSession()
+    const local = snapshot({ appearance: { showLlmBadge: false, showPersonaName: true } })
+    const remote = snapshot({ appearance: { showLlmBadge: true, showPersonaName: true } })
+    const rows = pairSettings(local, remote)
+    const { fetchImpl, calls } = makeFakeDesktop()
+
+    await applySettingsSync(SRC, session, rows, { 'appearance.showLlmBadge': 'local' } as SettingsChoiceMap, undefined, fetchImpl)
+
+    const call = calls.find((c) => c.path === '/api/settings/show-llm-badge')
+    expect(call?.body).toEqual({ show: false })
+  })
+
+  it("showPersonaName 選 'remote' 寫回手機的 session.settings.ui", async () => {
+    const session = await bootSession()
+    const local = snapshot({ appearance: { showLlmBadge: true, showPersonaName: true } })
+    const remote = snapshot({ appearance: { showLlmBadge: true, showPersonaName: false } })
+    const rows = pairSettings(local, remote)
+    const { fetchImpl } = makeFakeDesktop()
+
+    await applySettingsSync(SRC, session, rows, { 'appearance.showPersonaName': 'remote' } as SettingsChoiceMap, undefined, fetchImpl)
+
+    expect(session.settings.ui.showPersonaName).toBe(false)
+  })
+})
+
+/*
+ * §2.2：新聞的陪聊頻率（speakButton）是唯一手機端有讀寫路徑的新聞子設定——
+ * sources／keywordGroups／blacklist 是清單／聯集型，owner 決定先擱著。
+ */
+describe('applySettingsSync 新聞陪聊頻率（§2.2）', () => {
+  it("選 'local' 推送到電腦的 /api/news/settings，只帶 speakButton 這個欄位", async () => {
+    const session = await bootSession()
+    const local = snapshot({ news: { speakButton: 'always' } })
+    const remote = snapshot({ news: { speakButton: 'off' } })
+    const rows = pairSettings(local, remote)
+    const { fetchImpl, calls } = makeFakeDesktop()
+
+    await applySettingsSync(SRC, session, rows, { 'news.speakButton': 'local' } as SettingsChoiceMap, undefined, fetchImpl)
+
+    const call = calls.find((c) => c.path === '/api/news/settings')
+    expect(call?.body).toEqual({ speakButton: 'always' })
+  })
+
+  it("選 'remote' 寫回手機本地的新聞設定", async () => {
+    const session = await bootSession()
+    const local = snapshot({ news: { speakButton: 'off' } })
+    const remote = snapshot({ news: { speakButton: 'always' } })
+    const rows = pairSettings(local, remote)
+    const { fetchImpl } = makeFakeDesktop()
+
+    await applySettingsSync(SRC, session, rows, { 'news.speakButton': 'remote' } as SettingsChoiceMap, undefined, fetchImpl)
+
+    const after = await session.getNewsEditableSettings()
+    expect(after.speakButton).toBe('always')
   })
 })

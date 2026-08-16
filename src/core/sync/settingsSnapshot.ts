@@ -39,6 +39,18 @@ export interface LlmSyncSubset {
   maxResponseTokens: number
   maxGroupRounds: number
   maxImagesPerMessage: number
+  /**
+   * 輔助模型（提醒發話、情緒分類、天氣潤飾）的設定（§2.1，2026-08-17）。
+   *
+   * 跟 `provider`／`models`／`endpoints` 是同一張表的另外幾欄——`utilityProvider`
+   * 沒設定時 `applyUtilitySettings()` 會跟隨 `provider`，換句話說這組欄位跟
+   * `endpoints` 共用同一份端點表，只同步 `endpoints` 不同步這幾欄，使用者會看到
+   * 「輔助模型端點跟著換了，但供應商／模型本身沒有」這種一半同步的怪狀態。
+   */
+  utilityEnabled: boolean
+  utilityProvider: string
+  /** 每個供應商各自記住的輔助模型；比照 `models` 逐 provider 拆成一列。 */
+  utilityModels: Record<string, string>
 }
 
 export interface MemorySyncSubset {
@@ -63,12 +75,36 @@ export interface WeatherSyncSubset {
   polish: boolean
 }
 
+/**
+ * 新聞模組的子設定。**只有 `speakButton`**——其餘欄位（`langMode`／`replyModel`／
+ * `maxAgeDays`／`readerMaxItems` 等）手機端目前**沒有讀寫路徑**：
+ * `NewsApi.getSettings()/saveSettings()`（`session.getNewsEditableSettings()`）
+ * 本身就只認 `enabled`／`sources`／`keywordGroups`／`blacklist`／`speakButton`
+ * 這五個欄位，桌面端 `POST /api/news/settings` 的白名單也是同一組——同步一個
+ * 兩端都碰不到的欄位沒有意義。`sources`／`keywordGroups`／`blacklist` 是清單／
+ * 聯集型，owner 2026-08-17 決定先擱著（見 `docs/handoff/module-settings-audit.md`）。
+ */
+export interface NewsSyncSubset {
+  speakButton: string
+}
+
+/**
+ * 外觀裡跟 `colorTheme` 同一類的純偏好：兩邊都有這個功能、語意完全一致，
+ * 只是原本跟 `colorTheme` 沒放進同一組定義（§2.2，2026-08-17）。
+ */
+export interface AppearanceSyncSubset {
+  showLlmBadge: boolean
+  showPersonaName: boolean
+}
+
 export interface SettingsSnapshot {
   llm: LlmSyncSubset
   memory: MemorySyncSubset
   colorTheme: string
   modules: ModuleSyncItem[]
   weather: WeatherSyncSubset
+  news: NewsSyncSubset
+  appearance: AppearanceSyncSubset
 }
 
 export function settingsSnapshotHash(snapshot: SettingsSnapshot): string {

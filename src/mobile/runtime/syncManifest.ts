@@ -37,6 +37,7 @@ export async function fetchRemoteSettingsSnapshot(
 export async function buildLocalSettingsSnapshot(session: StandaloneSession): Promise<SettingsSnapshot> {
   const llm = session.settings.llm
   const modules = await session.listModules()
+  const newsEditable = await session.getNewsEditableSettings()
   return {
     llm: {
       provider: llm.provider,
@@ -45,12 +46,20 @@ export async function buildLocalSettingsSnapshot(session: StandaloneSession): Pr
       extraInstruction: llm.extraInstruction ?? '',
       maxResponseTokens: llm.maxResponseTokens,
       maxGroupRounds: llm.maxGroupRounds,
-      maxImagesPerMessage: llm.maxImagesPerMessage
+      maxImagesPerMessage: llm.maxImagesPerMessage,
+      utilityEnabled: !!llm.utilityEnabled,
+      utilityProvider: llm.utilityProvider ?? llm.provider,
+      utilityModels: { ...(llm.utilityModels ?? {}) }
     },
     memory: session.settings.memory,
     colorTheme: session.settings.ui.colorTheme ?? 'mint',
     modules: modules.map((m) => ({ id: m.id, label: m.label, enabled: m.enabled })),
-    weather: { polish: !!session.settings.weather?.polish }
+    weather: { polish: !!session.settings.weather?.polish },
+    news: { speakButton: newsEditable.speakButton },
+    appearance: {
+      showLlmBadge: session.settings.ui.showLlmBadge ?? true,
+      showPersonaName: session.settings.ui.showPersonaName ?? true
+    }
   }
 }
 

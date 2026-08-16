@@ -87,13 +87,13 @@ S2 M3 的重複增生沒有重演。
 
 ### 1.2 本機 LLM 供應商：兩處未驗
 
-程式完成（2026-08-15），core 路徑端到端驗過，但這兩處沒驗：
+程式完成（2026-08-15），core 路徑端到端驗過。
 
+- [x] 手機真機驗證 → **通過**（2026-08-17，owner 用了幾天）。除了 owner 自己
+      電腦規格導致回應速度慢之外沒有遇到問題；`httpAdapter` 30 秒天花板修正
+      也沒有波及其他手機請求
 - [ ] 桌面設定視窗實點（要跑得起來的 Electron）→ `docs/local-llm-provider-plan.md` §9.4
-- [ ] 手機真機驗證，**特別看 30 秒逾時改動的副作用** → 同上 §9.2 第 2 點
-
-> 第二條的範圍比看起來大：那個 `httpAdapter` 的 30 秒天花板修正**影響所有手機請求**，
-> 不只本機模型。不是只測 Ollama 通不通就好。
+      仍未驗
 
 ### 1.3 v0.4.0 真機煙測 → ✅ 配色主題／遙控通過；新聞泡泡揪出 3 個 bug 已修（2026-08-16）
 
@@ -121,39 +121,54 @@ v0.4.0（2026-08-07 已發佈）這三塊改動比較大。細節見 `docs/relea
 
 ## 2. 等你決定的（不是技術問題，是產品決定）
 
-### 2.1 `llm.utility*` 要不要進設定同步 ← 建議優先決定
+### 2.1 `llm.utility*` 要不要進設定同步 → ✅ 已完成（2026-08-17）
 
-輔助模型設定（`utilityEnabled` / `utilityProvider` / `utilityModels`）**沒有在同步範圍內**。
+owner 決定：要。**已實作，自動測試（typecheck／819 項 test）通過，尚未真機驗證**。
+`core/sync/settingsSnapshot.ts` 的 `LlmSyncSubset` 加 `utilityEnabled`／
+`utilityProvider`／`utilityModels`，逐 provider 拆列（比照既有的 `models`），
+執行端沿用既有的 `/api/settings/llm-utility-*` 三支端點（本來就是給手機 UI
+自己調用的，不用新開）。
 
-- [ ] 決定要不要補
+### 2.2 其餘模組子設定的同步範圍 → 部分完成（2026-08-17）
 
-這一項跟 `weather.polish` 那次是**一模一樣的形狀**：手機 UI 已經做好了
-（commit `ddd6ace`）、使用者兩邊都調得到、語意完全一致，就是沒被列進比對子集，
-所以永遠不會同步，而且**不會有任何錯誤訊息**。而且它跟已經在同步的 `endpoints`
-是同一張表的兩半，只同步一半特別容易讓人困惑。
+完整盤點在 **[`docs/handoff/module-settings-audit.md`](docs/handoff/module-settings-audit.md)**。
+owner 決定「能同步的盡量同步」，逐項處理結果：
 
-是單值欄位，塞得進 M5 現有架構，補起來不難。
+- [x] `ui.showLlmBadge` / `ui.showPersonaName`（顯示模型徽章／發話身分名稱）——
+      **已同步**，跟 `colorTheme` 同一類，沿用既有的 `/api/settings/show-llm-badge`／
+      `show-persona-name` 端點
+- [x] 新聞的 `speakButton`（陪聊頻率）——**已同步**，沿用既有的
+      `GET/POST /api/news/settings`。**其餘新聞子設定沒有一起補**：
+      `langMode`／`replyModel`／`maxAgeDays`／`readerMaxItems` 等欄位手機端目前
+      根本沒有讀寫路徑（`NewsApi.getSettings()/saveSettings()` 只認
+      `enabled`／`sources`／`keywordGroups`／`blacklist`／`speakButton` 這五個
+      欄位，桌面端 `/api/news/settings` 的白名單也是同一組）——要同步它們得先
+      幫這兩層都開洞，範圍比「加一列比對」大，先不做
+- [x] Spotify／日曆的 `enabled` → **已從比對範圍拿掉**（owner 決定）：授權只接
+      桌面，手機同步開了也沒有對應功能，容易讓人誤以為手機上能用
+- [ ] 新聞的 `keywordGroups` / `sources`（清單型）、`blacklist` / `excluded*` /
+      `reducedSources`（聯集型）——**owner 決定先擱著**。這兩個不能套用簡單的
+      「手機／電腦／不動」三選一（會讓某一邊辛苦調的組整包消失／被覆蓋），
+      要另外做一套類似對話同步的逐項比對／合併畫面，工程量接近一個新功能
+- [ ] 新聞的 `readerKeywordGroupIds`（存的是關鍵字組 id）——被上面那條卡住，
+      keywordGroups 怎麼配對沒解決之前不能動
+- 天氣的 `realtimeQuery.enabled`、日曆的 `lookaheadHours`／`maxEvents`／
+  `mentionWhenEmpty` —— **建議照 Spotify／日曆 enabled 同一個邏輯不用同步**：
+  這些功能本身就是桌面限定，手機沒有對應功能可以生效，不是新的決定，只是
+  同一個判斷套用到底，沒有另外花時間做
+- `llm.temperature`、`ui.chatFontSize` —— 手機 UI 目前**沒有**讓使用者調這兩個
+  的地方，同步了也沒東西可看／可改，等手機哪天做出對應 UI 再一起補
 
-### 2.2 其餘模組子設定的同步範圍
+### 2.3 提醒要不要同步 → 方向已決定，**尚未實作**（2026-08-17）
 
-完整盤點在 **[`docs/handoff/module-settings-audit.md`](docs/handoff/module-settings-audit.md)**，
-標成「要 owner 決定」的有這幾組：
+owner 決定：提醒資料本身要同步（整份清單，比照角色／情境走逐項比對），
+但**「哪台裝置響」跟裝置本地的細節設定（例如螢幕關閉時要不要響）留在各自
+裝置、不同步**。
 
-- [ ] 新聞的 `keywordGroups` / `sources`（清單型，可能要走 M4 逐項比對而不是 M5 三選一）
-- [ ] 新聞的 `blacklist` / `excluded*` / `reducedSources`（聯集型，該走「合併／不動」）
-- [ ] 新聞的 `readerKeywordGroupIds`（存的是 id，要先解決關鍵字組怎麼配對）
-- [ ] 天氣的 `realtimeQuery.enabled`（功能桌面限定，同步過去手機沒有對應）
-- [ ] 日曆的 `lookaheadHours` / `maxEvents` / `mentionWhenEmpty`（同上）
-- [ ] `llm.temperature`、`ui.chatFontSize`（純偏好，但手機合適值可能本來就不同）
-- [ ] Spotify／日曆的 `enabled` **現在就在同步範圍內**，但授權桌面限定——要不要排除？
-
-### 2.3 提醒要不要同步
-
-- [ ] 決定
-
-`docs/mobile-mode-switch-sync.md` §9 原本寫「等缺口 #5」——**缺口 #5 已經做完了**，
-所以這題可以重新開始討論。卡在「哪台裝置響」（`notificationDevice`）沒處理的話，
-同步過去會變成兩台同時響。
+這是一個新的同步類別（現有 M4 比對範圍只有角色／人設／世界觀／Lorebook／
+情境，沒有提醒），工程量接近對話同步那次：要走逐項比對＋新增/刪除語意，
+還要避免「兩台同時響」的 bug（沿用既有的 `notificationDevice` 欄位當本地
+設定，不進同步子集）。列進下一步要做的，還沒動工。
 
 ### 2.4 S2 其他未決（沿用 `mobile-mode-switch-sync.md` §9，暫時不動）
 

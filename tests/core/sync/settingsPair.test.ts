@@ -16,12 +16,17 @@ function snapshot(over: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
       extraInstruction: '',
       maxResponseTokens: 400,
       maxGroupRounds: 3,
-      maxImagesPerMessage: 5
+      maxImagesPerMessage: 5,
+      utilityEnabled: false,
+      utilityProvider: 'openai',
+      utilityModels: {}
     },
     memory: { keepRecentN: 20, autoSummarizeAfter: 30, autoSummarizeEnabled: true },
     colorTheme: 'mint',
     modules: [{ id: 'desktopst.weather', label: '天氣', enabled: true }],
     weather: { polish: false },
+    news: { speakButton: 'sometimes' },
+    appearance: { showLlmBadge: true, showPersonaName: true },
     ...over
   }
 }
@@ -50,6 +55,25 @@ describe('pairSettings', () => {
     expect(openaiRow.differs).toBe(false)
     expect(claudeRow.differs).toBe(true)
     expect(claudeRow.remoteValue).toBe('opus-5')
+  })
+
+  /*
+   * §2.1（2026-08-17）：輔助模型設定跟主模型的 provider／models 是同一個形狀，
+   * 逐 provider 拆成一列，不是整包比對。
+   */
+  it('輔助模型三組欄位（啟用／供應商／各 provider 型號）都比對得到', () => {
+    const rows = pairSettings(
+      snapshot({
+        llm: { ...snapshot().llm, utilityEnabled: false, utilityProvider: 'openai', utilityModels: { openai: 'gpt-5-mini' } }
+      }),
+      snapshot({
+        llm: { ...snapshot().llm, utilityEnabled: true, utilityProvider: 'claude', utilityModels: { openai: 'gpt-5-mini', claude: 'haiku-5' } }
+      })
+    )
+    expect(rows.find((r) => r.key === 'llm.utilityEnabled')).toMatchObject({ differs: true, localValue: false, remoteValue: true })
+    expect(rows.find((r) => r.key === 'llm.utilityProvider')).toMatchObject({ differs: true, localValue: 'openai', remoteValue: 'claude' })
+    expect(rows.find((r) => r.key === 'llm.utilityModels.openai')).toMatchObject({ differs: false })
+    expect(rows.find((r) => r.key === 'llm.utilityModels.claude')).toMatchObject({ differs: true, remoteValue: 'haiku-5' })
   })
 
   it('每個 provider 的端點各自拆成一列（本機端點不會跟雲端端點混在同一列）', () => {

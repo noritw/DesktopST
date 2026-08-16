@@ -16,6 +16,7 @@ import { sha1Hex } from '../core/util/sha1'
 import { stableStringify } from '../core/util/stableJson'
 import { buildManifest } from '../core/sync/manifestBuild'
 import { settingsSnapshotHash, type SettingsSnapshot } from '../core/sync/settingsSnapshot'
+import { loadNewsModuleSettings } from './modules/news/settings'
 
 // ── 注入的 bridge（由 index.ts 啟動時注入）────────────────
 
@@ -514,12 +515,19 @@ function buildSettingsSnapshot(bridge: MobileBridge): SettingsSnapshot {
       extraInstruction: llm.extraInstruction ?? '',
       maxResponseTokens: llm.maxResponseTokens,
       maxGroupRounds: llm.maxGroupRounds,
-      maxImagesPerMessage: llm.maxImagesPerMessage
+      maxImagesPerMessage: llm.maxImagesPerMessage,
+      utilityEnabled: llm.utilityEnabled,
+      utilityProvider: llm.utilityProvider,
+      utilityModels: Object.fromEntries(
+        Object.entries(llm.utilityModels).filter((e): e is [string, string] => !!e[1])
+      )
     },
     memory: bridge.getMemorySettings(),
     colorTheme: bridge.getColorTheme(),
     modules: bridge.listModuleToggles(),
-    weather: { polish: bridge.getWeatherSettings().polish }
+    weather: { polish: bridge.getWeatherSettings().polish },
+    news: { speakButton: loadNewsModuleSettings().speakButton },
+    appearance: { showLlmBadge: bridge.getShowLlmBadge(), showPersonaName: bridge.getShowPersonaName() }
   }
 }
 

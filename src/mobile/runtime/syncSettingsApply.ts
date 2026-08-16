@@ -1,6 +1,7 @@
 import { DEFAULT_MODEL_BY_PROVIDER } from '@core/llm/modelCatalog'
 import { SYNC_LLM_PROVIDERS } from '@core/sync/settingsSnapshot'
 import type { ColorTheme } from '@core/types'
+import type { SpeakMode } from '@core/news/types'
 import type { SettingsChoiceMap, SettingsFieldRow } from '@core/sync/settingsPair'
 import type { StandaloneSession } from './session'
 import { postJson, type FetchImpl, type SyncSource } from './syncTransport'
@@ -149,6 +150,69 @@ export async function applySettingsSync(
     }
   }
 
+  // ── llm.utilityEnabled（單一欄位、單一端點，比照 llm.provider）──
+  const utilityEnabledRow = byKey.get('llm.utilityEnabled')
+  if (utilityEnabledRow && utilityEnabledRow.differs) {
+    const choice = choiceOf('llm.utilityEnabled')
+    if (choice === 'local') {
+      await track(utilityEnabledRow.label, async () => {
+        onProgress?.(`推送「${utilityEnabledRow.label}」⋯⋯`)
+        await postJson(src, '/api/settings/llm-utility-enabled', { enabled: utilityEnabledRow.localValue }, fetchImpl)
+        result.pushed.push(utilityEnabledRow.label)
+      })
+    } else if (choice === 'remote') {
+      await track(utilityEnabledRow.label, async () => {
+        onProgress?.(`帶回「${utilityEnabledRow.label}」⋯⋯`)
+        session.settings.llm.utilityEnabled = !!utilityEnabledRow.remoteValue
+        await session.saveSettings()
+        result.pulled.push(utilityEnabledRow.label)
+      })
+    }
+  }
+
+  // ── llm.utilityProvider（單一欄位、單一端點）──
+  const utilityProviderRow = byKey.get('llm.utilityProvider')
+  if (utilityProviderRow && utilityProviderRow.differs) {
+    const choice = choiceOf('llm.utilityProvider')
+    if (choice === 'local') {
+      await track(utilityProviderRow.label, async () => {
+        onProgress?.(`推送「${utilityProviderRow.label}」⋯⋯`)
+        await postJson(src, '/api/settings/llm-utility-provider', { provider: utilityProviderRow.localValue }, fetchImpl)
+        result.pushed.push(utilityProviderRow.label)
+      })
+    } else if (choice === 'remote') {
+      await track(utilityProviderRow.label, async () => {
+        onProgress?.(`帶回「${utilityProviderRow.label}」⋯⋯`)
+        setLocalUtilityProvider(session, String(utilityProviderRow.remoteValue))
+        await session.saveSettings()
+        result.pulled.push(utilityProviderRow.label)
+      })
+    }
+  }
+
+  // ── llm.utilityModels.<provider>（比照 llm.models 逐 provider 一列）──
+  for (const p of SYNC_LLM_PROVIDERS) {
+    const key = `llm.utilityModels.${p}`
+    const r = byKey.get(key)
+    if (!r || !r.differs) continue
+    const choice = choiceOf(key)
+    if (choice === 'local') {
+      await track(r.label, async () => {
+        onProgress?.(`推送「${r.label}」⋯⋯`)
+        await postJson(src, '/api/settings/llm-utility-model', { provider: p, model: r.localValue }, fetchImpl)
+        result.pushed.push(r.label)
+      })
+    } else if (choice === 'remote') {
+      await track(r.label, async () => {
+        onProgress?.(`帶回「${r.label}」⋯⋯`)
+        const llm = session.settings.llm
+        llm.utilityModels = { ...llm.utilityModels, [p]: String(r.remoteValue) }
+        await session.saveSettings()
+        result.pulled.push(r.label)
+      })
+    }
+  }
+
   // ── 對話限制三欄一組 ──
   await applyGroupedNumeric(
     src,
@@ -210,6 +274,68 @@ export async function applySettingsSync(
         session.settings.ui.colorTheme = themeRow.remoteValue as ColorTheme
         await session.saveSettings()
         result.pulled.push(themeRow.label)
+      })
+    }
+  }
+
+  // ── 外觀：顯示模型徽章 ──
+  const showLlmBadgeRow = byKey.get('appearance.showLlmBadge')
+  if (showLlmBadgeRow && showLlmBadgeRow.differs) {
+    const choice = choiceOf('appearance.showLlmBadge')
+    if (choice === 'local') {
+      await track(showLlmBadgeRow.label, async () => {
+        onProgress?.(`推送「${showLlmBadgeRow.label}」⋯⋯`)
+        await postJson(src, '/api/settings/show-llm-badge', { show: showLlmBadgeRow.localValue }, fetchImpl)
+        result.pushed.push(showLlmBadgeRow.label)
+      })
+    } else if (choice === 'remote') {
+      await track(showLlmBadgeRow.label, async () => {
+        onProgress?.(`帶回「${showLlmBadgeRow.label}」⋯⋯`)
+        session.settings.ui.showLlmBadge = !!showLlmBadgeRow.remoteValue
+        await session.saveSettings()
+        result.pulled.push(showLlmBadgeRow.label)
+      })
+    }
+  }
+
+  // ── 外觀：顯示發話身分名稱 ──
+  const showPersonaNameRow = byKey.get('appearance.showPersonaName')
+  if (showPersonaNameRow && showPersonaNameRow.differs) {
+    const choice = choiceOf('appearance.showPersonaName')
+    if (choice === 'local') {
+      await track(showPersonaNameRow.label, async () => {
+        onProgress?.(`推送「${showPersonaNameRow.label}」⋯⋯`)
+        await postJson(src, '/api/settings/show-persona-name', { show: showPersonaNameRow.localValue }, fetchImpl)
+        result.pushed.push(showPersonaNameRow.label)
+      })
+    } else if (choice === 'remote') {
+      await track(showPersonaNameRow.label, async () => {
+        onProgress?.(`帶回「${showPersonaNameRow.label}」⋯⋯`)
+        session.settings.ui.showPersonaName = !!showPersonaNameRow.remoteValue
+        await session.saveSettings()
+        result.pulled.push(showPersonaNameRow.label)
+      })
+    }
+  }
+
+  // ── 新聞：陪聊頻率（speakButton）──
+  const newsSpeakButtonRow = byKey.get('news.speakButton')
+  if (newsSpeakButtonRow && newsSpeakButtonRow.differs) {
+    const choice = choiceOf('news.speakButton')
+    if (choice === 'local') {
+      await track(newsSpeakButtonRow.label, async () => {
+        onProgress?.(`推送「${newsSpeakButtonRow.label}」⋯⋯`)
+        await postJson(src, '/api/news/settings', { speakButton: newsSpeakButtonRow.localValue }, fetchImpl)
+        result.pushed.push(newsSpeakButtonRow.label)
+      })
+    } else if (choice === 'remote') {
+      await track(newsSpeakButtonRow.label, async () => {
+        onProgress?.(`帶回「${newsSpeakButtonRow.label}」⋯⋯`)
+        // `saveNewsEditableSettings` 內部只疊上傳進去的 patch，不會動到
+        // sources／keywordGroups／blacklist 那幾欄——跟 `POST /api/news/settings`
+        // 電腦端那支同一個道理（見 mobileRoutes.ts 的說明）。
+        await session.saveNewsEditableSettings({ speakButton: newsSpeakButtonRow.remoteValue as SpeakMode })
+        result.pulled.push(newsSpeakButtonRow.label)
       })
     }
   }
@@ -345,4 +471,13 @@ function setLocalProvider(session: StandaloneSession, provider: string): void {
   // 攤平的 `endpoint` 鏡像也要跟著換家，理由同上面那條：留著上一家的值，
   // 切去本機再切回雲端就會帶著本機網址走。
   llm.endpoint = llm.endpoints?.[provider]
+}
+
+/** 輔助模型版的 `setLocalProvider`：換供應商沒選過型號就補目錄預設值，避免存出空模型。 */
+function setLocalUtilityProvider(session: StandaloneSession, provider: string): void {
+  const llm = session.settings.llm
+  llm.utilityProvider = provider as typeof llm.provider
+  const model =
+    llm.utilityModels?.[provider] || DEFAULT_MODEL_BY_PROVIDER[provider as keyof typeof DEFAULT_MODEL_BY_PROVIDER] || ''
+  if (model) llm.utilityModels = { ...llm.utilityModels, [provider]: model }
 }

@@ -181,3 +181,31 @@ this.session.settings.weather = {
 `readerKeywordGroupIds` 存的是關鍵字組 id，兩台裝置上不保證一致。
 M4 推情境時就踩過：沒翻譯交叉參照，電腦上留下 10 處死參照。
 同步任何「存著別的東西的 id」的欄位之前，先確定那個東西本身已經有配對機制。
+
+---
+
+## 4. owner 2026-08-17 決定與後續處理（實作結果見 `TODO.md` §2.1／§2.2／§2.3）
+
+- **`llm.utility*`**：要同步。已實作（逐 provider 拆列，沿用既有的
+  `/api/settings/llm-utility-*` 三支端點）。
+- **其餘模組子設定**：能同步的盡量同步。逐項結果：
+  - `ui.showLlmBadge` / `ui.showPersonaName`：已同步（沿用既有端點）。
+  - 新聞 `speakButton`：已同步（沿用既有的 `/api/news/settings`）。
+  - 新聞其餘欄位（`langMode`／`replyModel`／`maxAgeDays`／`readerMaxItems` 等）：
+    **手機端目前沒有讀寫路徑**（`NewsApi.getSettings()/saveSettings()` 與桌面
+    `/api/news/settings` 的白名單都只認 5 個欄位），要同步得先幫兩層都開洞，
+    範圍比想像中大，這次沒有一起做。
+  - 新聞 `keywordGroups`／`sources`（清單型）、`blacklist`／`excluded*`（聯集型）：
+    **owner 決定先擱著**，要另外做一套逐項比對／合併畫面，工程量接近新功能。
+  - `readerKeywordGroupIds`：被上面那條卡住，還沒動。
+  - 天氣 `realtimeQuery.enabled`、日曆 `lookaheadHours`／`maxEvents`／
+    `mentionWhenEmpty`：套用跟 Spotify／日曆 `enabled` 同一個判斷——功能本身
+    桌面限定，手機沒有對應功能可以生效，不需要同步，沒有另外實作。
+  - `llm.temperature`、`ui.chatFontSize`：手機目前沒有 UI 讓使用者調，
+    同步了也沒東西可看，等手機做出對應 UI 再一起補。
+- **Spotify／日曆的 `enabled`**：**已從比對範圍拿掉**。授權只接桌面，手機
+  同步開了也用不了，容易誤導使用者。
+- **提醒**：要同步（整份清單走逐項比對），但「哪台裝置響」跟裝置本地細節
+  設定（例如螢幕關閉時要不要響）留在各自裝置、不進同步子集。**方向已定，
+  尚未實作**——這是新的同步類別，工程量接近對話同步，列進 `TODO.md` §2.3
+  待動工。

@@ -39,6 +39,13 @@ function row(
 }
 
 /** provider id → 中文名稱。UI 層的 `PROVIDER_LABELS`（`mobile/ui/settings/providerInfo.ts`）刻意不搬進 core（roadmap §3.3：中文文案不進 core），這裡是唯一例外——因為 label 要跟著欄位一起產生，放 UI 層就得把「這個 key 對應哪個 provider」的知識也搬過去，兩邊都要維護。 */
+/**
+ * Spotify／日曆的 `enabled` 不進同步比對（owner 2026-08-17）：授權只接桌面，
+ * 手機上這顆開關開了也沒有對應功能。id 跟 `mobile/runtime/session.ts`／
+ * `main/ipcHandlers.ts` 的 `SPOTIFY_MODULE_ID`／`CALENDAR_MODULE_ID` 對齊。
+ */
+const EXCLUDED_MODULE_IDS = new Set(['desktopst.spotify', 'desktopst.calendar'])
+
 const PROVIDER_LABEL: Record<string, string> = {
   openai: 'OpenAI',
   claude: 'Anthropic Claude',
@@ -65,6 +72,17 @@ export function pairSettings(local: SettingsSnapshot, remote: SettingsSnapshot):
       )
     ),
     row('llm.extraInstruction', 'llm', '自訂補充指示', local.llm.extraInstruction, remote.llm.extraInstruction),
+    row('llm.utilityEnabled', 'llm', '輔助模型：使用獨立模型', local.llm.utilityEnabled, remote.llm.utilityEnabled),
+    row('llm.utilityProvider', 'llm', '輔助模型：供應商', local.llm.utilityProvider, remote.llm.utilityProvider),
+    ...SYNC_LLM_PROVIDERS.map((p) =>
+      row(
+        `llm.utilityModels.${p}`,
+        'llm',
+        `輔助模型：${PROVIDER_LABEL[p]} 模型`,
+        local.llm.utilityModels[p] ?? '',
+        remote.llm.utilityModels[p] ?? ''
+      )
+    ),
     row('llm.maxResponseTokens', 'chat', '最大回應字數', local.llm.maxResponseTokens, remote.llm.maxResponseTokens),
     row('llm.maxGroupRounds', 'chat', '群組最多角色回應數', local.llm.maxGroupRounds, remote.llm.maxGroupRounds),
     row('llm.maxImagesPerMessage', 'chat', '單則訊息圖片上限', local.llm.maxImagesPerMessage, remote.llm.maxImagesPerMessage),
@@ -78,18 +96,33 @@ export function pairSettings(local: SettingsSnapshot, remote: SettingsSnapshot):
       remote.memory.autoSummarizeEnabled
     ),
     row('colorTheme', 'appearance', '配色主題', local.colorTheme, remote.colorTheme),
-    row('weather.polish', 'modules', '天氣：使用輔助模型潤飾', local.weather.polish, remote.weather.polish)
+    row('appearance.showLlmBadge', 'appearance', '顯示模型徽章', local.appearance.showLlmBadge, remote.appearance.showLlmBadge),
+    row(
+      'appearance.showPersonaName',
+      'appearance',
+      '顯示發話身分名稱',
+      local.appearance.showPersonaName,
+      remote.appearance.showPersonaName
+    ),
+    row('weather.polish', 'modules', '天氣：使用輔助模型潤飾', local.weather.polish, remote.weather.polish),
+    row('news.speakButton', 'modules', '新聞：陪聊頻率', local.news.speakButton, remote.news.speakButton)
   ]
 
   // 模組：以手機清單為主（兩邊模組集合理論上相同，是同一份程式碼算出來的），
   // 電腦有而手機沒有的（例如舊版手機還沒有某模組）附加在後面、用電腦的 label。
+  //
+  // ⚠️ **Spotify／日曆的 `enabled` 刻意排除**（owner 2026-08-17 決定）。
+  // 這兩個模組的授權只接在桌面（OAuth 跳轉流程），手機上把這顆開關同步成
+  // 開著也完全用不了——同步了反而讓使用者以為手機上能用。
   const remoteModules = new Map(remote.modules.map((m) => [m.id, m]))
   for (const m of local.modules) {
     const r = remoteModules.get(m.id)
-    rows.push(row(`module.${m.id}`, 'modules', `模組：${m.label}`, m.enabled, r ? r.enabled : m.enabled))
     remoteModules.delete(m.id)
+    if (EXCLUDED_MODULE_IDS.has(m.id)) continue
+    rows.push(row(`module.${m.id}`, 'modules', `模組：${m.label}`, m.enabled, r ? r.enabled : m.enabled))
   }
   for (const m of remoteModules.values()) {
+    if (EXCLUDED_MODULE_IDS.has(m.id)) continue
     rows.push(row(`module.${m.id}`, 'modules', `模組：${m.label}`, m.enabled, m.enabled))
   }
 

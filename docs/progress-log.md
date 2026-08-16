@@ -2620,3 +2620,49 @@ B-1～B-6 除了 B-3（無法重現，擱置）跟 M4 第 6 條補驗（開電�
 
 三個都只有自動測試（`npm run typecheck`／810 項 `npm test`）驗過，`mobileServer.ts`
 沒有既有測試骨架（`npm test` 範圍只到 `src/core/`），沒硬加。尚未真機覆驗。
+
+---
+
+## 2026-08-17｜S2 M5 設定同步補幾項漏掉的欄位（§2.1／§2.2）
+
+owner 逐項決定 `docs/handoff/module-settings-audit.md` 的盤點結果：
+
+- **輔助模型設定（§2.1）**：要同步。`core/sync/settingsSnapshot.ts` 的
+  `LlmSyncSubset` 加 `utilityEnabled`／`utilityProvider`／`utilityModels`，
+  逐 provider 拆列（比照既有的 `models`／`endpoints`），跟已經在同步的
+  `endpoints` 是同一張表的另外幾欄，理由跟當初補 `weather.polish`一樣：
+  手機 UI 已經做出來、卻永遠不會同步、也沒有任何錯誤訊息。執行端沿用既有的
+  `/api/settings/llm-utility-*` 三支端點（本來就是給手機 UI 自己調用的）。
+
+- **外觀（顯示模型徽章／發話身分名稱）跟新聞陪聊頻率（§2.2）**：也同步了，
+  沿用既有端點，跟 `colorTheme` 是同一類單值偏好。
+
+- **Spotify／日曆的 `enabled`**：owner 決定從比對範圍拿掉——這兩個模組的
+  授權只接桌面（OAuth 跳轉流程），手機同步 `enabled: true` 也用不了，
+  容易誤導使用者以為手機上能用。`settingsPair.ts` 加 `EXCLUDED_MODULE_IDS`
+  白名單排除，id 對齊 `main/ipcHandlers.ts` 的 `SPOTIFY_MODULE_ID`／
+  `CALENDAR_MODULE_ID`。
+
+- **新聞其餘欄位沒有一起補**：`langMode`／`replyModel`／`maxAgeDays`／
+  `readerMaxItems` 這些手機端**根本沒有讀寫路徑**——`NewsApi.getSettings()/
+  saveSettings()`（`session.getNewsEditableSettings()`）跟桌面端
+  `POST /api/news/settings` 的白名單都只認 `enabled`／`sources`／
+  `keywordGroups`／`blacklist`／`speakButton` 五個欄位。要同步這些得先幫
+  兩層都開洞，範圍比「加一列比對」大很多，這次只做了白名單裡本來就有、
+  手機也調得到的 `speakButton`。
+
+- **`keywordGroups`／`sources`（清單型）、`blacklist`／`excluded*`（聯集型）**：
+  owner 決定先擱著。這類資料不能套簡單的三選一（會讓某一邊辛苦調的組整包
+  消失或被覆蓋），得另外做一套類似對話同步的逐項比對／合併畫面，工程量
+  接近一個新功能。
+
+- **天氣 `realtimeQuery.enabled`、日曆細節設定**：套用跟 Spotify／日曆
+  `enabled` 同一個判斷——功能本身桌面限定，手機沒有對應功能可以生效，
+  不需要同步。
+
+- **提醒同步**：owner 決定要同步提醒資料本身（逐項比對，比照角色／情境），
+  但「哪台裝置響」跟裝置本地細節設定留在各自裝置、不進同步子集。**方向已定，
+  尚未實作**——這是新的同步類別，工程量接近對話同步，還沒動工。
+
+`npm run typecheck`／`npm test`（62 檔、819 項）全過。全部只有自動測試驗過，
+尚未真機驗證。
