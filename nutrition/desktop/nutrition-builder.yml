@@ -1,0 +1,12 @@
+appId: tw.nori.destnutrition
+productName: DeST Nutrition
+electronVersion: 34.3.4
+asar: true
+directories:
+  app: .
+  output: dist
+files:
+  - out/**/*
+win:
+  target:
+    - portable
