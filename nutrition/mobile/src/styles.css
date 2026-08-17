@@ -19,6 +19,7 @@ body { margin: 0; }
 }
 
 .eyebrow { margin: 0; color: #4f9c8a; font-size: 14px; }
+.eyebrow-button { background: transparent; border: 0; padding: 0; cursor: pointer; text-align: left; }
 h1 { margin: 2px 0 0; font-size: 26px; }
 p { margin: 0; }
 
@@ -46,6 +47,7 @@ button:disabled { opacity: .6; cursor: wait; }
 .summary span, .summary small { color: #6d887f; font-size: 13px; }
 .summary strong { font-size: 22px; }
 .over { color: #c55656; }
+.good { color: #3f8f6b; }
 
 /* 手機飲食列表：一行內完整顯示時間／名稱／熱量／蛋白，編輯只留一個小圖示 */
 .meal-list { display: grid; gap: 8px; }
@@ -58,12 +60,14 @@ button:disabled { opacity: .6; cursor: wait; }
   border: 1px solid #d8ebe4;
   border-radius: 10px;
   padding: 10px 12px;
-  gap: 8px;
+  gap: 12px;
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) auto auto 18px;
 }
-.meal-row-compact time { color: #6d887f; font-size: 12px; }
-.meal-row-compact .meal-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.meal-row-compact time { color: #6d887f; font-size: 12px; white-space: nowrap; }
+.meal-row-compact .meal-name { display: grid; gap: 1px; min-width: 0; }
+.meal-row-compact .meal-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.meal-row-compact .meal-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6d887f; font-size: 11px; }
 .meal-row-compact .meal-kcal { font-weight: 700; font-size: 13px; white-space: nowrap; }
 .meal-row-compact .meal-protein { color: #6d887f; font-size: 12px; white-space: nowrap; }
 
@@ -76,7 +80,44 @@ select { min-width: 0; border: 1px solid #c9e3da; border-radius: 8px; padding: 1
 label { display: grid; gap: 5px; color: #4f6e65; font-size: 13px; font-weight: 700; }
 label input, label select { margin-top: 0; font-weight: 400; }
 
-.quick-entry { display: grid; gap: 10px; padding: 14px; background: #eefaf5; border-radius: 10px; }
+.quick-entry-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(61, 90, 82, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 999;
+  padding: 16px;
+}
+.quick-entry-card {
+  background: white;
+  border-radius: 16px;
+  padding: 16px;
+  max-height: 80vh;
+  overflow: auto;
+  width: 100%;
+  max-width: 320px;
+  display: grid;
+  gap: 10px;
+  position: relative;
+}
+.quick-entry-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 4px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6d887f;
+}
+.quick-entry-time { display: grid; gap: 5px; color: #4f6e65; font-size: 13px; font-weight: 700; }
+.quick-entry-time input { font-weight: 400; }
+.quick-entry-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.quick-entry-header button { background: white; border: 1px solid #c9e3da; padding: 6px 11px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
 .food-options { display: grid; gap: 7px; max-height: 260px; overflow: auto; }
 .food-option { justify-content: space-between; gap: 12px; text-align: left; background: white; border: 1px solid #c9e3da; }
 .food-option small { color: #6d887f; }
@@ -121,10 +162,10 @@ label input, label select { margin-top: 0; font-weight: 400; }
 .photo-image-button { padding: 0; background: transparent; border-radius: 0; display: block; }
 .photo-image-button .photo-thumb { border: 0; }
 .food-library-photo, .food-library-photo-placeholder { width: 52px; height: 52px; flex: 0 0 52px; border-radius: 8px; object-fit: cover; background: #eefaf5; }
-.photo-preview-link { align-self: flex-start; font-size: 13px; padding: 7px 10px; }
 .photo-preview-overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 20px; background: rgba(20, 35, 31, .82); }
 .photo-preview { position: relative; max-width: min(92vw, 720px); max-height: 88vh; display: grid; place-items: center; gap: 8px; color: white; }
-.photo-preview > img { max-width: 90vw; max-height: 80vh; object-fit: contain; border-radius: 8px; }
+.zoom-pan-frame { display: inline-flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; }
+.zoom-pan-frame img { max-width: 90vw; max-height: 80vh; object-fit: contain; border-radius: 8px; user-select: none; }
 .photo-preview-close { position: absolute; right: -4px; top: -44px; padding: 8px; color: white; background: transparent; }
 .photo-preview-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 72px; height: 150px; padding: 10px; color: white; background: rgba(0,0,0,.35); display: grid; place-items: center; border-radius: 10px; }
 .photo-preview-prev { left: -72px; }

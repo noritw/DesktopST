@@ -64,8 +64,8 @@ function sumLogs(mealLogs: MealLog[], foodItems: Map<string, FoodItem>): { total
       const perServingKcal = mealLog.override?.kcal ?? foodItem?.perServing.kcal
       const perServingProteinG = mealLog.override?.proteinG ?? foodItem?.perServing.proteinG
       if (perServingKcal === undefined && perServingProteinG === undefined) return sum
-      sum.totalKcal += (perServingKcal ?? 0) * mealLog.servings
-      sum.totalProteinG += (perServingProteinG ?? 0) * mealLog.servings
+      sum.totalKcal += Math.round((perServingKcal ?? 0) * mealLog.servings)
+      sum.totalProteinG += Math.round((perServingProteinG ?? 0) * mealLog.servings)
       return sum
     },
     { totalKcal: 0, totalProteinG: 0 }

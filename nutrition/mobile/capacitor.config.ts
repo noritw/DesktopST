@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli'
 
 const config: CapacitorConfig = {
   appId: 'tw.nori.destnutrition',
-  appName: 'DeST 飲食記錄',
+  appName: '飲食記錄',
   webDir: 'www',
   android: {
     allowMixedContent: true

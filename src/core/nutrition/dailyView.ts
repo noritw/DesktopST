@@ -34,8 +34,8 @@ export function buildDailyView(
         mealLog,
         foodItem,
         name: mealLog.override?.name ?? foodItem?.name ?? '已刪除的食物',
-        kcal: perServingKcal !== undefined ? perServingKcal * mealLog.servings : 0,
-        proteinG: perServingProteinG !== undefined ? perServingProteinG * mealLog.servings : 0
+        kcal: perServingKcal !== undefined ? Math.round(perServingKcal * mealLog.servings) : 0,
+        proteinG: perServingProteinG !== undefined ? Math.round(perServingProteinG * mealLog.servings) : 0
       }
     })
 

@@ -31,7 +31,7 @@ describe('nutrition aggregation', () => {
       isoDate: '2026-08-17',
       mealCount: 3,
       totalKcal: 600,
-      totalProteinG: 37.5,
+      totalProteinG: 38,
       mealsByTime: [logs[0], logs[1], logs[3]],
       isExceededKcal: false,
       isExceededProtein: false
@@ -48,6 +48,6 @@ describe('nutrition aggregation', () => {
     expect(monthly.startIsoDate).toBe('2026-08-01')
     expect(monthly.endIsoDate).toBe('2026-08-31')
     expect(monthly.dayCount).toBe(31)
-    expect(monthly.totalProteinG).toBe(38.5)
+    expect(monthly.totalProteinG).toBe(39)
   })
 })

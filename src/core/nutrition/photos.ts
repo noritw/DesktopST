@@ -9,3 +9,14 @@ export function foodPhotoKey(foodItemId: string, index: number): string {
 export function mealPhotoKey(mealLogId: string): string {
   return `meal-photos/${mealLogId}.webp`
 }
+
+/**
+ * \u627e\u51fa\u76ee\u524d photoKeys \u6c92\u7528\u5230\u7684\u6700\u5c0f index\uff0c\u907f\u514d\u522a\u9664\u4e2d\u9593\u90a3\u5f35\u5f8c\u518d\u65b0\u589e\u6642
+ * \u7528\u300c\u76ee\u524d\u5f35\u6578\u300d\u7576 index \u800c\u649e\u540d\u84cb\u6389\u9084\u7559\u8457\u7684\u6a94\u6848\u3002
+ */
+export function nextFreeFoodPhotoIndex(foodItemId: string, existingKeys: readonly string[]): number {
+  const used = new Set(existingKeys)
+  let index = 0
+  while (used.has(foodPhotoKey(foodItemId, index))) index++
+  return index
+}

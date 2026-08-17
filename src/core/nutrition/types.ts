@@ -5,6 +5,13 @@ export type NutritionActivityLevel =
   | 'active'
   | 'very-active'
 
+/** 顯示順序刻意把 gain-weight 放最後——需要增重的使用者是少數。 */
+export type NutritionGoal =
+  | 'lose-weight'
+  | 'gain-muscle'
+  | 'maintain'
+  | 'gain-weight'
+
 export interface FoodNutritionPerServing {
   kcal: number
   proteinG: number
@@ -61,7 +68,11 @@ export interface BodyProfile {
   heightCm: number
   weightKg: number
   ageYears: number
+  sex: 'male' | 'female'
+  /** 體脂率百分比（0-100）。可選；有填時用 Katch-McArdle 更精準；無值時退回 Mifflin-St Jeor。 */
+  bodyFatPercent?: number
   activityLevel: NutritionActivityLevel
+  goal: NutritionGoal
   /** 最近一次計算出的 TDEE 建議值，不是使用者最後確認的上限。 */
   tdeeEstimate?: number
   dailyKcalLimit: number

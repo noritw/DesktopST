@@ -53,8 +53,10 @@ export class NutritionSession {
   }
 
   async removeFoodItem(id: string): Promise<void> {
+    const removed = this.snapshot.foodItems.find((foodItem) => foodItem.id === id)
     this.snapshot.foodItems = this.snapshot.foodItems.filter((foodItem) => foodItem.id !== id)
     await this.persistAndInvalidate()
+    if (removed) await Promise.all(removed.photoKeys.map((key) => this.storage.remove(key)))
   }
 
   async saveMealLog(mealLog: MealLog): Promise<void> {
@@ -63,8 +65,10 @@ export class NutritionSession {
   }
 
   async removeMealLog(id: string): Promise<void> {
+    const removed = this.snapshot.mealLogs.find((mealLog) => mealLog.id === id)
     this.snapshot.mealLogs = this.snapshot.mealLogs.filter((mealLog) => mealLog.id !== id)
     await this.persistAndInvalidate()
+    if (removed?.photoKey) await this.storage.remove(removed.photoKey)
   }
 
   async saveBodyProfile(bodyProfile: BodyProfile): Promise<void> {
@@ -74,6 +78,20 @@ export class NutritionSession {
 
   async saveSettings(settings: NutritionAppSettings): Promise<void> {
     this.snapshot.settings = settings
+    await this.persistAndInvalidate()
+  }
+
+  /**
+   * 搬家包匯入用：一次寫入整份合併結果，只觸發一次 persist／通知，
+   * 不要對每一筆記錄各別呼叫 saveXxx（那樣既慢、又會讓畫面在匯入過程中閃過中間狀態）。
+   */
+  async replaceSnapshot(snapshot: {
+    foodItems: FoodItem[]
+    mealLogs: MealLog[]
+    bodyProfile: BodyProfile | null
+    settings: NutritionAppSettings
+  }): Promise<void> {
+    this.snapshot = snapshot
     await this.persistAndInvalidate()
   }
 

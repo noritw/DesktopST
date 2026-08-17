@@ -1,5 +1,5 @@
 appId: tw.nori.destnutrition
-productName: DeST Nutrition
+productName: 飲食記錄
 electronVersion: 34.3.4
 asar: true
 directories:

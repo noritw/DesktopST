@@ -1,6 +1,16 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
-import { NutritionSession } from '@core/nutrition'
+import { readFile, writeFile } from 'node:fs/promises'
+import {
+  applyMigrationPack,
+  buildMigrationPack,
+  collectReferencedPhotoKeys,
+  NUTRITION_PACK_EXTENSION,
+  NutritionSession,
+  type MigrationMergeMode,
+  type NutritionMigrationPack,
+  type NutritionSnapshot
+} from '@core/nutrition'
 import { nutritionDesktopStorage } from '../storage'
 
 let nutritionSession: NutritionSession | null = null
@@ -8,6 +18,15 @@ let nutritionSession: NutritionSession | null = null
 async function getSession(): Promise<NutritionSession> {
   nutritionSession ??= await NutritionSession.boot(nutritionDesktopStorage)
   return nutritionSession
+}
+
+function snapshotPayload(session: NutritionSession): NutritionSnapshot {
+  return {
+    foodItems: [...session.foodItems],
+    mealLogs: [...session.mealLogs],
+    bodyProfile: session.bodyProfile,
+    settings: session.settings
+  }
 }
 
 function registerNutritionHandlers(): void {
@@ -21,28 +40,20 @@ function registerNutritionHandlers(): void {
     }
   })
 
-  ipcMain.handle('nutrition:add-demo-meal', async (_event, foodItemId?: string) => {
+  ipcMain.handle('nutrition:log-meal', async (_event, foodItemId: string, eatenAt: number) => {
     const session = await getSession()
-    const now = Date.now()
-    const foodItem = session.foodItems.find((item) => item.id === foodItemId) ?? session.foodItems[0] ?? {
-      id: 'demo-food',
-      name: '示範三明治',
-      aliases: ['三明治'],
-      perServing: { kcal: 400, proteinG: 25 },
-      photoKeys: [],
-      source: 'user' as const,
-      createdAt: now,
-      updatedAt: now
+    const foodItem = session.foodItems.find((item) => item.id === foodItemId)
+    if (foodItem && Number.isFinite(eatenAt)) {
+      const now = Date.now()
+      await session.saveMealLog({
+        id: `meal-${now}-${Math.round(Math.random() * 1e6)}`,
+        foodItemId: foodItem.id,
+        servings: 1,
+        eatenAt,
+        createdAt: now,
+        updatedAt: now
+      })
     }
-    if (!session.foodItems.some((item) => item.id === foodItem.id)) await session.saveFoodItem(foodItem)
-    await session.saveMealLog({
-      id: `demo-meal-${now}`,
-      foodItemId: foodItem.id,
-      servings: 1,
-      eatenAt: now,
-      createdAt: now,
-      updatedAt: now
-    })
     return {
       foodItems: [...session.foodItems],
       mealLogs: [...session.mealLogs],
@@ -141,6 +152,51 @@ function registerNutritionHandlers(): void {
       bodyProfile: session.bodyProfile,
       settings: session.settings
     }
+  })
+
+  ipcMain.handle('nutrition:export-pack', async (event) => {
+    const session = await getSession()
+    const snapshot = snapshotPayload(session)
+    const photoKeys = collectReferencedPhotoKeys(snapshot)
+    const photoBytes = new Map<string, Uint8Array>()
+    for (const key of photoKeys) {
+      const bytes = await nutritionDesktopStorage.readBinary(key)
+      if (bytes) photoBytes.set(key, bytes)
+    }
+    const pack = buildMigrationPack(snapshot, photoBytes)
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const defaultName = `飲食記錄搬家包-${new Date().toISOString().slice(0, 10)}${NUTRITION_PACK_EXTENSION}`
+    const dialogOptions = {
+      defaultPath: defaultName,
+      filters: [{ name: '飲食記錄搬家包', extensions: [NUTRITION_PACK_EXTENSION.slice(1)] }]
+    }
+    const result = window ? await dialog.showSaveDialog(window, dialogOptions) : await dialog.showSaveDialog(dialogOptions)
+    if (result.canceled || !result.filePath) return { ok: false as const }
+    await writeFile(result.filePath, JSON.stringify(pack), 'utf8')
+    return { ok: true as const, path: result.filePath }
+  })
+
+  ipcMain.handle('nutrition:import-pack', async (event, mode: MigrationMergeMode) => {
+    const window = BrowserWindow.fromWebContents(event.sender)
+    const dialogOptions = {
+      properties: ['openFile'] as Array<'openFile'>,
+      filters: [{ name: '飲食記錄搬家包', extensions: [NUTRITION_PACK_EXTENSION.slice(1), 'json'] }]
+    }
+    const result = window ? await dialog.showOpenDialog(window, dialogOptions) : await dialog.showOpenDialog(dialogOptions)
+    if (result.canceled || result.filePaths.length === 0) return { ok: false as const }
+    let pack: NutritionMigrationPack
+    try {
+      pack = JSON.parse(await readFile(result.filePaths[0], 'utf8')) as NutritionMigrationPack
+    } catch {
+      return { ok: false as const, error: 'invalid-file' as const }
+    }
+    if (!pack || typeof pack !== 'object' || !Array.isArray(pack.foodItems)) return { ok: false as const, error: 'invalid-file' as const }
+
+    const session = await getSession()
+    const { snapshot, photosToWrite } = applyMigrationPack(snapshotPayload(session), pack, mode)
+    for (const { key, bytes } of photosToWrite) await nutritionDesktopStorage.writeBinary(key, bytes)
+    await session.replaceSnapshot(snapshot)
+    return { ok: true as const, snapshot: snapshotPayload(session) }
   })
 }
 
