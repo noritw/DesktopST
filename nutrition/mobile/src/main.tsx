@@ -32,6 +32,8 @@ import { nutritionMobileStorage } from './storage'
 import './styles.css'
 
 type View = 'daily' | 'library' | 'foodForm' | 'mealEditor' | 'profile' | 'about' | 'transfer'
+/** 新增／編輯食物表單是從哪裡打開的，返回時要回到同一個地方，而不是永遠回食物庫。 */
+type FoodFormOrigin = 'library' | 'quickEntry' | 'mealEditor'
 
 interface FoodDraft {
   name: string
@@ -284,6 +286,7 @@ function App(): React.JSX.Element {
 
   const [editingFoodId, setEditingFoodId] = React.useState<string | null>(null)
   const [isNewFood, setIsNewFood] = React.useState(false)
+  const [foodFormOrigin, setFoodFormOrigin] = React.useState<FoodFormOrigin>('library')
   const [foodDraft, setFoodDraft] = React.useState<FoodDraft>(blankFoodDraft())
   const [newTagInput, setNewTagInput] = React.useState('')
   const [confirmDeleteFood, setConfirmDeleteFood] = React.useState(false)
@@ -408,18 +411,26 @@ function App(): React.JSX.Element {
   const pendingDeletePhotoKeysRef = React.useRef<string[]>([])
   const sessionAddedPhotoKeysRef = React.useRef<string[]>([])
 
+  /** 依照打開表單時記下的 foodFormOrigin，回到「進來的地方」而不是永遠回食物庫。 */
+  function returnFromFoodForm(): void {
+    if (foodFormOrigin === 'quickEntry') { setView('daily'); setQuickEntryOpen(true) }
+    else if (foodFormOrigin === 'mealEditor') { setView('mealEditor') }
+    else { setView('library') }
+  }
+
   function leaveFoodForm(): void {
     const orphaned = sessionAddedPhotoKeysRef.current
     pendingDeletePhotoKeysRef.current = []
     sessionAddedPhotoKeysRef.current = []
     if (orphaned.length > 0) void Promise.all(orphaned.map((key) => nutritionMobileStorage.remove(key)))
-    setView('library')
+    returnFromFoodForm()
   }
 
-  function openFoodForm(foodItem: FoodItem | null): void {
+  function openFoodForm(foodItem: FoodItem | null, origin: FoodFormOrigin = 'library'): void {
     const id = foodItem?.id ?? `food-${Date.now()}`
     setEditingFoodId(id)
     setIsNewFood(!foodItem)
+    setFoodFormOrigin(origin)
     setConfirmDeleteFood(false)
     setNewTagInput('')
     pendingDeletePhotoKeysRef.current = []
@@ -525,7 +536,7 @@ function App(): React.JSX.Element {
       pendingDeletePhotoKeysRef.current = []
       sessionAddedPhotoKeysRef.current = []
       if (toDelete.length > 0) void Promise.all(toDelete.map((key) => nutritionMobileStorage.remove(key)))
-      if (alsoLogToday) { setQuickEntryOpen(false); setFoodQuery(''); setView('daily') } else { setView('library') }
+      if (alsoLogToday) { setQuickEntryOpen(false); setFoodQuery(''); setView('daily') } else { returnFromFoodForm() }
     })
   }
 
@@ -883,6 +894,23 @@ function App(): React.JSX.Element {
           <button type="button" className="primary" disabled={saving} onClick={() => saveMealEdit('food')}>更新食物庫資料</button>
           <small>食物庫也會更新，之後每次吃這個食物都會套用新數值</small>
         </section>
+        {linkedFoodItem && (
+          <section className="library-data-section">
+            <strong>食物庫資料</strong>
+            <p className="hint">
+              品牌、口味、別名、標籤、碳水／脂肪與照片存在食物庫裡，不屬於這筆飲食紀錄——在這裡編輯會更新食物庫，之後每次吃「{linkedFoodItem.name}」都會套用新內容，不會只改今天這一筆。
+            </p>
+            <div className="library-data-preview">
+              <span>{[linkedFoodItem.brand, linkedFoodItem.flavor].filter(Boolean).join(' · ') || '尚未填寫品牌／口味'}</span>
+              {(linkedFoodItem.tags ?? []).length > 0 && (
+                <div className="tag-row">{linkedFoodItem.tags!.map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}</div>
+              )}
+            </div>
+            <button type="button" disabled={saving} onClick={() => openFoodForm(linkedFoodItem, 'mealEditor')}>
+              <MonoIcon name="edit" className="icon-sm" /> 編輯食物庫資料
+            </button>
+          </section>
+        )}
         <section className="danger-zone">
           <button type="button" className="danger" disabled={saving} onClick={() => setConfirmDeleteMeal(true)}>
             <MonoIcon name="trash" className="icon-sm" /> 刪除這筆飲食紀錄
@@ -1022,7 +1050,7 @@ function App(): React.JSX.Element {
             </label>
             <div className="quick-entry-header">
               <strong>選擇食物</strong>
-              <button type="button" className="icon-button" aria-label="新增食物到食物庫" onClick={() => { setQuickEntryOpen(false); openFoodForm(null) }}>
+              <button type="button" className="add-food-button" aria-label="新增食物到食物庫" onClick={() => { setQuickEntryOpen(false); openFoodForm(null, 'quickEntry') }}>
                 <MonoIcon name="plus" className="icon-sm" /> 新增食物
               </button>
             </div>
@@ -1039,11 +1067,17 @@ function App(): React.JSX.Element {
               {quickFoods.length === 0 ? (
                 <div className="empty">
                   <p>找不到食物。</p>
-                  <button type="button" onClick={() => { setQuickEntryOpen(false); openFoodForm(null) }}>去食物庫新增</button>
+                  <button type="button" onClick={() => { setQuickEntryOpen(false); openFoodForm(null, 'quickEntry') }}>去食物庫新增</button>
                 </div>
               ) : quickFoods.map((foodItem) => (
                 <button type="button" className="food-option" key={foodItem.id} disabled={saving} onClick={() => logMeal(foodItem)}>
-                  <span>{foodItem.name}</span><small>{foodItem.perServing.kcal} kcal · {foodItem.perServing.proteinG} g 蛋白</small>
+                  <span className="food-option-name">
+                    <strong>{foodItem.name}</strong>
+                    {(foodItem.brand || foodItem.flavor) && (
+                      <small>{[foodItem.brand, foodItem.flavor].filter(Boolean).join(' · ')}</small>
+                    )}
+                  </span>
+                  <small>{foodItem.perServing.kcal} kcal · {foodItem.perServing.proteinG} g 蛋白</small>
                 </button>
               ))}
             </div>

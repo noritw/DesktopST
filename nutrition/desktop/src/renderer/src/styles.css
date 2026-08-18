@@ -81,9 +81,13 @@ label input, label select { margin-top: 0; font-weight: 400; }
 .quick-entry { display: grid; gap: 12px; padding: 18px; background: #eefaf5; border-radius: 10px; }
 .quick-entry-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .quick-entry-header button { background: white; border: 1px solid #c9e3da; padding: 6px 12px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
+.quick-entry-header .add-food-button { background: #65bda6; border-color: #65bda6; color: white; font-weight: 700; }
 .food-options { display: grid; gap: 8px; max-height: 300px; overflow: auto; }
 .food-option { justify-content: space-between; gap: 16px; text-align: left; background: white; border: 1px solid #c9e3da; }
-.food-option small { color: #6d887f; }
+.food-option > small { color: #6d887f; white-space: nowrap; }
+.food-option-name { display: grid; gap: 1px; min-width: 0; text-align: left; }
+.food-option-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.food-option-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6d887f; font-size: 12px; }
 
 .library-toolbar { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; }
 
@@ -136,6 +140,10 @@ label input, label select { margin-top: 0; font-weight: 400; }
 
 .scope-choice { display: grid; gap: 5px; }
 .scope-choice small { color: #6d887f; font-size: 13px; margin-bottom: 10px; }
+
+.library-data-section { display: grid; gap: 8px; border-top: 1px solid #d8ebe4; padding-top: 16px; }
+.library-data-section > .hint { margin: 0; }
+.library-data-preview { display: grid; gap: 6px; background: #eefaf5; border-radius: 10px; padding: 10px 14px; font-size: 13px; }
 
 .danger-zone { border-top: 1px solid #d8ebe4; padding-top: 16px; }
 

@@ -2666,3 +2666,35 @@ owner 逐項決定 `docs/handoff/module-settings-audit.md` 的盤點結果：
 
 `npm run typecheck`／`npm test`（62 檔、819 項）全過。全部只有自動測試驗過，
 尚未真機驗證。
+
+## 2026-08-18｜飲食記錄 App：B9a UI 四項微調＋Health 讀提前排程
+
+owner 用過 B9a 之後回報四個 UI 問題，桌面／手機（`nutrition/desktop`、
+`nutrition/mobile`）都同樣修：
+
+- **快速入帳選食物看不出是哪一種**：`food-option` 選項比照食物庫列表加上
+  品牌／口味小字（`food-option-name`），跟同名不同品牌／口味的食物能一眼分開。
+- **「新增食物」按鈕不夠明顯**：快速入帳卡片裡的按鈕從 `icon-button`
+  改成 `add-food-button`（實心底色），跟旁邊其他次要按鈕拉開視覺層級。
+- **食物表單返回會固定跳食物庫**：`openFoodForm()` 加 `origin` 參數
+  （`library`／`quickEntry`／`mealEditor`），`leaveFoodForm()`／存檔後都
+  改呼叫新的 `returnFromFoodForm()` 依來源導回——從快速入帳點「新增食物」
+  存完／取消會回快速入帳（並重新展開），不會被丟去食物庫。
+- **編輯飲食紀錄只能改當筆用到的欄位**：在 `mealEditor` 底下加
+  「食物庫資料」區塊，文字講清楚這些欄位（品牌／口味／別名／標籤／碳水
+  脂肪／照片）存在食物庫、不是這筆紀錄的一部分；按「編輯食物庫資料」直接
+  開現有的食物表單（`openFoodForm(linkedFoodItem, 'mealEditor')`），
+  沿用同一套 UI 與存檔邏輯，不重複造欄位，改完存檔後照 origin 導回
+  `mealEditor`。
+
+另外 owner 要求把 Google Health 讀（體重／體脂雲端同步、手錶當日消耗熱量
+→ 動態調整 `dailyKcalLimit`）從 B9c 提前到 B9b（LLM 拍照估價）之前，理由：
+拍照估價有「先手動輸入」可以頂著，體重／體脂／手錶消耗熱量目前完全沒有
+替代輸入路徑，owner 自用天天要看。**這次只更新規格排程**
+（`future-nutrition-module.md` §3.5／§6／§8 已改），還沒有寫任何 Health
+串接程式碼——Health Connect／Google Fit 的 OAuth、權限、真機測試留到真的
+開工那一輪再做。
+
+`npm run typecheck` 全過；`tests/core/nutrition/*` 8 檔 38 項全過（這次只動
+UI 層，沒有改 `core/`，資料模型／純函式不受影響）。這次沒有真機／模擬器
+手動驗證。
