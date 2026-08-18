@@ -325,6 +325,8 @@ function App(): React.JSX.Element {
   const [healthMessage, setHealthMessage] = React.useState<string | null>(null)
   /** 最近一次讀到的快照，餵給 suggestTodayKcalLimit() 算今日動態上限；重開 App 會重置，這是刻意的（見 §3.1：同步永遠由前景事件觸發）。 */
   const [healthSnapshot, setHealthSnapshot] = React.useState<HealthSnapshot | null>(null)
+  /** 過去日期的當日總消耗熱量快取（開關 3 開啟時，翻歷史紀錄用）；`undefined`＝還沒查過，`null`＝查過但查無資料。重開 App 會重置，跟 healthSnapshot 一樣不需要持久化。 */
+  const [historicalKcalCache, setHistoricalKcalCache] = React.useState<Record<string, number | null>>({})
 
   const [transferBusy, setTransferBusy] = React.useState(false)
   const [transferMessage, setTransferMessage] = React.useState<string | null>(null)
@@ -386,6 +388,24 @@ function App(): React.JSX.Element {
     })
     return () => unsubscribe?.()
   }, [])
+
+  // 開關 3 開啟時，翻到過去的日期也查一次那天的 Health Connect 總消耗熱量，
+  // 快取起來（過去的一天已經過完，不用像「今天」那樣外推剩餘時間——見下方
+  // effectiveKcalLimit 的計算）。只在真的需要時才查，不主動幫還沒授權/沒開啟
+  // 的使用者打 Health Connect。
+  React.useEffect(() => {
+    const viewingToday = selectedDate === toIsoDateString(Date.now())
+    if (viewingToday) return
+    if (!healthSettings.connected || !healthSettings.useWatchCalorieLimit) return
+    if (!healthAvailable || !healthPermissionGranted) return
+    if (selectedDate in historicalKcalCache) return
+    let cancelled = false
+    void nutritionHealthAdapter.readDailyCaloriesBurned(selectedDate).then((value) => {
+      if (cancelled) return
+      setHistoricalKcalCache((prev) => ({ ...prev, [selectedDate]: value ?? null }))
+    })
+    return () => { cancelled = true }
+  }, [selectedDate, healthSettings.connected, healthSettings.useWatchCalorieLimit, healthAvailable, healthPermissionGranted, historicalKcalCache])
 
   function applySnapshot(session: NutritionSession): void {
     setSnapshot({
@@ -816,13 +836,22 @@ function App(): React.JSX.Element {
 
   const daily = buildDailyView(snapshot.mealLogs, snapshot.foodItems, selectedDate)
   const bodyProfile = snapshot.bodyProfile
-  // 開關 3 開啟時，只有「正在看今天」才套動態公式——翻到別天看歷史紀錄，
-  // 熱量上限就是那天不存在的東西，直接退回固定上限比較合理。
+  // 開關 3 開啟時：正在看今天套 suggestTodayKcalLimit()（已消耗＋剩餘時間外推）；
+  // 翻到過去的日期則直接用那天的 Health Connect 總消耗熱量本人（那天已經過完，
+  // 沒有「剩餘時間」可外推，degenerate 成單純的當日總量）。兩者都查不到資料時
+  // 退回固定的 bodyProfile.dailyKcalLimit。
   const isViewingToday = selectedDate === toIsoDateString(Date.now())
   const todayDynamicKcalLimit = bodyProfile && healthSettings.useWatchCalorieLimit && healthSnapshot && isViewingToday
     ? suggestTodayKcalLimit(bodyProfile, healthSnapshot, Date.now())
     : null
-  const effectiveKcalLimit = todayDynamicKcalLimit ?? bodyProfile?.dailyKcalLimit
+  const historicalCaloriesBurned = !isViewingToday && healthSettings.useWatchCalorieLimit
+    ? historicalKcalCache[selectedDate]
+    : undefined
+  const historicalDynamicKcalLimit = historicalCaloriesBurned !== undefined && historicalCaloriesBurned !== null
+    ? Math.round(historicalCaloriesBurned)
+    : null
+  const dynamicKcalLimit = todayDynamicKcalLimit ?? historicalDynamicKcalLimit
+  const effectiveKcalLimit = dynamicKcalLimit ?? bodyProfile?.dailyKcalLimit
   const date = new Date(`${selectedDate}T12:00:00`)
   const dateLabel = date.toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
   const shiftDate = (days: number) => {
@@ -1087,6 +1116,10 @@ function App(): React.JSX.Element {
 
         <section className="health-sync-section">
           <strong>Health 同步</strong>
+          <p className="hint">
+            讀 Android 的 Health Connect（Google Health 背後同一份資料）：手錶、體重計只要有寫進去就讀得到。
+            已驗證 Pixel Watch 與 MovingLife，其他品牌未實測。
+          </p>
           <label className="toggle-row">
             <input
               type="checkbox"
@@ -1196,7 +1229,7 @@ function App(): React.JSX.Element {
       </section>
       <section className="summary">
         <div>
-          <span>熱量{todayDynamicKcalLimit !== null && <small className="dynamic-tag">依手錶動態</small>}</span>
+          <span>熱量{dynamicKcalLimit !== null && <small className="dynamic-tag">{isViewingToday ? '依手錶動態' : '當日手錶總消耗'}</small>}</span>
           <strong className={effectiveKcalLimit !== undefined && daily.totalKcal > effectiveKcalLimit ? 'over' : ''}>{daily.totalKcal} kcal</strong>
           <small>/ {effectiveKcalLimit ?? '未設定'}</small>
         </div>

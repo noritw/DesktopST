@@ -223,10 +223,16 @@ TDEE 建議但上限隨時手改；Health 讀寫皆選配。換機靠搬家包�
 > 原因：關鍵字入帳沒有 LLM 也能用，拍照估價有「先手動輸入」這條替代路可以頂著；
 > 但體重／體脂／手錶當日消耗熱量目前完全沒有替代輸入方式，owner 自用天天要看，
 > 優先度更高。寫入（Health 寫）維持原順序，不提前。
+>
+> **2026-08-19：Health 讀（B9-Health-lite）已完成，真機驗證通過。** 開工指令
+> 與完整落地筆記在 `docs/nutrition-health-lite-kickoff.md`（§7／§8／§11）。
+> 走 Android Health Connect（`@capgo/capacitor-health`），owner 用 Pixel
+> Watch＋MovingLife 體重計實測；體重／體脂／今日動態熱量上限、以及追加需求
+> 「過去日期也顯示當日手錶總消耗熱量」都驗證正確。
 
 | 層 | 內容 | 優先度 |
 |---|---|---|
-| Health 讀 | 體重／體脂 → `BodyProfile`（體重機→Google→Health Connect，雲端資料直接同步，不必等使用者手動點「同步」）；手錶當日消耗熱量 → 動態調整 `dailyKcalLimit`（TDEE 靜態估算之外的即時修正，細節開工時再定） | **提前**：排在 B9b 之前 |
+| Health 讀 | 體重／體脂 → `BodyProfile`（手機讀 Android Health Connect，同步一律使用者觸發，見 kickoff §5.2）；手錶當日消耗熱量 → 今日快覽動態顯示熱量上限（不寫回 `dailyKcalLimit`，公式見 kickoff §5.1） | ✅ **完成**（2026-08-19，只做手機端，桌面不碰） |
 | Health 寫 | 本機確認後的營養 log → Health Connect／手錶 | 維持原順序（B9c，不提前） |
 
 模組本體不依賴 Health。開源使用者本機完整可用。Client ID 自備（若雲端 API）。
@@ -323,7 +329,7 @@ S2 未完成前：若手機以遙控連桌面，飲食資料可先以**電腦為
 | 期 | 內容 |
 |---|---|
 | **B9a MVP** | 資料模型＋core；**每日飲食列表**（翻日、合計、點名編 FoodItem）；關鍵字入帳；手建食物（照片／品牌／口味）；TDEE／手改上限；應用內快覽；**N1 匯出匯入**；N2 編輯；獨立 App／獨立安裝包（不是 DeST 底下可關的入口，見 §3.1） |
-| **B9-Health-lite**（2026-08-18 插隊，排在 B9b 之前） | Health 讀（選配）：體重／體脂雲端同步進 `BodyProfile`；手錶當日消耗熱量同步進來動態調整 `dailyKcalLimit`。**不含** Health 寫、不含拍照估價；範圍與理由見 §3.5 |
+| **B9-Health-lite**（2026-08-18 插隊，排在 B9b 之前）✅ **已完成**（2026-08-19，真機驗證通過） | Health 讀（選配）：體重／體脂同步進 `BodyProfile`；手錶當日消耗熱量動態調整今日熱量上限（含過去日期）。**不含** Health 寫、不含拍照估價；範圍與理由見 §3.5，落地筆記見 `nutrition-health-lite-kickoff.md` §11 |
 | **B9b** | 新食物拍照／標示 LLM；桌面小工具；本機報表頁 |
 | **B9c** | Health 寫營養；接 S2（N3）；角色偏好注入（可選） |
 

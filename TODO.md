@@ -197,8 +197,19 @@ owner 決定：提醒資料本身要同步（整份清單，比照角色／情�
 - [ ] **B3 階段 7：正式 APK ／散布**（需要簽章金鑰）——S2 驗完後的下一站
 - [ ] 角色印象（B8）
 - [ ] 系統通知（B5）
-- [ ] 飲食熱量模組（B9）→ `docs/future-nutrition-module.md`（你自用優先；含換機搬家包）
-- [ ] Android 桌面小工具 → `docs/mobile-android-widget-plan.md`
+- [x] 飲食記錄 App：Health 讀（B9-Health-lite）→ ✅ **已完成，真機驗證通過**
+      （2026-08-19）。`docs/nutrition-health-lite-kickoff.md` §7／§8／§11。
+      真機測出並修掉 3 個 bug：`minSdkVersion` 24→26、外掛 `limit` 太小抓到
+      最舊體重紀錄、公斤數小數位過長
+- [ ] 飲食熱量模組其餘分期（B9b：新食物拍照／標示 LLM、桌面小工具、本機
+      報表頁；B9c：Health 寫、接 S2、角色偏好注入）→
+      `docs/future-nutrition-module.md`。**B9b 內部順序**：LLM 拍照估價
+      先做（入帳流程唯一剩下的手動摩擦點，且是 Widget「快速入帳」流程的
+      前置依賴），桌面小工具其次（原生 Kotlin，這個專案原生層踩坑史長，
+      且入帳前門最好等 LLM 那條路徑定案再蓋），本機報表頁最後（純唯讀，
+      隨時能補）
+- [ ] Android 桌面小工具 → `docs/mobile-android-widget-plan.md`（DeST 主
+      App 的小工具；飲食記錄 App 的小工具規劃還沒寫，屬於上面 B9b）
 
 ---
 

@@ -32,4 +32,11 @@ export interface HealthAdapter {
   requestPermission(): Promise<boolean>
   /** 讀一次快照；沒有權限或查無資料的欄位省略。 */
   readSnapshot(): Promise<HealthSnapshot>
+  /**
+   * 查詢某個過去日期（裝置本地時區的整天，`dateIso` 格式同 `toIsoDateString()`）
+   * 的累計消耗熱量。跟 `readSnapshot()` 的 `caloriesBurnedSoFarToday` 不同——
+   * 這裡查的是「已經過完的一整天」，不是「到查詢當下」，呼叫端不需要再做
+   * 剩餘時間外推。查無資料或沒有權限時回傳 `undefined`，不要用 0 假裝有資料。
+   */
+  readDailyCaloriesBurned(dateIso: string): Promise<number | undefined>
 }

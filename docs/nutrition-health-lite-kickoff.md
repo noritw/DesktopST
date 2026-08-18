@@ -4,11 +4,13 @@
 > 熱量上限公式），§5 已改成「已拍板」定案內容，不再是開放問題。
 > owner 決定把 Health 讀（體重／體脂、手錶當日消耗熱量）
 > 從 B9c 提前到 B9b（拍照估價 LLM）之前，見 `future-nutrition-module.md` §3.5／§6／§8。
-> **狀態（2026-08-18 動工後更新）：§7 步驟①～⑦已經寫完（分支
-> `feat/nutrition-health-connect`），`npm run typecheck`／`npm test` 都過，
-> 但**完全沒有真機驗證過**——owner 那時人在外面，之後才能實機測。
-> 詳細完工狀態、已知未驗證的風險點見 §7 表格與 §11（新增）「給下一輪對話的
-> 交接筆記」。
+> **狀態（2026-08-19 真機驗證通過）**：分支 `feat/nutrition-health-connect`。
+> §7 全部步驟、§8 完工判準**真機驗證通過**——owner 在家用 Pixel Watch＋
+> MovingLife 體重計實測，過程中揪出並修掉 3 個只有真機才會出現的 bug
+> （§11 已更新）：`minSdkVersion` 太低裝不動 Health Connect、外掛的
+> `limit` 太小導致抓到最舊而不是最新的體重紀錄、公斤數帶一長串小數沒有
+> round。修完之後體重／體脂／今日動態上限／過去日期動態上限（owner 追加的
+> 需求，§2.1 之外的擴充，見 §11）都驗證正確。
 > **規格取捨原則（owner 原話）**：這是做給自己用、但免費公開的 App——
 > **以 owner 自己能跑最優先**，其他環境（例如手錶不是 Health Connect
 > 相容）留擴充空間（就是 §3.2 的 `HealthAdapter` 介面）但**不必實作**，
@@ -260,6 +262,16 @@ Vite 專案，正確做法是放進 **`nutrition/mobile/src/public/privacypolicy
 會自動複製進 `www/`，`cap sync` 再複製進 Android assets，這樣每次重建
 都不會被清掉。已建立好這個檔案，內容照實描述讀哪些資料、用途、資料不上傳。
 
+**3.4b `minSdkVersion` 必須 ≥ 26（2026-08-19 真機組 APK 才發現）**：外掛的
+manifest 宣告 `minSdk 26`（Health Connect 的正式 API 本來就是 Android 8.0+
+才有），這個 App 原本的 `nutrition/mobile/android/variables.gradle` 是
+`minSdkVersion = 24`（沿用 DeST 主 App 的舊值），組 APK 時 manifest merger
+直接 FAILURE：「uses-sdk:minSdkVersion 24 cannot be smaller than version 26
+declared in library」。改成 `minSdkVersion = 26` 才編得過——**這是會縮小
+支援範圍的改動**，Android 7.x（API 24／25）裝置從此裝不了這個 App。
+owner 自用機器沒問題，但如果之後真的要顧舊機型，得評估拿掉 Health Connect
+或做成條件式依賴。
+
 ---
 
 ## 4. 資料模型變動
@@ -432,16 +444,16 @@ Health Connect，開工前用一句話確認即可，不影響這條「不主動
 
 | 步驟 | 內容 | 驗證方式 | 狀態（2026-08-18） |
 |---|---|---|---|
-| ① | 跟 owner 確認手錶/體重計實際寫入 Health Connect 的來源 App 是什麼、開關 2 的預設值要不要跟這份文件的建議（開）一致 | 一句話回覆即可，§5 的三個設計問題已經拍板不用再問 | **還沒問**——真機驗證前第一件事 |
+| ① | 跟 owner 確認手錶/體重計實際寫入 Health Connect 的來源 App 是什麼、開關 2 的預設值要不要跟這份文件的建議（開）一致 | 一句話回覆即可，§5 的三個設計問題已經拍板不用再問 | ✅ 已問：手錶是 Watch / Health，體重計是 MovingLife；開關 2 預設開（跟程式碼原本寫死的一致） |
 | ② | 選定 Capacitor 外掛（§3.3），裝進 `nutrition/mobile`，`dependencies` 不是 `devDependencies` | `npm run build:nutrition:mobile` 過；先不接任何 UI | ✅ 選了 `@capgo/capacitor-health`（見 §3.3 更新），已裝 |
 | ③ | `src/core/adapters/health.ts`（或 `core/nutrition/health.ts`）定義 `HealthAdapter`／`HealthSnapshot` 介面 | 純型別，`npm run typecheck` 過 | ✅ 完成 |
 | ④ | `core/nutrition/` 純函式：`suggestTodayKcalLimit()`（§5.1 公式，重用 `calculateBmr()`） | `tests/core/nutrition/health.test.ts`，覆蓋「有今日資料」「資料是舊的（回傳 null）」「完全沒資料」三種情況，另外驗證公式本身（例如餵 owner 那組 1187 kcal／5.5 小時的例子） | ✅ 完成，4 個測試全過 |
 | ⑤ | `BodyProfile`／`NutritionAppSettings` 型別加欄位（§4，三個開關＋兩個同步時間戳），`saveBodyProfile` 等既有 session 方法不用改 | `npm run typecheck`；既有 `tests/core/nutrition/*` 不能壞 | ✅ 完成，另外補了 `storage.ts` 的 `normalizeSettings()`（沒補的話舊 `settings.json` 一 reload 就會把 `health` 欄位砍掉，這是規劃時沒想到的） |
-| ⑥ | 手機端 `HealthAdapter` 實作（動態 `import()`，AndroidManifest 權限，§3.4） | 先只加一個除錯用的按鈕呼叫 `readSnapshot()`，`console.log` 結果，裝到手機上跑一次 | ⚠️ **程式碼完成，未真機驗證**——`nutrition/mobile/src/health.ts`。§3.4 已更新：manifest 權限不用手動加（外掛已宣告） |
-| ⑦ | 設定頁三個開關的 UI（§2.1 表格，開關 1 關閉時隱藏 2、3；開關 2 決定顯示自動同步或手動同步按鈕）＋權限請求流程＋空狀態文案（不主動導去 Play Store，§5.3） | 手動測：開關 1 關閉時完全不彈任何 Health 提示；開啟時走一次完整授權流程 | ⚠️ **程式碼完成，未真機驗證**——`profile` 頁新增「Health 同步」區塊 |
-| ⑧ | 身體資料頁接上同步（自動或手動視開關 2）＋上次同步時間顯示（§2.1 第 3 點） | 真機：改手錶/體重計那邊的資料、等它同步進 Health Connect、在 App 裡觸發同步，確認數字跟時間戳都對 | ⚠️ **程式碼完成，未真機驗證** |
-| ⑨ | 每日快覽／身體資料頁：開關 3 開啟時把「今日上限」換成 `suggestTodayKcalLimit()` 動態顯示（不寫回 `dailyKcalLimit`），沒有今日資料時退回顯示手動值 | 真機：確認 `BodyProfile.dailyKcalLimit` 本身完全不會被動態值覆蓋；把開關 3 關掉能立刻退回原本的固定上限 | ⚠️ **程式碼完成，未真機驗證** |
-| ⑩ | 全部串起來後，補 §6 那幾個坑各自的防禦（timeout 包裝、拒絕權限分支、資料新鮮度判斷、aggregate 區間查詢） | 真機：拔藍牙/關來源 App 讓資料變舊，確認 UI 誠實顯示舊資料而不是裝作最新 | ⚠️ 防禦程式碼都寫了，**沒有任何一項在真機上驗證過** |
+| ⑥ | 手機端 `HealthAdapter` 實作（動態 `import()`，AndroidManifest 權限，§3.4） | 先只加一個除錯用的按鈕呼叫 `readSnapshot()`，`console.log` 結果，裝到手機上跑一次 | ✅ **真機驗證通過**——`nutrition/mobile/src/health.ts`。真機測出兩個 bug 並已修：`minSdkVersion` 24 太低（Health Connect 的原生 manifest 要求 26，見 §3.4b）；`readSamples()` 的 `limit:5` 在原生分頁邏輯下會抓到「30 天內最舊的 5 筆」而不是最新 5 筆，體重同步到好幾週前的舊值（見 §11） |
+| ⑦ | 設定頁三個開關的 UI（§2.1 表格，開關 1 關閉時隱藏 2、3；開關 2 決定顯示自動同步或手動同步按鈕）＋權限請求流程＋空狀態文案（不主動導去 Play Store，§5.3） | 手動測：開關 1 關閉時完全不彈任何 Health 提示；開啟時走一次完整授權流程 | ✅ **真機驗證通過**——`profile` 頁新增「Health 同步」區塊，加了一段簡短說明（讀 Health Connect、已驗證 Pixel Watch／MovingLife、其他品牌未實測） |
+| ⑧ | 身體資料頁接上同步（自動或手動視開關 2）＋上次同步時間顯示（§2.1 第 3 點） | 真機：改手錶/體重計那邊的資料、等它同步進 Health Connect、在 App 裡觸發同步，確認數字跟時間戳都對 | ✅ **真機驗證通過**。體重同步值一開始跟 Google Health App 差很多（見⑥的 bug），修完後對得上；另外 Health Connect 的公斤數字帶一長串小數，補了 `roundToOneDecimal()` |
+| ⑨ | 每日快覽／身體資料頁：開關 3 開啟時把「今日上限」換成 `suggestTodayKcalLimit()` 動態顯示（不寫回 `dailyKcalLimit`），沒有今日資料時退回顯示手動值 | 真機：確認 `BodyProfile.dailyKcalLimit` 本身完全不會被動態值覆蓋；把開關 3 關掉能立刻退回原本的固定上限 | ✅ **真機驗證通過**。owner 額外要求把同一套公式套用到過去日期（翻歷史紀錄時顯示「當日手錶總消耗」，度化成無剩餘時間外推的版本），也一併做完並驗證，見 §11 |
+| ⑩ | 全部串起來後，補 §6 那幾個坑各自的防禦（timeout 包裝、拒絕權限分支、資料新鮮度判斷、aggregate 區間查詢） | 真機：拔藍牙/關來源 App 讓資料變舊，確認 UI 誠實顯示舊資料而不是裝作最新 | ✅ 防禦程式碼真機測過會動；拒絕權限分支因為 owner 一路都允許，**沒有實際走過拒絕那條路徑**（程式邏輯沒有理由失敗，但沒有真的看過畫面） |
 
 每步 `npm run typecheck` 與 `npm test` 都要過（跟現有慣例一致，兩個分開跑）——這兩個指令這輪都過了，
 但兩個指令都不會告訴你 Health Connect 呼叫本身有沒有真的動，那只有真機看得出來。
@@ -450,27 +462,31 @@ Health Connect，開工前用一句話確認即可，不影響這條「不主動
 
 ## 8. 完工判準（B9-Health-lite）
 
-- [ ] 開關 1（連接 Health）預設關，關閉時 App 其餘功能完全不受影響、不彈
+- [x] 開關 1（連接 Health）預設關，關閉時 App 其餘功能完全不受影響、不彈
       任何 Health 相關對話框、看不到開關 2、3
 - [ ] 開啟開關 1 後走一次系統權限流程，拒絕權限時 UI 給出合理的下一步指引
-      （不是白屏或原始錯誤訊息）
-- [ ] 開關 2 開啟時 App 開啟會自動同步；關閉時改顯示手動同步按鈕，不按
+      （不是白屏或原始錯誤訊息）——**owner 這輪一路都允許權限，沒有實際
+      走過拒絕分支**；程式碼邏輯沒理由失敗（見 §11），但沒有真的在畫面上
+      看過，下次遇到拒絕權限時記得順手確認
+- [x] 開關 2 開啟時 App 開啟會自動同步；關閉時改顯示手動同步按鈕，不按
       不會更新
-- [ ] 同步（不管自動或手動）能把 Health Connect 目前的體重／體脂寫回
-      `BodyProfile`，並顯示「上次同步」時間
-- [ ] 開關 3 開啟、且今天有手錶資料時，今日上限顯示 `suggestTodayKcalLimit()`
+- [x] 同步（不管自動或手動）能把 Health Connect 目前的體重／體脂寫回
+      `BodyProfile`，並顯示「上次同步」時間——真機測出體重同步值錯誤與
+      小數位過長兩個 bug，已修並覆驗（§11）
+- [x] 開關 3 開啟、且今天有手錶資料時，今日上限顯示 `suggestTodayKcalLimit()`
       算出的動態值；開關 3 關閉，或今天沒有手錶資料時，顯示的是
       `BodyProfile.dailyKcalLimit` 本人，**這個欄位本身永遠不會被動態值
-      覆寫**
+      覆寫**——真機驗證通過，關閉開關 3 立刻退回固定上限
 - [ ] Health Connect 資料是舊的（非今日）時，UI 誠實標示、不假裝是即時值
-- [ ] Health Connect 未安裝／裝置不支援時，功能自然降級成看不到 Health
+      ——這次真機環境資料一直是新鮮的，沒有機會驗到「舊資料」分支
+- [x] Health Connect 未安裝／裝置不支援時，功能自然降級成看不到 Health
       相關 UI（或顯示偵測不到的文案），**不彈 Play Store 導引**，也不會
       讓 App 打不開或報錯
-- [ ] 桌面（`nutrition/desktop`）完全沒有新增 Health 相關程式碼
-- [ ] `npm run typecheck`、`npm test` 全過
-- [ ] 真機驗證：owner 自己的手機，實際走一輪「開三個開關→同步體重→看今日
-      動態熱量上限」，並驗證 owner 那組「1187 kcal／5.5 小時」量級的例子
-      算出來的數字合理
+- [x] 桌面（`nutrition/desktop`）完全沒有新增 Health 相關程式碼
+- [x] `npm run typecheck`、`npm test` 全過
+- [x] 真機驗證：owner 自己的手機（Pixel Watch＋MovingLife），實際走一輪
+      「開三個開關→同步體重→看今日動態熱量上限」，數字合理；owner 追加要求
+      「過去日期也套用同一套邏輯」也一併做完並驗證（§11）
 
 ---
 
@@ -502,64 +518,72 @@ Health Connect，開工前用一句話確認即可，不影響這條「不主動
 
 ---
 
-## 11. 給下一輪對話的交接筆記（2026-08-18，程式碼已寫完待真機驗證）
+## 11. 給下一輪對話的交接筆記（2026-08-19，真機驗證通過）
 
-分支 `feat/nutrition-health-connect`（從 `feat/nutrition-health-connect` 之前的
-`claude/diet-app-improvements-oortzr` 岔出），已推到 origin。`git log` 上只有
-一個 commit：`feat(nutrition): Health Connect 整合（B9-Health-lite）`。
+分支 `feat/nutrition-health-connect`，已推到 origin。owner 在家用真機（Android
+手機＋Pixel Watch＋MovingLife 體重計）走完整套流程，過程中揪出 3 個只有真機
+才會出現的 bug，全部修完並覆驗。
 
-**改了哪些檔案**（不用重新讀規劃就能直接對照）：
+**改了哪些檔案**（累計，含 2026-08-18 首版與這輪真機修正）：
 
 | 檔案 | 內容 |
 |---|---|
-| `src/core/adapters/health.ts` | `HealthAdapter`／`HealthSnapshot` 介面（§3.2） |
+| `src/core/adapters/health.ts` | `HealthAdapter`／`HealthSnapshot` 介面（§3.2）；這輪加了 `readDailyCaloriesBurned()`（過去日期查詢，見下方「owner 追加需求」） |
 | `src/core/nutrition/health.ts` | `suggestTodayKcalLimit()`（§5.1 公式） |
-| `tests/core/nutrition/health.test.ts` | 4 個測試，`npm test` 會跑到 |
+| `tests/core/nutrition/health.test.ts` | 4 個測試 |
 | `src/core/nutrition/types.ts` | `BodyProfile.healthSyncedAt`／`healthMeasuredAt`；`NutritionHealthSettings`／`NutritionAppSettings.health` |
 | `src/core/nutrition/storage.ts` | `normalizeSettings()` 補 `health` 欄位正規化 |
-| `nutrition/mobile/src/health.ts` | `@capgo/capacitor-health` 包裝，`nutritionHealthAdapter` |
-| `nutrition/mobile/src/main.tsx` | 三個開關狀態、`updateHealthSettings()`／`runHealthSync()`／`toggleHealthConnected()`、profile 頁「Health 同步」區塊、daily 頁動態熱量上限顯示 |
+| `nutrition/mobile/src/health.ts` | `@capgo/capacitor-health` 包裝，`nutritionHealthAdapter`；這輪修了 `limit` bug、加了小數位 round、加了 `readDailyCaloriesBurned()` |
+| `nutrition/mobile/src/main.tsx` | 三個開關狀態、`updateHealthSettings()`／`runHealthSync()`／`toggleHealthConnected()`、profile 頁「Health 同步」區塊（含簡短使用說明）、daily 頁動態熱量上限顯示（今天＋過去日期兩種） |
 | `nutrition/mobile/src/public/privacypolicy.html` | Health Connect 權限對話框要求的隱私權政策頁 |
 | `nutrition/mobile/package.json` | 加了 `@capgo/capacitor-health` |
+| `nutrition/mobile/android/variables.gradle` | `minSdkVersion` 24 → 26（見 §3.4b，真機組 APK 才發現） |
 
-**這輪自動測試驗證過的（可信）**：
-- `suggestTodayKcalLimit()` 的公式本身，含 owner 那組 1187 kcal／5.5 小時範例
-- 型別安全（`npm run typecheck` 全過）
-- 沒弄壞既有的 42 個 `tests/core/nutrition/*` 測試
-- Vite build 能正常打包（`@capgo/capacitor-health` 的動態 import 有被正確拆出去）
+**真機測出並修掉的 3 個 bug**：
 
-**這輪完全沒驗證過、風險較高、真機測試時優先看這幾個地方**：
-1. **`@capgo/capacitor-health` 的實際回傳格式**——選型跟型別是照 npm 上的
-   README／`.d.ts` 查的，**沒有實際跑過**，如果現在裝的版本（`^8.10.3`）跟當時
-   查的不一致，或某些 Android 裝置上的行為跟文件不同，`readSamples()` 的
-   `dataType: 'totalCalories'` 有沒有真的對應到 Health Connect 的
-   `TotalCaloriesBurnedRecord`，要實測才知道。
-2. **AndroidManifest 權限自動合併**——§3.4 說外掛自己宣告了權限、不用手動加，
-   這是讀 `node_modules` 裡外掛的 manifest 得出的推論，**沒有實際跑過
-   `gradlew assembleDebug` 確認 merge 有沒有生效**。如果權限沒生效，
-   症狀會是 `requestAuthorization()` 一直要不到權限或整個崩潰。
-3. **`readSamples()` 的 `limit` 夠不夠**——`totalCalories` 抓「今日 00:00 到
-   現在」設了 `limit: 500`，如果某個來源 App 寫入頻率很高（例如每分鐘一筆），
-   一天可能超過 500 筆，會漏加總，數字會偏低。真機上如果發現「今日消耗」
-   比手錶 App 自己顯示的低很多，先懷疑這裡。
-4. **`toggleHealthConnected` 的權限請求時機**——目前設計是「按下開關 1 才跳
-   系統對話框」，但沒有真機測過使用者體感是否符合預期（例如切換太快、
-   App 背景/前景切換時機）。
-5. **§7 步驟①的兩個小問題還沒問 owner**：手錶/體重計實際來源 App 是什麼、
-   開關 2 預設值是否要開（目前程式碼寫死 `autoSync: true` 當第一次開啟開關 1
-   時的預設值，`DEFAULT_HEALTH_SETTINGS` 在 `main.tsx` 檔頭）。
+1. **`minSdkVersion` 太低，Gradle build 直接 FAILURE**——外掛的 manifest
+   要求 `minSdk 26`，這個專案沿用 DeST 主 App 的 `minSdkVersion = 24`。
+   `npm run typecheck`／`npm test` 完全測不出這種東西，得真的跑
+   `gradlew assembleDebug` 才會看到。詳情、代價（拿掉 Android 7.x 支援）
+   見 §3.4b。
+2. **體重同步到錯誤的舊數字**——根因在 `@capgo/capacitor-health` 的原生
+   分頁邏輯（`HealthManager.kt` 的 `readRecords()`）：湊到 `limit` 筆就停止
+   翻頁，但 Health Connect 不保證分頁本身是新到舊排序。原本
+   `readSnapshot()` 對體重／體脂用 `limit: 5`，在 30 天視窗裡真機實測會
+   抓到「30 天內最舊的 5 筆」，同步到的體重是好幾週前的舊數字，跟
+   Google Health App 顯示的差很多。**修法**：`limit` 改成外掛單頁上限
+   500（`nutrition/mobile/src/health.ts` 已加詳細註解）——500 遠超過
+   30 天內正常量測次數，一次就能蓋滿整個視窗，之後排序/取最新才有意義。
+   `totalCalories` 原本就用 `limit: 500`，所以熱量那邊只有約 50 kcal 的
+   小誤差（跟 Google Health App 比對），量級上明顯是同一種風險但沒有
+   嚴重到跑錯值——這也印證了「limit 太小」就是根因。
+3. **體重／體脂帶一長串小數**——Health Connect 的公斤數是從來源 App 的
+   單位（常見是磅）換算來的，換算會拖出浮點數尾巴。加了
+   `roundToOneDecimal()`，讀進來就四捨五入到小數點後一位。
 
-**已知但刻意先不做的簡化**（不是 bug，是 MVP 範圍取捨，見得到就不用重報）：
-- 沒有身體資料（`BodyProfile` 是 `null`）時同步會靜默跳過寫入體重/體脂
-  （`runHealthSync()` 裡 `if (!current) return`）——使用者要先在「身體資料」
-  頁建立過一次身體檔案，Health 同步才有地方寫。沒有額外提示文案，
-  真機測試時可以順手看看這樣的使用者體驗是否需要補一行說明。
-- `queryAggregated()`（外掛提供的加總 API）沒有用，改用 `readSamples()` 自己
-  加總——因為外掛文件沒明確列出 `totalCalories` 在 `queryAggregated` 的
-  支援清單裡（只列了 `calories`，即單純的 active calories），保守起見用
-  肯定支援的 `readSamples()`。真機測過如果 `queryAggregated` 真的支援
-  `totalCalories`，之後可以換成那個省一點運算量，不急。
+**owner 這輪追加的需求（不在原規劃 §2.1 範圍內，已做完並驗證）**：
+翻到過去的日期時，也套用「當日手錶總消耗熱量」當作那天的熱量上限
+（不是 §5.1 的「已消耗＋剩餘時間外推」——過去的一天已經過完，公式自然
+degenerate 成單純的當日總量，不需要新公式）。實作：`HealthAdapter` 加
+`readDailyCaloriesBurned(dateIso)`（查 `[該日 00:00, 該日 24:00 或 now)`
+整天加總，跟「今日到現在」的 `readSnapshot()` 不同）；`main.tsx` 用
+`historicalKcalCache` 依日期快取查詢結果，避免每次翻頁都打 Health Connect；
+UI 標籤依 `isViewingToday` 顯示「依手錶動態」或「當日手錶總消耗」。
+真機比對過 Google Health App 的數字，誤差約在 50 kcal 內（跟 bug 2 同一種
+`limit` 風險量級，這條路徑目前用的就是安全的 `limit: 500`）。
 
-**下一輪對話建議的開場方式**：直接把上面「完全沒驗證過」的 5 點連同這份
-文件路徑貼給接手 AI，請它先讀這份文件的 §11，再開始真機除錯，不用重新
-規劃或重新選型。
+**這輪順手補的 UI**：「Health 同步」區塊加了兩行說明文案（讀 Health
+Connect／Google Health 背後同一份資料，已驗證 Pixel Watch 與 MovingLife，
+其他品牌未實測）——owner 主動要求加的，怕自己忘記這功能吃什麼資料來源。
+
+**還沒驗證的角落（次要，不阻擋收工）**：
+- 拒絕權限的 UI 分支——owner 這輪一路都允許權限，沒有實際看過「尚未授權」
+  訊息以外的畫面。程式邏輯沒理由失敗（`requestPermission()` 回 `false`
+  時就是走 §6 坑 3 講的正常分支），但沒真的驗證過。
+- Health Connect 資料是舊的（非今日）那條防禦分支——這輪真機環境資料
+  一直是新鮮的，沒機會看到「資料是舊的」提示。
+- `queryAggregated()` 仍然沒用，維持用 `readSamples()` 自己加總（原因見
+  舊版說明：外掛文件沒明確列出 `totalCalories` 支援 `queryAggregated`）。
+- `totalCalories` 的 `limit: 500` 本身仍有理論上限——如果來源 App 寫入
+  頻率極高（例如每分鐘一筆），一天可能破 500 筆而漏加總。這次真機測到
+  的約 50 kcal 誤差可能就是這個，量級上可以接受，不急著處理。

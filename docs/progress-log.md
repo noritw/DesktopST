@@ -2698,3 +2698,54 @@ owner 用過 B9a 之後回報四個 UI 問題，桌面／手機（`nutrition/des
 `npm run typecheck` 全過；`tests/core/nutrition/*` 8 檔 38 項全過（這次只動
 UI 層，沒有改 `core/`，資料模型／純函式不受影響）。這次沒有真機／模擬器
 手動驗證。
+
+## 2026-08-19｜飲食記錄 App：Health 讀（B9-Health-lite）真機驗證通過，修掉 3 個真機才會出現的 bug
+
+分支 `feat/nutrition-health-connect`。owner 在家用真機（Android 手機＋
+Pixel Watch＋MovingLife 體重計）走完整套流程，開工指令
+`docs/nutrition-health-lite-kickoff.md` §7 步驟①的兩個開放問題當場確認：
+手錶來源 App 是 Watch / Health，體重計是 MovingLife；開關 2（自動同步）
+預設開（跟程式碼原本寫死的一致，不用改）。
+
+真機組 APK、跑起來後陸續揪出 3 個自動測試完全測不出來的 bug：
+
+- **`minSdkVersion` 太低，Gradle build 直接失敗**：`@capgo/capacitor-health`
+  的 manifest 要求 `minSdk 26`（Health Connect 的正式最低支援版本），這個
+  App 沿用 DeST 主 App 的 `minSdkVersion = 24`。manifest merger 報錯
+  「uses-sdk:minSdkVersion 24 cannot be smaller than version 26」。改成
+  26 才編得過——**代價是 Android 7.x 裝置從此裝不了這個 App**，owner 自用
+  機器沒問題。
+- **體重同步到好幾週前的舊數字**：根因是 `@capgo/capacitor-health` 原生層
+  的分頁邏輯（`HealthManager.kt` 的 `readRecords()`）湊到 `limit` 筆就停止
+  翻頁，但 Health Connect 不保證分頁本身是新到舊排序。體重／體脂原本用
+  `limit: 5`，在 30 天視窗裡真機實測會抓到「30 天內最舊的 5 筆」而非最新
+  5 筆，導致同步進 `BodyProfile` 的體重跟 Google Health App 顯示的差很多。
+  改成外掛單頁上限 `500`（跟 `totalCalories` 原本就用的值一致）——500 遠
+  超過 30 天內正常量測次數，一次就能蓋滿整個時間窗，之後排序取最新才有
+  意義。`totalCalories` 因為本來就用 500，這次真機比對只有約 50 kcal 的
+  小誤差，量級上印證了同一個根因。
+- **體重／體脂帶一長串小數**：Health Connect 的公斤數是從來源 App 單位
+  （常見是磅）換算來的，換算會拖出浮點數尾巴。加了 `roundToOneDecimal()`，
+  讀進來就四捨五入到小數點後一位。
+
+owner 追加了一個原規劃沒有的需求：翻到過去的日期時，也顯示「當日手錶總
+消耗熱量」當作那天的熱量上限。因為過去的一天已經過完，§5.1 公式的「剩餘
+時間外推」項自然歸零，不需要新公式——只需要新的查詢方式：`HealthAdapter`
+加 `readDailyCaloriesBurned(dateIso)`（查某一整天的加總，跟「今日到現在」
+的 `readSnapshot()` 不同），`main.tsx` 用 `historicalKcalCache` 依日期
+快取查詢結果避免翻頁反覆打 Health Connect。真機比對 Google Health App，
+誤差同樣落在約 50 kcal 內。
+
+另外照 owner 要求在「Health 同步」設定區塊加了兩行簡短說明（讀 Health
+Connect／Google Health 背後同一份資料，已驗證 Pixel Watch 與 MovingLife，
+其他品牌未實測），第一版字數太長，砍半到兩行。
+
+驗證通過的完工判準（`nutrition-health-lite-kickoff.md` §8）：三個開關的
+預設值與隱藏/顯示邏輯、開啟開關 1 走一次授權流程、開關 2 自動/手動同步、
+體重體脂同步寫回並顯示「上次同步」時間、開關 3 開關切換時 `dailyKcalLimit`
+本身完全不被動態值覆蓋、Health Connect 未安裝時自然降級、桌面完全沒有
+新增 Health 相關程式碼。**沒驗證到的兩條**（次要，不阻擋收工）：拒絕權限
+的 UI 分支（owner 這輪一路都允許）、資料是舊的（非今日）時的提示文案
+（這輪真機資料一直是新鮮的）。
+
+`npm run typecheck`、`npm test`（71 檔、861 項）全過。
