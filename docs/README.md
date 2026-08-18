@@ -30,6 +30,7 @@
 | [`future-lorebook.md`](future-lorebook.md) | Lorebook 規格細節 | 整份可讀（不長） |
 | [`future-nutrition-module.md`](future-nutrition-module.md) | 飲食熱量模組 B9（含換機搬家包） | 開工該模組時整份讀 |
 | [`nutrition-module-kickoff.md`](nutrition-module-kickoff.md) | **飲食熱量模組 B9a MVP 開工指令**（2026-08-17 owner 插隊自用優先，接手 AI 照這份做） | 選讀，開工時整份讀 |
+| [`nutrition-health-lite-kickoff.md`](nutrition-health-lite-kickoff.md) | **飲食記錄 App Health 讀開工指令**（B9-Health-lite，2026-08-18 排到 B9b 之前，只做手機，桌面不碰，開工前有 3 個開放問題要先問 owner） | 選讀，開工時整份讀 |
 | `news-standalone-kickoff.md` | **獨立版新聞報開工指令**（缺口 #6，接手 AI 照這份做） | 選讀 |
 | [`news-reader-mobile-plan.md`](news-reader-mobile-plan.md) | B3 階段 6 個人新聞報 | 開工階段 6 時 |
 | [`news-article-context-design.md`](news-article-context-design.md) | 新聞進 prompt 上下文補強（摘要／全文） | 實作該功能前 |
