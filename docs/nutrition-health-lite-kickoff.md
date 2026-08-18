@@ -4,9 +4,11 @@
 > 熱量上限公式），§5 已改成「已拍板」定案內容，不再是開放問題。
 > owner 決定把 Health 讀（體重／體脂、手錶當日消耗熱量）
 > 從 B9c 提前到 B9b（拍照估價 LLM）之前，見 `future-nutrition-module.md` §3.5／§6／§8。
-> **狀態：規劃階段，尚未寫一行程式碼、尚未真機驗證任何 API 呼叫。**
-> owner 目前人在外面、要回家才能實機測試——這份文件先把架構、資料流、
-> 已知風險定案，開工時照著做，遇到真的測不出來的地方再回頭改這份文件。
+> **狀態（2026-08-18 動工後更新）：§7 步驟①～⑦已經寫完（分支
+> `feat/nutrition-health-connect`），`npm run typecheck`／`npm test` 都過，
+> 但**完全沒有真機驗證過**——owner 那時人在外面，之後才能實機測。
+> 詳細完工狀態、已知未驗證的風險點見 §7 表格與 §11（新增）「給下一輪對話的
+> 交接筆記」。
 > **規格取捨原則（owner 原話）**：這是做給自己用、但免費公開的 App——
 > **以 owner 自己能跑最優先**，其他環境（例如手錶不是 Health Connect
 > 相容）留擴充空間（就是 §3.2 的 `HealthAdapter` 介面）但**不必實作**，
@@ -428,20 +430,21 @@ Health Connect，開工前用一句話確認即可，不影響這條「不主動
 
 ## 7. 建議實作順序（每步都能獨立驗證）
 
-| 步驟 | 內容 | 驗證方式 |
-|---|---|---|
-| ① | 跟 owner 確認手錶/體重計實際寫入 Health Connect 的來源 App 是什麼、開關 2 的預設值要不要跟這份文件的建議（開）一致 | 一句話回覆即可，§5 的三個設計問題已經拍板不用再問 |
-| ② | 選定 Capacitor 外掛（§3.3），裝進 `nutrition/mobile`，`dependencies` 不是 `devDependencies` | `npm run build:nutrition:mobile` 過；先不接任何 UI |
-| ③ | `src/core/adapters/health.ts`（或 `core/nutrition/health.ts`）定義 `HealthAdapter`／`HealthSnapshot` 介面 | 純型別，`npm run typecheck` 過 |
-| ④ | `core/nutrition/` 純函式：`suggestTodayKcalLimit()`（§5.1 公式，重用 `calculateBmr()`） | `tests/core/nutrition/health.test.ts`，覆蓋「有今日資料」「資料是舊的（回傳 null）」「完全沒資料」三種情況，另外驗證公式本身（例如餵 owner 那組 1187 kcal／5.5 小時的例子） |
-| ⑤ | `BodyProfile`／`NutritionAppSettings` 型別加欄位（§4，三個開關＋兩個同步時間戳），`saveBodyProfile` 等既有 session 方法不用改 | `npm run typecheck`；既有 `tests/core/nutrition/*` 不能壞 |
-| ⑥ | 手機端 `HealthAdapter` 實作（動態 `import()`，AndroidManifest 權限，§3.4） | 先只加一個除錯用的按鈕呼叫 `readSnapshot()`，`console.log` 結果，裝到手機上跑一次 |
-| ⑦ | 設定頁三個開關的 UI（§2.1 表格，開關 1 關閉時隱藏 2、3；開關 2 決定顯示自動同步或手動同步按鈕）＋權限請求流程＋空狀態文案（不主動導去 Play Store，§5.3） | 手動測：開關 1 關閉時完全不彈任何 Health 提示；開啟時走一次完整授權流程 |
-| ⑧ | 身體資料頁接上同步（自動或手動視開關 2）＋上次同步時間顯示（§2.1 第 3 點） | 真機：改手錶/體重計那邊的資料、等它同步進 Health Connect、在 App 裡觸發同步，確認數字跟時間戳都對 |
-| ⑨ | 每日快覽／身體資料頁：開關 3 開啟時把「今日上限」換成 `suggestTodayKcalLimit()` 動態顯示（不寫回 `dailyKcalLimit`），沒有今日資料時退回顯示手動值 | 真機：確認 `BodyProfile.dailyKcalLimit` 本身完全不會被動態值覆蓋；把開關 3 關掉能立刻退回原本的固定上限 |
-| ⑩ | 全部串起來後，補 §6 那幾個坑各自的防禦（timeout 包裝、拒絕權限分支、資料新鮮度判斷、aggregate 區間查詢） | 真機：拔藍牙/關來源 App 讓資料變舊，確認 UI 誠實顯示舊資料而不是裝作最新 |
+| 步驟 | 內容 | 驗證方式 | 狀態（2026-08-18） |
+|---|---|---|---|
+| ① | 跟 owner 確認手錶/體重計實際寫入 Health Connect 的來源 App 是什麼、開關 2 的預設值要不要跟這份文件的建議（開）一致 | 一句話回覆即可，§5 的三個設計問題已經拍板不用再問 | **還沒問**——真機驗證前第一件事 |
+| ② | 選定 Capacitor 外掛（§3.3），裝進 `nutrition/mobile`，`dependencies` 不是 `devDependencies` | `npm run build:nutrition:mobile` 過；先不接任何 UI | ✅ 選了 `@capgo/capacitor-health`（見 §3.3 更新），已裝 |
+| ③ | `src/core/adapters/health.ts`（或 `core/nutrition/health.ts`）定義 `HealthAdapter`／`HealthSnapshot` 介面 | 純型別，`npm run typecheck` 過 | ✅ 完成 |
+| ④ | `core/nutrition/` 純函式：`suggestTodayKcalLimit()`（§5.1 公式，重用 `calculateBmr()`） | `tests/core/nutrition/health.test.ts`，覆蓋「有今日資料」「資料是舊的（回傳 null）」「完全沒資料」三種情況，另外驗證公式本身（例如餵 owner 那組 1187 kcal／5.5 小時的例子） | ✅ 完成，4 個測試全過 |
+| ⑤ | `BodyProfile`／`NutritionAppSettings` 型別加欄位（§4，三個開關＋兩個同步時間戳），`saveBodyProfile` 等既有 session 方法不用改 | `npm run typecheck`；既有 `tests/core/nutrition/*` 不能壞 | ✅ 完成，另外補了 `storage.ts` 的 `normalizeSettings()`（沒補的話舊 `settings.json` 一 reload 就會把 `health` 欄位砍掉，這是規劃時沒想到的） |
+| ⑥ | 手機端 `HealthAdapter` 實作（動態 `import()`，AndroidManifest 權限，§3.4） | 先只加一個除錯用的按鈕呼叫 `readSnapshot()`，`console.log` 結果，裝到手機上跑一次 | ⚠️ **程式碼完成，未真機驗證**——`nutrition/mobile/src/health.ts`。§3.4 已更新：manifest 權限不用手動加（外掛已宣告） |
+| ⑦ | 設定頁三個開關的 UI（§2.1 表格，開關 1 關閉時隱藏 2、3；開關 2 決定顯示自動同步或手動同步按鈕）＋權限請求流程＋空狀態文案（不主動導去 Play Store，§5.3） | 手動測：開關 1 關閉時完全不彈任何 Health 提示；開啟時走一次完整授權流程 | ⚠️ **程式碼完成，未真機驗證**——`profile` 頁新增「Health 同步」區塊 |
+| ⑧ | 身體資料頁接上同步（自動或手動視開關 2）＋上次同步時間顯示（§2.1 第 3 點） | 真機：改手錶/體重計那邊的資料、等它同步進 Health Connect、在 App 裡觸發同步，確認數字跟時間戳都對 | ⚠️ **程式碼完成，未真機驗證** |
+| ⑨ | 每日快覽／身體資料頁：開關 3 開啟時把「今日上限」換成 `suggestTodayKcalLimit()` 動態顯示（不寫回 `dailyKcalLimit`），沒有今日資料時退回顯示手動值 | 真機：確認 `BodyProfile.dailyKcalLimit` 本身完全不會被動態值覆蓋；把開關 3 關掉能立刻退回原本的固定上限 | ⚠️ **程式碼完成，未真機驗證** |
+| ⑩ | 全部串起來後，補 §6 那幾個坑各自的防禦（timeout 包裝、拒絕權限分支、資料新鮮度判斷、aggregate 區間查詢） | 真機：拔藍牙/關來源 App 讓資料變舊，確認 UI 誠實顯示舊資料而不是裝作最新 | ⚠️ 防禦程式碼都寫了，**沒有任何一項在真機上驗證過** |
 
-每步 `npm run typecheck` 與 `npm test` 都要過（跟現有慣例一致，兩個分開跑）。
+每步 `npm run typecheck` 與 `npm test` 都要過（跟現有慣例一致，兩個分開跑）——這兩個指令這輪都過了，
+但兩個指令都不會告訴你 Health Connect 呼叫本身有沒有真的動，那只有真機看得出來。
 
 ---
 
@@ -496,3 +499,67 @@ Health Connect，開工前用一句話確認即可，不影響這條「不主動
 留擴充空間但不用照顧其他手錶生態，別人規格不同就是他們自己拿去改。
 開工第一步是跟 owner 確認 §7 步驟①剩下的兩個小問題（來源 App、開關 2
 預設值），不是重新討論 §5 那三個已經拍板的設計問題。
+
+---
+
+## 11. 給下一輪對話的交接筆記（2026-08-18，程式碼已寫完待真機驗證）
+
+分支 `feat/nutrition-health-connect`（從 `feat/nutrition-health-connect` 之前的
+`claude/diet-app-improvements-oortzr` 岔出），已推到 origin。`git log` 上只有
+一個 commit：`feat(nutrition): Health Connect 整合（B9-Health-lite）`。
+
+**改了哪些檔案**（不用重新讀規劃就能直接對照）：
+
+| 檔案 | 內容 |
+|---|---|
+| `src/core/adapters/health.ts` | `HealthAdapter`／`HealthSnapshot` 介面（§3.2） |
+| `src/core/nutrition/health.ts` | `suggestTodayKcalLimit()`（§5.1 公式） |
+| `tests/core/nutrition/health.test.ts` | 4 個測試，`npm test` 會跑到 |
+| `src/core/nutrition/types.ts` | `BodyProfile.healthSyncedAt`／`healthMeasuredAt`；`NutritionHealthSettings`／`NutritionAppSettings.health` |
+| `src/core/nutrition/storage.ts` | `normalizeSettings()` 補 `health` 欄位正規化 |
+| `nutrition/mobile/src/health.ts` | `@capgo/capacitor-health` 包裝，`nutritionHealthAdapter` |
+| `nutrition/mobile/src/main.tsx` | 三個開關狀態、`updateHealthSettings()`／`runHealthSync()`／`toggleHealthConnected()`、profile 頁「Health 同步」區塊、daily 頁動態熱量上限顯示 |
+| `nutrition/mobile/src/public/privacypolicy.html` | Health Connect 權限對話框要求的隱私權政策頁 |
+| `nutrition/mobile/package.json` | 加了 `@capgo/capacitor-health` |
+
+**這輪自動測試驗證過的（可信）**：
+- `suggestTodayKcalLimit()` 的公式本身，含 owner 那組 1187 kcal／5.5 小時範例
+- 型別安全（`npm run typecheck` 全過）
+- 沒弄壞既有的 42 個 `tests/core/nutrition/*` 測試
+- Vite build 能正常打包（`@capgo/capacitor-health` 的動態 import 有被正確拆出去）
+
+**這輪完全沒驗證過、風險較高、真機測試時優先看這幾個地方**：
+1. **`@capgo/capacitor-health` 的實際回傳格式**——選型跟型別是照 npm 上的
+   README／`.d.ts` 查的，**沒有實際跑過**，如果現在裝的版本（`^8.10.3`）跟當時
+   查的不一致，或某些 Android 裝置上的行為跟文件不同，`readSamples()` 的
+   `dataType: 'totalCalories'` 有沒有真的對應到 Health Connect 的
+   `TotalCaloriesBurnedRecord`，要實測才知道。
+2. **AndroidManifest 權限自動合併**——§3.4 說外掛自己宣告了權限、不用手動加，
+   這是讀 `node_modules` 裡外掛的 manifest 得出的推論，**沒有實際跑過
+   `gradlew assembleDebug` 確認 merge 有沒有生效**。如果權限沒生效，
+   症狀會是 `requestAuthorization()` 一直要不到權限或整個崩潰。
+3. **`readSamples()` 的 `limit` 夠不夠**——`totalCalories` 抓「今日 00:00 到
+   現在」設了 `limit: 500`，如果某個來源 App 寫入頻率很高（例如每分鐘一筆），
+   一天可能超過 500 筆，會漏加總，數字會偏低。真機上如果發現「今日消耗」
+   比手錶 App 自己顯示的低很多，先懷疑這裡。
+4. **`toggleHealthConnected` 的權限請求時機**——目前設計是「按下開關 1 才跳
+   系統對話框」，但沒有真機測過使用者體感是否符合預期（例如切換太快、
+   App 背景/前景切換時機）。
+5. **§7 步驟①的兩個小問題還沒問 owner**：手錶/體重計實際來源 App 是什麼、
+   開關 2 預設值是否要開（目前程式碼寫死 `autoSync: true` 當第一次開啟開關 1
+   時的預設值，`DEFAULT_HEALTH_SETTINGS` 在 `main.tsx` 檔頭）。
+
+**已知但刻意先不做的簡化**（不是 bug，是 MVP 範圍取捨，見得到就不用重報）：
+- 沒有身體資料（`BodyProfile` 是 `null`）時同步會靜默跳過寫入體重/體脂
+  （`runHealthSync()` 裡 `if (!current) return`）——使用者要先在「身體資料」
+  頁建立過一次身體檔案，Health 同步才有地方寫。沒有額外提示文案，
+  真機測試時可以順手看看這樣的使用者體驗是否需要補一行說明。
+- `queryAggregated()`（外掛提供的加總 API）沒有用，改用 `readSamples()` 自己
+  加總——因為外掛文件沒明確列出 `totalCalories` 在 `queryAggregated` 的
+  支援清單裡（只列了 `calories`，即單純的 active calories），保守起見用
+  肯定支援的 `readSamples()`。真機測過如果 `queryAggregated` 真的支援
+  `totalCalories`，之後可以換成那個省一點運算量，不急。
+
+**下一輪對話建議的開場方式**：直接把上面「完全沒驗證過」的 5 點連同這份
+文件路徑貼給接手 AI，請它先讀這份文件的 §11，再開始真機除錯，不用重新
+規劃或重新選型。
