@@ -13,6 +13,7 @@ import {
   matchFoodKeyword,
   mealPhotoKey,
   nextFreeFoodPhotoIndex,
+  suggestTodayKcalLimit,
   MAX_FOOD_PHOTOS,
   NUTRITION_PACK_EXTENSION,
   NutritionSession,
@@ -22,14 +23,19 @@ import {
   type MigrationMergeMode,
   type NutritionActivityLevel,
   type NutritionGoal,
+  type NutritionHealthSettings,
   type NutritionMigrationPack,
   type NutritionSnapshot
 } from '@core/nutrition'
+import type { HealthSnapshot } from '@core/adapters'
 import { buildInfoLines } from './buildInfo'
 import { downloadBytes, pickFile } from './fileTransfer'
+import { nutritionHealthAdapter } from './health'
 import { compressImageFile } from './imageInput'
 import { nutritionMobileStorage } from './storage'
 import './styles.css'
+
+const DEFAULT_HEALTH_SETTINGS: NutritionHealthSettings = { connected: false, autoSync: true, useWatchCalorieLimit: false }
 
 type View = 'daily' | 'library' | 'foodForm' | 'mealEditor' | 'profile' | 'about' | 'transfer'
 /** 新增／編輯食物表單是從哪裡打開的，返回時要回到同一個地方，而不是永遠回食物庫。 */
@@ -312,6 +318,14 @@ function App(): React.JSX.Element {
   const [profileKcal, setProfileKcal] = React.useState('2000')
   const [profileProtein, setProfileProtein] = React.useState('100')
 
+  const [healthAvailable, setHealthAvailable] = React.useState(false)
+  const [healthSettings, setHealthSettings] = React.useState<NutritionHealthSettings>(DEFAULT_HEALTH_SETTINGS)
+  const [healthPermissionGranted, setHealthPermissionGranted] = React.useState(false)
+  const [healthSyncing, setHealthSyncing] = React.useState(false)
+  const [healthMessage, setHealthMessage] = React.useState<string | null>(null)
+  /** 最近一次讀到的快照，餵給 suggestTodayKcalLimit() 算今日動態上限；重開 App 會重置，這是刻意的（見 §3.1：同步永遠由前景事件觸發）。 */
+  const [healthSnapshot, setHealthSnapshot] = React.useState<HealthSnapshot | null>(null)
+
   const [transferBusy, setTransferBusy] = React.useState(false)
   const [transferMessage, setTransferMessage] = React.useState<string | null>(null)
 
@@ -355,7 +369,18 @@ function App(): React.JSX.Element {
         setProfileKcal(String(session.bodyProfile.dailyKcalLimit))
         setProfileProtein(String(session.bodyProfile.dailyProteinGoalG))
       }
+      if (session.settings.health) setHealthSettings(session.settings.health)
       applySnapshot(session)
+
+      // 開關 1／2 都開時，App 開啟本身就是「前景事件」，比照小工具顯示自動同步一次
+      // （docs/nutrition-health-lite-kickoff.md §3.1）——只用 hasPermission() 確認，
+      // 不主動跳系統對話框，避免使用者一開 App 就被權限彈窗打斷。
+      void nutritionHealthAdapter.isAvailable().then((available) => {
+        setHealthAvailable(available)
+        if (available && session.settings.health?.connected && session.settings.health.autoSync) {
+          void runHealthSync()
+        }
+      })
     }).catch((error: unknown) => {
       setLoadError(error instanceof Error ? error.message : String(error))
     })
@@ -382,6 +407,81 @@ function App(): React.JSX.Element {
     } finally {
       setSaving(false)
     }
+  }
+
+  /**
+   * 開關 1（連接 Health）到開關 2/3 都靠這個存設定，用 `sessionRef.current` 現讀現存，
+   * 不要用 `healthSettings` 這個 React state 當寫入來源——同一個 tick 裡連續呼叫時
+   * state 還沒更新，會讀到舊值（`runAction`／`session.saveSettings` 是同步先落地
+   * `this.snapshot.settings` 才 await 存檔，`sessionRef.current.settings` 隨時是最新的）。
+   */
+  function updateHealthSettings(patch: Partial<NutritionHealthSettings>): void {
+    const current = sessionRef.current?.settings.health ?? DEFAULT_HEALTH_SETTINGS
+    const next = { ...current, ...patch }
+    setHealthSettings(next)
+    void runAction(async (session) => {
+      await session.saveSettings({ ...session.settings, health: next })
+    })
+  }
+
+  /**
+   * 讀一次 Health Connect 快照，體重／體脂直接寫回 BodyProfile（owner 明講「直接
+   * 同步」，不需要跟手動編輯衝突的規則——同步永遠是使用者觸發的，見
+   * docs/nutrition-health-lite-kickoff.md §5.2）。`requestPermissionIfNeeded` 只在
+   * 使用者剛打開開關 1 那一刻傳 true，其餘呼叫（自動同步／手動同步按鈕）只用
+   * `hasPermission()` 確認，不會無緣無故再跳系統對話框。
+   */
+  async function runHealthSync(options: { requestPermissionIfNeeded?: boolean } = {}): Promise<void> {
+    const session = sessionRef.current
+    const health = session?.settings.health
+    if (!session || !health?.connected) return
+    setHealthSyncing(true)
+    setHealthMessage(null)
+    try {
+      const available = await nutritionHealthAdapter.isAvailable()
+      setHealthAvailable(available)
+      if (!available) {
+        setHealthMessage('這台裝置偵測不到 Health Connect')
+        return
+      }
+
+      let granted = await nutritionHealthAdapter.hasPermission()
+      if (!granted && options.requestPermissionIfNeeded) {
+        granted = await nutritionHealthAdapter.requestPermission()
+      }
+      setHealthPermissionGranted(granted)
+      if (!granted) {
+        setHealthMessage('尚未授權讀取權限，飲食紀錄其餘功能不受影響')
+        return
+      }
+
+      const snap = await nutritionHealthAdapter.readSnapshot()
+      setHealthSnapshot(snap)
+      await runAction(async (activeSession) => {
+        const current = activeSession.bodyProfile
+        if (!current) return // 還沒建立身體資料，沒地方寫體重/體脂——請使用者先在「身體資料」頁建立一次
+        await activeSession.saveBodyProfile({
+          ...current,
+          weightKg: snap.weightKg ?? current.weightKg,
+          bodyFatPercent: snap.bodyFatPercent ?? current.bodyFatPercent,
+          healthSyncedAt: Date.now(),
+          healthMeasuredAt: snap.measuredAt,
+          updatedAt: Date.now()
+        })
+      })
+      if (snap.weightKg !== undefined) setProfileWeight(String(snap.weightKg))
+      if (snap.bodyFatPercent !== undefined) setProfileBodyFatPercent(String(snap.bodyFatPercent))
+      setHealthMessage(`已同步（${new Date().toLocaleTimeString('zh-TW', { hour: 'numeric', minute: '2-digit' })}）`)
+    } catch (error: unknown) {
+      setHealthMessage(`同步失敗：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setHealthSyncing(false)
+    }
+  }
+
+  function toggleHealthConnected(connected: boolean): void {
+    updateHealthSettings({ connected })
+    if (connected) void runHealthSync({ requestPermissionIfNeeded: true })
   }
 
   function quickEntryEatenAt(): number {
@@ -651,6 +751,9 @@ function App(): React.JSX.Element {
         tdeeEstimate,
         dailyKcalLimit,
         dailyProteinGoalG,
+        // 保留 Health 同步留下的時間戳，手動改身高/體重不該把「上次同步」抹掉。
+        healthSyncedAt: current?.healthSyncedAt,
+        healthMeasuredAt: current?.healthMeasuredAt,
         createdAt: current?.createdAt ?? Date.now(),
         updatedAt: Date.now()
       })
@@ -713,6 +816,13 @@ function App(): React.JSX.Element {
 
   const daily = buildDailyView(snapshot.mealLogs, snapshot.foodItems, selectedDate)
   const bodyProfile = snapshot.bodyProfile
+  // 開關 3 開啟時，只有「正在看今天」才套動態公式——翻到別天看歷史紀錄，
+  // 熱量上限就是那天不存在的東西，直接退回固定上限比較合理。
+  const isViewingToday = selectedDate === toIsoDateString(Date.now())
+  const todayDynamicKcalLimit = bodyProfile && healthSettings.useWatchCalorieLimit && healthSnapshot && isViewingToday
+    ? suggestTodayKcalLimit(bodyProfile, healthSnapshot, Date.now())
+    : null
+  const effectiveKcalLimit = todayDynamicKcalLimit ?? bodyProfile?.dailyKcalLimit
   const date = new Date(`${selectedDate}T12:00:00`)
   const dateLabel = date.toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
   const shiftDate = (days: number) => {
@@ -974,6 +1084,60 @@ function App(): React.JSX.Element {
             蛋白質基礎值參考衛生福利部國民健康署《國人膳食營養素參考攝取量》第八版；熱量與蛋白質的活動量加成為一般經驗法則。
           </p>
         </section>
+
+        <section className="health-sync-section">
+          <strong>Health 同步</strong>
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={healthSettings.connected}
+              disabled={saving || healthSyncing}
+              onChange={(event) => toggleHealthConnected(event.target.checked)}
+            />
+            <span>和 Health Connect 同步</span>
+          </label>
+          {!healthAvailable && (
+            <p className="hint">這台裝置目前偵測不到 Health Connect，開啟也不會生效。</p>
+          )}
+          {healthSettings.connected && (
+            <>
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={healthSettings.autoSync}
+                  disabled={saving || healthSyncing}
+                  onChange={(event) => updateHealthSettings({ autoSync: event.target.checked })}
+                />
+                <span>自動同步（開啟 App 時自動讀取最新資料）</span>
+              </label>
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={healthSettings.useWatchCalorieLimit}
+                  disabled={saving || healthSyncing}
+                  onChange={(event) => updateHealthSettings({ useWatchCalorieLimit: event.target.checked })}
+                />
+                <span>以手錶消耗熱量做為當日上限（今日快覽會動態顯示，不會覆蓋上面手動設定的上限）</span>
+              </label>
+              {!healthPermissionGranted && (
+                <button type="button" disabled={healthSyncing} onClick={() => void runHealthSync({ requestPermissionIfNeeded: true })}>
+                  尚未授權，點一下開啟權限
+                </button>
+              )}
+              {!healthSettings.autoSync && (
+                <button type="button" disabled={healthSyncing} onClick={() => void runHealthSync()}>
+                  {healthSyncing ? '同步中...' : '立即同步'}
+                </button>
+              )}
+              <p className="hint">
+                上次同步：{bodyProfile?.healthSyncedAt
+                  ? new Date(bodyProfile.healthSyncedAt).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                  : '尚未同步過'}
+              </p>
+              {healthMessage && <p className="hint">{healthMessage}</p>}
+            </>
+          )}
+        </section>
       </main>
     )
   }
@@ -1031,7 +1195,11 @@ function App(): React.JSX.Element {
         <button type="button" aria-label="後一天" onClick={() => shiftDate(1)}>→</button>
       </section>
       <section className="summary">
-        <div><span>熱量</span><strong className={bodyProfile && daily.totalKcal > bodyProfile.dailyKcalLimit ? 'over' : ''}>{daily.totalKcal} kcal</strong><small>/ {bodyProfile?.dailyKcalLimit ?? '未設定'}</small></div>
+        <div>
+          <span>熱量{todayDynamicKcalLimit !== null && <small className="dynamic-tag">依手錶動態</small>}</span>
+          <strong className={effectiveKcalLimit !== undefined && daily.totalKcal > effectiveKcalLimit ? 'over' : ''}>{daily.totalKcal} kcal</strong>
+          <small>/ {effectiveKcalLimit ?? '未設定'}</small>
+        </div>
         <div><span>蛋白質</span><strong className={bodyProfile && daily.totalProteinG >= bodyProfile.dailyProteinGoalG ? 'good' : ''}>{daily.totalProteinG} g</strong><small>/ {bodyProfile?.dailyProteinGoalG ?? '未設定'}</small></div>
       </section>
       <button type="button" className="primary full-width" disabled={saving} onClick={() => setQuickEntryOpen((open) => {

@@ -17,6 +17,7 @@ export { SECRET_PREFIX } from './secrets'
 export type { HttpAdapter } from './http'
 export type { SchedulerAdapter } from './scheduler'
 export type { NotifierAdapter, NotifyOptions } from './notifier'
+export type { HealthAdapter, HealthSnapshot } from './health'
 
 import type { StorageAdapter } from './storage'
 import type { SecretAdapter } from './secrets'

@@ -1,5 +1,6 @@
 export * from './aggregation'
 export * from './dailyView'
+export * from './health'
 export * from './keyword'
 export * from './migrationPack'
 export * from './photos'

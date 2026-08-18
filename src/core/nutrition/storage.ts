@@ -50,7 +50,16 @@ function normalizeSettings(settings: NutritionAppSettings): NutritionAppSettings
       model: settings.llm?.model,
       endpoint: settings.llm?.endpoint,
       apiKeys: { ...(settings.llm?.apiKeys ?? {}) }
-    }
+    },
+    // 舊資料沒有 health 欄位時保持 undefined（等同全部關閉），不要無中生有補一個全 false 物件——
+    // 呼叫端讀取 settings.health?.connected 之類的寫法本來就要處理 undefined。
+    health: settings.health
+      ? {
+          connected: settings.health.connected ?? false,
+          autoSync: settings.health.autoSync ?? false,
+          useWatchCalorieLimit: settings.health.useWatchCalorieLimit ?? false
+        }
+      : undefined
   }
 }
 

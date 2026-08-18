@@ -237,26 +237,26 @@ export interface HealthAdapter {
 （例如 `nutrition/mobile/src/adapters/health.ts`）內部才 `import()` 這個
 外掛，`isAvailable()` 在瀏覽器/桌面環境下直接回傳 `false`。
 
-### 3.4 AndroidManifest.xml 與權限宣告
+### 3.4 AndroidManifest.xml 與權限宣告——**已查證，跟原本假設不同**
 
-比照 `CLAUDE.md` §5 已經記錄的坑（`@capacitor/geolocation` 的權限不會自動
-合併進 manifest）：**這次新外掛的權限多半也要自己手動寫進
-`nutrition/mobile/android/app/src/main/AndroidManifest.xml`**，開工時
-不要假設外掛的 Gradle 腳本會自動處理，裝進手機實測一次才算數。
+> **2026-08-18 動工時更新**：這節原本比照 `@capacitor/geolocation` 的坑，
+> 假設要手動把權限寫進我們自己的 `AndroidManifest.xml`。實際打開
+> `node_modules/@capgo/capacitor-health` 的 manifest 後發現**這個外掛已經
+> 完整宣告了所有 Health Connect 權限**（含 `READ_WEIGHT`／`READ_BODY_FAT`／
+> `READ_TOTAL_CALORIES_BURNED`，以及 `<queries>` 宣告與 Android 14+ 需要的
+> `PermissionsRationaleActivity`／`ViewPermissionUsageActivity`），會透過
+> 標準 Android Gradle 的 manifest merger 自動併入我們的 App——**這次不需要
+> 手動加任何 `<uses-permission>`**，跟 geolocation 那個外掛（manifest 是空的）
+> 情況不同，不要照抄。這件事還是要在真的組 APK（Gradle build）時才會真正
+> 驗證 merge 有沒有生效，`cap sync` 本身不會觸發 manifest merge。
 
-需要的權限（實際名稱以外掛文件為準，Health Connect 的權限字串大致是這個
-形狀）：
-- `android.permission.health.READ_WEIGHT`
-- `android.permission.health.READ_BODY_FAT`
-- `android.permission.health.READ_TOTAL_CALORIES_BURNED`（§5.1 拍板的公式只
-  需要這個累計消耗熱量的紀錄，靜止代謝率那半邊是用既有的 `calculateBmr()`
-  現算，**不需要** `READ_ACTIVE_CALORIES_BURNED` 權限）
-
-另外 Android 14+ 要求在 manifest 裡宣告一個
-`<intent-filter>`／`android:value` 指向「隱私權政策」頁面，說明為何要讀
-健康資料（Health Connect 的權限流程比一般 Android 權限多一道審查／揭露
-要求）——開工時查 Health Connect 官方文件當時最新的宣告方式，這塊 Google
-的要求偶爾會調整。
+**隱私權政策頁面**：外掛要求 App 提供隱私權政策頁，Health Connect 權限對話框
+裡「Privacy policy」連結會顯示它。做法（README Option 1）：把 HTML 放在
+`android/app/src/main/assets/public/privacypolicy.html`——因為這個專案是
+Vite 專案，正確做法是放進 **`nutrition/mobile/src/public/privacypolicy.html`**
+（Vite 的 `publicDir`，`root` 設定是 `src`），`npm run build:nutrition:mobile`
+會自動複製進 `www/`，`cap sync` 再複製進 Android assets，這樣每次重建
+都不會被清掉。已建立好這個檔案，內容照實描述讀哪些資料、用途、資料不上傳。
 
 ---
 

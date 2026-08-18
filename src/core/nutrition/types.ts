@@ -77,6 +77,17 @@ export interface BodyProfile {
   tdeeEstimate?: number
   dailyKcalLimit: number
   dailyProteinGoalG: number
+  /**
+   * 體重／體脂上次從 Health Connect 同步的時間（App 端 `Date.now()`）。
+   * 手動編輯 `weightKg`／`bodyFatPercent` 不會更新這個欄位。
+   */
+  healthSyncedAt?: number
+  /**
+   * 上次同步時 `HealthSnapshot.measuredAt`（Health Connect 回報的資料時間戳，
+   * 不是同步發生的時間）。用來判斷資料新不新鮮，見
+   * `docs/nutrition-health-lite-kickoff.md` §6。
+   */
+  healthMeasuredAt?: number
   createdAt: number
   updatedAt: number
 }
@@ -88,6 +99,27 @@ export interface NutritionLlmSettings {
   apiKeys: Record<string, string>
 }
 
+/**
+ * 三個開關有依賴關係（`docs/nutrition-health-lite-kickoff.md` §2）：
+ * `connected` 關閉時，`autoSync`／`useWatchCalorieLimit` 完全不生效
+ * （UI 上也應該隱藏，不是顯示成灰階不可按）。只有手機端會用到；
+ * 桌面（`nutrition/desktop`）不應該讀寫這個欄位。
+ */
+export interface NutritionHealthSettings {
+  /** 開關 1：總開關，預設 false／未定義視為 false。 */
+  connected: boolean
+  /** 開關 2：App／小工具顯示時自動同步一次；關閉則只能手動按同步按鈕。 */
+  autoSync: boolean
+  /**
+   * 開關 3：今日熱量上限是否用動態公式算（今天已消耗 + 剩餘時間 × 靜止代謝率），
+   * 而不是固定顯示 `BodyProfile.dailyKcalLimit`。今天沒有新鮮的手錶資料時
+   * 自動退回顯示 `dailyKcalLimit`，跟這個開關的開關狀態無關。
+   */
+  useWatchCalorieLimit: boolean
+}
+
 export interface NutritionAppSettings {
   llm: NutritionLlmSettings
+  /** 選配，預設關（未定義視為全部 false）。手機端專用，見 `NutritionHealthSettings`。 */
+  health?: NutritionHealthSettings
 }
