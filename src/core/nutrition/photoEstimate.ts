@@ -34,31 +34,39 @@ export function matchFoodItem(
 /**
  * 組 prompt，不含個資（只送名稱清單，不送營養數字／體重／上限），見 §3.1。
  *
- * ⚠️ **輸出格式必須逐欄寫在 prompt 裡**（2026-08-19 owner 實測「一直回問號」的根因）。
- * 這支原本只說「回傳規格所述的估算結果」，但那份規格在 `docs/` 裡、**從來沒被送進 prompt**，
- * 模型只能自己發明欄位名（`熱量`／`calories`／`protein`…），而 `parseEstimateResult()`
- * 只認 `perServing.kcal`／`perServing.proteinG` → 一律 parse 成 `null` → UI 顯示「？」。
- * 症狀很有迷惑性：模型其實看得懂圖也答得出來，錯的是**我們沒告訴它要怎麼回**。
+ * ## 為什麼這支刻意寫得這麼短
  *
- * 同理，`kcal`／`proteinG` 一定要明講「不確定也要給數字、不得填 null」——
- * 謹慎的模型碰到看不清楚的照片會傾向回 null，那在這個 App 裡等同估算失敗
- * （使用者要的是一個可以先存、之後再改的數字，不是一個誠實的 null）。
+ * owner 2026-08-19 指出：他在自己的 LLM 網頁介面只打一句
+ *「如果我拍食物照片，請幫我計算熱量、蛋白質、碳水化合物、脂肪、糖、鈉」
+ * 就估得又快又準，而這裡堆了八條規則反而估出偏高很多的數字。
+ *
+ * 事後檢討，被砍掉的那幾條**本身就在製造偏差**，尤其：
+ * - 「用可見的份量線索推份量，**不要一律預設一份**」——等於叫模型別保守、
+ *   往大的推，配上偏小的比例尺（owner 用自己的手，比一般人小）就系統性高估。
+ * - 「寧可保守也不要高估」——這是後來為了對沖上一條加的。**用偏見抵銷偏見**
+ *   只會讓行為更難預測，兩條都該刪掉而不是留著互相拉扯。
+ *
+ * 所以規則只留**結構上非有不可**的：
+ * 1. 輸出 JSON schema —— 我們是程式解析，不像人在網頁上用讀的。缺這段就是
+ *    「一直回問號」那次的根因（模型自己發明欄位名 → parse 全滅）。
+ * 2. 營養標示優先 —— 有標示卻用經驗值猜是實質錯誤，不是風格問題。
+ * 3. 使用者的補充說明優先 —— 那是使用者主動給的資訊。
+ *
+ * **想再加規則前先問：這條是在補一個結構性缺口，還是在微調模型的判斷傾向？**
+ * 後者請不要加，改用 `scaleReference`（使用者自己填的校正資訊）或補充說明。
  */
-export function buildPhotoEstimatePrompt(recentNames: readonly string[]): string {
+export function buildPhotoEstimatePrompt(recentNames: readonly string[], scaleReference?: string): string {
   const lines: string[] = []
-  lines.push('你是飲食記錄助手。使用者會提供一份或多份食物的照片，請估算每份食物的營養資訊。')
-  lines.push('同一份食物可能有多張照片（例如包裝正面、營養成分表、實際內容物），請合併判讀成一筆結果。')
-  lines.push('')
-  lines.push('規則（依優先序）：')
-  lines.push('1. 若補充說明文字有提到品項或份量，一律以文字為準，不得用圖片推論覆蓋；文字未提到的部分才從圖片判斷。')
-  lines.push('2. 若任一張是營養成分表，必須逐欄讀出填入 label，不得改用經驗值；nutritionSource 標記為 label（完整）或 label-partial（缺欄位）。')
-  lines.push('3. 食物可能被包裝紙、紙袋、餐盒部分遮住，只根據可見部分推論，看不到的餡料不要編；用可見的份量線索推份量，不要一律預設一份。')
-  lines.push('4. 同時估算 carbsG、fatG、sugarG（公克）、sodiumMg（毫克，注意台灣標示的鈉單位固定是毫克，不要跟公克搞混）；成分表有就讀、沒有就依食物常識粗估。')
-  lines.push('5. 若文字與圖片明顯矛盾，以文字為準，並在 noteConflict 說明差異；無矛盾則 noteConflict 為 null。')
-  lines.push('6. **kcal 與 proteinG 一定要給數字**，就算照片模糊、看不清楚、只能大概猜也要給你最合理的估計值，**不可以填 null 或 0**。真的很不確定時就把 confidence 設成 "low"，並在 note 說明你看到什麼。')
+  lines.push('請看照片估算食物的熱量、蛋白質、碳水化合物、脂肪、糖、鈉。')
+  lines.push('同一份食物可能有多張照片（包裝正面、營養成分表、內容物），請合併判讀成一筆結果。')
+  lines.push('照片中有營養成分表時，數字以標示為準，不要用經驗值覆蓋。')
+  if (scaleReference) {
+    lines.push('')
+    lines.push(`使用者提供的比例尺參考資訊（推估尺寸時請以此為準）：${scaleReference}`)
+  }
   if (recentNames.length > 0) {
     lines.push('')
-    lines.push(`使用者最近／最常吃的食物名稱（若照片就是其中之一，請沿用完全相同的名稱以提高比對命中率）：${recentNames.join('、')}`)
+    lines.push(`使用者最近吃過的食物名稱（若照片就是其中之一，請沿用相同名稱）：${recentNames.join('、')}`)
   }
   lines.push('')
   lines.push('只回傳 JSON，不要有其他文字。格式如下（欄位名稱與大小寫必須完全一致）：')
@@ -70,6 +78,8 @@ export function buildPhotoEstimatePrompt(recentNames: readonly string[]): string
   lines.push('      "brand": "7-11",                 // 品牌或店家，不確定填 null')
   lines.push('      "flavor": null,                  // 口味，沒有填 null')
   lines.push('      "servings": 1,                   // 照片中看到的份數')
+  lines.push('      "estimatedWeightG": 180,         // 你認為這一份大約幾公克，必填數字')
+  lines.push('      "portionBasis": "依常見超商三明治份量",  // 你是根據什麼判斷份量的，一句話')
   lines.push('      "perServing": {                  // 「一份」的營養，必填')
   lines.push('        "kcal": 320,                   // 熱量（大卡），必填數字')
   lines.push('        "proteinG": 18,                // 蛋白質（公克），必填數字')
@@ -112,6 +122,10 @@ export interface PhotoEstimateResult {
   brand: string | null
   flavor: string | null
   servings: number | null
+  /** 模型認為這一份大約幾公克。顯示給使用者當作「數字怎麼來的」的線索，不參與計算。 */
+  estimatedWeightG: number | null
+  /** 模型判斷份量的依據（例如「以手掌寬度推估」）。比信心分數有用——看得出是哪一步估錯。 */
+  portionBasis: string | null
   perServing: FoodNutritionPerServing | null
   nutritionSource: 'label' | 'estimate' | 'label-partial'
   label: PhotoEstimateLabel | null
@@ -202,6 +216,8 @@ function parseOne(raw: unknown, fallbackSlot: number): PhotoEstimateResult {
     brand: toStringOrNull(obj.brand) ?? toStringOrNull(obj.store),
     flavor: toStringOrNull(obj.flavor),
     servings: toFiniteNumber(obj.servings) ?? null,
+    estimatedWeightG: pickNumber(obj, ['estimatedWeightG', 'weightG', 'estimatedWeight', 'grams']) ?? null,
+    portionBasis: toStringOrNull(obj.portionBasis) ?? toStringOrNull(obj.portionReasoning),
     perServing,
     nutritionSource,
     label: parseLabel(obj.label),

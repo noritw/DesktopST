@@ -182,5 +182,17 @@ export interface NutritionAppSettings {
    * 入口全部隱藏（非變灰），手打路徑不受影響。
    * 見 `docs/nutrition-photo-estimate-plan.md` §2.10。
    */
-  photoEstimate?: { enabled: boolean }
+  photoEstimate?: {
+    enabled: boolean
+    /**
+     * 常駐的「比例尺校正」說明，每次估算都會附進 prompt。
+     *
+     * 存在的理由（owner 2026-08-19 實測）：用手當比例尺拍食物時，模型會套用
+     * 「一般成人手掌 8～9 公分」來換算尺寸；手比一般人小的使用者會被系統性
+     * 高估——**體積是長度的三次方**，線性差 20% 就是體積差約 1.7 倍，熱量跟著爆。
+     * 這種校正資訊每次都一樣，不該逼使用者每張照片重打一次（違反 §1 原則 1「不打字」），
+     * 所以做成設定裡填一次、之後每次自動帶入。
+     */
+    scaleReference?: string
+  }
 }

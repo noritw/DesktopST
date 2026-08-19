@@ -27,6 +27,8 @@ export interface RequestPhotoEstimateParams {
   note?: string
   /** 最近／最常吃的食物名稱，用於提高比對命中率（§3.1，不含營養數字）。 */
   recentNames: readonly string[]
+  /** 常駐的比例尺校正說明（`NutritionAppSettings.photoEstimate.scaleReference`），可空。 */
+  scaleReference?: string
   http: HttpAdapter
   signal?: AbortSignal
   /** 逾時毫秒數，規格建議 12 秒（§3.3）。CapacitorHttp 忽略 `signal`，呼叫端仍要自己包一層。 */
@@ -228,7 +230,7 @@ async function extractReplyText(response: Response, provider: string): Promise<s
  * 逾時／請求失敗一律丟 `PhotoEstimateRequestError`，呼叫端依規格 §3.3 顯示「重試／手動輸入／取消」。
  */
 export async function requestPhotoEstimate(params: RequestPhotoEstimateParams): Promise<PhotoEstimateResult[]> {
-  const { llmSettings, photos, note, recentNames, http, signal, timeoutMs = DEFAULT_TIMEOUT_MS } = params
+  const { llmSettings, photos, note, recentNames, scaleReference, http, signal, timeoutMs = DEFAULT_TIMEOUT_MS } = params
 
   const precondition = checkBasicRequestPreconditions(llmSettings, true)
   if (precondition) throw new PhotoEstimateRequestError(precondition)
@@ -241,7 +243,7 @@ export async function requestPhotoEstimate(params: RequestPhotoEstimateParams): 
   // 補充說明放在格式說明之後、緊鄰圖片之前，是刻意的：這是規格 §1 原則 5 的
   // 「最高優先線索」，離圖片越近模型越不容易忽略它。
   const promptText = [
-    buildPhotoEstimatePrompt(recentNames),
+    buildPhotoEstimatePrompt(recentNames, scaleReference),
     '',
     note ? `使用者的補充說明（最高優先，優先於你從圖片看到的）：${note}` : '使用者沒有填補充說明，請純依圖片判斷。',
     ...(isAnthropic ? ['', '只回傳 JSON 本身，不要加上其他文字或 ```code fence```。'] : [])

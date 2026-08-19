@@ -37,7 +37,19 @@ describe('nutrition storage migration', () => {
     const snapshot = await loadNutritionSnapshot(storage)
 
     expect(snapshot.settings.showWeightBadge).toBe(true)
-    expect(snapshot.settings.photoEstimate).toEqual({ enabled: true })
+    expect(snapshot.settings.photoEstimate).toMatchObject({ enabled: true })
+  })
+
+  it('保留 photoEstimate.scaleReference（比例尺校正填一次就該一直在）', async () => {
+    const storage = createMemoryStorage()
+    await storage.writeJson('settings.json', {
+      llm: { provider: 'openai', apiKeys: {} },
+      photoEstimate: { enabled: true, scaleReference: '我的手掌寬約 7 公分' }
+    })
+
+    const snapshot = await loadNutritionSnapshot(storage)
+
+    expect(snapshot.settings.photoEstimate).toEqual({ enabled: true, scaleReference: '我的手掌寬約 7 公分' })
   })
 
   it('llm.endpoints 是 per-provider 的，讀回來要維持每個 provider 各自的值', async () => {

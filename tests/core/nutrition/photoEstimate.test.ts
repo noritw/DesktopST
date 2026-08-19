@@ -67,14 +67,51 @@ describe('buildPhotoEstimatePrompt', () => {
     }
   })
 
-  it('明講 kcal／proteinG 不得回 null（謹慎的模型會傾向留空，那等同估算失敗）', () => {
+  it('在 schema 註解裡標明 kcal／proteinG 必填數字（不必另外寫成一條規則）', () => {
     const prompt = buildPhotoEstimatePrompt([])
-    expect(prompt).toMatch(/kcal 與 proteinG 一定要給數字/)
-    expect(prompt).toMatch(/不可以填 null/)
+    expect(prompt).toMatch(/熱量（大卡），必填數字/)
+    expect(prompt).toMatch(/蛋白質（公克），必填數字/)
+  })
+
+  /**
+   * owner 2026-08-19 指出：他自己在 LLM 網頁介面只打一句話就估得準，
+   * 這裡堆了八條規則反而偏高很多。被砍掉的規則裡有兩條本身就在製造偏差
+   * （「不要一律預設一份」把份量往大推、「寧可保守也不要高估」是用來對沖前者的）。
+   * 這個測試防止有人日後又把「微調模型判斷傾向」的規則加回來。
+   */
+  it('不含引導模型往大或往小估的傾向性字眼', () => {
+    const prompt = buildPhotoEstimatePrompt([])
+    expect(prompt).not.toMatch(/不要一律預設一份/)
+    expect(prompt).not.toMatch(/寧可保守/)
+  })
+
+  it('prompt 保持精簡：規則段落不超過幾行，主體是 schema', () => {
+    const prompt = buildPhotoEstimatePrompt([])
+    const beforeSchema = prompt.split('只回傳 JSON')[0]
+    expect(beforeSchema.split('\n').filter((l) => l.trim()).length).toBeLessThanOrEqual(4)
   })
 
   it('說明同一份食物可以有多張照片，避免模型把 3 張拆成 3 筆', () => {
     expect(buildPhotoEstimatePrompt([])).toMatch(/同一份食物可能有多張照片/)
+  })
+
+  /**
+   * owner 2026-08-19：用自己的手當比例尺，但手比一般人小，估出來的熱量偏高很多。
+   * 模型預設套「一般成人手掌」的尺寸 → 食物被放大 → 體積是三次方 → 熱量爆掉。
+   */
+  it('有比例尺校正資訊時放進 prompt', () => {
+    const prompt = buildPhotoEstimatePrompt([], '我的手掌寬約 7 公分，比一般成人小')
+    expect(prompt).toContain('我的手掌寬約 7 公分，比一般成人小')
+  })
+
+  it('沒有比例尺校正資訊時不留空段落', () => {
+    expect(buildPhotoEstimatePrompt([])).not.toMatch(/比例尺/)
+  })
+
+  it('要求回報份量克數與判斷依據（數字偏高時才看得出是哪一步估錯）', () => {
+    const prompt = buildPhotoEstimatePrompt([])
+    expect(prompt).toContain('estimatedWeightG')
+    expect(prompt).toContain('portionBasis')
   })
 })
 
@@ -128,6 +165,21 @@ describe('parseEstimateResult', () => {
   it('連熱量都沒有才回 null（這時才是真的估算失敗）', () => {
     const results = parseEstimateResult([{ name: '便當', perServing: { proteinG: 30 } }])
     expect(results[0].perServing).toBeNull()
+  })
+
+  it('解析份量克數與判斷依據', () => {
+    const results = parseEstimateResult([
+      { name: '便當', perServing: { kcal: 700, proteinG: 30 }, estimatedWeightG: 450, portionBasis: '以旁邊的手掌寬度推估' }
+    ])
+    expect(results[0].estimatedWeightG).toBe(450)
+    expect(results[0].portionBasis).toBe('以旁邊的手掌寬度推估')
+  })
+
+  it('沒回份量克數時是 null，不影響其餘欄位', () => {
+    const results = parseEstimateResult([{ name: '便當', perServing: { kcal: 700, proteinG: 30 } }])
+    expect(results[0].estimatedWeightG).toBeNull()
+    expect(results[0].portionBasis).toBeNull()
+    expect(results[0].perServing).toMatchObject({ kcal: 700 })
   })
 })
 

@@ -372,6 +372,7 @@ function App(): React.JSX.Element {
 
   // --- 拍照估熱量（§2.10：第三層開關，預設關）---
   const [photoEstimateEnabled, setPhotoEstimateEnabled] = React.useState(false)
+  const [scaleReference, setScaleReference] = React.useState('')
   const [llmSettings, setLlmSettings] = React.useState<NutritionLlmSettings>(DEFAULT_LLM_SETTINGS)
   const [estimatePhase, setEstimatePhase] = React.useState<'idle' | 'noteInput' | 'loading' | 'result' | 'error'>('idle')
   const [estimateResult, setEstimateResult] = React.useState<PhotoEstimateResult | null>(null)
@@ -445,6 +446,7 @@ function App(): React.JSX.Element {
       setShowWeightBadge(session.settings.showWeightBadge ?? false)
       setLlmSettings(session.settings.llm)
       setPhotoEstimateEnabled(session.settings.photoEstimate?.enabled ?? false)
+      setScaleReference(session.settings.photoEstimate?.scaleReference ?? '')
       applySnapshot(session)
 
       // 開關 1／2 都開時，App 開啟本身就是「前景事件」，比照小工具顯示自動同步一次
@@ -527,7 +529,23 @@ function App(): React.JSX.Element {
   function updatePhotoEstimateEnabled(next: boolean): void {
     setPhotoEstimateEnabled(next)
     void runAction(async (session) => {
-      await session.saveSettings({ ...session.settings, photoEstimate: { enabled: next } })
+      // 展開既有的 photoEstimate 再覆蓋 enabled——直接寫 `{ enabled: next }`
+      // 會把同一層的 scaleReference 一起洗掉（關掉再開啟就要重填）。
+      await session.saveSettings({
+        ...session.settings,
+        photoEstimate: { ...session.settings.photoEstimate, enabled: next }
+      })
+    })
+  }
+
+  /** 比例尺校正說明：填一次、之後每次估算自動帶入，不必每張照片重打。 */
+  function updateScaleReference(next: string): void {
+    setScaleReference(next)
+    void runAction(async (session) => {
+      await session.saveSettings({
+        ...session.settings,
+        photoEstimate: { enabled: session.settings.photoEstimate?.enabled ?? false, scaleReference: next || undefined }
+      })
     })
   }
 
@@ -1019,6 +1037,7 @@ function App(): React.JSX.Element {
         photos: bytesList.map((bytes) => ({ slot: 1, base64: bytesToBase64(bytes), mimeType: 'image/webp' })),
         note: note || undefined,
         recentNames: recentFoodNames(),
+        scaleReference: scaleReference.trim() || undefined,
         http: nutritionMobileHttp
       })
       const result = results[0]
@@ -1584,6 +1603,21 @@ function App(): React.JSX.Element {
                   {testingVision ? '測試中...' : '一鍵測試能不能傳圖'}
                 </button>
                 {visionTestMessage && <small className={visionTestMessage.ok ? 'hint' : 'hint danger-text'}>{visionTestMessage.ok ? '✅ ' : '❌ '}{visionTestMessage.text}</small>}
+
+                <label>比例尺校正（可留白，填一次就好）
+                  <textarea
+                    value={scaleReference}
+                    onChange={(event) => setScaleReference(event.target.value)}
+                    onBlur={() => updateScaleReference(scaleReference)}
+                    placeholder="例如：照片裡的手是我的，手掌寬約 7 公分（比一般成人小），請以此換算食物尺寸"
+                    rows={3}
+                  />
+                </label>
+                <small className="hint">
+                  拿手或其他東西當比例尺時，模型預設會套「一般成人」的尺寸。
+                  你的手若比一般人小，食物會被放大——<strong>體積是長度的三次方，差 20% 就是熱量差約 1.7 倍</strong>。
+                  在這裡寫一次，之後每次估算都會自動附上。
+                </small>
               </>
             )
           })()}
@@ -1788,6 +1822,13 @@ function App(): React.JSX.Element {
                   </p>
                   {estimateResult.confidence === 'low' && <small className="hint">不太確定，存入後可到食物庫修改</small>}
                 </>
+              )}
+              {/* 份量與判斷依據：數字偏高時這兩行才看得出是哪一步估錯（通常是份量，不是熱量密度）。 */}
+              {estimateResult.estimatedWeightG !== null && (
+                <small className="hint">
+                  估計份量約 {estimateResult.estimatedWeightG} g
+                  {estimateResult.portionBasis && ` — ${estimateResult.portionBasis}`}
+                </small>
               )}
               {estimateResult.note && <small className="hint">{estimateResult.note}</small>}
               <div className="scope-choice">

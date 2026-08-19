@@ -65,7 +65,10 @@ function normalizeSettings(settings: NutritionAppSettings): NutritionAppSettings
     // （2026-08-19 發現 showWeightBadge 已經踩到這個坑，一併修掉）。
     showWeightBadge: settings.showWeightBadge,
     photoEstimate: settings.photoEstimate
-      ? { enabled: settings.photoEstimate.enabled ?? false }
+      ? {
+          enabled: settings.photoEstimate.enabled ?? false,
+          scaleReference: settings.photoEstimate.scaleReference
+        }
       : undefined
   }
 }

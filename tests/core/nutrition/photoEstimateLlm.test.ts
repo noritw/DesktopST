@@ -271,6 +271,22 @@ describe('requestPhotoEstimate', () => {
     expect(captions.some((t: string) => t.includes('第 2 份食物'))).toBe(true)
   })
 
+  it('比例尺校正說明會被帶進送出的 prompt', async () => {
+    let capturedBody: any = null
+    const http = fakeHttp(async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body))
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({ results: [] }) } }] })
+    })
+    await requestPhotoEstimate({
+      llmSettings: baseLlmSettings,
+      photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
+      recentNames: [],
+      scaleReference: '我的手掌寬約 7 公分，比一般成人小',
+      http
+    })
+    expect(capturedBody.messages[0].content[0].text).toContain('我的手掌寬約 7 公分，比一般成人小')
+  })
+
   it('grok 沒填端點時打官方 x.ai 端點，不是悄悄落到 OpenAI 的預設值', async () => {
     let capturedUrl: string | null = null
     const http = fakeHttp(async (input) => {
