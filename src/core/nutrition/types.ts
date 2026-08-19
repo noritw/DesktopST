@@ -17,9 +17,30 @@ export interface FoodNutritionPerServing {
   proteinG: number
   carbsG?: number
   fatG?: number
+  /** 備查用途，UI 不主打，收在「更多」／詳情頁。估不到時留空，不補假數字。 */
+  sugarG?: number
+  /** 單位固定毫克。備查用途，UI 不主打，收在「更多」／詳情頁。 */
+  sodiumMg?: number
 }
 
 export type FoodItemPhotoKeys = [] | [string] | [string, string] | [string, string, string]
+
+/** 台灣營養標示常見的三種基準，見 `docs/nutrition-photo-estimate-plan.md` §2.6.2。 */
+export type NutritionLabelBasis = 'per100g' | 'perServing' | 'perPackage'
+
+/** 拍到的營養成分表原始欄位，供日後查證與重算（`normalizeLabel`／`nutritionFromGrams`）。 */
+export interface FoodNutritionLabel {
+  basis: NutritionLabelBasis
+  /** basis 為 per100g／perServing 時通常會有；perPackage 不需要。 */
+  servingSizeG?: number
+  servingsPerPackage?: number
+  kcal: number
+  proteinG: number
+  carbsG?: number
+  fatG?: number
+  sugarG?: number
+  sodiumMg?: number
+}
 
 export interface FoodItem {
   id: string
@@ -32,11 +53,18 @@ export interface FoodItem {
   tags?: string[]
   perServing: FoodNutritionPerServing
   photoKeys: FoodItemPhotoKeys
-  /** B9b 會再使用來源資訊接上照片估價，目前只保留手動／搬家匯入。 */
-  source: 'user' | 'imported'
+  /**
+   * `label` 來自營養成分表 OCR，最硬、不被任何 LLM 路徑覆寫；
+   * `llm-photo` 為純影像估算新建；`llm-photo-edited` 為使用者確認／修改過或套用重估結果。
+   */
+  source: 'user' | 'imported' | 'label' | 'llm-photo' | 'llm-photo-edited'
   /** 可由 MealLog 聚合重算的快取，方便候選排序。 */
   useCount?: number
   lastEatenAt?: number
+  /** 讀到的原始標示欄位，供日後查證與重算（§6）。 */
+  labelRaw?: FoodNutritionLabel
+  /** 上次記錄用的份量模式與數值，下次預設帶出（§2.8.3）。 */
+  lastAmount?: { mode: 'servings' | 'grams'; value: number }
   createdAt: number
   updatedAt: number
 }
@@ -46,9 +74,23 @@ export interface MealLog {
   foodItemId: string
   servings: number
   eatenAt: number
+  /** 送出前補充說明原文（§2.7），保留供日後回頭看當時吃了什麼。 */
   note?: string
   /** 當次餐次照片，與 FoodItem 的食物庫照片分開。 */
   photoKey?: string
+  /** 份量輸入模式，秤重模式見 §2.8。未定義視為 'servings'。 */
+  amountMode?: 'servings' | 'grams'
+  /** amountMode 為 'grams' 時的實際克數。 */
+  grams?: number
+  /** `resolveEatenAt` 判斷 eatenAt 的依據，補記時可回頭查是誰決定了時間（§2.5.3）。 */
+  eatenAtSource?: 'now' | 'exif' | 'mtime' | 'manual'
+  /** 這張／這組照片的內容指紋，補記時用來避免重複入帳（§2.5.4）。單張時使用。 */
+  photoHash?: string
+  /** 一組多張時的其餘張指紋（不含 photoHash 那張），一併記錄以免重複入帳。 */
+  photoHashes?: string[]
+  /** 該次 AI 估算的預估花費，供「本月飲食估算花費」加總，可關（§2.9.3）。 */
+  estimatedCostMinor?: number
+  tokenUsage?: { inputTokens?: number; outputTokens?: number }
   /**
    * 只套用在這一筆的名稱／營養覆寫，用於「只儲存到當日飲食」——
    * 使用者選這個選項時不動食物庫主檔，改用這裡的值蓋過 FoodItem 的顯示與計算。
@@ -128,4 +170,10 @@ export interface NutritionAppSettings {
    * `BodyProfile.updatedAt`）。純顯示用途，跟 Health 同步無依賴關係。
    */
   showWeightBadge?: boolean
+  /**
+   * 第三層開關（母規格外的加值路徑），預設關。關閉時拍照／補記／重估
+   * 入口全部隱藏（非變灰），手打路徑不受影響。
+   * 見 `docs/nutrition-photo-estimate-plan.md` §2.10。
+   */
+  photoEstimate?: { enabled: boolean }
 }

@@ -2749,3 +2749,42 @@ Connect／Google Health 背後同一份資料，已驗證 Pixel Watch 與 Moving
 （這輪真機資料一直是新鮮的）。
 
 `npm run typecheck`、`npm test`（71 檔、861 項）全過。
+
+---
+
+## 2026-08-19（續）｜拍照估熱量 P1：core 純函式＋單元測試
+
+B9b 第一個切片開工，規格見 `docs/nutrition-photo-estimate-plan.md`。這次只做
+**P1**（該文件 §7 分期表第一項）：`src/core/nutrition/photoEstimate.ts` 一次
+到位，含規格 §6 列出的所有純函式——`matchFoodItem`、`buildPhotoEstimatePrompt`、
+`parseEstimateResult`、`applyEstimateToEntries`、`resolveEatenAt`、
+`hashPhoto`／`findDuplicateLog`、`resolveMaxFoodSlots`／`canAddAnotherFoodSlot`、
+`estimateRequestCost`、`checkRequestCompatibility`、`parsePastedNutrition`、
+`normalizeLabel`、`nutritionFromGrams`、`stepServings`／`formatServings`。
+`hashPhoto` 直接複用既有的 `core/util/sha1.ts`（新聞模組已經寫過同一顆輪子）。
+
+`types.ts` 同步補齊 §6 的資料欄位：`FoodNutritionPerServing` 加
+`sugarG`／`sodiumMg`；新增 `FoodNutritionLabel`／`NutritionLabelBasis`；
+`FoodItem.source` 擴充 `label`／`llm-photo`／`llm-photo-edited`（`label`
+最硬，之後任何 LLM 路徑都不准覆寫）；`FoodItem` 加 `labelRaw`／`lastAmount`；
+`MealLog` 加 `amountMode`／`grams`／`eatenAtSource`／`photoHash`／
+`photoHashes`／`estimatedCostMinor`／`tokenUsage`；`NutritionAppSettings`
+加第三層開關 `photoEstimate?: { enabled }`（規格 §2.10 拍板，**預設關**）。
+
+`normalizeLabel` 的 `per100g` 基準換算要特別注意 `eatenPortion` 的意義隨
+`basis` 而變：`perServing`／`perPackage` 時是「吃了幾份／幾包」，直接當乘數；
+`per100g` 時卻是「吃了幾個『一份量 × 份數』的包裝單位」，要先乘出總克數
+再除 100——規格文件裡的 JSON 範例三個基準都叫同一個欄位 `eatenPortion`，
+但語意其實不同，寫測試時發現規格範例自己的數字（sugarG／sodiumMg 那兩欄）
+兜不起來，判斷是文件手寫範例本身的四捨五入誤差，沒有照抄，改用內部自洽
+的數字驗證邏輯正確性。
+
+`estimateRequestCost` 的圖片 token 估值（`FIXED_MODEL_IMAGE_TOKENS`／
+`TILED_MODEL_IMAGE_TOKENS`）規格沒給精確數字，用業界常見的量級抓一個
+保守估值——反正這行字本來就標「（估）」，且單價表本身也可能是使用者自填。
+
+**這次只做 P1**，還沒有：手機／桌面 UI、真的呼叫 LLM、拍照入口、補充頁、
+份量 stepper 元件、`model-capabilities.json` 執行期檔案（型別已定義，
+資料檔案是 P2.8 的事）。下一步是 P2（手機拍照→結果卡→存入的三步正常路徑）。
+
+`npm run typecheck`、`npm test`（72 檔、894 項）全過。
