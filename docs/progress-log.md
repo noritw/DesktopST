@@ -3016,3 +3016,41 @@ Gemini 仍未支援（圖片格式又不同，且目前沒人要求），供應�
 
 `npm run typecheck`、`npm test`（73 檔、921 項）全過；
 `npm run build:nutrition:mobile` 建置成功。
+
+---
+
+## 2026-08-19（續六）｜拍照估算補上送出前補充說明頁（提前把 P2.6 的核心搬進 P2）
+
+owner 實測回報：拍好幾張都被 AI 猜回一堆「？」，浪費 token。根因是 P2
+範圍刻意先跳過規格 §2.7「送出前補充說明頁」，直接拍完就送出——但
+`docs/nutrition-photo-estimate-plan.md` §1 原則 5 早就講清楚「文字比讓
+模型從圖上猜準得多」，沒有這一步，AI 只能憑空猜測，猜錯基本欄位（連
+「這是三明治還是便當」都猜不到）自然全部問號。
+
+不等 P2.6 排到再做，直接把這個核心體驗補進 P2：選好照片後**不直接送**，
+先進一個可留白的補充說明頁（一個 `<textarea>`＋照片縮圖預覽），按「估算」
+才真的呼叫模型。`estimatePhase` 加一個 `noteInput` 中繼狀態；
+`requestPhotoEstimate` 的 `note` 參數其實在 P1／P2 就已經接好了
+（`photoEstimateLlm.ts` 的 prompt 組裝本來就有處理 `note`），這次只是
+**手機 UI 真的把這個欄位露出來**——之前 P2 為了衝三步流程直接跳過了。
+
+- `pickEstimatePhoto()`：選完照片先存 `File`＋建立預覽 blob URL，phase
+  切到 `noteInput`，不呼叫 `compressImageFile`／不打 API。
+- `submitEstimate()`：這時才真的壓縮＋呼叫模型，`estimateNote.trim()`
+  留白時傳 `undefined`（純依圖片判斷，跟原本行為一致）。
+- `resetEstimateState()` 一併清掉 note／file／預覽 URL（含
+  `URL.revokeObjectURL`，避免累積孤兒 blob）。
+- 「重試（重新選照片）」也改走 `pickEstimatePhoto`，讓使用者重試時能
+  補一句說明，而不是繼續盲猜。
+
+瀏覽器預覽驗證：選照片後正確停在補充說明頁（不會自動送出）；填入
+「燻雞三明治，7-11，吃了一整份」後攔截 `fetch` 讀出實際送出的 prompt，
+確認補充說明原文有出現在 `使用者補充說明：` 那一行；結果卡正確命中
+食物庫既有紀錄（示範了規格 §2.3「文字講到名稱→本機比對→沿用庫內數字」
+那條路徑）。
+
+這次沒做的（仍在 §7 分期表）：多份食物分槽、份量 stepper、秤重模式、
+營養標示 OCR——補充說明頁目前只有一個文字欄，不含這些。
+
+`npm run typecheck`、`npm test`（73 檔、921 項）全過；
+`npm run build:nutrition:mobile` 建置成功。

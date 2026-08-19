@@ -373,11 +373,15 @@ function App(): React.JSX.Element {
   // --- 拍照估熱量（§2.10：第三層開關，預設關）---
   const [photoEstimateEnabled, setPhotoEstimateEnabled] = React.useState(false)
   const [llmSettings, setLlmSettings] = React.useState<NutritionLlmSettings>(DEFAULT_LLM_SETTINGS)
-  const [estimatePhase, setEstimatePhase] = React.useState<'idle' | 'loading' | 'result' | 'error'>('idle')
+  const [estimatePhase, setEstimatePhase] = React.useState<'idle' | 'noteInput' | 'loading' | 'result' | 'error'>('idle')
   const [estimateResult, setEstimateResult] = React.useState<PhotoEstimateResult | null>(null)
   const [estimateMatchedFood, setEstimateMatchedFood] = React.useState<FoodItem | null>(null)
   const [estimatePhotoBytes, setEstimatePhotoBytes] = React.useState<Uint8Array | null>(null)
   const [estimateError, setEstimateError] = React.useState<string | null>(null)
+  /** 選好照片、還沒送出估算前的中繼狀態（§2.7：送出前一定有一次補充機會）。 */
+  const [estimateSelectedFile, setEstimateSelectedFile] = React.useState<File | null>(null)
+  const [estimatePreviewUrl, setEstimatePreviewUrl] = React.useState<string | null>(null)
+  const [estimateNote, setEstimateNote] = React.useState('')
   /** local 供應商沒有寫死的型號目錄，「測試連線」打 GET /v1/models 抓回來的清單。 */
   const [localModels, setLocalModels] = React.useState<string[]>([])
   const [testingConnection, setTestingConnection] = React.useState(false)
@@ -938,6 +942,12 @@ function App(): React.JSX.Element {
     setEstimateMatchedFood(null)
     setEstimatePhotoBytes(null)
     setEstimateError(null)
+    setEstimateSelectedFile(null)
+    setEstimateNote('')
+    setEstimatePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return null
+    })
   }
 
   function openPhotoEstimate(): void {
@@ -950,6 +960,17 @@ function App(): React.JSX.Element {
     setView('daily')
   }
 
+  /** 選好照片後先進補充說明頁，不直接送出（§2.7：文字比讓模型從圖上猜準得多）。 */
+  function pickEstimatePhoto(file: File): void {
+    setEstimateSelectedFile(file)
+    setEstimatePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev)
+      return URL.createObjectURL(file)
+    })
+    setEstimateNote('')
+    setEstimatePhase('noteInput')
+  }
+
   /** 只送名稱，不送營養數字／體重／上限等個資（§3.1）。 */
   function recentFoodNames(): string[] {
     if (!snapshot) return []
@@ -959,15 +980,20 @@ function App(): React.JSX.Element {
       .map((item) => item.name)
   }
 
-  async function handleEstimatePhoto(file: File): Promise<void> {
+  /** 「估算」：補充說明可留白直接送，留白就純依圖片判斷。 */
+  async function submitEstimate(): Promise<void> {
+    const file = estimateSelectedFile
+    if (!file) return
     setEstimatePhase('loading')
     setEstimateError(null)
     try {
       const bytes = await compressImageFile(file)
       setEstimatePhotoBytes(bytes)
+      const note = estimateNote.trim()
       const results = await requestPhotoEstimate({
         llmSettings,
         photos: [{ slot: 1, base64: bytesToBase64(bytes), mimeType: 'image/webp' }],
+        note: note || undefined,
         recentNames: recentFoodNames(),
         http: nutritionMobileHttp
       })
@@ -1648,11 +1674,26 @@ function App(): React.JSX.Element {
                 capture="environment"
                 onChange={(event) => {
                   const file = event.target.files?.[0]
-                  if (file) void handleEstimatePhoto(file)
+                  if (file) pickEstimatePhoto(file)
                   event.target.value = ''
                 }}
               />
             </label>
+          )}
+          {estimatePhase === 'noteInput' && (
+            <section className="estimate-note-section">
+              {estimatePreviewUrl && <img className="estimate-note-preview" src={estimatePreviewUrl} alt="" />}
+              <label>補充說明（可留白，但文字比讓模型從圖上猜準得多——至少講一下這是什麼）
+                <textarea
+                  value={estimateNote}
+                  onChange={(event) => setEstimateNote(event.target.value)}
+                  placeholder="例如：燻雞三明治，7-11，吃了一整份"
+                  rows={3}
+                  autoFocus
+                />
+              </label>
+              <button type="button" className="primary" onClick={() => void submitEstimate()}>估算</button>
+            </section>
           )}
           {estimatePhase === 'loading' && <p className="empty">估算中...</p>}
           {estimatePhase === 'error' && (
@@ -1667,7 +1708,7 @@ function App(): React.JSX.Element {
                   capture="environment"
                   onChange={(event) => {
                     const file = event.target.files?.[0]
-                    if (file) void handleEstimatePhoto(file)
+                    if (file) pickEstimatePhoto(file)
                     event.target.value = ''
                   }}
                 />
