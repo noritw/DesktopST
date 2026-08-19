@@ -2960,3 +2960,59 @@ owner 實測上一輪的模型清單／測讀圖功能，選 OpenAI 卻還看得
 
 `npm run typecheck`、`npm test`（73 檔、916 項）全過；
 `npm run build:nutrition:mobile` 建置成功。
+
+---
+
+## 2026-08-19（續五）｜拍照估算加 Claude、修 local CORS 提示與 grok 端點 bug
+
+owner 三個新回報：本機模型連不上、OpenAI 選另一個型號還是 400、Claude 選項不見了。
+
+1. **加 Claude（Anthropic）供應商**。之前只支援 OpenAI 相容的 Chat
+   Completions（openai／local／grok），Claude 的 Messages API 形狀完全不同
+   （端點 `/v1/messages`、`x-api-key` 不是 `Authorization: Bearer`、
+   圖片是 `{type:'image', source:{type:'base64', media_type, data}}`
+   不是 `image_url`、回應是 `content[].text` 不是
+   `choices[0].message.content`）。`photoEstimateLlm.ts` 抽出
+   `buildContentParts()`／`buildRequestHeaders()`／`extractReplyText()`
+   三個依供應商分流的小函式，三個對外函式（估算／測連線／測讀圖）都改
+   吃這幾支，不必各自維護一份 if-else。**沒用 `@anthropic-ai/sdk`**——
+   跟先前不用 `openai` SDK 的理由一樣，維持 nutrition/mobile 這個獨立小
+   App 的依賴精簡，直接發 fetch＋手動組 header。Anthropic 官方 API
+   預設擋瀏覽器直連（CORS），要多帶一個 `anthropic-dangerous-direct-
+   browser-access: true`——這正是 `@anthropic-ai/sdk` 的
+   `dangerouslyAllowBrowser: true` 底下實際做的事（`core/llm/claude.ts`
+   用 SDK 蓋掉了這個細節，這裡沒用 SDK 所以要自己補上）。手機供應商下拉
+   新增「Anthropic Claude」選項，模型清單一樣吃 `@core/llm/modelCatalog`
+   的 `CLAUDE_MODELS`，不必另外維護。
+2. **OpenAI 換一個模型還是 400**：上一輪加的 `reasoning_effort: 'minimal'`
+   是沒有文件佐證的猜測，這次很可能是新的根因——不同 gpt-5 子型號支援的
+   `reasoning_effort` 取值不見得一樣，猜錯一樣會 400。**拿掉這個猜測**，
+   改成通用機制：`postJsonWithParamFallback()`——送出後若收到 400 且錯誤
+   訊息符合 OpenAI 文件的固定格式「`Unsupported parameter: 'X'`」，就把
+   該參數從 body 拔掉重送一次（僅一次，不無限重試）。這樣不管未來還踩到
+   哪個「這個模型不吃這個參數」的組合，都不必事先猜對，讓錯誤訊息自己講。
+   `max_completion_tokens`（有 OpenAI 文件佐證的必要修正）保留。
+3. **本機模型連不上**：`describeNetworkError()` 補一句可行動的提示——
+   瀏覽器 CORS 失敗時 JS 拿到的訊息一律是無意義的
+   `TypeError: Failed to fetch`（瀏覽器基於安全考量刻意不透露細節），
+   猜不出真正原因，所以改成「猜最常見的成因」直接講給使用者：
+   Ollama 預設不開放跨來源存取，要設 `OLLAMA_ORIGINS=*` 或確認位址/埠號、
+   同一區網。這不是修 bug（技術上沒有東西能修——`fetch` API 本身就是這樣
+   設計的），是把猜測的診斷步驟直接寫進錯誤訊息，省得使用者自己爬文。
+4. **順手修一個沒人抓到的 bug**：`resolveBaseUrl()` 原本沒填端點時**一律**
+   退回 `https://api.openai.com/v1`，包含 `grok`——代表 Grok 沒填端點時
+   會悄悄把請求（帶著 Grok 的 Key）送去 OpenAI，只會 401，且訊息不會
+   提到「端點錯了」。改成 `grok` 沒填端點時退回官方 `https://api.x.ai/v1`
+   （跟 `core/llm/index.ts` 的 `endpointForProvider()` 同一個預設值），
+   `claude` 同理退回 `https://api.anthropic.com/v1`。
+
+6 項新測試（Claude 估算／讀圖各 1、grok 預設端點 1、400 重試機制 2、
+不支援供應商改用真的不支援的 gemini 驗證）。瀏覽器預覽 + mock fetch
+驗證 Claude 端到端（讀圖測試顯示「✅ 可以讀圖」，headers/URL 正確）與
+local 的新錯誤訊息（顯示 OLLAMA_ORIGINS 提示）。
+
+Gemini 仍未支援（圖片格式又不同，且目前沒人要求），供應商清單裡就不
+列出來，避免使用者選了才發現不能用。
+
+`npm run typecheck`、`npm test`（73 檔、921 項）全過；
+`npm run build:nutrition:mobile` 建置成功。

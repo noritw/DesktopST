@@ -45,7 +45,7 @@ describe('requestPhotoEstimate', () => {
     expect(results[0].perServing).toEqual({ kcal: 320, proteinG: 18 })
   })
 
-  it('gpt-5／o 系列送 max_completion_tokens 與 reasoning_effort，不送 max_tokens（owner 實測 gpt-5.6-luna 回 400 的根因）', async () => {
+  it('gpt-5／o 系列送 max_completion_tokens，不送 max_tokens（owner 實測 gpt-5.6-luna 回 400 的根因）', async () => {
     let capturedBody: any = null
     const http = fakeHttp(async (_input, init) => {
       capturedBody = JSON.parse(String(init?.body))
@@ -59,7 +59,43 @@ describe('requestPhotoEstimate', () => {
     })
     expect(capturedBody.max_tokens).toBeUndefined()
     expect(capturedBody.max_completion_tokens).toBe(1500)
-    expect(capturedBody.reasoning_effort).toBe('minimal')
+  })
+
+  it('模型拒絕某個參數（400 + Unsupported parameter）時拔掉那個參數重送一次', async () => {
+    let attempt = 0
+    let secondBody: any = null
+    const http = fakeHttp(async (_input, init) => {
+      attempt++
+      if (attempt === 1) {
+        return jsonResponse({ error: { message: "Unsupported parameter: 'response_format' is not supported with this model." } }, 400)
+      }
+      secondBody = JSON.parse(String(init?.body))
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({ results: [] }) } }] })
+    })
+    const results = await requestPhotoEstimate({
+      llmSettings: baseLlmSettings,
+      photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
+      recentNames: [],
+      http
+    })
+    expect(attempt).toBe(2)
+    expect(secondBody.response_format).toBeUndefined()
+    expect(results).toEqual([])
+  })
+
+  it('400 但不是「Unsupported parameter」格式時不重試，直接丟原始錯誤', async () => {
+    let attempt = 0
+    const http = fakeHttp(async () => {
+      attempt++
+      return jsonResponse({ error: { message: 'invalid_api_key' } }, 400)
+    })
+    await expect(requestPhotoEstimate({
+      llmSettings: baseLlmSettings,
+      photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
+      recentNames: [],
+      http
+    })).rejects.toBeInstanceOf(PhotoEstimateRequestError)
+    expect(attempt).toBe(1)
   })
 
   it('o 系列（o1/o3/o4-mini…）也走 max_completion_tokens', async () => {
@@ -120,10 +156,10 @@ describe('requestPhotoEstimate', () => {
     })).resolves.toEqual([])
   })
 
-  it('非 OpenAI 相容供應商直接丟錯，不送出請求', async () => {
+  it('不支援的供應商直接丟錯，不送出請求', async () => {
     const http = fakeHttp(async () => { throw new Error('不該被呼叫') })
     await expect(requestPhotoEstimate({
-      llmSettings: { provider: 'claude', model: 'claude-3', apiKeys: {} },
+      llmSettings: { provider: 'gemini', model: 'gemini-3', apiKeys: { gemini: 'key' } },
       photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
       recentNames: [],
       http
@@ -182,6 +218,47 @@ describe('requestPhotoEstimate', () => {
       http,
       timeoutMs: 20
     })).rejects.toBeInstanceOf(PhotoEstimateRequestError)
+  })
+
+  it('grok 沒填端點時打官方 x.ai 端點，不是悄悄落到 OpenAI 的預設值', async () => {
+    let capturedUrl: string | null = null
+    const http = fakeHttp(async (input) => {
+      capturedUrl = String(input)
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({ results: [] }) } }] })
+    })
+    await requestPhotoEstimate({
+      llmSettings: { provider: 'grok', model: 'grok-4.3', apiKeys: { grok: 'xai-test' } },
+      photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
+      recentNames: [],
+      http
+    })
+    expect(capturedUrl).toBe('https://api.x.ai/v1/chat/completions')
+  })
+
+  it('claude 走 Anthropic Messages API（不同的端點／標頭／body 形狀）', async () => {
+    let capturedUrl: string | null = null
+    let capturedHeaders: Record<string, string> | null = null
+    let capturedBody: any = null
+    const http = fakeHttp(async (input, init) => {
+      capturedUrl = String(input)
+      capturedHeaders = init?.headers as Record<string, string>
+      capturedBody = JSON.parse(String(init?.body))
+      return jsonResponse({ content: [{ type: 'text', text: JSON.stringify({ results: [{ name: '燻雞三明治', perServing: { kcal: 320, proteinG: 18 } }] }) }] })
+    })
+    const results = await requestPhotoEstimate({
+      llmSettings: { provider: 'claude', model: 'claude-haiku-4-5', apiKeys: { claude: 'sk-ant-test' } },
+      photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
+      recentNames: [],
+      http
+    })
+    expect(capturedUrl).toBe('https://api.anthropic.com/v1/messages')
+    expect(capturedHeaders?.['x-api-key']).toBe('sk-ant-test')
+    expect(capturedHeaders?.['anthropic-version']).toBeTruthy()
+    expect(capturedHeaders?.Authorization).toBeUndefined()
+    expect(capturedBody.max_tokens).toBe(1500)
+    expect(capturedBody.messages[0].content[2].type).toBe('image')
+    expect(capturedBody.messages[0].content[2].source.media_type).toBe('image/webp')
+    expect(results[0].perServing).toEqual({ kcal: 320, proteinG: 18 })
   })
 })
 
@@ -255,5 +332,19 @@ describe('testPhotoEstimateVision', () => {
     const http = fakeHttp(async () => { throw new Error('不該被呼叫') })
     const result = await testPhotoEstimateVision({ ...baseLlmSettings, model: undefined }, http)
     expect(result).toEqual({ ok: false, error: expect.stringContaining('模型') })
+  })
+
+  it('claude 走 Anthropic Messages API 格式', async () => {
+    let capturedUrl: string | null = null
+    let capturedBody: any = null
+    const http = fakeHttp(async (input, init) => {
+      capturedUrl = String(input)
+      capturedBody = JSON.parse(String(init?.body))
+      return jsonResponse({ content: [{ type: 'text', text: '可以讀圖' }] })
+    })
+    const result = await testPhotoEstimateVision({ provider: 'claude', model: 'claude-haiku-4-5', apiKeys: { claude: 'sk-ant-test' } }, http)
+    expect(capturedUrl).toBe('https://api.anthropic.com/v1/messages')
+    expect(capturedBody.messages[0].content[1].type).toBe('image')
+    expect(result).toEqual({ ok: true, reply: '可以讀圖' })
   })
 })

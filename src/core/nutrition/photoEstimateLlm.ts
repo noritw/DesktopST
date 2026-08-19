@@ -3,14 +3,14 @@ import { buildPhotoEstimatePrompt, parseEstimateResult, type PhotoEstimateResult
 import type { NutritionLlmSettings } from './types'
 
 /**
- * 走 OpenAI 相容的 Chat Completions（`/v1/chat/completions`），不是 Responses API——
- * 這是本地模型伺服器（Ollama／LM Studio／llama.cpp）最普遍支援的格式，
- * 比 Responses API 涵蓋面更廣。`docs/nutrition-photo-estimate-plan.md` §3.3。
- *
- * 只支援 OpenAI 相容供應商（openai／local／grok）。Claude／Gemini 的圖片格式不同，
- * 之後若要支援要另外實作，見規格 §3.3 待辦。
+ * 支援 OpenAI 相容的 Chat Completions（openai／local／grok，`/v1/chat/completions`——
+ * 這是本地模型伺服器最普遍支援的格式，比 Responses API 涵蓋面更廣）
+ * 與 Anthropic 的 Messages API（claude，`/v1/messages`，欄位格式不同、走 `x-api-key`）。
+ * `docs/nutrition-photo-estimate-plan.md` §3.3。Gemini 圖片格式又不同，還沒支援。
  */
 const OPENAI_COMPATIBLE_PROVIDERS = new Set(['openai', 'local', 'grok'])
+const ANTHROPIC_PROVIDERS = new Set(['claude'])
+const SUPPORTED_PROVIDERS = new Set([...OPENAI_COMPATIBLE_PROVIDERS, ...ANTHROPIC_PROVIDERS])
 
 export interface PhotoEstimatePhoto {
   /** 送出的照片屬於哪一份食物，對齊補充頁的槽位（§2.6.1）。 */
@@ -34,14 +34,23 @@ export interface RequestPhotoEstimateParams {
 }
 
 const DEFAULT_TIMEOUT_MS = 12_000
+const ANTHROPIC_API_VERSION = '2023-06-01'
 
 function resolveApiKey(llmSettings: NutritionLlmSettings): string {
   return llmSettings.apiKeys[llmSettings.provider]?.trim() ?? ''
 }
 
+/**
+ * `local` 沒有合理預設（必填，UI 已擋）；`grok`／`claude` 各自有固定官方端點，
+ * 沒填端點不該落到 OpenAI 那個預設值去——之前就是這樣寫死回退，Grok 沒填端點時
+ * 悄悄把請求送去 OpenAI（帶著 Grok 的 Key，只會 401，從沒被抓到過是因為
+ * 還沒有人實測過 Grok 這條路）。
+ */
 function resolveBaseUrl(llmSettings: NutritionLlmSettings): string {
-  const endpoint = llmSettings.endpoints?.[llmSettings.provider]
-  if (endpoint) return endpoint.replace(/\/+$/, '')
+  const explicit = llmSettings.endpoints?.[llmSettings.provider]?.trim()
+  if (explicit) return explicit.replace(/\/+$/, '')
+  if (llmSettings.provider === 'grok') return 'https://api.x.ai/v1'
+  if (llmSettings.provider === 'claude') return 'https://api.anthropic.com/v1'
   return 'https://api.openai.com/v1'
 }
 
@@ -51,23 +60,17 @@ function isReasoningModel(model: string): boolean {
 }
 
 /**
- * gpt-5／o 系列（推理模型）的 Chat Completions 有兩個跟一般模型不同的地方：
- *
- * 1. 不接受 `max_tokens`，送了直接 400（"Unsupported parameter: 'max_tokens'
- *    is not supported with this model. Use 'max_completion_tokens' instead."）
- *    ——這是 owner 實測 `gpt-5.6-luna` 讀圖測試回 400 的根因。
- * 2. 推理會**佔用同一份 `max_completion_tokens` 預算**，小預算（例如讀圖測試
- *    原本的 20）很容易被推理吃光、正文回空字串，看起來像「沒反應」而不是
- *    「不支援讀圖」——同一個坑 CLAUDE.md §5 也記過（本機推理模型）。
- *    這裡用 `reasoning_effort: 'minimal'` 把推理壓到最低並拉高預算下限，
- *    而不是無止盡加預算（那只會讓每次測試都變貴）。
+ * gpt-5／o 系列（推理模型）的 Chat Completions **不接受 `max_tokens`**，送了直接 400
+ * （"Unsupported parameter: 'max_tokens' is not supported with this model.
+ * Use 'max_completion_tokens' instead."）——這是 owner 實測 `gpt-5.6-luna`
+ * 讀圖測試回 400 的根因。這條是 OpenAI 文件明載的已知行為，可以放心先修；
+ * 其餘「這個模型不吃這個參數」的狀況（例如某些子型號不支援某個 `reasoning_effort`
+ * 取值）沒辦法每一種都預先猜對，改交給下面 `postJsonWithParamFallback` 的
+ * 通用重試機制：真的被拒絕時讀錯誤訊息、拔掉那個參數重送一次，而不是繼續加
+ * 更多沒被文件證實的參數去賭它有沒有用。
  */
 function reasoningAwareParams(model: string, requestedMaxTokens: number): Record<string, unknown> {
-  if (!isReasoningModel(model)) return { max_tokens: requestedMaxTokens }
-  return {
-    max_completion_tokens: Math.max(requestedMaxTokens, 300),
-    reasoning_effort: 'minimal'
-  }
+  return isReasoningModel(model) ? { max_completion_tokens: requestedMaxTokens } : { max_tokens: requestedMaxTokens }
 }
 
 /** 呼叫失敗時的統一錯誤，讓呼叫端能直接判斷是不是逾時。 */
@@ -80,8 +83,8 @@ export class PhotoEstimateRequestError extends Error {
 
 /** 進請求前的共通檢查，三個對外函式（估算／測連線／測讀圖）共用同一套規則。 */
 function checkBasicRequestPreconditions(llmSettings: NutritionLlmSettings, requireModel: boolean): string | null {
-  if (!OPENAI_COMPATIBLE_PROVIDERS.has(llmSettings.provider)) {
-    return `拍照估算目前只支援 openai／local／grok 供應商，收到：${llmSettings.provider}`
+  if (!SUPPORTED_PROVIDERS.has(llmSettings.provider)) {
+    return `拍照估算目前只支援 openai／local／grok／claude 供應商，收到：${llmSettings.provider}`
   }
   if (requireModel && !llmSettings.model) return '尚未選擇模型'
   const apiKey = resolveApiKey(llmSettings)
@@ -106,6 +109,32 @@ async function fetchWithTimeout(
   }
 }
 
+/**
+ * POST 一份 JSON body；若回 400 且錯誤訊息符合 OpenAI 系「Unsupported parameter: 'X'」
+ * 的格式，拔掉那個參數重送一次（僅重試一次，避免無限迴圈）。這是為了不用預先猜對
+ * 每個型號吃不吃某個參數——猜錯只會製造新的 400（歷史教訓：先猜的 `reasoning_effort`
+ * 就是這樣被拿掉的），與其繼續猜，不如讓錯誤訊息自己講。
+ */
+async function postJsonWithParamFallback(
+  http: HttpAdapter,
+  url: string,
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<Response> {
+  const response = await fetchWithTimeout(http, url, { method: 'POST', headers, body: JSON.stringify(body) }, timeoutMs, signal)
+  if (response.status !== 400) return response
+
+  const text = await response.clone().text().catch(() => '')
+  const match = text.match(/Unsupported parameter: '(\w+)'/)
+  if (!match || !(match[1] in body)) return response
+
+  const retryBody = { ...body }
+  delete retryBody[match[1]]
+  return fetchWithTimeout(http, url, { method: 'POST', headers, body: JSON.stringify(retryBody) }, timeoutMs, signal)
+}
+
 function extractJsonObject(raw: string): unknown {
   try {
     return JSON.parse(raw)
@@ -123,6 +152,62 @@ function extractJsonObject(raw: string): unknown {
   return null
 }
 
+/** local 供應商連不上時，多數情況是瀏覽器 CORS 擋下（Ollama 等預設不允許跨來源），補一句可行動的提示。 */
+function describeNetworkError(llmSettings: NutritionLlmSettings, error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error)
+  if (llmSettings.provider !== 'local') return raw
+  return `${raw}（本機模型常見原因：伺服器沒開放跨來源存取。Ollama 請設定環境變數 OLLAMA_ORIGINS=* 後重開，或確認端點位址與埠號正確、手機與伺服器在同一區網）`
+}
+
+interface ChatContentPart {
+  type: 'text' | 'image_url' | 'image'
+  text?: string
+  image_url?: { url: string }
+  source?: { type: 'base64'; media_type: string; data: string }
+}
+
+function buildContentParts(promptText: string, photos: PhotoEstimatePhoto[], provider: string): ChatContentPart[] {
+  const isAnthropic = ANTHROPIC_PROVIDERS.has(provider)
+  const parts: ChatContentPart[] = [{ type: 'text', text: promptText }]
+  for (const photo of photos) {
+    parts.push({ type: 'text', text: `（以下圖片屬於 slot ${photo.slot}）` })
+    parts.push(
+      isAnthropic
+        ? { type: 'image', source: { type: 'base64', media_type: photo.mimeType, data: photo.base64 } }
+        : { type: 'image_url', image_url: { url: `data:${photo.mimeType};base64,${photo.base64}` } }
+    )
+  }
+  return parts
+}
+
+function buildRequestHeaders(llmSettings: NutritionLlmSettings, apiKey: string): Record<string, string> {
+  if (ANTHROPIC_PROVIDERS.has(llmSettings.provider)) {
+    return {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': ANTHROPIC_API_VERSION,
+      // Anthropic 的官方 API 預設擋掉瀏覽器直連（CORS），這個標頭是官方 SDK
+      // `dangerouslyAllowBrowser: true` 底下實際做的事（core/llm/claude.ts 用 SDK，
+      // 這裡沒用 SDK 所以要自己加）。
+      'anthropic-dangerous-direct-browser-access': 'true'
+    }
+  }
+  return {
+    'Content-Type': 'application/json',
+    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+  }
+}
+
+/** 從回應中取出模型的純文字內容，屏蔽 OpenAI（`choices[0].message.content`）與 Anthropic（`content[].text`）的形狀差異。 */
+async function extractReplyText(response: Response, provider: string): Promise<string | undefined> {
+  if (ANTHROPIC_PROVIDERS.has(provider)) {
+    const json = await response.json().catch(() => null) as { content?: Array<{ type?: string; text?: string }> } | null
+    return (json?.content ?? []).filter((b) => b.type === 'text').map((b) => b.text ?? '').join('').trim() || undefined
+  }
+  const json = await response.json().catch(() => null) as { choices?: Array<{ message?: { content?: string } }> } | null
+  return json?.choices?.[0]?.message?.content?.trim() || undefined
+}
+
 /**
  * 呼叫 nutrition.llm 設定的模型估算照片營養（§3）。
  * 逾時／請求失敗一律丟 `PhotoEstimateRequestError`，呼叫端依規格 §3.3 顯示「重試／手動輸入／取消」。
@@ -136,45 +221,33 @@ export async function requestPhotoEstimate(params: RequestPhotoEstimateParams): 
     throw new PhotoEstimateRequestError('沒有照片可以送出')
   }
   const apiKey = resolveApiKey(llmSettings)
+  const isAnthropic = ANTHROPIC_PROVIDERS.has(llmSettings.provider)
 
   const promptText = [
     buildPhotoEstimatePrompt(recentNames),
     '',
     note ? `使用者補充說明：${note}` : '使用者補充說明：（留白，純依圖片判斷）',
     '',
-    '請回傳一個 JSON 物件，格式為 { "results": [ ... ] }，results 內每個元素對應規格所述的單份食物估算結果。'
+    '請回傳一個 JSON 物件，格式為 { "results": [ ... ] }，results 內每個元素對應規格所述的單份食物估算結果。',
+    ...(isAnthropic ? ['只回傳 JSON 本身，不要加上其他文字或 ```code fence```。'] : [])
   ].join('\n')
 
-  const content: Array<
-    | { type: 'text'; text: string }
-    | { type: 'image_url'; image_url: { url: string } }
-  > = [{ type: 'text', text: promptText }]
-  for (const photo of photos) {
-    content.push({ type: 'text', text: `（以下圖片屬於 slot ${photo.slot}）` })
-    content.push({ type: 'image_url', image_url: { url: `data:${photo.mimeType};base64,${photo.base64}` } })
-  }
+  const content = buildContentParts(promptText, photos, llmSettings.provider)
+  const headers = buildRequestHeaders(llmSettings, apiKey)
 
-  const body: Record<string, unknown> = {
-    model: llmSettings.model,
-    messages: [{ role: 'user', content }],
-    response_format: { type: 'json_object' },
-    ...reasoningAwareParams(llmSettings.model!, 1500)
-  }
+  const body: Record<string, unknown> = isAnthropic
+    ? { model: llmSettings.model, max_tokens: 1500, messages: [{ role: 'user', content }] }
+    : { model: llmSettings.model, messages: [{ role: 'user', content }], response_format: { type: 'json_object' }, ...reasoningAwareParams(llmSettings.model!, 1500) }
   if (llmSettings.provider === 'local') {
     // 思考模型會把預算全花在 reasoning、正文回空字串，見 CLAUDE.md §5「本機 LLM 供應商」。
     body.reasoning = { effort: 'none' }
   }
 
+  const url = isAnthropic ? `${resolveBaseUrl(llmSettings)}/messages` : `${resolveBaseUrl(llmSettings)}/chat/completions`
+
   let response: Response
   try {
-    response = await fetchWithTimeout(http, `${resolveBaseUrl(llmSettings)}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-      },
-      body: JSON.stringify(body)
-    }, timeoutMs, signal)
+    response = await postJsonWithParamFallback(http, url, headers, body, timeoutMs, signal)
   } catch (error) {
     throw new PhotoEstimateRequestError('請求失敗或逾時', error)
   }
@@ -184,9 +257,8 @@ export async function requestPhotoEstimate(params: RequestPhotoEstimateParams): 
     throw new PhotoEstimateRequestError(`模型回應錯誤（${response.status}）：${text.slice(0, 200)}`)
   }
 
-  const json = await response.json().catch(() => null) as { choices?: Array<{ message?: { content?: string } }> } | null
-  const raw = json?.choices?.[0]?.message?.content
-  if (!raw || !raw.trim()) {
+  const raw = await extractReplyText(response, llmSettings.provider)
+  if (!raw) {
     throw new PhotoEstimateRequestError('模型沒有回應內容')
   }
 
@@ -205,9 +277,11 @@ export interface NutritionLlmTestResult {
 }
 
 /**
- * 測連線＋抓 `local` 供應商的實際模型清單（`GET /v1/models`）。雲端供應商（openai／grok）
- * 已經有靜態目錄可選（`@core/llm/modelCatalog`），這支主要是給沒有寫死目錄的本機端點用；
- * 呼叫端仍可以拿它驗證雲端的 API Key／端點是否有效。
+ * 測連線＋抓 `local` 供應商的實際模型清單（`GET /v1/models`）。雲端供應商已經有
+ * 靜態目錄可選（`@core/llm/modelCatalog`），這支主要是給沒有寫死目錄的本機端點用；
+ * 呼叫端仍可以拿它驗證雲端的 API Key／端點是否有效。Anthropic 也有對應的
+ * `GET /v1/models`（跟 `core/llm/index.ts` 的 `testLLMConnection` 用同一個端點），
+ * 回應形狀跟 OpenAI 相容（`{ data: [{ id }] }`），可以共用同一段解析邏輯。
  */
 export async function testNutritionLlmConnection(
   llmSettings: NutritionLlmSettings,
@@ -217,10 +291,13 @@ export async function testNutritionLlmConnection(
   const precondition = checkBasicRequestPreconditions(llmSettings, false)
   if (precondition) return { ok: false, error: precondition }
   const apiKey = resolveApiKey(llmSettings)
+  const isAnthropic = ANTHROPIC_PROVIDERS.has(llmSettings.provider)
 
   try {
     const response = await fetchWithTimeout(http, `${resolveBaseUrl(llmSettings)}/models`, {
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
+      headers: isAnthropic
+        ? { 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_API_VERSION, 'anthropic-dangerous-direct-browser-access': 'true' }
+        : (apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
     }, timeoutMs)
     if (!response.ok) {
       const text = await response.text().catch(() => '')
@@ -231,7 +308,7 @@ export async function testNutritionLlmConnection(
     const limit = llmSettings.provider === 'local' ? 200 : 5
     return { ok: true, models: ids.slice(0, limit) }
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    return { ok: false, error: describeNetworkError(llmSettings, error) }
   }
 }
 
@@ -260,35 +337,28 @@ export async function testPhotoEstimateVision(
   const precondition = checkBasicRequestPreconditions(llmSettings, true)
   if (precondition) return { ok: false, error: precondition }
   const apiKey = resolveApiKey(llmSettings)
+  const isAnthropic = ANTHROPIC_PROVIDERS.has(llmSettings.provider)
 
-  const body: Record<string, unknown> = {
-    model: llmSettings.model,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'text', text: '這是一張測試圖片。如果你能看到圖片內容，回覆「可以讀圖」；否則回覆「無法讀圖」。不要回其他文字。' },
-        { type: 'image_url', image_url: { url: `data:image/png;base64,${TEST_PIXEL_PNG_BASE64}` } }
-      ]
-    }],
-    ...reasoningAwareParams(llmSettings.model!, 20)
-  }
+  const promptText = '這是一張測試圖片。如果你能看到圖片內容，回覆「可以讀圖」；否則回覆「無法讀圖」。不要回其他文字。'
+  const content = buildContentParts(promptText, [{ slot: 1, base64: TEST_PIXEL_PNG_BASE64, mimeType: 'image/png' }], llmSettings.provider)
+  // 測試用的圖片沒有實際的 slot 概念，拿掉 buildContentParts 自動插入的那句「屬於 slot 1」提示文字。
+  const trimmedContent = content.filter((part) => part.text !== '（以下圖片屬於 slot 1）')
+  const headers = buildRequestHeaders(llmSettings, apiKey)
+
+  const body: Record<string, unknown> = isAnthropic
+    ? { model: llmSettings.model, max_tokens: 20, messages: [{ role: 'user', content: trimmedContent }] }
+    : { model: llmSettings.model, messages: [{ role: 'user', content: trimmedContent }], ...reasoningAwareParams(llmSettings.model!, 20) }
   if (llmSettings.provider === 'local') body.reasoning = { effort: 'none' }
 
+  const url = isAnthropic ? `${resolveBaseUrl(llmSettings)}/messages` : `${resolveBaseUrl(llmSettings)}/chat/completions`
+
   try {
-    const response = await fetchWithTimeout(http, `${resolveBaseUrl(llmSettings)}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-      },
-      body: JSON.stringify(body)
-    }, timeoutMs)
+    const response = await postJsonWithParamFallback(http, url, headers, body, timeoutMs)
     if (!response.ok) {
       const text = await response.text().catch(() => '')
       return { ok: false, error: `模型回應錯誤（${response.status}）：${text.slice(0, 200)}` }
     }
-    const json = await response.json().catch(() => null) as { choices?: Array<{ message?: { content?: string } }> } | null
-    const reply = json?.choices?.[0]?.message?.content?.trim()
+    const reply = await extractReplyText(response, llmSettings.provider)
     if (!reply) return { ok: false, error: '模型沒有回應內容（可能不支援讀圖，或思考模型把預算花在推理上）' }
     // 沒看到圖片的模型多半會照樣回一段文字甚至道歉，所以用「有沒有講到看不到／無法」判斷比對空字串更可靠。
     if (/無法|看不到|看不見|沒有圖片|no image|cannot see|can't see/i.test(reply)) {
@@ -296,7 +366,7 @@ export async function testPhotoEstimateVision(
     }
     return { ok: true, reply }
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    return { ok: false, error: describeNetworkError(llmSettings, error) }
   }
 }
 

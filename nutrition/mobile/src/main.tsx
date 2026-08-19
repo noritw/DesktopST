@@ -1478,6 +1478,7 @@ function App(): React.JSX.Element {
                 <label>供應商
                   <select value={llmSettings.provider} onChange={(event) => changeLlmProvider(event.target.value)}>
                     <option value="openai">OpenAI</option>
+                    <option value="claude">Anthropic Claude</option>
                     <option value="local">本機（Ollama／LM Studio 等）</option>
                     <option value="grok">Grok</option>
                   </select>
