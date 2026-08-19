@@ -122,4 +122,10 @@ export interface NutritionAppSettings {
   llm: NutritionLlmSettings
   /** 選配，預設關（未定義視為全部 false）。手機端專用，見 `NutritionHealthSettings`。 */
   health?: NutritionHealthSettings
+  /**
+   * 選配，預設關（未定義視為 false）。手機端頂部顯示目前體重與量測時間
+   * （不需要 `health.connected`——手動記錄的體重一樣會顯示，時間退回
+   * `BodyProfile.updatedAt`）。純顯示用途，跟 Health 同步無依賴關係。
+   */
+  showWeightBadge?: boolean
 }

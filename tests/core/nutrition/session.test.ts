@@ -77,4 +77,50 @@ describe('NutritionSession', () => {
     expect(session.bodyProfile).toEqual(bodyProfile)
     expect(events).toEqual(['state-invalidated'])
   })
+
+  it('duplicateFoodItem creates a new food with copied data and photos', async () => {
+    const storage = createMemoryStorage()
+    const session = await NutritionSession.boot(storage)
+    const original = foodItem({ id: 'food-1', name: '三明治' })
+    await session.saveFoodItem(original)
+
+    // 寫入照片
+    const photoData = new Uint8Array([0xff, 0xd8, 0xff, 0xe0])
+    await storage.writeBinary('food-photos/food-1/0.webp', photoData)
+    const withPhoto = foodItem({ id: 'food-1', name: '三明治', photoKeys: ['food-photos/food-1/0.webp'] as any })
+    await session.saveFoodItem(withPhoto)
+
+    const events: string[] = []
+    session.subscribe((event) => events.push(event.kind))
+
+    const duplicated = await session.duplicateFoodItem('food-1', 'food-999')
+
+    expect(duplicated).not.toBeNull()
+    expect(duplicated?.id).toBe('food-999')
+    expect(duplicated?.name).toBe('三明治')
+    expect(duplicated?.aliases).toEqual(original.aliases)
+    expect(duplicated?.brand).toEqual(original.brand)
+    expect(duplicated?.perServing).toEqual(original.perServing)
+    expect(duplicated?.createdAt).not.toBe(original.createdAt) // 新的時間戳
+    expect(duplicated?.photoKeys).toHaveLength(1)
+    expect(duplicated?.photoKeys[0]).toBe('food-photos/food-999/0.webp')
+
+    // 驗證照片也複製過來了
+    const copiedPhotoData = await storage.readBinary('food-photos/food-999/0.webp')
+    expect(copiedPhotoData).toEqual(photoData)
+
+    // 驗證加入食物庫清單
+    expect(session.foodItems).toHaveLength(2)
+    expect(session.foodItems.find((item) => item.id === 'food-999')).toBeDefined()
+    expect(events).toEqual(['state-invalidated'])
+  })
+
+  it('duplicateFoodItem returns null if food does not exist', async () => {
+    const storage = createMemoryStorage()
+    const session = await NutritionSession.boot(storage)
+
+    const result = await session.duplicateFoodItem('nonexistent', 'food-999')
+    expect(result).toBeNull()
+    expect(session.foodItems).toHaveLength(0)
+  })
 })

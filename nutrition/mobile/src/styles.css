@@ -35,9 +35,14 @@ button:disabled { opacity: .6; cursor: wait; }
 .icon-md { width: 20px; height: 20px; }
 .icon-button { background: transparent; padding: 8px; display: inline-flex; }
 
-.app-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.app-header { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .app-header-left { display: flex; align-items: center; gap: 10px; }
 .app-header-actions { display: flex; gap: 4px; }
+.app-header-center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; white-space: nowrap; }
+
+.weight-badge { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.weight-badge strong { font-size: 18px; }
+.weight-badge small { color: #6b8f85; font-size: 12px; }
 
 .date-row { justify-content: space-between; border-block: 1px solid #d8ebe4; padding: 10px 0; }
 .date-row button { padding: 8px 14px; font-size: 22px; line-height: 1; background: transparent; }
@@ -189,7 +194,7 @@ label input, label select { margin-top: 0; font-weight: 400; }
 .toggle-row span { font-size: 14px; color: #3d5a52; }
 .dynamic-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: #eefaf5; color: #4f9c8a; font-weight: 700; font-size: 10px; vertical-align: middle; }
 
-.danger-zone { border-top: 1px solid #d8ebe4; padding-top: 14px; }
+.danger-zone { border-top: 1px solid #d8ebe4; padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
 
 .confirm-overlay {
   position: fixed;

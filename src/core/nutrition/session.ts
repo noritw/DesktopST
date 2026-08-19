@@ -59,6 +59,52 @@ export class NutritionSession {
     if (removed) await Promise.all(removed.photoKeys.map((key) => this.storage.remove(key)))
   }
 
+  /**
+   * 複製食物到新 id（照片也複製），用於建立類似但細節不同的食物版本。
+   * 注意：照片二進位會重新複製一份，所以這個操作的時間成本跟圖片大小相關。
+   */
+  async duplicateFoodItem(id: string, newId: string): Promise<FoodItem | null> {
+    const source = this.snapshot.foodItems.find((item) => item.id === id)
+    if (!source) return null
+
+    const newPhotoKeys: string[] = []
+    try {
+      for (let i = 0; i < source.photoKeys.length; i++) {
+        const oldKey = source.photoKeys[i]
+        const bytes = await this.storage.readBinary(oldKey)
+        if (bytes) {
+          // 照片 key 格式：food-photos/{foodItemId}/{index}.webp
+          // 複製時改成新 id，但保留同一個 index
+          const newKey = `food-photos/${newId}/${i}.webp`
+          await this.storage.writeBinary(newKey, bytes)
+          newPhotoKeys.push(newKey)
+        }
+      }
+    } catch {
+      // 如果照片複製失敗，仍然建立食物，但沒有照片
+      // 呼叫端可以察覺 photoKeys 沒有全部複製過來
+    }
+
+    const photoKeysTyped = (
+      newPhotoKeys.length === 0 ? [] :
+      newPhotoKeys.length === 1 ? [newPhotoKeys[0]] :
+      newPhotoKeys.length === 2 ? [newPhotoKeys[0], newPhotoKeys[1]] :
+      [newPhotoKeys[0], newPhotoKeys[1], newPhotoKeys[2]]
+    ) as typeof source.photoKeys
+
+    const duplicated: FoodItem = {
+      ...source,
+      id: newId,
+      photoKeys: photoKeysTyped,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    }
+
+    this.snapshot.foodItems.push(duplicated)
+    await this.persistAndInvalidate()
+    return duplicated
+  }
+
   async saveMealLog(mealLog: MealLog): Promise<void> {
     this.snapshot.mealLogs = upsertById(this.snapshot.mealLogs, mealLog)
     await this.persistAndInvalidate()

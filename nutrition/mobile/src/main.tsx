@@ -18,6 +18,7 @@ import {
   NUTRITION_PACK_EXTENSION,
   NutritionSession,
   toIsoDateString,
+  type BodyProfile,
   type FoodItem,
   type MealLog,
   type MigrationMergeMode,
@@ -261,7 +262,19 @@ function MealPhotoField({ mealLog, foodItem, onPick, onClear, onPreview }: {
   )
 }
 
-function Header({ title, onBack, onEyebrowClick, actions }: { title: string; onBack?: () => void; onEyebrowClick?: () => void; actions?: React.ReactNode }): React.JSX.Element {
+/** 頂部標題列的體重徽章（開關預設關，見 `NutritionAppSettings.showWeightBadge`）。 */
+function WeightBadge({ profile }: { profile: BodyProfile }): React.JSX.Element {
+  const measuredAt = profile.healthMeasuredAt ?? profile.updatedAt
+  const timeLabel = new Date(measuredAt).toLocaleTimeString('zh-TW', { hour: 'numeric', minute: '2-digit' })
+  return (
+    <span className="weight-badge">
+      <strong>{profile.weightKg} kg</strong>
+      <small>{timeLabel}</small>
+    </span>
+  )
+}
+
+function Header({ title, onBack, onEyebrowClick, actions, center }: { title: React.ReactNode; onBack?: () => void; onEyebrowClick?: () => void; actions?: React.ReactNode; center?: React.ReactNode }): React.JSX.Element {
   return (
     <section className="app-header">
       <div className="app-header-left">
@@ -270,6 +283,8 @@ function Header({ title, onBack, onEyebrowClick, actions }: { title: string; onB
           : <button type="button" className="eyebrow-button" onClick={onEyebrowClick}><p className="eyebrow">飲食記錄</p></button>}
         <h1>{title}</h1>
       </div>
+      {/* 真正置中：相對整個標題列的寬度置中，不受左右兩側寬度不一致影響。 */}
+      {center && <div className="app-header-center">{center}</div>}
       {actions && <div className="app-header-actions">{actions}</div>}
     </section>
   )
@@ -296,6 +311,7 @@ function App(): React.JSX.Element {
   const [foodDraft, setFoodDraft] = React.useState<FoodDraft>(blankFoodDraft())
   const [newTagInput, setNewTagInput] = React.useState('')
   const [confirmDeleteFood, setConfirmDeleteFood] = React.useState(false)
+  const [confirmDuplicateFood, setConfirmDuplicateFood] = React.useState(false)
   const [photoPreview, setPhotoPreview] = React.useState<{ keys: string[]; index: number } | null>(null)
 
   const [editingMealId, setEditingMealId] = React.useState<string | null>(null)
@@ -310,6 +326,8 @@ function App(): React.JSX.Element {
 
   const [profileHeight, setProfileHeight] = React.useState('170')
   const [profileWeight, setProfileWeight] = React.useState('70')
+  /** 體重的量測時間，使用者可手改（例如補記早上量的體重，晚點才開 App 輸入）。 */
+  const [profileWeightTime, setProfileWeightTime] = React.useState(() => timeInputValue(Date.now()))
   const [profileAge, setProfileAge] = React.useState('30')
   const [profileSex, setProfileSex] = React.useState<'male' | 'female'>('female')
   const [profileBodyFatPercent, setProfileBodyFatPercent] = React.useState('')
@@ -318,6 +336,7 @@ function App(): React.JSX.Element {
   const [profileKcal, setProfileKcal] = React.useState('2000')
   const [profileProtein, setProfileProtein] = React.useState('100')
 
+  const [showWeightBadge, setShowWeightBadge] = React.useState(false)
   const [healthAvailable, setHealthAvailable] = React.useState(false)
   const [healthSettings, setHealthSettings] = React.useState<NutritionHealthSettings>(DEFAULT_HEALTH_SETTINGS)
   const [healthPermissionGranted, setHealthPermissionGranted] = React.useState(false)
@@ -363,6 +382,7 @@ function App(): React.JSX.Element {
       if (session.bodyProfile) {
         setProfileHeight(String(session.bodyProfile.heightCm))
         setProfileWeight(String(session.bodyProfile.weightKg))
+        setProfileWeightTime(timeInputValue(session.bodyProfile.healthMeasuredAt ?? session.bodyProfile.updatedAt))
         setProfileAge(String(session.bodyProfile.ageYears))
         setProfileSex(session.bodyProfile.sex)
         setProfileBodyFatPercent(session.bodyProfile.bodyFatPercent ? String(session.bodyProfile.bodyFatPercent) : '')
@@ -372,6 +392,7 @@ function App(): React.JSX.Element {
         setProfileProtein(String(session.bodyProfile.dailyProteinGoalG))
       }
       if (session.settings.health) setHealthSettings(session.settings.health)
+      setShowWeightBadge(session.settings.showWeightBadge ?? false)
       applySnapshot(session)
 
       // 開關 1／2 都開時，App 開啟本身就是「前景事件」，比照小工具顯示自動同步一次
@@ -444,6 +465,13 @@ function App(): React.JSX.Element {
     })
   }
 
+  function updateShowWeightBadge(next: boolean): void {
+    setShowWeightBadge(next)
+    void runAction(async (session) => {
+      await session.saveSettings({ ...session.settings, showWeightBadge: next })
+    })
+  }
+
   /**
    * 讀一次 Health Connect 快照，體重／體脂直接寫回 BodyProfile（owner 明講「直接
    * 同步」，不需要跟手動編輯衝突的規則——同步永遠是使用者觸發的，見
@@ -489,7 +517,10 @@ function App(): React.JSX.Element {
           updatedAt: Date.now()
         })
       })
-      if (snap.weightKg !== undefined) setProfileWeight(String(snap.weightKg))
+      if (snap.weightKg !== undefined) {
+        setProfileWeight(String(snap.weightKg))
+        setProfileWeightTime(timeInputValue(snap.measuredAt))
+      }
       if (snap.bodyFatPercent !== undefined) setProfileBodyFatPercent(String(snap.bodyFatPercent))
       setHealthMessage(`已同步（${new Date().toLocaleTimeString('zh-TW', { hour: 'numeric', minute: '2-digit' })}）`)
     } catch (error: unknown) {
@@ -542,6 +573,8 @@ function App(): React.JSX.Element {
     const orphaned = sessionAddedPhotoKeysRef.current
     pendingDeletePhotoKeysRef.current = []
     sessionAddedPhotoKeysRef.current = []
+    setConfirmDeleteFood(false)
+    setConfirmDuplicateFood(false)
     if (orphaned.length > 0) void Promise.all(orphaned.map((key) => nutritionMobileStorage.remove(key)))
     returnFromFoodForm()
   }
@@ -552,6 +585,7 @@ function App(): React.JSX.Element {
     setIsNewFood(!foodItem)
     setFoodFormOrigin(origin)
     setConfirmDeleteFood(false)
+    setConfirmDuplicateFood(false)
     setNewTagInput('')
     pendingDeletePhotoKeysRef.current = []
     sessionAddedPhotoKeysRef.current = []
@@ -594,6 +628,9 @@ function App(): React.JSX.Element {
       await nutritionMobileStorage.writeBinary(key, bytes)
       keys.push(key)
       sessionAddedPhotoKeysRef.current.push(key)
+      // 剛移除的舊照片可能跟這張新照片撞到同一個 key（同一個 slot 先刪後補）——
+      // 這裡剛把新內容寫進這個 key，絕對不能讓存檔後的「待刪除」清單再把它砍掉。
+      pendingDeletePhotoKeysRef.current = pendingDeletePhotoKeysRef.current.filter((k) => k !== key)
     }
     if (keys.length > 0) setFoodDraft((prev) => ({ ...prev, photoKeys: [...prev.photoKeys, ...keys] }))
   }
@@ -624,6 +661,7 @@ function App(): React.JSX.Element {
     if (!name || !Number.isFinite(kcal) || !Number.isFinite(proteinG)) return
     if (carbsG !== undefined && !Number.isFinite(carbsG)) return
     if (fatG !== undefined && !Number.isFinite(fatG)) return
+    const finalPhotoKeys = foodDraft.photoKeys.slice(0, MAX_FOOD_PHOTOS)
     void runAction(async (session) => {
       const now = Date.now()
       const existing = session.foodItems.find((item) => item.id === id)
@@ -635,7 +673,7 @@ function App(): React.JSX.Element {
         flavor: foodDraft.flavor.trim() || undefined,
         tags: foodDraft.tags,
         perServing: { kcal, proteinG, carbsG, fatG },
-        photoKeys: foodDraft.photoKeys.slice(0, MAX_FOOD_PHOTOS) as FoodItem['photoKeys'],
+        photoKeys: finalPhotoKeys as FoodItem['photoKeys'],
         source: existing?.source ?? 'user',
         createdAt: existing?.createdAt ?? now,
         updatedAt: now
@@ -652,7 +690,9 @@ function App(): React.JSX.Element {
         })
       }
     }).then(() => {
-      const toDelete = pendingDeletePhotoKeysRef.current
+      // 保險：即使前面漏接，也絕對不能刪到「最後實際存檔用到」的 key
+      // （例如同一張照片先移除又在同一次編輯補回同一個 slot）。
+      const toDelete = pendingDeletePhotoKeysRef.current.filter((key) => !finalPhotoKeys.includes(key))
       pendingDeletePhotoKeysRef.current = []
       sessionAddedPhotoKeysRef.current = []
       if (toDelete.length > 0) void Promise.all(toDelete.map((key) => nutritionMobileStorage.remove(key)))
@@ -670,6 +710,55 @@ function App(): React.JSX.Element {
       await session.removeFoodItem(id)
       if (orphaned.length > 0) await Promise.all(orphaned.map((key) => nutritionMobileStorage.remove(key)))
     }).then(() => { setConfirmDeleteFood(false); setView('library') })
+  }
+
+  function duplicateFoodConfirmed(): void {
+    if (!editingFoodId) return
+    const newId = `food-${Date.now()}`
+    const name = foodDraft.name.trim()
+    const kcal = Number(foodDraft.kcal)
+    const proteinG = Number(foodDraft.proteinG)
+    const carbsG = foodDraft.carbsG.trim() ? Number(foodDraft.carbsG) : undefined
+    const fatG = foodDraft.fatG.trim() ? Number(foodDraft.fatG) : undefined
+    if (!name || !Number.isFinite(kcal) || !Number.isFinite(proteinG)) return
+    if (carbsG !== undefined && !Number.isFinite(carbsG)) return
+    if (fatG !== undefined && !Number.isFinite(fatG)) return
+
+    void runAction(async (session) => {
+      const now = Date.now()
+      // 照片一定要複製成新食物自己的檔案，不能沿用原食物的 key——
+      // 否則原食物的照片被刪除／改動時，這個「另存」出來的食物會跟著壞掉。
+      const sourceKeys = foodDraft.photoKeys.slice(0, MAX_FOOD_PHOTOS)
+      const newPhotoKeys: string[] = []
+      for (let i = 0; i < sourceKeys.length; i++) {
+        const bytes = await nutritionMobileStorage.readBinary(sourceKeys[i])
+        if (bytes) {
+          const newKey = foodPhotoKey(newId, i)
+          await nutritionMobileStorage.writeBinary(newKey, bytes)
+          newPhotoKeys.push(newKey)
+        }
+      }
+      await session.saveFoodItem({
+        id: newId,
+        name,
+        aliases: foodDraft.aliases.split(',').map((v) => v.trim()).filter(Boolean),
+        brand: foodDraft.brand.trim() || undefined,
+        flavor: foodDraft.flavor.trim() || undefined,
+        tags: foodDraft.tags,
+        perServing: { kcal, proteinG, carbsG, fatG },
+        photoKeys: newPhotoKeys as FoodItem['photoKeys'],
+        source: 'user',
+        createdAt: now,
+        updatedAt: now
+      })
+    }).then(() => {
+      setConfirmDuplicateFood(false)
+      const newFood = snapshot?.foodItems.find((item) => item.id === newId)
+      if (newFood) {
+        // 「另存為新食物」後回到食物庫清單，讓使用者看到新建立的食物
+        setView('library')
+      }
+    })
   }
 
   function openMealEditor(mealLog: MealLog, foodItem: FoodItem | null, name: string): void {
@@ -773,7 +862,8 @@ function App(): React.JSX.Element {
         dailyProteinGoalG,
         // 保留 Health 同步留下的時間戳，手動改身高/體重不該把「上次同步」抹掉。
         healthSyncedAt: current?.healthSyncedAt,
-        healthMeasuredAt: current?.healthMeasuredAt,
+        // 量測時間可手改（例如補記早上量的體重）；套用今天的日期＋使用者輸入的時分。
+        healthMeasuredAt: combineDateAndTime(Date.now(), profileWeightTime) ?? current?.healthMeasuredAt,
         createdAt: current?.createdAt ?? Date.now(),
         updatedAt: Date.now()
       })
@@ -974,10 +1064,25 @@ function App(): React.JSX.Element {
         </section>
         {!isNewFood && (
           <section className="danger-zone">
+            <button type="button" disabled={saving || !foodDraft.name.trim()} onClick={() => setConfirmDuplicateFood(true)}>
+              <MonoIcon name="copy" className="icon-sm" /> 另存為新食物
+            </button>
             <button type="button" className="danger" disabled={saving} onClick={() => setConfirmDeleteFood(true)}>
               <MonoIcon name="trash" className="icon-sm" /> 刪除這個食物
             </button>
           </section>
+        )}
+        {confirmDuplicateFood && (
+          <div className="confirm-overlay" role="dialog" aria-modal="true">
+            <div className="confirm-card">
+              <strong>另存「{foodDraft.name}」為新食物</strong>
+              <p>目前編輯的所有資料（名稱、營養數據、照片）都會被儲存到新食物。原來的食物保持不變。</p>
+              <div className="confirm-actions">
+                <button type="button" onClick={() => setConfirmDuplicateFood(false)}>取消</button>
+                <button type="button" className="primary" disabled={saving} onClick={duplicateFoodConfirmed}>確定儲存為新食物</button>
+              </div>
+            </div>
+          </div>
         )}
         {confirmDeleteFood && (
           <div className="confirm-overlay" role="dialog" aria-modal="true">
@@ -1078,6 +1183,7 @@ function App(): React.JSX.Element {
         <section className="food-form">
           <label>身高（cm）<input value={profileHeight} onChange={(event) => setProfileHeight(event.target.value)} inputMode="decimal" /></label>
           <label>體重（kg）<input value={profileWeight} onChange={(event) => setProfileWeight(event.target.value)} inputMode="decimal" /></label>
+          <label>量測時間<input type="time" value={profileWeightTime} onChange={(event) => setProfileWeightTime(event.target.value)} /></label>
           <label>年齡（歲）<input value={profileAge} onChange={(event) => setProfileAge(event.target.value)} inputMode="numeric" /></label>
           <label>性別
             <select value={profileSex} onChange={(event) => setProfileSex(event.target.value as 'male' | 'female')}>
@@ -1107,6 +1213,15 @@ function App(): React.JSX.Element {
           <label>每日蛋白質目標（g）<input value={profileProtein} onChange={(event) => setProfileProtein(event.target.value)} inputMode="decimal" /></label>
           <button type="button" disabled={saving} onClick={() => saveProfile(false)}>保存目標</button>
           <button type="button" className="primary" disabled={saving} onClick={() => saveProfile(true)}>計算並套用 TDEE／蛋白質建議</button>
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={showWeightBadge}
+              disabled={saving}
+              onChange={(event) => updateShowWeightBadge(event.target.checked)}
+            />
+            <span>在頂部顯示目前體重與量測時間</span>
+          </label>
           <p className="hint">
             以上數值為概略估算，僅供參考，非醫療或營養專業建議。若有慢性腎臟病、肝病、懷孕哺乳或其他需限制蛋白質攝取的狀況，請諮詢醫師或營養師再調整。
             <br />
@@ -1215,7 +1330,7 @@ function App(): React.JSX.Element {
 
   return (
     <main className="shell">
-      <Header title="" onEyebrowClick={() => setView('about')} actions={
+      <Header title="" onEyebrowClick={() => setView('about')} center={showWeightBadge && bodyProfile ? <WeightBadge profile={bodyProfile} /> : undefined} actions={
         <>
           <button type="button" className="icon-button" aria-label="食物庫" onClick={() => setView('library')}><MonoIcon name="book" className="icon-md" /></button>
           <button type="button" className="icon-button" aria-label="身體資料與每日目標" onClick={() => setView('profile')}><MonoIcon name="user" className="icon-md" /></button>
