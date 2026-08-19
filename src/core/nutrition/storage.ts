@@ -48,7 +48,7 @@ function normalizeSettings(settings: NutritionAppSettings): NutritionAppSettings
     llm: {
       provider: settings.llm?.provider || DEFAULT_NUTRITION_APP_SETTINGS.llm.provider,
       model: settings.llm?.model,
-      endpoint: settings.llm?.endpoint,
+      endpoints: settings.llm?.endpoints ? { ...settings.llm.endpoints } : undefined,
       apiKeys: { ...(settings.llm?.apiKeys ?? {}) }
     },
     // 舊資料沒有 health 欄位時保持 undefined（等同全部關閉），不要無中生有補一個全 false 物件——

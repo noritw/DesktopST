@@ -40,8 +40,34 @@ function resolveApiKey(llmSettings: NutritionLlmSettings): string {
 }
 
 function resolveBaseUrl(llmSettings: NutritionLlmSettings): string {
-  if (llmSettings.endpoint) return llmSettings.endpoint.replace(/\/+$/, '')
+  const endpoint = llmSettings.endpoints?.[llmSettings.provider]
+  if (endpoint) return endpoint.replace(/\/+$/, '')
   return 'https://api.openai.com/v1'
+}
+
+/** 跟 `core/llm/openai.ts` 的 `shouldOmitTemperature()` 判斷同一批模型（gpt-5／o 系列）。 */
+function isReasoningModel(model: string): boolean {
+  return /^gpt-5(\.|-|$)/i.test(model) || /^o\d/i.test(model)
+}
+
+/**
+ * gpt-5／o 系列（推理模型）的 Chat Completions 有兩個跟一般模型不同的地方：
+ *
+ * 1. 不接受 `max_tokens`，送了直接 400（"Unsupported parameter: 'max_tokens'
+ *    is not supported with this model. Use 'max_completion_tokens' instead."）
+ *    ——這是 owner 實測 `gpt-5.6-luna` 讀圖測試回 400 的根因。
+ * 2. 推理會**佔用同一份 `max_completion_tokens` 預算**，小預算（例如讀圖測試
+ *    原本的 20）很容易被推理吃光、正文回空字串，看起來像「沒反應」而不是
+ *    「不支援讀圖」——同一個坑 CLAUDE.md §5 也記過（本機推理模型）。
+ *    這裡用 `reasoning_effort: 'minimal'` 把推理壓到最低並拉高預算下限，
+ *    而不是無止盡加預算（那只會讓每次測試都變貴）。
+ */
+function reasoningAwareParams(model: string, requestedMaxTokens: number): Record<string, unknown> {
+  if (!isReasoningModel(model)) return { max_tokens: requestedMaxTokens }
+  return {
+    max_completion_tokens: Math.max(requestedMaxTokens, 300),
+    reasoning_effort: 'minimal'
+  }
 }
 
 /** 呼叫失敗時的統一錯誤，讓呼叫端能直接判斷是不是逾時。 */
@@ -132,7 +158,7 @@ export async function requestPhotoEstimate(params: RequestPhotoEstimateParams): 
     model: llmSettings.model,
     messages: [{ role: 'user', content }],
     response_format: { type: 'json_object' },
-    max_tokens: 1500
+    ...reasoningAwareParams(llmSettings.model!, 1500)
   }
   if (llmSettings.provider === 'local') {
     // 思考模型會把預算全花在 reasoning、正文回空字串，見 CLAUDE.md §5「本機 LLM 供應商」。
@@ -244,7 +270,7 @@ export async function testPhotoEstimateVision(
         { type: 'image_url', image_url: { url: `data:image/png;base64,${TEST_PIXEL_PNG_BASE64}` } }
       ]
     }],
-    max_tokens: 20
+    ...reasoningAwareParams(llmSettings.model!, 20)
   }
   if (llmSettings.provider === 'local') body.reasoning = { effort: 'none' }
 

@@ -1485,11 +1485,23 @@ function App(): React.JSX.Element {
                 {llmSettings.provider !== 'local' && (
                   <label>API Key<input type="password" value={llmSettings.apiKeys[llmSettings.provider] ?? ''} onChange={(event) => updateLlmSettings({ apiKeys: { ...llmSettings.apiKeys, [llmSettings.provider]: event.target.value } })} /></label>
                 )}
-                <label>端點（選填，本機模型需要）<input value={llmSettings.endpoint ?? ''} onChange={(event) => updateLlmSettings({ endpoint: event.target.value })} placeholder="例如 http://localhost:11434/v1" /></label>
+                {llmSettings.provider === 'local' ? (
+                  <label>端點（本機模型必填）<input value={llmSettings.endpoints?.[llmSettings.provider] ?? ''} onChange={(event) => updateLlmSettings({ endpoints: { ...llmSettings.endpoints, [llmSettings.provider]: event.target.value } })} placeholder="例如 http://localhost:11434/v1" /></label>
+                ) : (
+                  <details className="advanced-endpoint">
+                    <summary>進階：自訂端點（一般不需要，除非你走相容代理）</summary>
+                    <label>端點<input value={llmSettings.endpoints?.[llmSettings.provider] ?? ''} onChange={(event) => updateLlmSettings({ endpoints: { ...llmSettings.endpoints, [llmSettings.provider]: event.target.value } })} placeholder={`留空＝官方 ${llmSettings.provider === 'grok' ? 'Grok' : 'OpenAI'} API`} /></label>
+                  </details>
+                )}
                 <button type="button" disabled={testingConnection} onClick={() => void testLlmConnection()}>
                   {testingConnection ? '連線測試中...' : (llmSettings.provider === 'local' ? '測試連線（抓模型清單）' : '測試連線')}
                 </button>
-                {connectionTestMessage && <small className={connectionTestMessage.ok ? 'hint' : 'hint danger-text'}>{connectionTestMessage.text}</small>}
+                {connectionTestMessage && (
+                  <small className={connectionTestMessage.ok ? 'hint' : 'hint danger-text'}>
+                    {connectionTestMessage.text}
+                    {connectionTestMessage.ok && llmSettings.provider !== 'local' && '（雲端只列前 5 筆佐證連線成功，實際可選的模型看下面的下拉清單）'}
+                  </small>
+                )}
 
                 <label>模型（需支援讀圖，Vision）
                   {modelOptions.length > 0 ? (

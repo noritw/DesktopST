@@ -137,7 +137,14 @@ export interface BodyProfile {
 export interface NutritionLlmSettings {
   provider: string
   model?: string
-  endpoint?: string
+  /**
+   * 每個供應商各自的端點，鍵是 provider。**不是單一欄位**——早期版本只有
+   * 一個扁平的 `endpoint: string`，切供應商時舊值會被錯誤地沿用到新供應商
+   * 送出請求（例如切去本機測完，切回 OpenAI 卻還在打本機那個位址）。
+   * 這正是 CLAUDE.md §5「llm.endpoint 是遺留欄位」記載的同一類坑，
+   * 這裡直接比照 `apiKeys` 做成 per-provider，從源頭避免。
+   */
+  endpoints?: Record<string, string>
   apiKeys: Record<string, string>
 }
 

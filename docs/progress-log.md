@@ -2913,3 +2913,50 @@ drift（`providerInfo.ts` 檔頭記載的同一個坑）。`modelOptionLabel()` 
 
 `npm run typecheck`、`npm test`（73 檔、912 項）全過；
 `npm run build:nutrition:mobile` 建置成功。
+
+---
+
+## 2026-08-19（續四）｜拍照估算修 3 個 owner 實測回報的問題
+
+owner 實測上一輪的模型清單／測讀圖功能，選 OpenAI 卻還看得到「端點」欄位、
+測連線說「已連線找到 5 個模型」但不確定連到哪、選 `gpt-5.6-luna` 一鍵測讀圖
+回 400。三個都修了：
+
+1. **`gpt-5.6-luna` 400 錯誤（根因）**：gpt-5／o 系列（推理模型）的
+   Chat Completions **不接受 `max_tokens`**，要用 `max_completion_tokens`
+   ——跟 `core/llm/openai.ts` 的 `shouldOmitTemperature()` 判斷同一批模型
+   （`/^gpt-5(\.|-|$)/i` 或 `/^o\d/i`），只是換了要繞的參數。
+   `photoEstimateLlm.ts` 新增 `reasoningAwareParams()`，兩個呼叫模型的
+   函式（`requestPhotoEstimate`、`testPhotoEstimateVision`）都改用它。
+   順手處理了第二個坑：推理模型的**推理本身會佔用同一份 token 預算**，
+   讀圖測試原本的 20 tokens 很容易被推理吃光、正文回空字串（看起來像
+   「沒反應」而不是「不支援讀圖」）——加 `reasoning_effort: 'minimal'`
+   把推理壓到最低，並把測試用的預算下限拉到 300。
+2. **openai 供應商為什麼有端點欄位**：那個欄位其實是給「走 OpenAI 相容
+   代理」這種進階情境用的，但攤平顯示在主要欄位裡讓人誤以為必填。
+   照桌面／DeST 手機（`SettingsView.tsx` 的「進階」收合區）同樣的處理方式，
+   雲端供應商（openai／grok）的端點欄位收進 `<details>「進階：自訂端點」`，
+   `local` 供應商維持攤平顯示（那裡是必填）。
+3. **「已連線，找到 5 個模型」到底連到哪裡**：這句話本身沒錯——雲端供應商
+   固定只列前 5 筆當連線佐證（跟桌面 `testLLMConnection` 同一個量級），
+   拿去 OpenAI 官方 API 驗證 Key 有效而已，UI 補一句「雲端只列前 5 筆佐證
+   連線成功，實際可選的模型看下面的下拉清單」講清楚。
+   **但過程中發現一個真正的 bug**：`NutritionLlmSettings.endpoint`
+   原本是單一扁平欄位（不像 `apiKeys` 是 per-provider 的
+   `Record<string,string>`），切供應商時舊值會被錯誤沿用——例如切去
+   `local` 測完填了 `http://localhost:11434/v1`，切回 `openai` 那個
+   位址還在，下一次請求會送去錯的地方。這正是 CLAUDE.md §5「llm.endpoint
+   是遺留欄位」記載的同一類坑，只是這次出現在 nutrition 模組自己那份
+   獨立設定裡。改成 `endpoints?: Record<string, string>`，比照
+   `apiKeys` 做成 per-provider（`types.ts`／`storage.ts` 正規化／
+   `migrationPack.ts`／`photoEstimateLlm.ts` 的 `resolveBaseUrl`／
+   `main.tsx` 的兩個端點輸入框都一併改掉），新增回歸測試覆蓋「切供應商後
+   端點互不影響」與「endpoints 正規化後維持 per-provider」。
+
+新增 3 項測試（`max_completion_tokens` 行為 2 項、endpoint 隔離 1 項）
+＋ storage 正規化 1 項，共 4 項；瀏覽器預覽 + mock fetch 重新驗證
+`gpt-5.6-luna` 讀圖測試，body 正確帶 `max_completion_tokens: 300` ／
+`reasoning_effort: 'minimal'`、不帶 `max_tokens`，顯示「✅ 這個模型可以讀圖」。
+
+`npm run typecheck`、`npm test`（73 檔、916 項）全過；
+`npm run build:nutrition:mobile` 建置成功。

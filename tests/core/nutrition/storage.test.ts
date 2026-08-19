@@ -39,4 +39,18 @@ describe('nutrition storage migration', () => {
     expect(snapshot.settings.showWeightBadge).toBe(true)
     expect(snapshot.settings.photoEstimate).toEqual({ enabled: true })
   })
+
+  it('llm.endpoints 是 per-provider 的，讀回來要維持每個 provider 各自的值', async () => {
+    const storage = createMemoryStorage()
+    await storage.writeJson('settings.json', {
+      llm: { provider: 'openai', apiKeys: {}, endpoints: { local: 'http://localhost:11434/v1', openai: 'https://my-proxy.example.com/v1' } }
+    })
+
+    const snapshot = await loadNutritionSnapshot(storage)
+
+    expect(snapshot.settings.llm.endpoints).toEqual({
+      local: 'http://localhost:11434/v1',
+      openai: 'https://my-proxy.example.com/v1'
+    })
+  })
 })

@@ -43,7 +43,7 @@ export function buildMigrationPack(
     foodItems: snapshot.foodItems,
     mealLogs: snapshot.mealLogs,
     bodyProfile: snapshot.bodyProfile,
-    llmSettings: { provider: snapshot.settings.llm.provider, model: snapshot.settings.llm.model, endpoint: snapshot.settings.llm.endpoint },
+    llmSettings: { provider: snapshot.settings.llm.provider, model: snapshot.settings.llm.model, endpoints: snapshot.settings.llm.endpoints },
     photos
   }
 }

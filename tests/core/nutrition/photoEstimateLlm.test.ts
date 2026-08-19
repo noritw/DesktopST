@@ -38,9 +38,61 @@ describe('requestPhotoEstimate', () => {
 
     expect(capturedUrl).toBe('https://api.openai.com/v1/chat/completions')
     expect(capturedBody.model).toBe('gpt-4o-mini')
+    expect(capturedBody.max_tokens).toBe(1500)
+    expect(capturedBody.max_completion_tokens).toBeUndefined()
     expect(results).toHaveLength(1)
     expect(results[0].name).toBe('燻雞三明治')
     expect(results[0].perServing).toEqual({ kcal: 320, proteinG: 18 })
+  })
+
+  it('gpt-5／o 系列送 max_completion_tokens 與 reasoning_effort，不送 max_tokens（owner 實測 gpt-5.6-luna 回 400 的根因）', async () => {
+    let capturedBody: any = null
+    const http = fakeHttp(async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body))
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({ results: [] }) } }] })
+    })
+    await requestPhotoEstimate({
+      llmSettings: { ...baseLlmSettings, model: 'gpt-5.6-luna' },
+      photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
+      recentNames: [],
+      http
+    })
+    expect(capturedBody.max_tokens).toBeUndefined()
+    expect(capturedBody.max_completion_tokens).toBe(1500)
+    expect(capturedBody.reasoning_effort).toBe('minimal')
+  })
+
+  it('o 系列（o1/o3/o4-mini…）也走 max_completion_tokens', async () => {
+    let capturedBody: any = null
+    const http = fakeHttp(async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body))
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({ results: [] }) } }] })
+    })
+    await requestPhotoEstimate({
+      llmSettings: { ...baseLlmSettings, model: 'o3' },
+      photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
+      recentNames: [],
+      http
+    })
+    expect(capturedBody.max_tokens).toBeUndefined()
+    expect(capturedBody.max_completion_tokens).toBe(1500)
+  })
+
+  it('切換供應商後端點互不影響（每個 provider 各自的 endpoints 鍵）', async () => {
+    let capturedUrl: string | null = null
+    const http = fakeHttp(async (input) => {
+      capturedUrl = String(input)
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({ results: [] }) } }] })
+    })
+    // 先前在 local 測過連線，endpoints.local 有殘留值；這次用 openai 送出，
+    // 不應該打到 local 那個位址（曾經因為單一扁平 endpoint 欄位而共用同一個值）。
+    await requestPhotoEstimate({
+      llmSettings: { ...baseLlmSettings, endpoints: { local: 'http://localhost:11434/v1' } },
+      photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
+      recentNames: [],
+      http
+    })
+    expect(capturedUrl).toBe('https://api.openai.com/v1/chat/completions')
   })
 
   it('自訂 endpoint 會拿掉結尾斜線再拼路徑', async () => {
@@ -50,7 +102,7 @@ describe('requestPhotoEstimate', () => {
       return jsonResponse({ choices: [{ message: { content: JSON.stringify({ results: [] }) } }] })
     })
     await requestPhotoEstimate({
-      llmSettings: { ...baseLlmSettings, provider: 'local', endpoint: 'http://localhost:11434/v1/', apiKeys: {} },
+      llmSettings: { ...baseLlmSettings, provider: 'local', endpoints: { local: 'http://localhost:11434/v1/' }, apiKeys: {} },
       photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
       recentNames: [],
       http
@@ -61,7 +113,7 @@ describe('requestPhotoEstimate', () => {
   it('local 供應商不需要 API Key', async () => {
     const http = fakeHttp(async () => jsonResponse({ choices: [{ message: { content: JSON.stringify({ results: [] }) } }] }))
     await expect(requestPhotoEstimate({
-      llmSettings: { provider: 'local', model: 'qwen3', endpoint: 'http://localhost:11434/v1', apiKeys: {} },
+      llmSettings: { provider: 'local', model: 'qwen3', endpoints: { local: 'http://localhost:11434/v1' }, apiKeys: {} },
       photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
       recentNames: [],
       http
@@ -154,7 +206,7 @@ describe('testNutritionLlmConnection', () => {
       capturedHeaders = init?.headers as Record<string, string>
       return jsonResponse({ data: Array.from({ length: 250 }, (_, i) => ({ id: `model-${i}` })) })
     })
-    const result = await testNutritionLlmConnection({ provider: 'local', model: '', endpoint: 'http://localhost:11434/v1', apiKeys: {} }, http)
+    const result = await testNutritionLlmConnection({ provider: 'local', model: '', endpoints: { local: 'http://localhost:11434/v1' }, apiKeys: {} }, http)
     expect(capturedHeaders?.Authorization).toBeUndefined()
     expect(result.ok).toBe(true)
     expect(result.models).toHaveLength(200)
