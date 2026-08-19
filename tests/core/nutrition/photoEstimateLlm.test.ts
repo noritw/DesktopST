@@ -220,6 +220,57 @@ describe('requestPhotoEstimate', () => {
     })).rejects.toBeInstanceOf(PhotoEstimateRequestError)
   })
 
+  it('同一份食物的多張照片全部送出，且標註講明它們同屬一份（否則模型會拆成多筆）', async () => {
+    let capturedBody: any = null
+    const http = fakeHttp(async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body))
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({ results: [{ name: '燻雞三明治', perServing: { kcal: 320, proteinG: 18 } }] }) } }] })
+    })
+    await requestPhotoEstimate({
+      llmSettings: baseLlmSettings,
+      photos: [
+        { slot: 1, base64: 'AAA', mimeType: 'image/webp' },
+        { slot: 1, base64: 'BBB', mimeType: 'image/webp' },
+        { slot: 1, base64: 'CCC', mimeType: 'image/webp' }
+      ],
+      note: '燻雞三明治，有拍到營養標示',
+      recentNames: [],
+      http
+    })
+    const content = capturedBody.messages[0].content
+    const images = content.filter((p: any) => p.type === 'image_url')
+    expect(images).toHaveLength(3)
+    expect(images.map((p: any) => p.image_url.url)).toEqual([
+      'data:image/webp;base64,AAA',
+      'data:image/webp;base64,BBB',
+      'data:image/webp;base64,CCC'
+    ])
+    const captions = content.filter((p: any) => p.type === 'text').map((p: any) => p.text)
+    expect(captions.some((t: string) => t.includes('同屬一份食物'))).toBe(true)
+    // 補充說明要真的出現在送出的內容裡（規格 §1 原則 5 的最高優先線索）
+    expect(captions[0]).toContain('燻雞三明治，有拍到營養標示')
+  })
+
+  it('多份食物時標註要講第幾份（slot），不能只說「同屬一份」', async () => {
+    let capturedBody: any = null
+    const http = fakeHttp(async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body))
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({ results: [] }) } }] })
+    })
+    await requestPhotoEstimate({
+      llmSettings: baseLlmSettings,
+      photos: [
+        { slot: 1, base64: 'AAA', mimeType: 'image/webp' },
+        { slot: 2, base64: 'BBB', mimeType: 'image/webp' }
+      ],
+      recentNames: [],
+      http
+    })
+    const captions = capturedBody.messages[0].content.filter((p: any) => p.type === 'text').map((p: any) => p.text)
+    expect(captions.some((t: string) => t.includes('第 1 份食物'))).toBe(true)
+    expect(captions.some((t: string) => t.includes('第 2 份食物'))).toBe(true)
+  })
+
   it('grok 沒填端點時打官方 x.ai 端點，不是悄悄落到 OpenAI 的預設值', async () => {
     let capturedUrl: string | null = null
     const http = fakeHttp(async (input) => {

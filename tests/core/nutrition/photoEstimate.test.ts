@@ -43,14 +43,38 @@ describe('matchFoodItem', () => {
 })
 
 describe('buildPhotoEstimatePrompt', () => {
-  it('不含個資，且帶入最近食物名稱', () => {
+  it('帶入最近食物名稱，但不含體重／熱量上限等個資（§3.1）', () => {
     const prompt = buildPhotoEstimatePrompt(['燻雞三明治', '滷雞腿便當'])
     expect(prompt).toContain('燻雞三明治、滷雞腿便當')
-    expect(prompt).not.toMatch(/kcal.*:\s*\d/i)
+    // 只送名稱清單，不送使用者的身體資料與每日目標
+    expect(prompt).not.toMatch(/體重|身高|體脂|上限|dailyKcalLimit|weightKg/)
   })
 
   it('沒有最近名稱時仍能組出 prompt', () => {
     expect(buildPhotoEstimatePrompt([])).toContain('JSON')
+  })
+
+  /**
+   * 2026-08-19 owner 實測「一直回問號」的根因回歸測試：prompt 原本只說
+   * 「回傳規格所述的估算結果」而沒有把欄位名稱寫進去，模型只能自己發明格式，
+   * parse 一律失敗 → UI 全是「？」。這幾個欄位名是 `parseEstimateResult()`
+   * 實際會讀的鍵，缺一個就會有欄位默默變 null。
+   */
+  it('把完整的輸出欄位格式寫進 prompt（沒有的話模型會自己發明格式，parse 全滅）', () => {
+    const prompt = buildPhotoEstimatePrompt([])
+    for (const field of ['results', 'perServing', 'kcal', 'proteinG', 'carbsG', 'fatG', 'sugarG', 'sodiumMg', 'nutritionSource', 'confidence', 'noteConflict']) {
+      expect(prompt).toContain(field)
+    }
+  })
+
+  it('明講 kcal／proteinG 不得回 null（謹慎的模型會傾向留空，那等同估算失敗）', () => {
+    const prompt = buildPhotoEstimatePrompt([])
+    expect(prompt).toMatch(/kcal 與 proteinG 一定要給數字/)
+    expect(prompt).toMatch(/不可以填 null/)
+  })
+
+  it('說明同一份食物可以有多張照片，避免模型把 3 張拆成 3 筆', () => {
+    expect(buildPhotoEstimatePrompt([])).toMatch(/同一份食物可能有多張照片/)
   })
 })
 
@@ -82,6 +106,28 @@ describe('parseEstimateResult', () => {
   it('非物件／非陣列回空陣列', () => {
     expect(parseEstimateResult(null)).toEqual([])
     expect(parseEstimateResult('garbage')).toEqual([])
+  })
+
+  // 以下是「模型沒有照著 prompt 的欄位名回」的防禦層。prompt 已經逐欄指定格式，
+  // 但真的收到近義名時寧可認得出來，也不要讓使用者白花一次 token 看到「？」。
+  it('認得 calories／protein 這類近義欄位名', () => {
+    const results = parseEstimateResult([{ name: '便當', perServing: { calories: 700, protein: 30 } }])
+    expect(results[0].perServing).toMatchObject({ kcal: 700, proteinG: 30 })
+  })
+
+  it('營養數字攤在最外層（沒包進 perServing）也撈得到', () => {
+    const results = parseEstimateResult([{ name: '便當', kcal: 700, proteinG: 30, carbsG: 90 }])
+    expect(results[0].perServing).toMatchObject({ kcal: 700, proteinG: 30, carbsG: 90 })
+  })
+
+  it('只有熱量、沒有蛋白質時仍然可用（蛋白補 0，不要整筆變 null）', () => {
+    const results = parseEstimateResult([{ name: '便當', perServing: { kcal: 700 } }])
+    expect(results[0].perServing).toEqual({ kcal: 700, proteinG: 0 })
+  })
+
+  it('連熱量都沒有才回 null（這時才是真的估算失敗）', () => {
+    const results = parseEstimateResult([{ name: '便當', perServing: { proteinG: 30 } }])
+    expect(results[0].perServing).toBeNull()
   })
 })
 

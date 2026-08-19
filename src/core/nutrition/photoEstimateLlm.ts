@@ -166,16 +166,31 @@ interface ChatContentPart {
   source?: { type: 'base64'; media_type: string; data: string }
 }
 
+/**
+ * 圖片前面那句說明文字。**單份食物多張照片是常態**（包裝正面／營養成分表／內容物，
+ * 見規格 §2.6 拍法 A），所以標註要講「第幾張、屬於第幾份食物」兩件事——
+ * 只標 slot 的話模型會把同一份食物的 3 張照片當成 3 份食物，回 3 筆結果。
+ */
+function photoCaption(photo: PhotoEstimatePhoto, indexWithinSlot: number, totalSlots: number): string {
+  const which = `第 ${indexWithinSlot} 張照片`
+  return totalSlots > 1 ? `（${which}，屬於第 ${photo.slot} 份食物）` : `（${which}，與其他照片同屬一份食物）`
+}
+
+function imagePart(base64: string, mimeType: string, provider: string): ChatContentPart {
+  return ANTHROPIC_PROVIDERS.has(provider)
+    ? { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } }
+    : { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } }
+}
+
 function buildContentParts(promptText: string, photos: PhotoEstimatePhoto[], provider: string): ChatContentPart[] {
-  const isAnthropic = ANTHROPIC_PROVIDERS.has(provider)
+  const totalSlots = new Set(photos.map((p) => p.slot)).size
+  const seenPerSlot = new Map<number, number>()
   const parts: ChatContentPart[] = [{ type: 'text', text: promptText }]
   for (const photo of photos) {
-    parts.push({ type: 'text', text: `（以下圖片屬於 slot ${photo.slot}）` })
-    parts.push(
-      isAnthropic
-        ? { type: 'image', source: { type: 'base64', media_type: photo.mimeType, data: photo.base64 } }
-        : { type: 'image_url', image_url: { url: `data:${photo.mimeType};base64,${photo.base64}` } }
-    )
+    const indexWithinSlot = (seenPerSlot.get(photo.slot) ?? 0) + 1
+    seenPerSlot.set(photo.slot, indexWithinSlot)
+    parts.push({ type: 'text', text: photoCaption(photo, indexWithinSlot, totalSlots) })
+    parts.push(imagePart(photo.base64, photo.mimeType, provider))
   }
   return parts
 }
@@ -223,13 +238,13 @@ export async function requestPhotoEstimate(params: RequestPhotoEstimateParams): 
   const apiKey = resolveApiKey(llmSettings)
   const isAnthropic = ANTHROPIC_PROVIDERS.has(llmSettings.provider)
 
+  // 補充說明放在格式說明之後、緊鄰圖片之前，是刻意的：這是規格 §1 原則 5 的
+  // 「最高優先線索」，離圖片越近模型越不容易忽略它。
   const promptText = [
     buildPhotoEstimatePrompt(recentNames),
     '',
-    note ? `使用者補充說明：${note}` : '使用者補充說明：（留白，純依圖片判斷）',
-    '',
-    '請回傳一個 JSON 物件，格式為 { "results": [ ... ] }，results 內每個元素對應規格所述的單份食物估算結果。',
-    ...(isAnthropic ? ['只回傳 JSON 本身，不要加上其他文字或 ```code fence```。'] : [])
+    note ? `使用者的補充說明（最高優先，優先於你從圖片看到的）：${note}` : '使用者沒有填補充說明，請純依圖片判斷。',
+    ...(isAnthropic ? ['', '只回傳 JSON 本身，不要加上其他文字或 ```code fence```。'] : [])
   ].join('\n')
 
   const content = buildContentParts(promptText, photos, llmSettings.provider)
@@ -339,10 +354,12 @@ export async function testPhotoEstimateVision(
   const apiKey = resolveApiKey(llmSettings)
   const isAnthropic = ANTHROPIC_PROVIDERS.has(llmSettings.provider)
 
-  const promptText = '這是一張測試圖片。如果你能看到圖片內容，回覆「可以讀圖」；否則回覆「無法讀圖」。不要回其他文字。'
-  const content = buildContentParts(promptText, [{ slot: 1, base64: TEST_PIXEL_PNG_BASE64, mimeType: 'image/png' }], llmSettings.provider)
-  // 測試用的圖片沒有實際的 slot 概念，拿掉 buildContentParts 自動插入的那句「屬於 slot 1」提示文字。
-  const trimmedContent = content.filter((part) => part.text !== '（以下圖片屬於 slot 1）')
+  // 這裡不走 buildContentParts：測試圖片沒有 slot／份數的概念，不需要那些標註文字
+  // （先前用字串比對把標註過濾掉，標註文案一改就默默失效——直接組兩個 part 更穩）。
+  const trimmedContent: ChatContentPart[] = [
+    { type: 'text', text: '這是一張測試圖片。如果你能看到圖片內容，回覆「可以讀圖」；否則回覆「無法讀圖」。不要回其他文字。' },
+    imagePart(TEST_PIXEL_PNG_BASE64, 'image/png', llmSettings.provider)
+  ]
   const headers = buildRequestHeaders(llmSettings, apiKey)
 
   const body: Record<string, unknown> = isAnthropic

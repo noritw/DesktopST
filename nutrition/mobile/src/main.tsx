@@ -376,12 +376,23 @@ function App(): React.JSX.Element {
   const [estimatePhase, setEstimatePhase] = React.useState<'idle' | 'noteInput' | 'loading' | 'result' | 'error'>('idle')
   const [estimateResult, setEstimateResult] = React.useState<PhotoEstimateResult | null>(null)
   const [estimateMatchedFood, setEstimateMatchedFood] = React.useState<FoodItem | null>(null)
-  const [estimatePhotoBytes, setEstimatePhotoBytes] = React.useState<Uint8Array | null>(null)
+  const [estimatePhotoBytes, setEstimatePhotoBytes] = React.useState<Uint8Array[]>([])
   const [estimateError, setEstimateError] = React.useState<string | null>(null)
-  /** 選好照片、還沒送出估算前的中繼狀態（§2.7：送出前一定有一次補充機會）。 */
-  const [estimateSelectedFile, setEstimateSelectedFile] = React.useState<File | null>(null)
-  const [estimatePreviewUrl, setEstimatePreviewUrl] = React.useState<string | null>(null)
+  /**
+   * 選好照片、還沒送出估算前的中繼狀態（§2.7：送出前一定有一次補充機會）。
+   * 是**陣列**：同一份食物常常要拍好幾張才估得準（包裝正面／營養成分表／
+   * 實際內容物，見規格 §2.6 拍法 A），上限比照 `FoodItem.photoKeys` 的 3 張。
+   */
+  const [estimateSelectedFiles, setEstimateSelectedFiles] = React.useState<File[]>([])
+  const [estimatePreviewUrls, setEstimatePreviewUrls] = React.useState<string[]>([])
   const [estimateNote, setEstimateNote] = React.useState('')
+  /**
+   * 目前活著的 blob URL。用 ref 而不是直接讀 state：`resetEstimateState()` 會在
+   * 存檔完成的 `.then()` 裡被呼叫，那時 closure 抓到的 state 可能已經過期，
+   * 少 revoke 一個就是一個永遠不會被回收的 blob。
+   */
+  const estimatePreviewUrlsRef = React.useRef<string[]>([])
+  React.useEffect(() => { estimatePreviewUrlsRef.current = estimatePreviewUrls }, [estimatePreviewUrls])
   /** local 供應商沒有寫死的型號目錄，「測試連線」打 GET /v1/models 抓回來的清單。 */
   const [localModels, setLocalModels] = React.useState<string[]>([])
   const [testingConnection, setTestingConnection] = React.useState(false)
@@ -940,14 +951,13 @@ function App(): React.JSX.Element {
     setEstimatePhase('idle')
     setEstimateResult(null)
     setEstimateMatchedFood(null)
-    setEstimatePhotoBytes(null)
+    setEstimatePhotoBytes([])
     setEstimateError(null)
-    setEstimateSelectedFile(null)
+    setEstimateSelectedFiles([])
     setEstimateNote('')
-    setEstimatePreviewUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
-      return null
-    })
+    for (const url of estimatePreviewUrlsRef.current) URL.revokeObjectURL(url)
+    estimatePreviewUrlsRef.current = []
+    setEstimatePreviewUrls([])
   }
 
   function openPhotoEstimate(): void {
@@ -960,15 +970,29 @@ function App(): React.JSX.Element {
     setView('daily')
   }
 
-  /** 選好照片後先進補充說明頁，不直接送出（§2.7：文字比讓模型從圖上猜準得多）。 */
-  function pickEstimatePhoto(file: File): void {
-    setEstimateSelectedFile(file)
-    setEstimatePreviewUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev)
-      return URL.createObjectURL(file)
-    })
-    setEstimateNote('')
+  /**
+   * 選好照片後先進補充說明頁，不直接送出（§2.7：文字比讓模型從圖上猜準得多）。
+   * 可以重複呼叫加照片（上限 MAX_FOOD_PHOTOS），一次多選也吃得下。
+   */
+  function addEstimatePhotos(files: FileList | File[]): void {
+    const incoming = Array.from(files)
+    if (incoming.length === 0) return
+    // ⚠️ 建立 blob URL 這種副作用**不能**放進 setState 的 updater 裡：
+    // updater 必須是純函式，StrictMode 會刻意雙呼叫來抓這種寫法，結果就是
+    // 每張照片被建兩個 URL（畫面出現 6 張縮圖、而且洩漏 blob）。
+    const accepted = incoming.slice(0, MAX_FOOD_PHOTOS - estimateSelectedFiles.length)
+    if (accepted.length === 0) return
+    const urls = accepted.map((file) => URL.createObjectURL(file))
+    setEstimateSelectedFiles((prev) => [...prev, ...accepted])
+    setEstimatePreviewUrls((prev) => [...prev, ...urls])
     setEstimatePhase('noteInput')
+  }
+
+  function removeEstimatePhoto(index: number): void {
+    const target = estimatePreviewUrls[index]
+    if (target) URL.revokeObjectURL(target)
+    setEstimateSelectedFiles((prev) => prev.filter((_, i) => i !== index))
+    setEstimatePreviewUrls((prev) => prev.filter((_, i) => i !== index))
   }
 
   /** 只送名稱，不送營養數字／體重／上限等個資（§3.1）。 */
@@ -980,19 +1004,19 @@ function App(): React.JSX.Element {
       .map((item) => item.name)
   }
 
-  /** 「估算」：補充說明可留白直接送，留白就純依圖片判斷。 */
+  /** 「估算」：補充說明可留白直接送，留白就純依圖片判斷。多張照片一律當成同一份食物（slot 1）。 */
   async function submitEstimate(): Promise<void> {
-    const file = estimateSelectedFile
-    if (!file) return
+    const files = estimateSelectedFiles
+    if (files.length === 0) return
     setEstimatePhase('loading')
     setEstimateError(null)
     try {
-      const bytes = await compressImageFile(file)
-      setEstimatePhotoBytes(bytes)
+      const bytesList = await Promise.all(files.map((file) => compressImageFile(file)))
+      setEstimatePhotoBytes(bytesList)
       const note = estimateNote.trim()
       const results = await requestPhotoEstimate({
         llmSettings,
-        photos: [{ slot: 1, base64: bytesToBase64(bytes), mimeType: 'image/webp' }],
+        photos: bytesList.map((bytes) => ({ slot: 1, base64: bytesToBase64(bytes), mimeType: 'image/webp' })),
         note: note || undefined,
         recentNames: recentFoodNames(),
         http: nutritionMobileHttp
@@ -1021,14 +1045,19 @@ function App(): React.JSX.Element {
       const newMealLogId = `meal-${now}-${Math.round(Math.random() * 1e6)}`
       let photoKeys: FoodItem['photoKeys'] = []
       let mealPhotoKeyValue: string | undefined
-      if (photoBytes) {
+      if (photoBytes.length > 0) {
         if (matchedFood) {
+          // 命中既有食物時不動食物庫的照片，只把第一張留成這一餐的紀錄照。
           mealPhotoKeyValue = mealPhotoKey(newMealLogId)
-          await nutritionMobileStorage.writeBinary(mealPhotoKeyValue, photoBytes)
+          await nutritionMobileStorage.writeBinary(mealPhotoKeyValue, photoBytes[0])
         } else {
-          const key = foodPhotoKey(newFoodItemId, 0)
-          await nutritionMobileStorage.writeBinary(key, photoBytes)
-          photoKeys = [key]
+          const keys: string[] = []
+          for (let i = 0; i < photoBytes.length && i < MAX_FOOD_PHOTOS; i++) {
+            const key = foodPhotoKey(newFoodItemId, i)
+            await nutritionMobileStorage.writeBinary(key, photoBytes[i])
+            keys.push(key)
+          }
+          photoKeys = keys as FoodItem['photoKeys']
         }
       }
       const { foodItem, mealLog } = applyEstimateToEntries(result, {
@@ -1063,12 +1092,12 @@ function App(): React.JSX.Element {
     setNewTagInput('')
     pendingDeletePhotoKeysRef.current = []
     sessionAddedPhotoKeysRef.current = []
-    let photoKeys: string[] = []
-    if (estimatePhotoBytes) {
-      const key = foodPhotoKey(id, 0)
-      await nutritionMobileStorage.writeBinary(key, estimatePhotoBytes)
+    const photoKeys: string[] = []
+    for (let i = 0; i < estimatePhotoBytes.length && i < MAX_FOOD_PHOTOS; i++) {
+      const key = foodPhotoKey(id, i)
+      await nutritionMobileStorage.writeBinary(key, estimatePhotoBytes[i])
       sessionAddedPhotoKeysRef.current.push(key)
-      photoKeys = [key]
+      photoKeys.push(key)
     }
     setFoodDraft({
       name: result.name ?? '',
@@ -1667,14 +1696,13 @@ function App(): React.JSX.Element {
           {estimatePhase === 'idle' && (
             <label className="photo-add photo-add-large">
               <MonoIcon name="plus" className="icon-md" />
-              <span>拍照或從相簿選一張</span>
+              <span>拍照或從相簿選（最多 {MAX_FOOD_PHOTOS} 張）</span>
               <input
                 type="file"
                 accept="image/*"
-                capture="environment"
+                multiple
                 onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  if (file) pickEstimatePhoto(file)
+                  if (event.target.files) addEstimatePhotos(event.target.files)
                   event.target.value = ''
                 }}
               />
@@ -1682,7 +1710,31 @@ function App(): React.JSX.Element {
           )}
           {estimatePhase === 'noteInput' && (
             <section className="estimate-note-section">
-              {estimatePreviewUrl && <img className="estimate-note-preview" src={estimatePreviewUrl} alt="" />}
+              <div className="photo-grid">
+                {estimatePreviewUrls.map((url, index) => (
+                  <div className="photo-thumb" key={url}>
+                    <img src={url} alt="" />
+                    <button type="button" className="photo-remove" aria-label="移除照片" onClick={() => removeEstimatePhoto(index)}>
+                      <MonoIcon name="close" className="icon-sm" />
+                    </button>
+                  </div>
+                ))}
+                {estimateSelectedFiles.length < MAX_FOOD_PHOTOS && (
+                  <label className="photo-add">
+                    <MonoIcon name="plus" className="icon-md" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={(event) => {
+                        if (event.target.files) addEstimatePhotos(event.target.files)
+                        event.target.value = ''
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+              <small className="hint">同一份食物可以拍好幾張（包裝正面、營養成分表、實際內容物），會合併成一筆估算——有拍到成分表的話數字最準。</small>
               <label>補充說明（可留白，但文字比讓模型從圖上猜準得多——至少講一下這是什麼）
                 <textarea
                   value={estimateNote}
@@ -1692,23 +1744,29 @@ function App(): React.JSX.Element {
                   autoFocus
                 />
               </label>
-              <button type="button" className="primary" onClick={() => void submitEstimate()}>估算</button>
+              <button type="button" className="primary" disabled={estimateSelectedFiles.length === 0} onClick={() => void submitEstimate()}>
+                估算（{estimateSelectedFiles.length} 張）
+              </button>
             </section>
           )}
           {estimatePhase === 'loading' && <p className="empty">估算中...</p>}
           {estimatePhase === 'error' && (
             <>
               <p className="hint">估算失敗：{estimateError}</p>
+              {estimateSelectedFiles.length > 0 && (
+                <button type="button" className="primary" onClick={() => setEstimatePhase('noteInput')}>
+                  回上一步改說明再試一次
+                </button>
+              )}
               <label className="photo-add photo-add-large">
                 <MonoIcon name="plus" className="icon-md" />
-                <span>重試（重新選照片）</span>
+                <span>重新選照片</span>
                 <input
                   type="file"
                   accept="image/*"
-                  capture="environment"
+                  multiple
                   onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    if (file) pickEstimatePhoto(file)
+                    if (event.target.files) addEstimatePhotos(event.target.files)
                     event.target.value = ''
                   }}
                 />

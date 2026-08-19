@@ -31,23 +31,66 @@ export function matchFoodItem(
 // §3：AI 呼叫規格 — prompt 組裝與結果解析
 // ---------------------------------------------------------------------------
 
-/** 組 prompt，不含個資（只送名稱清單，不送營養數字／體重／上限），見 §3.1。 */
+/**
+ * 組 prompt，不含個資（只送名稱清單，不送營養數字／體重／上限），見 §3.1。
+ *
+ * ⚠️ **輸出格式必須逐欄寫在 prompt 裡**（2026-08-19 owner 實測「一直回問號」的根因）。
+ * 這支原本只說「回傳規格所述的估算結果」，但那份規格在 `docs/` 裡、**從來沒被送進 prompt**，
+ * 模型只能自己發明欄位名（`熱量`／`calories`／`protein`…），而 `parseEstimateResult()`
+ * 只認 `perServing.kcal`／`perServing.proteinG` → 一律 parse 成 `null` → UI 顯示「？」。
+ * 症狀很有迷惑性：模型其實看得懂圖也答得出來，錯的是**我們沒告訴它要怎麼回**。
+ *
+ * 同理，`kcal`／`proteinG` 一定要明講「不確定也要給數字、不得填 null」——
+ * 謹慎的模型碰到看不清楚的照片會傾向回 null，那在這個 App 裡等同估算失敗
+ * （使用者要的是一個可以先存、之後再改的數字，不是一個誠實的 null）。
+ */
 export function buildPhotoEstimatePrompt(recentNames: readonly string[]): string {
   const lines: string[] = []
-  lines.push('你是飲食記錄助手。使用者會提供 1～N 份食物的照片（每張標明所屬 slot），估算每份食物的營養資訊。')
+  lines.push('你是飲食記錄助手。使用者會提供一份或多份食物的照片，請估算每份食物的營養資訊。')
+  lines.push('同一份食物可能有多張照片（例如包裝正面、營養成分表、實際內容物），請合併判讀成一筆結果。')
   lines.push('')
   lines.push('規則（依優先序）：')
   lines.push('1. 若補充說明文字有提到品項或份量，一律以文字為準，不得用圖片推論覆蓋；文字未提到的部分才從圖片判斷。')
   lines.push('2. 若任一張是營養成分表，必須逐欄讀出填入 label，不得改用經驗值；nutritionSource 標記為 label（完整）或 label-partial（缺欄位）。')
   lines.push('3. 食物可能被包裝紙、紙袋、餐盒部分遮住，只根據可見部分推論，看不到的餡料不要編；用可見的份量線索推份量，不要一律預設一份。')
-  lines.push('4. 同時估算 carbsG、fatG、sugarG（公克）、sodiumMg（毫克，注意台灣標示的鈉單位固定是毫克，不要跟公克搞混）；成分表有就讀、沒有就依常識粗估，抓不到就留空，不要求精確。')
+  lines.push('4. 同時估算 carbsG、fatG、sugarG（公克）、sodiumMg（毫克，注意台灣標示的鈉單位固定是毫克，不要跟公克搞混）；成分表有就讀、沒有就依食物常識粗估。')
   lines.push('5. 若文字與圖片明顯矛盾，以文字為準，並在 noteConflict 說明差異；無矛盾則 noteConflict 為 null。')
+  lines.push('6. **kcal 與 proteinG 一定要給數字**，就算照片模糊、看不清楚、只能大概猜也要給你最合理的估計值，**不可以填 null 或 0**。真的很不確定時就把 confidence 設成 "low"，並在 note 說明你看到什麼。')
   if (recentNames.length > 0) {
     lines.push('')
-    lines.push(`使用者最近／最常吃的食物名稱（優先沿用既有名稱以提高比對命中率）：${recentNames.join('、')}`)
+    lines.push(`使用者最近／最常吃的食物名稱（若照片就是其中之一，請沿用完全相同的名稱以提高比對命中率）：${recentNames.join('、')}`)
   }
   lines.push('')
-  lines.push('請以 JSON 陣列回覆，陣列順序須對齊送出的 slot（slot: 1..N），每個元素為單份食物的估算結果。')
+  lines.push('只回傳 JSON，不要有其他文字。格式如下（欄位名稱與大小寫必須完全一致）：')
+  lines.push('')
+  lines.push('{')
+  lines.push('  "results": [')
+  lines.push('    {')
+  lines.push('      "name": "燻雞三明治",            // 食物名稱，必填')
+  lines.push('      "brand": "7-11",                 // 品牌或店家，不確定填 null')
+  lines.push('      "flavor": null,                  // 口味，沒有填 null')
+  lines.push('      "servings": 1,                   // 照片中看到的份數')
+  lines.push('      "perServing": {                  // 「一份」的營養，必填')
+  lines.push('        "kcal": 320,                   // 熱量（大卡），必填數字')
+  lines.push('        "proteinG": 18,                // 蛋白質（公克），必填數字')
+  lines.push('        "carbsG": 34,                  // 碳水（公克），估不到填 null')
+  lines.push('        "fatG": 12,                    // 脂肪（公克），估不到填 null')
+  lines.push('        "sugarG": 5,                   // 糖（公克），估不到填 null')
+  lines.push('        "sodiumMg": 610                // 鈉（毫克），估不到填 null')
+  lines.push('      },')
+  lines.push('      "nutritionSource": "estimate",   // "label"=依營養標示 / "label-partial"=標示不完整 / "estimate"=你估的')
+  lines.push('      "label": null,                   // 有讀到營養標示才填，格式見下方')
+  lines.push('      "confidence": "high",            // "high" / "medium" / "low"')
+  lines.push('      "appliedNote": true,             // 是否採用了使用者的補充說明')
+  lines.push('      "noteConflict": null,            // 文字與圖片矛盾時的一句說明，否則 null')
+  lines.push('      "note": "三明治，內含雞肉與生菜"  // 一句話描述你看到什麼，讓使用者判斷有沒有認錯')
+  lines.push('    }')
+  lines.push('  ]')
+  lines.push('}')
+  lines.push('')
+  lines.push('讀到營養標示時，label 欄位格式：')
+  lines.push('{ "basis": "per100g" | "perServing" | "perPackage", "servingSizeG": 60, "servingsPerPackage": 2, "kcal": 250, "proteinG": 9, "carbsG": 27, "fatG": 9, "sugarG": 8, "sodiumMg": 480 }')
+  lines.push('（basis 表示標示上的數字是「每100公克」/「每一份量」/「每包裝」；換算由程式處理，你只要照實讀出表上的數字即可，不要自己換算。）')
   return lines.join('\n')
 }
 
@@ -104,17 +147,40 @@ function parseLabel(raw: unknown): PhotoEstimateLabel | null {
   }
 }
 
+/**
+ * 取第一個有值的鍵。**別名不是裝飾用的**：prompt 雖然已經逐欄指定格式
+ * （見 `buildPhotoEstimatePrompt` 的說明），但不同模型／不同溫度下偶爾還是會
+ * 吐 `calories`／`protein` 這種近義名，而這個 App 一旦 parse 失敗就只能顯示
+ * 「？」——與其讓使用者白花一次 token，不如在這裡多認幾個常見寫法。
+ */
+function pickNumber(obj: Record<string, unknown>, keys: readonly string[]): number | undefined {
+  for (const key of keys) {
+    const value = toFiniteNumber(obj[key])
+    if (value !== undefined) return value
+  }
+  return undefined
+}
+
+const KCAL_KEYS = ['kcal', 'calories', 'calorie', 'energyKcal', 'kCal'] as const
+const PROTEIN_KEYS = ['proteinG', 'protein', 'proteinGrams'] as const
+const CARBS_KEYS = ['carbsG', 'carbs', 'carbohydrateG', 'carbohydratesG', 'carbohydrates'] as const
+const FAT_KEYS = ['fatG', 'fat', 'fatGrams'] as const
+const SUGAR_KEYS = ['sugarG', 'sugar', 'sugarsG'] as const
+const SODIUM_KEYS = ['sodiumMg', 'sodium', 'sodiumMilligrams'] as const
+
 function parsePerServing(raw: unknown): FoodNutritionPerServing | null {
   if (!raw || typeof raw !== 'object') return null
   const obj = raw as Record<string, unknown>
-  const kcal = toFiniteNumber(obj.kcal)
-  const proteinG = toFiniteNumber(obj.proteinG)
-  if (kcal === undefined || proteinG === undefined) return null
-  const result: FoodNutritionPerServing = { kcal, proteinG }
-  const carbsG = toFiniteNumber(obj.carbsG)
-  const fatG = toFiniteNumber(obj.fatG)
-  const sugarG = toFiniteNumber(obj.sugarG)
-  const sodiumMg = toFiniteNumber(obj.sodiumMg)
+  const kcal = pickNumber(obj, KCAL_KEYS)
+  const proteinG = pickNumber(obj, PROTEIN_KEYS)
+  // kcal 是這個 App 的核心欄位，沒有它整筆記錄沒有意義；蛋白質缺值時補 0
+  // 讓使用者至少能先存下熱量、之後在食物庫補（比整筆變「？」有用）。
+  if (kcal === undefined) return null
+  const result: FoodNutritionPerServing = { kcal, proteinG: proteinG ?? 0 }
+  const carbsG = pickNumber(obj, CARBS_KEYS)
+  const fatG = pickNumber(obj, FAT_KEYS)
+  const sugarG = pickNumber(obj, SUGAR_KEYS)
+  const sodiumMg = pickNumber(obj, SODIUM_KEYS)
   if (carbsG !== undefined) result.carbsG = carbsG
   if (fatG !== undefined) result.fatG = fatG
   if (sugarG !== undefined) result.sugarG = sugarG
@@ -128,19 +194,21 @@ function parseOne(raw: unknown, fallbackSlot: number): PhotoEstimateResult {
   const confidence = obj.confidence === 'high' || obj.confidence === 'medium' || obj.confidence === 'low' ? obj.confidence : 'low'
   const nutritionSource =
     obj.nutritionSource === 'label' || obj.nutritionSource === 'label-partial' ? obj.nutritionSource : 'estimate'
+  // 有些模型會把營養數字直接攤在最外層而不是包進 perServing，退而求其次從外層撈。
+  const perServing = parsePerServing(obj.perServing) ?? parsePerServing(obj.nutrition) ?? parsePerServing(obj)
   return {
     slot,
-    name: toStringOrNull(obj.name),
-    brand: toStringOrNull(obj.brand),
+    name: toStringOrNull(obj.name) ?? toStringOrNull(obj.foodName) ?? toStringOrNull(obj.food),
+    brand: toStringOrNull(obj.brand) ?? toStringOrNull(obj.store),
     flavor: toStringOrNull(obj.flavor),
     servings: toFiniteNumber(obj.servings) ?? null,
-    perServing: parsePerServing(obj.perServing),
+    perServing,
     nutritionSource,
     label: parseLabel(obj.label),
     confidence,
     appliedNote: obj.appliedNote === true,
     noteConflict: toStringOrNull(obj.noteConflict),
-    note: toStringOrNull(obj.note)
+    note: toStringOrNull(obj.note) ?? toStringOrNull(obj.description)
   }
 }
 

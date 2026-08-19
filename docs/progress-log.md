@@ -3054,3 +3054,74 @@ owner 實測回報：拍好幾張都被 AI 猜回一堆「？」，浪費 token�
 
 `npm run typecheck`、`npm test`（73 檔、921 項）全過；
 `npm run build:nutrition:mobile` 建置成功。
+
+---
+
+## 2026-08-19（續七）｜「一直回問號」的真正根因：prompt 從沒告訴模型輸出格式
+
+owner 加了補充說明之後**還是回一堆問號**，並問「我平常用自己的 AI 網頁介面
+都估得出來啊」。這句話就是關鍵線索——模型看得懂圖、也答得出來，**錯的是
+我們沒告訴它要怎麼回**。
+
+**根因**：`buildPhotoEstimatePrompt()` 從頭到尾只說「請以 JSON 回覆，每個
+元素為**規格所述**的單份食物估算結果」——但那份「規格」在 `docs/` 裡，
+**從來沒有被送進 prompt**。模型只能自己發明欄位名（`熱量`／`calories`／
+`protein`…），而 `parseEstimateResult()` 只認 `perServing.kcal`／
+`perServing.proteinG`，一律 parse 成 `null` → UI 顯示「？」。
+症狀極具迷惑性：模型其實運作正常、token 也真的花了，錯在我們這端的契約
+只寫在文件裡、沒寫進請求裡。**這類「兩邊各有一份格式定義」的漂移，
+CLAUDE.md §5 在 M4 `contentHash.ts` 那次已經記過一模一樣的教訓**，
+只是這次漂移的另一半不是另一個模組，而是「文件 vs. 實際送出的 prompt」。
+
+順帶一提，舊 prompt 還自相矛盾：`buildPhotoEstimatePrompt()` 結尾說
+「請以 JSON **陣列**回覆」，呼叫端又接了一句「請回傳一個 JSON **物件**，
+格式為 `{ "results": [...] }`」。已合併成單一份格式說明，只留在 prompt 組裝那支。
+
+修法三層（由內而外）：
+
+1. **prompt 逐欄寫出完整輸出格式**（含註解的 JSON 範例＋`label` 子物件格式）。
+   欄位名稱與大小寫必須完全一致這件事直接寫在 prompt 裡。
+2. **明講 `kcal`／`proteinG` 不得回 null**：謹慎的模型碰到看不清楚的照片會
+   傾向留空，但在這個 App 裡「誠實的 null」等同估算失敗——使用者要的是一個
+   可以先存、之後再改的數字。不確定時改用 `confidence: "low"` 表達。
+3. **解析器放寬當防禦層**：認 `calories`／`protein`／`carbohydrates` 等近義名，
+   營養數字攤在最外層（沒包進 `perServing`）也撈得到；只有熱量沒有蛋白質時
+   蛋白補 0 而不是整筆作廢（能存下熱量比顯示「？」有用），**只有連熱量都沒有
+   才回 null**（那才是真的失敗）。
+
+**同時做掉 owner 要的多張照片**（規格 §2.6 拍法 A：包裝正面＋營養成分表＋
+內容物，本來就是準確率最高的拍法，而且成分表那張才是數字準的關鍵）：
+
+- 補充說明頁改成照片格（上限 3 張＝`FoodItem.photoKeys` 上限），可多選、
+  可逐張移除，按鈕顯示「估算（N 張）」。
+- **多張一律當成同一份食物**（都送 `slot: 1`），新食物存入時依序寫進
+  `photoKeys`；命中既有食物時只把第一張留成該餐的紀錄照，不動食物庫。
+- 圖片前的標註從「（以下圖片屬於 slot 1）」改成「（第 N 張照片，與其他照片
+  **同屬一份食物**）」——只標 slot 的話模型會把 3 張照片當成 3 份食物回 3 筆。
+  多份食物時（未來 §2.6.1）則標「第 N 份食物」，兩種措辭都有測試守著。
+- 失敗頁多一顆「回上一步改說明再試一次」：估錯時最有效的動作是補一句話，
+  而不是重選同一批照片盲猜。
+
+**過程中抓到一個自己剛引入的 bug**：`addEstimatePhotos()` 原本把
+`URL.createObjectURL()` 這個副作用寫在 `setState` 的 updater 函式裡，
+而 updater 必須是純函式——React StrictMode 刻意雙呼叫來抓這種寫法，
+結果每張照片被建兩個 blob URL（畫面出現 6 張縮圖、而且洩漏 blob）。
+瀏覽器預覽一跑就看到縮圖數量不對。已改成在 updater 外面先算好；
+`removeEstimatePhoto()`／`resetEstimateState()` 的 `revokeObjectURL`
+同樣移出 updater，並改用 ref 追蹤目前活著的 URL——後者會在存檔完成的
+`.then()` 裡被呼叫，那時 closure 抓到的 state 可能已經過期，少 revoke
+一個就是一個永遠不會被回收的 blob。
+
+9 項新測試（prompt 必含各欄位名／必含「不得填 null」／必含「同一份食物可能
+有多張照片」、解析器 4 種寬鬆情境、多張同屬一份的標註、多份食物的 slot 標註）。
+瀏覽器預覽驗證：一次選 3 張正確顯示 3 格縮圖（不是 6 格）、移除一張後
+加號格回來且按鈕變「估算（2 張）」、送出的 request 確認 2 張圖都在、
+標註寫「同屬一份食物」、補充說明在 prompt 末端、結果卡顯示真實數字
+（210 kcal · 蛋白 24 g · 依營養標示）而不是問號。
+
+⚠️ 預覽 console 有 `createRoot() on a container that has already been
+passed` 警告，那是 dev server HMR 重跑模組造成的既有雜訊
+（`git diff` 確認 `createRoot` 那段本次完全沒動），APK 沒有 HMR 不受影響。
+
+`npm run typecheck`、`npm test`（73 檔、930 項）全過；
+`npm run build:nutrition:mobile` 建置成功。
