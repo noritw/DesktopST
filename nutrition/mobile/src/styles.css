@@ -192,6 +192,12 @@ label input, label select { margin-top: 0; font-weight: 400; }
 .toggle-row { display: flex; align-items: center; gap: 8px; font-weight: 400; cursor: pointer; }
 .toggle-row input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; accent-color: #65bda6; }
 .toggle-row span { font-size: 14px; color: #3d5a52; }
+
+.photo-add-large { position: relative; width: 100%; height: 180px; border-radius: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: #eefaf5; color: #4f9c8a; font-weight: 700; cursor: pointer; border: 1px dashed #9fd4c1; }
+.photo-add-large input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.estimate-result-card { display: grid; gap: 8px; background: #eefaf5; border-radius: 14px; padding: 16px; }
+.estimate-result-card strong { font-size: 17px; color: #3d5a52; }
+.estimate-result-card p { margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dynamic-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: #eefaf5; color: #4f9c8a; font-weight: 700; font-size: 10px; vertical-align: middle; }
 
 .danger-zone { border-top: 1px solid #d8ebe4; padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }

@@ -1,7 +1,11 @@
 # 拍照估熱量（Photo → AI 估算）—— 實作規劃
 
-> 狀態：**P1 已實作（core 純函式＋單元測試），P2 起尚未開始。** 屬於飲食模組（`desktopst.nutrition`）B9b 的先行切片。
-> P1 落地：`src/core/nutrition/photoEstimate.ts`＋`tests/core/nutrition/photoEstimate.test.ts`，細節見 `docs/progress-log.md` 2026-08-19（續）條目。
+> 狀態：**P1／P2 已實作，真機尚未驗證。** 屬於飲食模組（`desktopst.nutrition`）B9b 的先行切片。
+> P1 落地：`src/core/nutrition/photoEstimate.ts`＋測試。
+> P2 落地：`src/core/nutrition/photoEstimateLlm.ts`（呼叫模型）＋手機 UI（拍照→結果卡→存入，單張單份）。
+> 細節見 `docs/progress-log.md` 2026-08-19（續）／（續二）條目。
+> **P2 範圍刻意縮小**：單張照片、單份食物、無送出前補充頁——多份食物（§2.6）、
+> 補充頁（§2.7）、相簿補記（§2.5）、營養標示（§2.6.2）都還沒做，見 §7 分期表。
 > 最後更新：2026-08-19（補 §2.5 相簿補記、§2.6 多張與標示、§2.7 送出前補充頁、§2.8 秤重模式、§2.9 模型能力與費用、§2.10 AI 估算開關、§2.11 舊食物一鍵重估；分組改手動、移除相簿掃描與份量快捷；碳水/脂肪/糖/鈉一併備查）。
 > 母規格：`docs/future-nutrition-module.md`（資料模型／搬家包／範圍以母規格為準，本文件不重述）。
 > 與「小工具（Widget）」二選一時：**先做本項**（owner 每天的真痛點是入帳，不是看數字）。

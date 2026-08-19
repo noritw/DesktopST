@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import MonoIcon from '@shared/MonoIcon'
 import {
+  applyEstimateToEntries,
   applyMigrationPack,
   buildDailyView,
   buildMigrationPack,
@@ -10,13 +11,16 @@ import {
   calculateTdeeKcal,
   collectReferencedPhotoKeys,
   foodPhotoKey,
+  matchFoodItem,
   matchFoodKeyword,
   mealPhotoKey,
   nextFreeFoodPhotoIndex,
+  requestPhotoEstimate,
   suggestTodayKcalLimit,
   MAX_FOOD_PHOTOS,
   NUTRITION_PACK_EXTENSION,
   NutritionSession,
+  PhotoEstimateRequestError,
   toIsoDateString,
   type BodyProfile,
   type FoodItem,
@@ -25,20 +29,27 @@ import {
   type NutritionActivityLevel,
   type NutritionGoal,
   type NutritionHealthSettings,
+  type NutritionLlmSettings,
   type NutritionMigrationPack,
-  type NutritionSnapshot
+  type NutritionSnapshot,
+  type PhotoEstimateResult
 } from '@core/nutrition'
 import type { HealthSnapshot } from '@core/adapters'
+import { bytesToBase64 } from '@core/util/base64'
 import { buildInfoLines } from './buildInfo'
 import { downloadBytes, pickFile } from './fileTransfer'
 import { nutritionHealthAdapter } from './health'
+import { nutritionMobileHttp } from './http'
 import { compressImageFile } from './imageInput'
 import { nutritionMobileStorage } from './storage'
 import './styles.css'
 
 const DEFAULT_HEALTH_SETTINGS: NutritionHealthSettings = { connected: false, autoSync: true, useWatchCalorieLimit: false }
+const DEFAULT_LLM_SETTINGS: NutritionLlmSettings = { provider: 'openai', apiKeys: {} }
+/** 最近／最常吃的食物名稱清單上限（§3.1，只送名稱不送營養數字）。 */
+const RECENT_FOOD_NAMES_LIMIT = 30
 
-type View = 'daily' | 'library' | 'foodForm' | 'mealEditor' | 'profile' | 'about' | 'transfer'
+type View = 'daily' | 'library' | 'foodForm' | 'mealEditor' | 'profile' | 'about' | 'transfer' | 'photoEstimate'
 /** 新增／編輯食物表單是從哪裡打開的，返回時要回到同一個地方，而不是永遠回食物庫。 */
 type FoodFormOrigin = 'library' | 'quickEntry' | 'mealEditor'
 
@@ -350,6 +361,15 @@ function App(): React.JSX.Element {
   const [transferBusy, setTransferBusy] = React.useState(false)
   const [transferMessage, setTransferMessage] = React.useState<string | null>(null)
 
+  // --- 拍照估熱量（§2.10：第三層開關，預設關）---
+  const [photoEstimateEnabled, setPhotoEstimateEnabled] = React.useState(false)
+  const [llmSettings, setLlmSettings] = React.useState<NutritionLlmSettings>(DEFAULT_LLM_SETTINGS)
+  const [estimatePhase, setEstimatePhase] = React.useState<'idle' | 'loading' | 'result' | 'error'>('idle')
+  const [estimateResult, setEstimateResult] = React.useState<PhotoEstimateResult | null>(null)
+  const [estimateMatchedFood, setEstimateMatchedFood] = React.useState<FoodItem | null>(null)
+  const [estimatePhotoBytes, setEstimatePhotoBytes] = React.useState<Uint8Array | null>(null)
+  const [estimateError, setEstimateError] = React.useState<string | null>(null)
+
   React.useEffect(() => { viewRef.current = view }, [view])
   React.useEffect(() => { photoPreviewRef.current = photoPreview }, [photoPreview])
   React.useEffect(() => {
@@ -363,7 +383,7 @@ function App(): React.JSX.Element {
         if (photoPreviewRef.current) { setPhotoPreview(null); return }
         const current = viewRef.current
         if (current === 'foodForm') { leaveFoodForm(); return }
-        if (current === 'library' || current === 'mealEditor' || current === 'profile' || current === 'about' || current === 'transfer') { setView('daily'); return }
+        if (current === 'library' || current === 'mealEditor' || current === 'profile' || current === 'about' || current === 'transfer' || current === 'photoEstimate') { setView('daily'); return }
         void CapacitorApp.exitApp()
       }).catch(() => null)
       if (cancelled) void handle?.remove()
@@ -393,6 +413,8 @@ function App(): React.JSX.Element {
       }
       if (session.settings.health) setHealthSettings(session.settings.health)
       setShowWeightBadge(session.settings.showWeightBadge ?? false)
+      setLlmSettings(session.settings.llm)
+      setPhotoEstimateEnabled(session.settings.photoEstimate?.enabled ?? false)
       applySnapshot(session)
 
       // 開關 1／2 都開時，App 開啟本身就是「前景事件」，比照小工具顯示自動同步一次
@@ -469,6 +491,22 @@ function App(): React.JSX.Element {
     setShowWeightBadge(next)
     void runAction(async (session) => {
       await session.saveSettings({ ...session.settings, showWeightBadge: next })
+    })
+  }
+
+  function updatePhotoEstimateEnabled(next: boolean): void {
+    setPhotoEstimateEnabled(next)
+    void runAction(async (session) => {
+      await session.saveSettings({ ...session.settings, photoEstimate: { enabled: next } })
+    })
+  }
+
+  /** 同一顆存檔動作用在四個欄位上（§2.10.1：開關開啟時同一頁就能設 nutrition.llm）。 */
+  function updateLlmSettings(patch: Partial<NutritionLlmSettings>): void {
+    const next = { ...llmSettings, ...patch }
+    setLlmSettings(next)
+    void runAction(async (session) => {
+      await session.saveSettings({ ...session.settings, llm: next })
     })
   }
 
@@ -833,6 +871,138 @@ function App(): React.JSX.Element {
       const target = session.mealLogs.find((log) => log.id === id)
       if (target) await session.saveMealLog({ ...target, photoKey: undefined, updatedAt: Date.now() })
     })
+  }
+
+  // --- 拍照估熱量：三步正常路徑（開相機 1、快門 1、估算 1、存入 1）---
+  // 規格 docs/nutrition-photo-estimate-plan.md §2.1。P2 範圍：單張照片、單份食物；
+  // 多份食物／送出前補充頁／相簿補記留給後續分期（§7 P2.6／P3.5）。
+
+  function resetEstimateState(): void {
+    setEstimatePhase('idle')
+    setEstimateResult(null)
+    setEstimateMatchedFood(null)
+    setEstimatePhotoBytes(null)
+    setEstimateError(null)
+  }
+
+  function openPhotoEstimate(): void {
+    resetEstimateState()
+    setView('photoEstimate')
+  }
+
+  function discardEstimate(): void {
+    resetEstimateState()
+    setView('daily')
+  }
+
+  /** 只送名稱，不送營養數字／體重／上限等個資（§3.1）。 */
+  function recentFoodNames(): string[] {
+    if (!snapshot) return []
+    return [...snapshot.foodItems]
+      .sort((a, b) => (b.lastEatenAt ?? 0) - (a.lastEatenAt ?? 0) || (b.useCount ?? 0) - (a.useCount ?? 0))
+      .slice(0, RECENT_FOOD_NAMES_LIMIT)
+      .map((item) => item.name)
+  }
+
+  async function handleEstimatePhoto(file: File): Promise<void> {
+    setEstimatePhase('loading')
+    setEstimateError(null)
+    try {
+      const bytes = await compressImageFile(file)
+      setEstimatePhotoBytes(bytes)
+      const results = await requestPhotoEstimate({
+        llmSettings,
+        photos: [{ slot: 1, base64: bytesToBase64(bytes), mimeType: 'image/webp' }],
+        recentNames: recentFoodNames(),
+        http: nutritionMobileHttp
+      })
+      const result = results[0]
+      if (!result) throw new PhotoEstimateRequestError('模型沒有回傳可用的結果')
+      const candidates = result.name ? matchFoodItem(result.name, result.brand, snapshot?.foodItems ?? []) : []
+      setEstimateMatchedFood(candidates.length === 1 ? candidates[0] : null)
+      setEstimateResult(result)
+      setEstimatePhase('result')
+    } catch (error) {
+      setEstimateError(error instanceof Error ? error.message : String(error))
+      setEstimatePhase('error')
+    }
+  }
+
+  /** 「存入」：一顆按鈕完成兩筆寫入，不讓使用者選要不要建食物庫（§2.2）。 */
+  function saveEstimateResult(): void {
+    if (!estimateResult) return
+    const result = estimateResult
+    const matchedFood = estimateMatchedFood
+    const photoBytes = estimatePhotoBytes
+    void runAction(async (session) => {
+      const now = Date.now()
+      const newFoodItemId = `food-${now}`
+      const newMealLogId = `meal-${now}-${Math.round(Math.random() * 1e6)}`
+      let photoKeys: FoodItem['photoKeys'] = []
+      let mealPhotoKeyValue: string | undefined
+      if (photoBytes) {
+        if (matchedFood) {
+          mealPhotoKeyValue = mealPhotoKey(newMealLogId)
+          await nutritionMobileStorage.writeBinary(mealPhotoKeyValue, photoBytes)
+        } else {
+          const key = foodPhotoKey(newFoodItemId, 0)
+          await nutritionMobileStorage.writeBinary(key, photoBytes)
+          photoKeys = [key]
+        }
+      }
+      const { foodItem, mealLog } = applyEstimateToEntries(result, {
+        matchedFoodItem: matchedFood,
+        newFoodItemId,
+        newMealLogId,
+        now,
+        eatenAt: now,
+        eatenAtSource: 'now',
+        servings: result.servings ?? 1,
+        photoKeys,
+        mealPhotoKey: mealPhotoKeyValue
+      })
+      if (foodItem) await session.saveFoodItem(foodItem)
+      await session.saveMealLog(mealLog)
+    }).then(() => {
+      resetEstimateState()
+      setView('daily')
+    })
+  }
+
+  /** 「不對，我改」：帶著估算結果與照片跳進既有的食物表單，不重造一套編輯 UI（§4.1）。 */
+  async function openFoodFormFromEstimate(): Promise<void> {
+    if (!estimateResult) return
+    const result = estimateResult
+    const id = `food-${Date.now()}`
+    setEditingFoodId(id)
+    setIsNewFood(true)
+    setFoodFormOrigin('quickEntry')
+    setConfirmDeleteFood(false)
+    setConfirmDuplicateFood(false)
+    setNewTagInput('')
+    pendingDeletePhotoKeysRef.current = []
+    sessionAddedPhotoKeysRef.current = []
+    let photoKeys: string[] = []
+    if (estimatePhotoBytes) {
+      const key = foodPhotoKey(id, 0)
+      await nutritionMobileStorage.writeBinary(key, estimatePhotoBytes)
+      sessionAddedPhotoKeysRef.current.push(key)
+      photoKeys = [key]
+    }
+    setFoodDraft({
+      name: result.name ?? '',
+      aliases: '',
+      brand: result.brand ?? '',
+      flavor: result.flavor ?? '',
+      tags: [],
+      kcal: result.perServing ? String(result.perServing.kcal) : '',
+      proteinG: result.perServing ? String(result.perServing.proteinG) : '',
+      carbsG: result.perServing?.carbsG !== undefined ? String(result.perServing.carbsG) : '',
+      fatG: result.perServing?.fatG !== undefined ? String(result.perServing.fatG) : '',
+      photoKeys
+    })
+    resetEstimateState()
+    setView('foodForm')
   }
 
   function saveProfile(applyTdee: boolean): void {
@@ -1230,6 +1400,39 @@ function App(): React.JSX.Element {
         </section>
 
         <section className="health-sync-section">
+          <strong>AI 拍照估算</strong>
+          <p className="hint">
+            拍一張照，用你自己的 API Key 呼叫模型估算熱量與蛋白質。<strong>每次估算都會產生費用</strong>（本地模型除外）。
+            也可以在自己平常用的 AI 那邊估好，回來手打即可，不需要開這個。
+          </p>
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={photoEstimateEnabled}
+              disabled={saving}
+              onChange={(event) => updatePhotoEstimateEnabled(event.target.checked)}
+            />
+            <span>開啟 AI 拍照估算</span>
+          </label>
+          {photoEstimateEnabled && (
+            <>
+              <label>供應商
+                <select value={llmSettings.provider} onChange={(event) => updateLlmSettings({ provider: event.target.value })}>
+                  <option value="openai">OpenAI</option>
+                  <option value="local">本機（Ollama／LM Studio 等）</option>
+                  <option value="grok">Grok</option>
+                </select>
+              </label>
+              <label>模型（需支援讀圖）<input value={llmSettings.model ?? ''} onChange={(event) => updateLlmSettings({ model: event.target.value })} placeholder="例如 gpt-4o-mini" /></label>
+              {llmSettings.provider !== 'local' && (
+                <label>API Key<input type="password" value={llmSettings.apiKeys[llmSettings.provider] ?? ''} onChange={(event) => updateLlmSettings({ apiKeys: { ...llmSettings.apiKeys, [llmSettings.provider]: event.target.value } })} /></label>
+              )}
+              <label>端點（選填，本機模型需要）<input value={llmSettings.endpoint ?? ''} onChange={(event) => updateLlmSettings({ endpoint: event.target.value })} placeholder="例如 http://localhost:11434/v1" /></label>
+            </>
+          )}
+        </section>
+
+        <section className="health-sync-section">
           <strong>Health 同步</strong>
           <p className="hint">
             讀 Android 的 Health Connect（Google Health 背後同一份資料）：手錶、體重計只要有寫進去就讀得到。
@@ -1328,6 +1531,75 @@ function App(): React.JSX.Element {
     )
   }
 
+  if (view === 'photoEstimate') {
+    return (
+      <main className="shell">
+        <Header title="拍照記錄" onBack={discardEstimate} />
+        <section className="food-form">
+          {estimatePhase === 'idle' && (
+            <label className="photo-add photo-add-large">
+              <MonoIcon name="plus" className="icon-md" />
+              <span>拍照或從相簿選一張</span>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void handleEstimatePhoto(file)
+                  event.target.value = ''
+                }}
+              />
+            </label>
+          )}
+          {estimatePhase === 'loading' && <p className="empty">估算中...</p>}
+          {estimatePhase === 'error' && (
+            <>
+              <p className="hint">估算失敗：{estimateError}</p>
+              <label className="photo-add photo-add-large">
+                <MonoIcon name="plus" className="icon-md" />
+                <span>重試（重新選照片）</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    if (file) void handleEstimatePhoto(file)
+                    event.target.value = ''
+                  }}
+                />
+              </label>
+              <button type="button" onClick={() => openFoodForm(null, 'quickEntry')}>改用手動輸入</button>
+            </>
+          )}
+          {estimatePhase === 'result' && estimateResult && (
+            <section className="estimate-result-card">
+              <strong>{estimateMatchedFood ? estimateMatchedFood.name : (estimateResult.name ?? '未命名')}</strong>
+              {(estimateMatchedFood?.brand ?? estimateResult.brand) && <small>{estimateMatchedFood?.brand ?? estimateResult.brand}</small>}
+              {estimateMatchedFood ? (
+                <p>沿用你的紀錄：{estimateMatchedFood.perServing.kcal} kcal · 蛋白 {estimateMatchedFood.perServing.proteinG} g</p>
+              ) : (
+                <>
+                  <p>
+                    約 {estimateResult.perServing?.kcal ?? '？'} kcal · 蛋白 {estimateResult.perServing?.proteinG ?? '？'} g
+                    <span className="tag-chip">{estimateResult.nutritionSource === 'label' ? '依營養標示' : estimateResult.nutritionSource === 'label-partial' ? '標示不完整' : 'AI 估算'}</span>
+                  </p>
+                  {estimateResult.confidence === 'low' && <small className="hint">不太確定，存入後可到食物庫修改</small>}
+                </>
+              )}
+              {estimateResult.note && <small className="hint">{estimateResult.note}</small>}
+              <div className="scope-choice">
+                <button type="button" className="primary" disabled={saving} onClick={saveEstimateResult}>存入</button>
+                <button type="button" disabled={saving} onClick={() => void openFoodFormFromEstimate()}>不對，我改</button>
+              </div>
+            </section>
+          )}
+        </section>
+      </main>
+    )
+  }
+
   return (
     <main className="shell">
       <Header title="" onEyebrowClick={() => setView('about')} center={showWeightBadge && bodyProfile ? <WeightBadge profile={bodyProfile} /> : undefined} actions={
@@ -1350,6 +1622,11 @@ function App(): React.JSX.Element {
         </div>
         <div><span>蛋白質</span><strong className={bodyProfile && daily.totalProteinG >= bodyProfile.dailyProteinGoalG ? 'good' : ''}>{daily.totalProteinG} g</strong><small>/ {bodyProfile?.dailyProteinGoalG ?? '未設定'}</small></div>
       </section>
+      {photoEstimateEnabled && (
+        <button type="button" className="primary full-width" disabled={saving} onClick={openPhotoEstimate}>
+          <MonoIcon name="plus" className="icon-sm" /> 拍照記錄
+        </button>
+      )}
       <button type="button" className="primary full-width" disabled={saving} onClick={() => setQuickEntryOpen((open) => {
         const next = !open
         if (next) setQuickEntryTime(timeInputValue(Date.now()))

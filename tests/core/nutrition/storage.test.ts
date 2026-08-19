@@ -25,4 +25,18 @@ describe('nutrition storage migration', () => {
 
     expect(snapshot.foodItems[0].brand).toBe('星巴克')
   })
+
+  it('保留 showWeightBadge／photoEstimate 這些非 llm/health 的頂層設定（重開不會消失）', async () => {
+    const storage = createMemoryStorage()
+    await storage.writeJson('settings.json', {
+      llm: { provider: 'openai', apiKeys: {} },
+      showWeightBadge: true,
+      photoEstimate: { enabled: true }
+    })
+
+    const snapshot = await loadNutritionSnapshot(storage)
+
+    expect(snapshot.settings.showWeightBadge).toBe(true)
+    expect(snapshot.settings.photoEstimate).toEqual({ enabled: true })
+  })
 })

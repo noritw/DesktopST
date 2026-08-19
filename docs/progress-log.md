@@ -2788,3 +2788,70 @@ B9b 第一個切片開工，規格見 `docs/nutrition-photo-estimate-plan.md`。
 資料檔案是 P2.8 的事）。下一步是 P2（手機拍照→結果卡→存入的三步正常路徑）。
 
 `npm run typecheck`、`npm test`（72 檔、894 項）全過。
+
+---
+
+## 2026-08-19（續二）｜拍照估熱量 P2：接真模型＋手機三步正常路徑
+
+延續（續）的 P1，這次做 P2（§7）：真的呼叫模型、手機拍照→結果卡→存入。
+**範圍刻意縮小到單張照片、單份食物**——多份食物、送出前補充頁、營養標示、
+相簿補記都還沒做，那些是 P2.5 之後的分期，先把「拍一張、存一筆」的骨架
+跑通、真的接上模型，比一次把全部功能疊起來更容易抓錯。
+
+**core 新增** `src/core/nutrition/photoEstimateLlm.ts`（`requestPhotoEstimate`）：
+
+- 走 OpenAI 相容的 **Chat Completions**（`/v1/chat/completions`），不是
+  `openai.ts` 那條走的 Responses API——這支是本地模型伺服器（Ollama／
+  LM Studio）最普遍支援的格式，且不想把 `openai` SDK 這個重依賴拉進
+  `nutrition/mobile` 這個目前很輕量的獨立小 App（它的 `package.json`
+  只有 4 個 Capacitor 套件）。直接用注入的 `HttpAdapter` 打 fetch，
+  `response_format: json_object` 要求模型回 `{ "results": [...] }`
+  （json_object 模式要求根節點是物件，不能直接回陣列）。
+- 只支援 `openai`／`local`／`grok` 三家（都是 OpenAI 相容格式）；Claude／
+  Gemini 圖片格式不同，且 nutrition.llm 是獨立於角色主模型的一套設定，
+  暫不支援，丟明確錯誤而不是靜默失敗。
+- 逾時外部自己包 `AbortController`＋`setTimeout`（規格 §3.3 建議 12 秒）——
+  跟 CLAUDE.md §5 提醒的「CapacitorHttp 忽略 signal」是同一個坑，這支雖然
+  目前用瀏覽器原生 fetch，但寫法上不依賴呼叫端的 signal 生效，先把保險絲
+  裝上。
+- 9 項新測試（假 `HttpAdapter` 驗證請求 URL／body／逾時／各種錯誤情境）。
+
+**手機 UI**（`nutrition/mobile/src/main.tsx`）新增第三層開關「AI 拍照估算」
+（`docs/nutrition-photo-estimate-plan.md` §2.10，預設關）：
+
+- 設定頁（「身體資料與每日目標」畫面）新增一個區塊，開關開啟時同一頁
+  能設 `nutrition.llm`（供應商／模型／API Key／端點），不必跳到別的設定頁。
+- 開關關閉時，日常首頁「拍照記錄」入口整個不渲染（不是變灰）。
+- 拍照流程：相機直接開（`<input capture="environment">`）→ 壓縮
+  （沿用既有 `compressImageFile`，跟食物庫照片同一套管線）→ 呼叫模型
+  → 本機 `matchFoodItem` 比對食物庫（命中就沿用庫內數字，不採用 AI 的）
+  → 結果卡（名稱／品牌／熱量／蛋白／來源徽章／`note`）→「存入」一次寫
+  `FoodItem`（未命中時）＋`MealLog`；「不對，我改」直接把估算結果帶進
+  **既有的食物新增表單**（不重造一套編輯 UI，複用 `openFoodForm` 那一路
+  的欄位與存檔邏輯）。
+- 新增 `nutrition/mobile/src/http.ts`：這個獨立 App 目前沒有裝
+  CapacitorHttp（跟 DeST 主 App 不同），直接用瀏覽器原生 fetch 實作
+  `HttpAdapter`——之後若要繞 CORS 打本地模型，這是要補的地方。
+
+**順手修掉一個潛伏 bug**：`src/core/nutrition/storage.ts` 的
+`normalizeSettings()` 過去手動列出 `llm`／`health` 兩個欄位重建整個
+settings 物件，**沒有把 `showWeightBadge`（上一輪剛加的體重徽章開關）
+轉存過去**——代表那個開關每次重開 App 讀檔案時都會被靜靜清空。這次加
+`photoEstimate` 時發現同一個坑，一併補上兩個欄位並加了回歸測試
+（`storage.test.ts` 新增一筆：寫入含這兩欄位的 settings.json，讀回來
+要原封不動）。這類「加一個頂層設定欄位」的坑以後還會再踩，寫在
+`normalizeSettings` 旁邊的註解提醒了。
+
+**手機端手動驗證**（瀏覽器預覽 + mock fetch，非真機）：`npm run
+build:nutrition:mobile` 建置成功後，用 Browser 工具跑了一次完整路徑——
+開關開啟後「拍照記錄」按鈕出現 → 塞一張假圖片並攔截 `fetch` 回傳假的
+模型回應 → 結果卡正確顯示「燻雞三明治 · 7-11 · 約 320 kcal · 蛋白 18 g」
+→ 按「存入」→ 回到今日列表，熱量／蛋白數字正確累加、清單多一筆紀錄，
+全程 console 無錯誤。**這不是真機驗證**，Capacitor 原生層（相機權限、
+CapacitorHttp 若之後補裝）完全沒測到。
+
+尚未做（P2.5 起）：多份食物與翻頁確認、送出前補充說明頁、營養成分表
+OCR 與換算、秤重模式、相簿補記批次流程、模型能力／費用預估 UI、
+「不對，我改」的對話式重估、舊食物一鍵重估。
+
+`npm run typecheck`、`npm test`（73 檔、904 項）全過。
