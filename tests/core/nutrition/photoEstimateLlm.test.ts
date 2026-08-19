@@ -83,18 +83,20 @@ describe('requestPhotoEstimate', () => {
     expect(results).toEqual([])
   })
 
-  it('400 但不是「Unsupported parameter」格式時不重試，直接丟原始錯誤', async () => {
+  it('400 但不是「Unsupported parameter」格式時不重試，且錯誤內容仍讀得到', async () => {
     let attempt = 0
     const http = fakeHttp(async () => {
       attempt++
       return jsonResponse({ error: { message: 'invalid_api_key' } }, 400)
     })
+    // 不重試那條路徑會把已讀掉的 body 重建成新的 Response（手機端不依賴 clone()），
+    // 這裡順便驗證重建後呼叫端仍拿得到原始錯誤內容，不是空字串。
     await expect(requestPhotoEstimate({
       llmSettings: baseLlmSettings,
       photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
       recentNames: [],
       http
-    })).rejects.toBeInstanceOf(PhotoEstimateRequestError)
+    })).rejects.toThrow(/invalid_api_key/)
     expect(attempt).toBe(1)
   })
 

@@ -3185,3 +3185,59 @@ prompt 不得出現「不要一律預設一份」「寧可保守」這類傾向�
 
 `npm run typecheck`、`npm test`（73 檔、939 項）全過；
 `npm run build:nutrition:mobile` 建置成功。
+
+---
+
+## 2026-08-19（續九）｜本機模型連不上：飲食 App 漏開 CapacitorHttp
+
+owner 回報「本機模型現在是 DeST 可以連，這邊連測試連線都顯示 Failed to fetch」。
+**「DeST 連得上、這個 App 連不上」就是最強的線索**——同一台電腦、同一個
+Ollama，差別只在兩個 App 的 HTTP 走哪條路。
+
+**根因**：`nutrition/mobile/capacitor.config.ts` 少了
+`plugins: { CapacitorHttp: { enabled: true } }`。DeST 的 config 一直有這段
+（註解還寫著「原生 HTTP 接管全域 fetch，讓 WebView 的跨網域請求不受 CORS 限制」），
+建立飲食 App 的 config 時漏抄。沒開的話 `fetch` 就是 WebView 原生的那個，
+要受 CORS 管；Ollama 預設不送 CORS 標頭 → 一律 `Failed to fetch`。
+CLAUDE.md §5 其實已經記過這條規則（「core 裡要打外部 API 就注入 HttpAdapter…
+手機那邊要 CapacitorHttp patch 過才繞得過 CORS」），我在 P2 建
+`nutrition/mobile/src/http.ts` 時還親手寫了「目前沒有裝 CapacitorHttp，
+直接用瀏覽器原生 fetch」的註解——等於把已知的坑寫成註解然後跳進去。
+
+⚠️ 改 `capacitor.config.ts` 之後**一定要 `npx cap sync android`**：原生層讀的是
+`android/app/src/main/assets/capacitor.config.json`，不是那份 .ts。
+只重建 www 不會生效（已在 config 檔頭寫下這句提醒）。
+
+同時把 `nutrition/mobile/src/http.ts` 改成跟 DeST 的
+`src/mobile/adapters/httpAdapter.ts` 同一套處理，這幾點都是 CLAUDE.md §5
+記載過、開了 CapacitorHttp 才會浮現的坑：
+
+- **呼叫當下才讀 `globalThis.fetch`**，不可在模組載入時 bind——CapacitorHttp
+  是 plugin 初始化時才 patch `window.fetch`，先 bind 會抓到未 patch 的版本，
+  CORS 繞道整個失效，而且**只在真機炸、瀏覽器預覽看不出來**。
+- **`withAbort()` 把 signal 翻成 reject**：CapacitorHttp 完全忽略
+  `init.signal`，`photoEstimateLlm.ts` 裡的 12 秒逾時在真機上形同虛設，
+  模型一慢就無限等、UI 永遠停在「估算中...」。用 `Promise.race` 讓等待中止。
+  有 signal 時就不疊保底天花板——本機模型冷啟動（載模型進記憶體）可能要
+  好幾十秒，疊上去會變成「第一次問一定失敗、之後才正常」。
+- **`supportsStreaming: false`**（原生 HTTP 對 ReadableStream 支援不佳）。
+
+順帶把 `postJsonWithParamFallback()` 的 `response.clone()` 拿掉：手機端的
+Response 是原生橋接重建的，clone 支援度不如瀏覽器原生。改成讀完 body 後
+在不重試時用同樣內容重建一個還給呼叫端，行為一樣但不依賴 clone
+（新增測試驗證重建後錯誤內容仍讀得到，不是空字串）。
+
+`describeNetworkError()` 的提示也改寫了：開了 CapacitorHttp 之後 APK 端
+不再是 CORS 問題，最可能的成因換成「Ollama 預設只聽 127.0.0.1，手機根本
+連不到」，依機率重排成四點，並註明「瀏覽器預覽才需要 OLLAMA_ORIGINS」。
+
+瀏覽器預覽驗證三條路徑：連線失敗顯示新的四點提示、底層 fetch 永遠不 settle
+時仍在 12 秒後中止等待（證明 `withAbort` 有效，否則真機會永久卡住）、
+正常回應仍能抓到模型清單填進下拉選單。
+
+**仍待 owner 真機驗證**：這次要重打 APK 才會生效（config 改動只靠重建 www
+不夠）。若裝上去還是連不上，最可能是 `OLLAMA_HOST=0.0.0.0` 沒設——
+那是 App 這端無法解決的，錯誤訊息現在會把它列在第一條。
+
+`npm run typecheck`、`npm test`（73 檔、939 項）全過；
+`npm run sync:nutrition:android` 已跑，`capacitor.config.json` 確認含 CapacitorHttp。

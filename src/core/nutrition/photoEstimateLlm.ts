@@ -128,9 +128,14 @@ async function postJsonWithParamFallback(
   const response = await fetchWithTimeout(http, url, { method: 'POST', headers, body: JSON.stringify(body) }, timeoutMs, signal)
   if (response.status !== 400) return response
 
-  const text = await response.clone().text().catch(() => '')
+  // 這裡不用 `response.clone()`：手機端的 fetch 是 CapacitorHttp 原生橋接重建出來的
+  // Response，clone 的支援度不像瀏覽器原生那麼可靠。改成讀完 body 後在需要時
+  // 用同樣內容重建一個還給呼叫端，行為一樣但不依賴 clone。
+  const text = await response.text().catch(() => '')
   const match = text.match(/Unsupported parameter: '(\w+)'/)
-  if (!match || !(match[1] in body)) return response
+  if (!match || !(match[1] in body)) {
+    return new Response(text, { status: response.status, statusText: response.statusText, headers: response.headers })
+  }
 
   const retryBody = { ...body }
   delete retryBody[match[1]]
@@ -154,11 +159,28 @@ function extractJsonObject(raw: string): unknown {
   return null
 }
 
-/** local 供應商連不上時，多數情況是瀏覽器 CORS 擋下（Ollama 等預設不允許跨來源），補一句可行動的提示。 */
+/**
+ * local 供應商連不上時補一句可行動的提示。
+ *
+ * 瀏覽器的 `fetch` 基於安全考量**刻意不透露** CORS／連線失敗的細節，JS 只會拿到
+ * 無意義的 `TypeError: Failed to fetch`，所以這裡沒辦法「診斷」，只能把最常見的
+ * 幾個成因直接列給使用者，省得自己爬文。
+ *
+ * 順序是照實際踩到的機率排的：APK 端已經開了 CapacitorHttp（見
+ * `nutrition/mobile/capacitor.config.ts`）繞過 CORS，所以剩下最可能的是
+ * 「Ollama 只聽 127.0.0.1，手機根本連不到」。
+ */
 function describeNetworkError(llmSettings: NutritionLlmSettings, error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error)
   if (llmSettings.provider !== 'local') return raw
-  return `${raw}（本機模型常見原因：伺服器沒開放跨來源存取。Ollama 請設定環境變數 OLLAMA_ORIGINS=* 後重開，或確認端點位址與埠號正確、手機與伺服器在同一區網）`
+  return [
+    raw,
+    '（本機模型連不上，依可能性排序：',
+    '① Ollama 預設只聽 127.0.0.1，手機連不到 —— 需設環境變數 OLLAMA_HOST=0.0.0.0 後重開；',
+    '② 端點要填電腦的區網 IP（如 http://192.168.x.x:11434/v1），不是 localhost；',
+    '③ 電腦防火牆擋掉該埠；④ 手機與電腦不在同一個區網。',
+    '用瀏覽器預覽測試時還要另外設 OLLAMA_ORIGINS=*，APK 不需要。）'
+  ].join('')
 }
 
 interface ChatContentPart {
