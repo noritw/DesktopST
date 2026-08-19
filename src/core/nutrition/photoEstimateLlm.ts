@@ -52,6 +52,34 @@ export class PhotoEstimateRequestError extends Error {
   }
 }
 
+/** 進請求前的共通檢查，三個對外函式（估算／測連線／測讀圖）共用同一套規則。 */
+function checkBasicRequestPreconditions(llmSettings: NutritionLlmSettings, requireModel: boolean): string | null {
+  if (!OPENAI_COMPATIBLE_PROVIDERS.has(llmSettings.provider)) {
+    return `拍照估算目前只支援 openai／local／grok 供應商，收到：${llmSettings.provider}`
+  }
+  if (requireModel && !llmSettings.model) return '尚未選擇模型'
+  const apiKey = resolveApiKey(llmSettings)
+  if (!apiKey && llmSettings.provider !== 'local') return '尚未設定 API Key'
+  return null
+}
+
+async function fetchWithTimeout(
+  http: HttpAdapter,
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<Response> {
+  const timeoutController = new AbortController()
+  const timer = setTimeout(() => timeoutController.abort(), timeoutMs)
+  const combinedSignal = signal ? anySignal([signal, timeoutController.signal]) : timeoutController.signal
+  try {
+    return await http.fetch(url, { ...init, signal: combinedSignal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 function extractJsonObject(raw: string): unknown {
   try {
     return JSON.parse(raw)
@@ -76,19 +104,12 @@ function extractJsonObject(raw: string): unknown {
 export async function requestPhotoEstimate(params: RequestPhotoEstimateParams): Promise<PhotoEstimateResult[]> {
   const { llmSettings, photos, note, recentNames, http, signal, timeoutMs = DEFAULT_TIMEOUT_MS } = params
 
-  if (!OPENAI_COMPATIBLE_PROVIDERS.has(llmSettings.provider)) {
-    throw new PhotoEstimateRequestError(`拍照估算目前只支援 openai／local／grok 供應商，收到：${llmSettings.provider}`)
-  }
-  if (!llmSettings.model) {
-    throw new PhotoEstimateRequestError('尚未選擇模型')
-  }
-  const apiKey = resolveApiKey(llmSettings)
-  if (!apiKey && llmSettings.provider !== 'local') {
-    throw new PhotoEstimateRequestError('尚未設定 API Key')
-  }
+  const precondition = checkBasicRequestPreconditions(llmSettings, true)
+  if (precondition) throw new PhotoEstimateRequestError(precondition)
   if (photos.length === 0) {
     throw new PhotoEstimateRequestError('沒有照片可以送出')
   }
+  const apiKey = resolveApiKey(llmSettings)
 
   const promptText = [
     buildPhotoEstimatePrompt(recentNames),
@@ -118,27 +139,18 @@ export async function requestPhotoEstimate(params: RequestPhotoEstimateParams): 
     body.reasoning = { effort: 'none' }
   }
 
-  const timeoutController = new AbortController()
-  const timer = setTimeout(() => timeoutController.abort(), timeoutMs)
-  const combinedSignal = signal
-    ? anySignal([signal, timeoutController.signal])
-    : timeoutController.signal
-
   let response: Response
   try {
-    response = await http.fetch(`${resolveBaseUrl(llmSettings)}/chat/completions`, {
+    response = await fetchWithTimeout(http, `${resolveBaseUrl(llmSettings)}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
       },
-      body: JSON.stringify(body),
-      signal: combinedSignal
-    })
+      body: JSON.stringify(body)
+    }, timeoutMs, signal)
   } catch (error) {
     throw new PhotoEstimateRequestError('請求失敗或逾時', error)
-  } finally {
-    clearTimeout(timer)
   }
 
   if (!response.ok) {
@@ -157,6 +169,109 @@ export async function requestPhotoEstimate(params: RequestPhotoEstimateParams): 
     throw new PhotoEstimateRequestError('模型回應不是合法 JSON')
   }
   return parseEstimateResult(parsed.results ?? parsed)
+}
+
+export interface NutritionLlmTestResult {
+  ok: boolean
+  /** 只有 `local`（沒有寫死目錄）會回模型清單；雲端供應商走 `core/llm/modelCatalog` 的靜態清單。 */
+  models?: string[]
+  error?: string
+}
+
+/**
+ * 測連線＋抓 `local` 供應商的實際模型清單（`GET /v1/models`）。雲端供應商（openai／grok）
+ * 已經有靜態目錄可選（`@core/llm/modelCatalog`），這支主要是給沒有寫死目錄的本機端點用；
+ * 呼叫端仍可以拿它驗證雲端的 API Key／端點是否有效。
+ */
+export async function testNutritionLlmConnection(
+  llmSettings: NutritionLlmSettings,
+  http: HttpAdapter,
+  timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<NutritionLlmTestResult> {
+  const precondition = checkBasicRequestPreconditions(llmSettings, false)
+  if (precondition) return { ok: false, error: precondition }
+  const apiKey = resolveApiKey(llmSettings)
+
+  try {
+    const response = await fetchWithTimeout(http, `${resolveBaseUrl(llmSettings)}/models`, {
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
+    }, timeoutMs)
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      return { ok: false, error: `連線失敗（${response.status}）：${text.slice(0, 200)}` }
+    }
+    const json = await response.json().catch(() => null) as { data?: Array<{ id?: unknown }> } | null
+    const ids = (json?.data ?? []).map((m) => m.id).filter((id): id is string => typeof id === 'string')
+    const limit = llmSettings.provider === 'local' ? 200 : 5
+    return { ok: true, models: ids.slice(0, limit) }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+/** 1×1 透明像素 PNG，測讀圖用，體積接近零。 */
+const TEST_PIXEL_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+
+export interface PhotoEstimateVisionTestResult {
+  ok: boolean
+  /** 模型的實際回覆，用於讓使用者判斷「有沒有真的看懂」而不是只回了任意字。 */
+  reply?: string
+  error?: string
+}
+
+/**
+ * 「一鍵測試能不能傳圖」——送一張最小的測試圖片，確認模型真的支援讀圖，
+ * 不是等到正式拍照估算才發現選錯模型（owner 2026-08-19：設定半天結果不能用太浪費）。
+ * 跟 `requestPhotoEstimate` 分開一支，故意不要求 JSON 格式、不夾雜規格 prompt，
+ * 失敗時才好判斷是「不支援讀圖」還是「JSON 格式沒依照指示」。
+ */
+export async function testPhotoEstimateVision(
+  llmSettings: NutritionLlmSettings,
+  http: HttpAdapter,
+  timeoutMs = DEFAULT_TIMEOUT_MS
+): Promise<PhotoEstimateVisionTestResult> {
+  const precondition = checkBasicRequestPreconditions(llmSettings, true)
+  if (precondition) return { ok: false, error: precondition }
+  const apiKey = resolveApiKey(llmSettings)
+
+  const body: Record<string, unknown> = {
+    model: llmSettings.model,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: '這是一張測試圖片。如果你能看到圖片內容，回覆「可以讀圖」；否則回覆「無法讀圖」。不要回其他文字。' },
+        { type: 'image_url', image_url: { url: `data:image/png;base64,${TEST_PIXEL_PNG_BASE64}` } }
+      ]
+    }],
+    max_tokens: 20
+  }
+  if (llmSettings.provider === 'local') body.reasoning = { effort: 'none' }
+
+  try {
+    const response = await fetchWithTimeout(http, `${resolveBaseUrl(llmSettings)}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+      },
+      body: JSON.stringify(body)
+    }, timeoutMs)
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      return { ok: false, error: `模型回應錯誤（${response.status}）：${text.slice(0, 200)}` }
+    }
+    const json = await response.json().catch(() => null) as { choices?: Array<{ message?: { content?: string } }> } | null
+    const reply = json?.choices?.[0]?.message?.content?.trim()
+    if (!reply) return { ok: false, error: '模型沒有回應內容（可能不支援讀圖，或思考模型把預算花在推理上）' }
+    // 沒看到圖片的模型多半會照樣回一段文字甚至道歉，所以用「有沒有講到看不到／無法」判斷比對空字串更可靠。
+    if (/無法|看不到|看不見|沒有圖片|no image|cannot see|can't see/i.test(reply)) {
+      return { ok: false, reply, error: '模型回應顯示看不到圖片內容' }
+    }
+    return { ok: true, reply }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 function anySignal(signals: AbortSignal[]): AbortSignal {

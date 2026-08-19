@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { PhotoEstimateRequestError, requestPhotoEstimate } from '@core/nutrition'
+import { PhotoEstimateRequestError, requestPhotoEstimate, testNutritionLlmConnection, testPhotoEstimateVision } from '@core/nutrition'
 import type { HttpAdapter } from '@core/adapters'
 import type { NutritionLlmSettings } from '@core/nutrition'
 
@@ -130,5 +130,78 @@ describe('requestPhotoEstimate', () => {
       http,
       timeoutMs: 20
     })).rejects.toBeInstanceOf(PhotoEstimateRequestError)
+  })
+})
+
+describe('testNutritionLlmConnection', () => {
+  it('連線成功時回傳模型清單', async () => {
+    let capturedUrl: string | null = null
+    let capturedHeaders: Record<string, string> | null = null
+    const http = fakeHttp(async (input, init) => {
+      capturedUrl = String(input)
+      capturedHeaders = init?.headers as Record<string, string>
+      return jsonResponse({ data: [{ id: 'gpt-4o-mini' }, { id: 'gpt-4o' }] })
+    })
+    const result = await testNutritionLlmConnection(baseLlmSettings, http)
+    expect(capturedUrl).toBe('https://api.openai.com/v1/models')
+    expect(capturedHeaders?.Authorization).toBe('Bearer sk-test')
+    expect(result).toEqual({ ok: true, models: ['gpt-4o-mini', 'gpt-4o'] })
+  })
+
+  it('local 供應商不帶 Authorization header，且清單上限較高', async () => {
+    let capturedHeaders: Record<string, string> | null = null
+    const http = fakeHttp(async (_input, init) => {
+      capturedHeaders = init?.headers as Record<string, string>
+      return jsonResponse({ data: Array.from({ length: 250 }, (_, i) => ({ id: `model-${i}` })) })
+    })
+    const result = await testNutritionLlmConnection({ provider: 'local', model: '', endpoint: 'http://localhost:11434/v1', apiKeys: {} }, http)
+    expect(capturedHeaders?.Authorization).toBeUndefined()
+    expect(result.ok).toBe(true)
+    expect(result.models).toHaveLength(200)
+  })
+
+  it('連線失敗回傳 ok:false 與錯誤訊息', async () => {
+    const http = fakeHttp(async () => jsonResponse({ error: 'invalid key' }, 401))
+    const result = await testNutritionLlmConnection(baseLlmSettings, http)
+    expect(result.ok).toBe(false)
+    expect(result.error).toBeTruthy()
+  })
+
+  it('缺 API Key 不送出請求，直接回錯誤', async () => {
+    const http = fakeHttp(async () => { throw new Error('不該被呼叫') })
+    const result = await testNutritionLlmConnection({ ...baseLlmSettings, apiKeys: {} }, http)
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('API Key') })
+  })
+})
+
+describe('testPhotoEstimateVision', () => {
+  it('模型正常讀圖時回傳 ok:true 與回覆內容', async () => {
+    let capturedBody: any = null
+    const http = fakeHttp(async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body))
+      return jsonResponse({ choices: [{ message: { content: '可以讀圖' } }] })
+    })
+    const result = await testPhotoEstimateVision(baseLlmSettings, http)
+    expect(result).toEqual({ ok: true, reply: '可以讀圖' })
+    expect(capturedBody.messages[0].content[1].type).toBe('image_url')
+  })
+
+  it('模型回覆表示看不到圖片時判定失敗', async () => {
+    const http = fakeHttp(async () => jsonResponse({ choices: [{ message: { content: '抱歉，我無法看到圖片內容' } }] }))
+    const result = await testPhotoEstimateVision(baseLlmSettings, http)
+    expect(result.ok).toBe(false)
+    expect(result.reply).toContain('無法')
+  })
+
+  it('空回應視為失敗', async () => {
+    const http = fakeHttp(async () => jsonResponse({ choices: [{ message: { content: '' } }] }))
+    const result = await testPhotoEstimateVision(baseLlmSettings, http)
+    expect(result.ok).toBe(false)
+  })
+
+  it('尚未選擇模型直接回錯誤，不送出請求', async () => {
+    const http = fakeHttp(async () => { throw new Error('不該被呼叫') })
+    const result = await testPhotoEstimateVision({ ...baseLlmSettings, model: undefined }, http)
+    expect(result).toEqual({ ok: false, error: expect.stringContaining('模型') })
   })
 })

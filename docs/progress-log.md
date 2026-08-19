@@ -2855,3 +2855,61 @@ OCR 與換算、秤重模式、相簿補記批次流程、模型能力／費用�
 「不對，我改」的對話式重估、舊食物一鍵重估。
 
 `npm run typecheck`、`npm test`（73 檔、904 項）全過。
+
+---
+
+## 2026-08-19（續三）｜拍照估熱量：模型清單下拉＋一鍵測試能不能傳圖
+
+owner 實測 P2 時回報兩個上手障礙：模型欄只能手打型號 ID（跟 DeST 桌面／
+手機那份共用模型目錄體驗不一致，光要湊對一個型號名稱就卡關）；設完
+才發現選錯模型不支援讀圖，白設一輪。兩個都在這次補上。
+
+**模型清單**：`nutrition/mobile/src/main.tsx` 直接從 `@core/llm/modelCatalog`
+（純資料，不含任何 SDK）拉 `MODELS_BY_PROVIDER`／`DEFAULT_MODEL_BY_PROVIDER`／
+`splitModelsByPrice`／`modelPriceText`——跟桌面／DeST 手機共用同一份目錄，
+之後桌面加新型號這裡自動跟上，不會重蹈 roadmap §4.1 提過的模型清單
+drift（`providerInfo.ts` 檔頭記載的同一個坑）。`modelOptionLabel()` 沒有
+直接從 `providerInfo.ts`（DeST 手機自己的 UI 文案層）import——那支已經
+耦合了 DeST 手機的其他 UI 型別，硬拉進來會把 nutrition 這個獨立小 App
+跟主 App 的手機 UI 層綁在一起；改成在 nutrition 這邊用同樣兩行邏輯
+（`modelPriceText` + 組字串）自己重寫一份，型別/資料仍是同一份，
+只有那行組字串的文案重複，不算違反單一事實來源。
+
+**下拉選單分兩層**：`local` 供應商本來就沒有寫死目錄（使用者自己 pull
+什麼就有什麼），下拉清單改吃「測試連線」按鈕動態抓回來的
+`localModels`；`openai`／`grok` 吃靜態目錄，並用 `splitModelsByPrice`
+分「一般／⚠ 高單價」兩個 `optgroup`，跟桌面／DeST 手機的分組規則同一份。
+選單下方保留一個「或手動輸入模型 ID」文字欄——清單不可能永遠跟得上
+新模型發布，兩者共用同一個 `llmSettings.model` 狀態，選或打都算數。
+切換供應商時 (`changeLlmProvider`) 自動帶出 `DEFAULT_MODEL_BY_PROVIDER`
+的預設值，不會讓舊供應商選過的型號卡在欄位裡誤導使用者。
+
+**core 新增兩支函式**（`src/core/nutrition/photoEstimateLlm.ts`）：
+
+- `testNutritionLlmConnection`：`GET /v1/models`，local 用來抓實際模型
+  清單（上限 200），雲端供應商純粹驗證 Key／端點有效（上限 5，跟桌面
+  `testLLMConnection` 的量級一致）。
+- `testPhotoEstimateVision`：owner 這次明確要的「一鍵測試能不能傳圖」——
+  送一張 1×1 透明像素 PNG（體積接近零）＋簡短指令「看得到就回『可以讀圖』」，
+  故意跟 `requestPhotoEstimate` 分開一支、不要求 JSON 格式，這樣失敗時
+  好判斷是「模型真的不支援讀圖」還是「JSON 格式沒照指示回」兩種不同問題。
+  空回應或回覆內容講到「無法／看不到」的情況都判定失敗（有些模型看不到圖片
+  時不會老實說看不到，而是照樣掰一段話，所以不能只看「有沒有回應」）。
+  兩支跟 `requestPhotoEstimate` 共用抽出來的 `fetchWithTimeout()` 與
+  `checkBasicRequestPreconditions()`，避免第三次複製貼上同一段逾時／
+  前置檢查邏輯。
+
+**手機 UI**：設定頁新增「測試連線」（local 顯示「測試連線（抓模型清單）」）
+與「一鍵測試能不能傳圖」兩顆按鈕，結果訊息用 `.hint.danger-text`
+（新色票）跟一般提示區分。兩顆按鈕與模型清單邏輯都用瀏覽器預覽
+＋ mock `fetch` 驗證過：openai 選 `gpt-4o-mini` 測讀圖成功顯示
+「✅ 這個模型可以讀圖」，換一個回「無法看到圖片」的假回應顯示
+「❌ 模型回應顯示看不到圖片內容」；local 供應商測試連線後下拉選單
+正確填入 `qwen3:8b`／`llama3.2-vision:11b`。
+
+8 項新測試（`testNutritionLlmConnection` 4 項、`testPhotoEstimateVision`
+4 項），加上既有 9 項 `requestPhotoEstimate` 測試維持全過（重構抽出共用
+函式沒改變外部行為）。
+
+`npm run typecheck`、`npm test`（73 檔、912 項）全過；
+`npm run build:nutrition:mobile` 建置成功。

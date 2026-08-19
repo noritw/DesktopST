@@ -21,6 +21,8 @@ import {
   NUTRITION_PACK_EXTENSION,
   NutritionSession,
   PhotoEstimateRequestError,
+  testNutritionLlmConnection,
+  testPhotoEstimateVision,
   toIsoDateString,
   type BodyProfile,
   type FoodItem,
@@ -35,6 +37,7 @@ import {
   type PhotoEstimateResult
 } from '@core/nutrition'
 import type { HealthSnapshot } from '@core/adapters'
+import { DEFAULT_MODEL_BY_PROVIDER, MODELS_BY_PROVIDER, modelPriceText, splitModelsByPrice } from '@core/llm/modelCatalog'
 import { bytesToBase64 } from '@core/util/base64'
 import { buildInfoLines } from './buildInfo'
 import { downloadBytes, pickFile } from './fileTransfer'
@@ -68,6 +71,12 @@ interface FoodDraft {
 
 function blankFoodDraft(): FoodDraft {
   return { name: '', aliases: '', brand: '', flavor: '', tags: [], kcal: '400', proteinG: '25', carbsG: '', fatG: '', photoKeys: [] }
+}
+
+/** `gpt-4o-mini（$0.15 / $0.6）`，價格是每百萬 tokens 美金價（輸入／輸出），查無價格就只顯示型號名。 */
+function modelOptionLabel(model: string): string {
+  const price = modelPriceText(model)
+  return price ? `${model}（${price}）` : model
 }
 
 function timeInputValue(ms: number): string {
@@ -369,6 +378,12 @@ function App(): React.JSX.Element {
   const [estimateMatchedFood, setEstimateMatchedFood] = React.useState<FoodItem | null>(null)
   const [estimatePhotoBytes, setEstimatePhotoBytes] = React.useState<Uint8Array | null>(null)
   const [estimateError, setEstimateError] = React.useState<string | null>(null)
+  /** local 供應商沒有寫死的型號目錄，「測試連線」打 GET /v1/models 抓回來的清單。 */
+  const [localModels, setLocalModels] = React.useState<string[]>([])
+  const [testingConnection, setTestingConnection] = React.useState(false)
+  const [connectionTestMessage, setConnectionTestMessage] = React.useState<{ ok: boolean; text: string } | null>(null)
+  const [testingVision, setTestingVision] = React.useState(false)
+  const [visionTestMessage, setVisionTestMessage] = React.useState<{ ok: boolean; text: string } | null>(null)
 
   React.useEffect(() => { viewRef.current = view }, [view])
   React.useEffect(() => { photoPreviewRef.current = photoPreview }, [photoPreview])
@@ -505,9 +520,49 @@ function App(): React.JSX.Element {
   function updateLlmSettings(patch: Partial<NutritionLlmSettings>): void {
     const next = { ...llmSettings, ...patch }
     setLlmSettings(next)
+    setConnectionTestMessage(null)
+    setVisionTestMessage(null)
     void runAction(async (session) => {
       await session.saveSettings({ ...session.settings, llm: next })
     })
+  }
+
+  /** 切換供應商時自動帶出該家最便宜的預設模型，不留舊供應商的型號卡在欄位裡。 */
+  function changeLlmProvider(provider: string): void {
+    setLocalModels([])
+    updateLlmSettings({ provider, model: DEFAULT_MODEL_BY_PROVIDER[provider as keyof typeof DEFAULT_MODEL_BY_PROVIDER] ?? '' })
+  }
+
+  /** local 供應商抓實際模型清單；其餘供應商純粹驗證 API Key／端點是否有效。 */
+  async function testLlmConnection(): Promise<void> {
+    setTestingConnection(true)
+    setConnectionTestMessage(null)
+    try {
+      const result = await testNutritionLlmConnection(llmSettings, nutritionMobileHttp)
+      if (result.ok) {
+        setLocalModels(result.models ?? [])
+        setConnectionTestMessage({ ok: true, text: `已連線${result.models ? `，找到 ${result.models.length} 個模型` : ''}` })
+      } else {
+        setConnectionTestMessage({ ok: false, text: result.error ?? '連線失敗' })
+      }
+    } finally {
+      setTestingConnection(false)
+    }
+  }
+
+  /** 「一鍵測試能不能傳圖」：設定半天結果模型不支援讀圖太浪費，先送一張測試圖片驗證。 */
+  async function testLlmVision(): Promise<void> {
+    setTestingVision(true)
+    setVisionTestMessage(null)
+    try {
+      const result = await testPhotoEstimateVision(llmSettings, nutritionMobileHttp)
+      setVisionTestMessage({
+        ok: result.ok,
+        text: result.ok ? `這個模型可以讀圖（回覆：${result.reply}）` : (result.error ?? '無法讀圖')
+      })
+    } finally {
+      setTestingVision(false)
+    }
   }
 
   /**
@@ -1414,22 +1469,56 @@ function App(): React.JSX.Element {
             />
             <span>開啟 AI 拍照估算</span>
           </label>
-          {photoEstimateEnabled && (
-            <>
-              <label>供應商
-                <select value={llmSettings.provider} onChange={(event) => updateLlmSettings({ provider: event.target.value })}>
-                  <option value="openai">OpenAI</option>
-                  <option value="local">本機（Ollama／LM Studio 等）</option>
-                  <option value="grok">Grok</option>
-                </select>
-              </label>
-              <label>模型（需支援讀圖）<input value={llmSettings.model ?? ''} onChange={(event) => updateLlmSettings({ model: event.target.value })} placeholder="例如 gpt-4o-mini" /></label>
-              {llmSettings.provider !== 'local' && (
-                <label>API Key<input type="password" value={llmSettings.apiKeys[llmSettings.provider] ?? ''} onChange={(event) => updateLlmSettings({ apiKeys: { ...llmSettings.apiKeys, [llmSettings.provider]: event.target.value } })} /></label>
-              )}
-              <label>端點（選填，本機模型需要）<input value={llmSettings.endpoint ?? ''} onChange={(event) => updateLlmSettings({ endpoint: event.target.value })} placeholder="例如 http://localhost:11434/v1" /></label>
-            </>
-          )}
+          {photoEstimateEnabled && (() => {
+            const catalogModels = llmSettings.provider === 'local' ? [] : (MODELS_BY_PROVIDER[llmSettings.provider as keyof typeof MODELS_BY_PROVIDER] ?? [])
+            const modelOptions = llmSettings.provider === 'local' ? localModels : catalogModels
+            const { normal, high } = splitModelsByPrice(modelOptions)
+            return (
+              <>
+                <label>供應商
+                  <select value={llmSettings.provider} onChange={(event) => changeLlmProvider(event.target.value)}>
+                    <option value="openai">OpenAI</option>
+                    <option value="local">本機（Ollama／LM Studio 等）</option>
+                    <option value="grok">Grok</option>
+                  </select>
+                </label>
+                {llmSettings.provider !== 'local' && (
+                  <label>API Key<input type="password" value={llmSettings.apiKeys[llmSettings.provider] ?? ''} onChange={(event) => updateLlmSettings({ apiKeys: { ...llmSettings.apiKeys, [llmSettings.provider]: event.target.value } })} /></label>
+                )}
+                <label>端點（選填，本機模型需要）<input value={llmSettings.endpoint ?? ''} onChange={(event) => updateLlmSettings({ endpoint: event.target.value })} placeholder="例如 http://localhost:11434/v1" /></label>
+                <button type="button" disabled={testingConnection} onClick={() => void testLlmConnection()}>
+                  {testingConnection ? '連線測試中...' : (llmSettings.provider === 'local' ? '測試連線（抓模型清單）' : '測試連線')}
+                </button>
+                {connectionTestMessage && <small className={connectionTestMessage.ok ? 'hint' : 'hint danger-text'}>{connectionTestMessage.text}</small>}
+
+                <label>模型（需支援讀圖，Vision）
+                  {modelOptions.length > 0 ? (
+                    <select value={llmSettings.model ?? ''} onChange={(event) => updateLlmSettings({ model: event.target.value })}>
+                      <option value="">請選擇</option>
+                      {normal.map((m) => <option key={m} value={m}>{modelOptionLabel(m)}</option>)}
+                      {high.length > 0 && (
+                        <optgroup label="⚠ 高單價">
+                          {high.map((m) => <option key={m} value={m}>{modelOptionLabel(m)}</option>)}
+                        </optgroup>
+                      )}
+                    </select>
+                  ) : (
+                    <small className="hint">
+                      {llmSettings.provider === 'local' ? '按上面「測試連線」抓這個端點實際有的模型' : '選好供應商後這裡會列出模型清單'}
+                    </small>
+                  )}
+                </label>
+                <label>或手動輸入模型 ID（清單沒有的新模型／自訂 ID）
+                  <input value={llmSettings.model ?? ''} onChange={(event) => updateLlmSettings({ model: event.target.value })} placeholder="例如 gpt-4o-mini" />
+                </label>
+
+                <button type="button" disabled={testingVision || !llmSettings.model} onClick={() => void testLlmVision()}>
+                  {testingVision ? '測試中...' : '一鍵測試能不能傳圖'}
+                </button>
+                {visionTestMessage && <small className={visionTestMessage.ok ? 'hint' : 'hint danger-text'}>{visionTestMessage.ok ? '✅ ' : '❌ '}{visionTestMessage.text}</small>}
+              </>
+            )
+          })()}
         </section>
 
         <section className="health-sync-section">
