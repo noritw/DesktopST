@@ -167,7 +167,6 @@ label input, label select { margin-top: 0; font-weight: 400; }
 
 /* 熱量統計頁 */
 .summary-tappable { cursor: pointer; }
-.summary-chart-icon { margin-left: 6px; vertical-align: middle; color: #4f9c8a; }
 .stats-card { background: white; border: 1px solid #d8ebe4; border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px; }
 .stats-card header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .stats-card header strong { font-size: 16px; }

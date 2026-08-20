@@ -47,6 +47,8 @@ export interface NutritionStats {
   averageNetKcalPerDay: number | null
   /** 攝取與消耗都有資料的天數（`averageNetKcalPerDay` 的分母）。 */
   netDayCount: number
+  /** 是否套用了 `overlapOnly`（回傳值本身，方便呼叫端顯示提示文字用）。 */
+  overlapOnly: boolean
 }
 
 /** 週起始固定為星期一（zh-TW 慣例）。 */
@@ -99,13 +101,19 @@ function round(value: number): number {
 /**
  * 區間統計：攝取來自本機餐次，消耗（可選）由呼叫端把每日總消耗查好傳進來
  * （`burnedByDate`，鍵是 ISO 日期）——`core/` 不碰 Health Connect。
+ *
+ * `options.overlapOnly`：手錶消耗資料通常比飲食紀錄起始得早（手錶一直在戴，
+ * 飲食紀錄才剛開始記），兩邊分母不同步時「日均攝取」「日均消耗」放在一起看
+ * 會失真。開啟後所有統計（含總計／日均）只算「當天攝取與消耗都有資料」的
+ * 交集天數；預設關閉，維持原本以「已過天數」「有查到消耗的天數」各自為分母。
  */
 export function buildNutritionStats(
   mealLogs: MealLog[],
   foodItems: FoodItem[],
   range: NutritionStatsRange,
   todayIso: string,
-  burnedByDate: Record<string, number | null | undefined> = {}
+  burnedByDate: Record<string, number | null | undefined> = {},
+  options: { overlapOnly?: boolean } = {}
 ): NutritionStats {
   const foodById = new Map(foodItems.map((foodItem) => [foodItem.id, foodItem]))
   const grouped = groupMealLogsByDay(mealLogs)
@@ -128,13 +136,16 @@ export function buildNutritionStats(
     return stat
   })
 
-  const elapsedDays = days.filter((day) => day.isoDate <= todayIso)
-  const loggedDays = days.filter((day) => day.hasLog)
-  const burnedDays = days.filter((day) => day.burnedKcal !== undefined)
   const netDays = days.filter((day) => day.burnedKcal !== undefined && day.hasLog)
+  const overlapOnly = options.overlapOnly === true
+  const pool = overlapOnly ? netDays : days
 
-  const totalKcal = days.reduce((sum, day) => sum + day.kcal, 0)
-  const totalProteinG = days.reduce((sum, day) => sum + day.proteinG, 0)
+  const elapsedDays = pool.filter((day) => day.isoDate <= todayIso)
+  const loggedDays = pool.filter((day) => day.hasLog)
+  const burnedDays = pool.filter((day) => day.burnedKcal !== undefined)
+
+  const totalKcal = pool.reduce((sum, day) => sum + day.kcal, 0)
+  const totalProteinG = pool.reduce((sum, day) => sum + day.proteinG, 0)
   const totalBurnedKcal = burnedDays.reduce((sum, day) => sum + (day.burnedKcal ?? 0), 0)
   const totalNet = netDays.reduce((sum, day) => sum + day.kcal - (day.burnedKcal ?? 0), 0)
 
@@ -157,6 +168,7 @@ export function buildNutritionStats(
     totalBurnedKcal,
     averageBurnedPerDay: burnedDays.length > 0 ? round(totalBurnedKcal / burnedDays.length) : 0,
     averageNetKcalPerDay: netDays.length > 0 ? round(totalNet / netDays.length) : null,
-    netDayCount: netDays.length
+    netDayCount: netDays.length,
+    overlapOnly
   }
 }

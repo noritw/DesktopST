@@ -1009,7 +1009,7 @@ function App(): React.JSX.Element {
       </section>
       <section className="summary">
         <div className="summary-tappable" role="button" tabIndex={0} onClick={() => setView('stats')} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setView('stats') }}>
-          <span>熱量<MonoIcon name="chart" className="icon-sm summary-chart-icon" /></span>
+          <span>熱量</span>
           <strong className={bodyProfile && daily.totalKcal > bodyProfile.dailyKcalLimit ? 'over' : ''}>{daily.totalKcal} kcal</strong>
           <small>/ {bodyProfile?.dailyKcalLimit ?? '未設定'}</small>
         </div>

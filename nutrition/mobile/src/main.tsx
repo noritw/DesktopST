@@ -206,36 +206,71 @@ function useStoredPhotoUrl(photoKey: string | undefined): string | null {
 }
 
 /**
- * 選照片的兩個入口：**拍照**（`capture` 直接叫起相機）與**相簿**。
+ * 選照片的兩個入口：**拍照**與**相簿**。
  *
  * 為什麼要拆成兩顆：只給一個 `<input type="file" accept="image/*">` 時，
  * Android 是否跳出相機完全看廠商的選單長怎樣——owner 實測是只看得到相簿，
- * 只好先離開 App 用內建相機拍完再回來挑，等於多三步。加上 `capture` 的那顆
- * 直接開相機，不經過選單。
+ * 只好先離開 App 用內建相機拍完再回來挑，等於多三步。
  *
  * `accept` 一律只給 `image/*` 大類（CLAUDE.md §5：列副檔名會讓相簿變空）。
- * `capture` 走的是系統相機 intent，**不需要**在 AndroidManifest 宣告
- * CAMERA 權限——宣告了反而要額外處理執行期授權。
+ *
+ * 拍照原本靠 `<input capture="environment">`：owner 實機回報（2026-08-21）
+ * 兩顆按鈕點起來完全一樣，都只跳相簿——`capture` 屬性在 Android WebView
+ * 上是否兌現完全看廠商 WebView 版本，不可靠。改用
+ * `@capacitor/camera`（純叫系統相機 intent，AndroidManifest 不用宣告
+ * CAMERA 權限）在原生殼直接開相機；瀏覽器煙測（沒有 Capacitor 原生層）
+ * 退回原本的 `capture` input。
  */
 function PhotoSourceButtons({ multiple, onFiles, large, cameraLabel, galleryLabel }: {
   multiple?: boolean
-  onFiles: (files: FileList) => void
+  onFiles: (files: FileList | File[]) => void
   large?: boolean
   cameraLabel?: string
   galleryLabel?: string
 }): React.JSX.Element {
+  const [isNative, setIsNative] = React.useState(false)
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const mod = await import('@capacitor/core').catch(() => null)
+      if (!cancelled) setIsNative(mod?.Capacitor.isNativePlatform() ?? false)
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   function handleChange(event: React.ChangeEvent<HTMLInputElement>): void {
     if (event.target.files && event.target.files.length > 0) onFiles(event.target.files)
     event.target.value = ''
   }
+
+  async function handleCameraCapture(): Promise<void> {
+    try {
+      const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera')
+      const photo = await Camera.getPhoto({ resultType: CameraResultType.Uri, source: CameraSource.Camera, quality: 85, saveToGallery: false })
+      if (!photo.webPath) return
+      const blob = await (await fetch(photo.webPath)).blob()
+      const ext = photo.format ?? 'jpeg'
+      onFiles([new File([blob], `camera-${Date.now()}.${ext}`, { type: blob.type || `image/${ext}` })])
+    } catch {
+      // 使用者取消拍照，不用做任何事
+    }
+  }
+
   const className = `photo-add${large ? ' photo-add-large' : ''}`
   return (
     <>
-      <label className={className}>
-        <MonoIcon name="camera" className="icon-md" />
-        <span>{cameraLabel ?? '拍照'}</span>
-        <input type="file" accept="image/*" capture="environment" multiple={multiple} onChange={handleChange} />
-      </label>
+      {isNative ? (
+        <button type="button" className={className} onClick={() => void handleCameraCapture()}>
+          <MonoIcon name="camera" className="icon-md" />
+          <span>{cameraLabel ?? '拍照'}</span>
+        </button>
+      ) : (
+        <label className={className}>
+          <MonoIcon name="camera" className="icon-md" />
+          <span>{cameraLabel ?? '拍照'}</span>
+          <input type="file" accept="image/*" capture="environment" multiple={multiple} onChange={handleChange} />
+        </label>
+      )}
       <label className={className}>
         <MonoIcon name="image" className="icon-md" />
         <span>{galleryLabel ?? '相簿'}</span>
@@ -488,6 +523,8 @@ function App(): React.JSX.Element {
 
   // --- 統計頁（週／月平均與合計，日期範圍可切換）---
   const [statsRangeKind, setStatsRangeKind] = React.useState<NutritionStatsRangeKind>('last-7')
+  /** 手錶消耗資料通常比飲食紀錄記得久，兩邊分母不同步時平均值會失真——開了只算兩邊都有資料的交集天。 */
+  const [statsOverlapOnly, setStatsOverlapOnly] = React.useState(false)
   const [customRange, setCustomRange] = React.useState<NutritionStatsRange>(() => ({
     startIsoDate: toIsoDateString(Date.now()),
     endIsoDate: toIsoDateString(Date.now())
@@ -1999,9 +2036,10 @@ function App(): React.JSX.Element {
 
   if (view === 'stats') {
     const todayIso = toIsoDateString(Date.now())
-    const weekStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-week', todayIso), todayIso, historicalKcalCache)
-    const monthStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-month', todayIso), todayIso, historicalKcalCache)
-    const rangeStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, statsRange, todayIso, historicalKcalCache)
+    const statsOptions = { overlapOnly: statsOverlapOnly }
+    const weekStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-week', todayIso), todayIso, historicalKcalCache, statsOptions)
+    const monthStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-month', todayIso), todayIso, historicalKcalCache, statsOptions)
+    const rangeStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, statsRange, todayIso, historicalKcalCache, statsOptions)
     const burnConnected = healthSettings.connected && healthAvailable && healthPermissionGranted
     const maxKcal = Math.max(1, ...rangeStats.days.map((day) => Math.max(day.kcal, day.burnedKcal ?? 0)))
     const rangeLabels: { kind: NutritionStatsRangeKind; label: string }[] = [
@@ -2086,6 +2124,12 @@ function App(): React.JSX.Element {
               <label>起<input type="date" value={customRange.startIsoDate} onChange={(event) => setCustomRange((prev) => ({ ...prev, startIsoDate: event.target.value }))} /></label>
               <label>迄<input type="date" value={customRange.endIsoDate} onChange={(event) => setCustomRange((prev) => ({ ...prev, endIsoDate: event.target.value }))} /></label>
             </div>
+          )}
+          {burnConnected && (
+            <label className="toggle-row">
+              <input type="checkbox" checked={statsOverlapOnly} onChange={(event) => setStatsOverlapOnly(event.target.checked)} />
+              <span>只算攝取與消耗都有紀錄的天（避免手錶資料比飲食紀錄久而失真）</span>
+            </label>
           )}
         </section>
 
@@ -2249,7 +2293,7 @@ function App(): React.JSX.Element {
       </section>
       <section className="summary">
         <div className="summary-tappable" role="button" tabIndex={0} onClick={() => setView('stats')} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setView('stats') }}>
-          <span>熱量{dynamicKcalLimit !== null && <small className="dynamic-tag">{isViewingToday ? '依手錶動態' : '當日手錶總消耗'}</small>}<MonoIcon name="chart" className="icon-sm summary-chart-icon" /></span>
+          <span>熱量{dynamicKcalLimit !== null && <small className="dynamic-tag">{isViewingToday ? '依手錶動態' : '當日手錶總消耗'}</small>}</span>
           <strong className={effectiveKcalLimit !== undefined && daily.totalKcal > effectiveKcalLimit ? 'over' : ''}>{daily.totalKcal} kcal</strong>
           <small>/ {effectiveKcalLimit ?? '未設定'}</small>
         </div>
