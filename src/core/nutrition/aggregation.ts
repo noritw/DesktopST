@@ -33,13 +33,13 @@ export function parseIsoDateToStartOfDayMs(isoDate: string): number {
   return new Date(year, month - 1, day).getTime()
 }
 
-function addDays(isoDate: string, days: number): string {
+export function addDaysIso(isoDate: string, days: number): string {
   const date = new Date(parseIsoDateToStartOfDayMs(isoDate))
   date.setDate(date.getDate() + days)
   return toIsoDateString(date.getTime())
 }
 
-function dayDistance(startIsoDate: string, endIsoDate: string): number {
+export function dayDistance(startIsoDate: string, endIsoDate: string): number {
   const start = parseIsoDateToStartOfDayMs(startIsoDate)
   const end = parseIsoDateToStartOfDayMs(endIsoDate)
   return Math.round((end - start) / 86_400_000)
@@ -90,7 +90,7 @@ export function aggregateDailyNutrition(
   }
 }
 
-function aggregatePeriod(
+export function aggregatePeriod(
   mealLogs: MealLog[],
   foodItems: Map<string, FoodItem>,
   startIsoDate: string,
@@ -101,7 +101,7 @@ function aggregatePeriod(
   let totalKcal = 0
   let totalProteinG = 0
   for (let index = 0; index < dayCount; index++) {
-    const totals = sumLogs(grouped.get(addDays(startIsoDate, index)) ?? [], foodItems)
+    const totals = sumLogs(grouped.get(addDaysIso(startIsoDate, index)) ?? [], foodItems)
     totalKcal += totals.totalKcal
     totalProteinG += totals.totalProteinG
   }
@@ -121,7 +121,7 @@ export function aggregateWeeklyNutrition(
   foodItems: Map<string, FoodItem>,
   endIsoDate: string
 ): PeriodNutritionSummary {
-  return aggregatePeriod(mealLogs, foodItems, addDays(endIsoDate, -6), endIsoDate)
+  return aggregatePeriod(mealLogs, foodItems, addDaysIso(endIsoDate, -6), endIsoDate)
 }
 
 export function aggregateMonthlyNutrition(

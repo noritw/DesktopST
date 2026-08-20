@@ -33,6 +33,8 @@ export type MonoIconName =
   | 'prompt'
   | 'log'
   | 'image'
+  | 'camera'
+  | 'chart'
   | 'send'
   | 'stop'
   | 'resend'
@@ -164,6 +166,21 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <rect {...common} x="4" y="5" width="16" height="14" rx="2" />
           <path {...common} d="M8 11a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
           <path {...common} d="M20 16l-5-5-4 4-2-2-5 5" />
+        </>
+      )}
+      {name === 'camera' && (
+        <>
+          <path {...common} d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
+          <circle {...common} cx="12" cy="13.5" r="3.5" />
+        </>
+      )}
+      {name === 'chart' && (
+        <>
+          <path {...common} d="M4 20V4" />
+          <path {...common} d="M4 20h16" />
+          <path {...common} d="M8 17v-5" />
+          <path {...common} d="M13 17V7" />
+          <path {...common} d="M18 17v-8" />
         </>
       )}
       {name === 'send' && (

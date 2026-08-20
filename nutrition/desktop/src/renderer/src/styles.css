@@ -160,3 +160,29 @@ label input, label select { margin-top: 0; font-weight: 400; }
 .confirm-card p { color: #6d887f; font-size: 13px; }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 6px; }
 
+
+/* 食物庫的引用次數：同名重複資料要靠這行判斷哪筆能刪 */
+.food-usage { color: #6d887f; font-size: 12px; }
+.food-usage-banner { margin: 0 0 4px; padding: 8px 12px; border-radius: 10px; background: #eefaf5; color: #4f9c8a; font-size: 13px; font-weight: 700; }
+
+/* 熱量統計頁 */
+.summary-tappable { cursor: pointer; }
+.summary-chart-icon { margin-left: 6px; vertical-align: middle; color: #4f9c8a; }
+.stats-card { background: white; border: 1px solid #d8ebe4; border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px; }
+.stats-card header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.stats-card header strong { font-size: 16px; }
+.stats-card header small { color: #6d887f; font-size: 12px; }
+.stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 12px; }
+.stats-grid > div { display: grid; gap: 2px; }
+.stats-grid span { color: #6d887f; font-size: 12px; }
+.stats-grid strong { font-size: 18px; }
+.stats-range-picker { display: grid; gap: 10px; }
+.stats-custom-range { display: flex; gap: 12px; }
+.stats-custom-range label { display: grid; gap: 4px; color: #6d887f; font-size: 13px; }
+.stats-bars { display: grid; gap: 4px; }
+.stats-bar-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) 56px; align-items: center; gap: 8px; }
+.stats-bar-row time { color: #6d887f; font-size: 11px; }
+.stats-bar-track { position: relative; height: 12px; background: #eefaf5; border-radius: 999px; overflow: hidden; }
+.stats-bar { position: absolute; top: 0; height: 12px; border-radius: 999px; }
+.stats-bar.intake { background: #4f9c8a; }
+.stats-bar-value { text-align: right; color: #3d5a52; font-size: 12px; }

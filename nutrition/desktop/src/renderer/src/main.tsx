@@ -3,28 +3,44 @@ import ReactDOM from 'react-dom/client'
 import MonoIcon from '@shared/MonoIcon'
 import {
   buildDailyView,
+  buildFoodUsageIndex,
+  buildNutritionStats,
   calculateGoalAdjustedKcal,
   calculateProteinGoalG,
   calculateTdeeKcal,
   foodPhotoKey,
+  foodUsageOf,
   matchFoodKeyword,
   mealPhotoKey,
   nextFreeFoodPhotoIndex,
+  resolveStatsRange,
   MAX_FOOD_PHOTOS,
   toIsoDateString,
   type FoodItem,
+  type FoodUsage,
   type MealLog,
   type NutritionActivityLevel,
   type NutritionGoal,
-  type NutritionSnapshot
+  type NutritionSnapshot,
+  type NutritionStatsRange,
+  type NutritionStatsRangeKind
 } from '@core/nutrition'
 import { buildInfoLines } from './buildInfo'
 import { compressImageFile } from './imageInput'
 import './styles.css'
 
-type View = 'daily' | 'library' | 'foodForm' | 'mealEditor' | 'profile' | 'about' | 'transfer'
+type View = 'daily' | 'library' | 'foodForm' | 'mealEditor' | 'profile' | 'about' | 'transfer' | 'stats'
 /** 新增／編輯食物表單是從哪裡打開的，返回時要回到同一個地方，而不是永遠回食物庫。 */
 type FoodFormOrigin = 'library' | 'quickEntry' | 'mealEditor'
+
+/** 「已記錄 12 次 · 上次 8/18」——同名食物要靠這行分辨哪筆是常吃的那筆。 */
+function usageText(usage: FoodUsage): string {
+  if (usage.useCount === 0) return '還沒有記錄引用'
+  const last = usage.lastEatenAt !== undefined
+    ? new Date(usage.lastEatenAt).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' })
+    : null
+  return `已記錄 ${usage.useCount} 次${last ? ` · 上次 ${last}` : ''}`
+}
 
 interface FoodDraft {
   name: string
@@ -261,6 +277,12 @@ function App(): React.JSX.Element {
 
   const [libraryQuery, setLibraryQuery] = React.useState('')
   const [libraryTag, setLibraryTag] = React.useState('all')
+
+  const [statsRangeKind, setStatsRangeKind] = React.useState<NutritionStatsRangeKind>('last-7')
+  const [customRange, setCustomRange] = React.useState<NutritionStatsRange>(() => ({
+    startIsoDate: toIsoDateString(Date.now()),
+    endIsoDate: toIsoDateString(Date.now())
+  }))
 
   const [editingFoodId, setEditingFoodId] = React.useState<string | null>(null)
   const [isNewFood, setIsNewFood] = React.useState(false)
@@ -589,11 +611,94 @@ function App(): React.JSX.Element {
   const tags = collectTags(snapshot.foodItems)
   const quickEntryTagFiltered = quickEntryTag === 'all' ? snapshot.foodItems : snapshot.foodItems.filter((item) => (item.tags ?? []).includes(quickEntryTag))
   const quickFoods = foodQuery.trim() ? matchFoodKeyword(foodQuery, quickEntryTagFiltered).map((match) => match.foodItem) : quickEntryTagFiltered
+  // 引用次數一律由餐次現算，不吃 FoodItem.useCount 快取（同 mobile）。
+  const foodUsage = buildFoodUsageIndex(snapshot.mealLogs)
   const libraryFoods = snapshot.foodItems.filter((foodItem) => {
     if (libraryTag !== 'all' && !(foodItem.tags ?? []).includes(libraryTag)) return false
     if (!libraryQuery.trim()) return true
     return matchFoodKeyword(libraryQuery, [foodItem]).length > 0
   })
+
+  if (view === 'stats') {
+    const todayIso = toIsoDateString(Date.now())
+    // 桌面沒有 Health Connect（`NutritionHealthSettings` 只給手機用），
+    // 所以這裡只有攝取，消耗欄位一律留白，不做假資料。
+    const statsRange: NutritionStatsRange = statsRangeKind === 'custom' ? customRange : resolveStatsRange(statsRangeKind, todayIso)
+    const weekStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-week', todayIso), todayIso)
+    const monthStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-month', todayIso), todayIso)
+    const rangeStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, statsRange, todayIso)
+    const maxKcal = Math.max(1, ...rangeStats.days.map((day) => day.kcal))
+    const rangeLabels: { kind: NutritionStatsRangeKind; label: string }[] = [
+      { kind: 'last-7', label: '近 7 天' },
+      { kind: 'last-30', label: '近 30 天' },
+      { kind: 'this-week', label: '本週' },
+      { kind: 'this-month', label: '本月' },
+      { kind: 'custom', label: '自訂' }
+    ]
+
+    const periodCard = (title: string, stats: typeof rangeStats, subtitle: string): React.JSX.Element => (
+      <section className="stats-card" key={title}>
+        <header><strong>{title}</strong><small>{subtitle}</small></header>
+        <div className="stats-grid">
+          <div><span>合計攝取</span><strong>{stats.totalKcal.toLocaleString('zh-TW')} kcal</strong></div>
+          <div><span>日均攝取</span><strong>{stats.averageKcalPerDay.toLocaleString('zh-TW')} kcal</strong></div>
+          <div><span>合計蛋白</span><strong>{stats.totalProteinG.toLocaleString('zh-TW')} g</strong></div>
+          <div><span>日均蛋白</span><strong>{stats.averageProteinPerDay} g</strong></div>
+        </div>
+        <small className="hint">
+          日均以「已過 {stats.elapsedDayCount} 天」為分母；其中有紀錄 {stats.loggedDayCount} 天
+          {stats.loggedDayCount > 0 && stats.loggedDayCount < stats.elapsedDayCount
+            && `（只算有紀錄的日子是 ${stats.averageKcalPerLoggedDay.toLocaleString('zh-TW')} kcal）`}
+        </small>
+      </section>
+    )
+
+    return (
+      <main className="shell">
+        <Header title="熱量統計" onBack={() => setView('daily')} />
+        {periodCard('本週', weekStats, `${weekStats.range.startIsoDate.slice(5)} – ${weekStats.range.endIsoDate.slice(5)}`)}
+        {periodCard('本月', monthStats, monthStats.range.startIsoDate.slice(0, 7))}
+        <section className="stats-range-picker">
+          <div className="tag-options">
+            {rangeLabels.map(({ kind, label }) => (
+              <button
+                type="button"
+                key={kind}
+                className={`tag-choice${statsRangeKind === kind ? ' selected' : ''}`}
+                onClick={() => setStatsRangeKind(kind)}
+              >{label}</button>
+            ))}
+          </div>
+          {statsRangeKind === 'custom' && (
+            <div className="stats-custom-range">
+              <label>起<input type="date" value={customRange.startIsoDate} onChange={(event) => setCustomRange((prev) => ({ ...prev, startIsoDate: event.target.value }))} /></label>
+              <label>迄<input type="date" value={customRange.endIsoDate} onChange={(event) => setCustomRange((prev) => ({ ...prev, endIsoDate: event.target.value }))} /></label>
+            </div>
+          )}
+        </section>
+        {rangeStats.dayCount === 0
+          ? <p className="empty">日期範圍顛倒了，請把「迄」設在「起」之後。</p>
+          : periodCard(
+            statsRangeKind === 'custom' ? '自訂範圍' : rangeLabels.find((item) => item.kind === statsRangeKind)!.label,
+            rangeStats,
+            `${rangeStats.range.startIsoDate} – ${rangeStats.range.endIsoDate}`
+          )}
+        {rangeStats.dayCount > 0 && rangeStats.dayCount <= 62 && (
+          <section className="stats-bars">
+            {rangeStats.days.filter((day) => day.isoDate <= todayIso).map((day) => (
+              <div className="stats-bar-row" key={day.isoDate}>
+                <time>{day.isoDate.slice(5)}</time>
+                <div className="stats-bar-track">
+                  <div className="stats-bar intake" style={{ width: `${(day.kcal / maxKcal) * 100}%` }} />
+                </div>
+                <span className="stats-bar-value">{day.kcal || '—'}</span>
+              </div>
+            ))}
+          </section>
+        )}
+      </main>
+    )
+  }
 
   if (view === 'library') {
     return (
@@ -616,6 +721,7 @@ function App(): React.JSX.Element {
               <div>
                 <strong>{foodItem.name}</strong>
                 <small>{[foodItem.brand, foodItem.flavor].filter(Boolean).join(' · ') || '尚未填寫辨識資訊'}</small>
+                <small className="food-usage">{usageText(foodUsageOf(foodUsage, foodItem.id))}</small>
                 {(foodItem.tags ?? []).length > 0 && (
                   <div className="tag-row">{foodItem.tags!.map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}</div>
                 )}
@@ -635,6 +741,9 @@ function App(): React.JSX.Element {
     return (
       <main className="shell">
         <Header title={isNewFood ? '新增食物' : '編輯食物'} onBack={leaveFoodForm} />
+        {!isNewFood && editingFoodId && (
+          <p className="food-usage-banner">{usageText(foodUsageOf(foodUsage, editingFoodId))}</p>
+        )}
         <section className="food-form">
           <label>食物名稱<input value={foodDraft.name} onChange={(event) => setFoodDraft({ ...foodDraft, name: event.target.value })} /></label>
           <label>別名（用逗號分隔）<input value={foodDraft.aliases} onChange={(event) => setFoodDraft({ ...foodDraft, aliases: event.target.value })} /></label>
@@ -706,7 +815,13 @@ function App(): React.JSX.Element {
           <div className="confirm-overlay" role="dialog" aria-modal="true">
             <div className="confirm-card">
               <strong>確定要刪除「{foodDraft.name}」嗎？</strong>
-              <p>已記錄的餐次會顯示為「已刪除的食物」，但不會被刪除。此動作無法復原。</p>
+              {/* 先講被引用幾次再講後果：owner 砍錯過重複資料，數字要在按下去之前看到。 */}
+              <p>
+                {editingFoodId && foodUsageOf(foodUsage, editingFoodId).useCount > 0
+                  ? `這筆食物已被 ${foodUsageOf(foodUsage, editingFoodId).useCount} 筆飲食紀錄引用，刪除後那些紀錄會變成「已刪除的食物」（紀錄本身不會消失）。`
+                  : '這筆食物還沒有被任何飲食紀錄引用，刪除不會影響既有紀錄。'}
+              </p>
+              <p>此動作無法復原。</p>
               <div className="confirm-actions">
                 <button type="button" onClick={() => setConfirmDeleteFood(false)}>取消</button>
                 <button type="button" className="danger" onClick={deleteFoodConfirmed}>確定刪除</button>
@@ -893,7 +1008,11 @@ function App(): React.JSX.Element {
         <button type="button" aria-label="後一天" onClick={() => shiftDate(1)}>→</button>
       </section>
       <section className="summary">
-        <div><span>熱量</span><strong className={bodyProfile && daily.totalKcal > bodyProfile.dailyKcalLimit ? 'over' : ''}>{daily.totalKcal} kcal</strong><small>/ {bodyProfile?.dailyKcalLimit ?? '未設定'}</small></div>
+        <div className="summary-tappable" role="button" tabIndex={0} onClick={() => setView('stats')} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setView('stats') }}>
+          <span>熱量<MonoIcon name="chart" className="icon-sm summary-chart-icon" /></span>
+          <strong className={bodyProfile && daily.totalKcal > bodyProfile.dailyKcalLimit ? 'over' : ''}>{daily.totalKcal} kcal</strong>
+          <small>/ {bodyProfile?.dailyKcalLimit ?? '未設定'}</small>
+        </div>
         <div><span>蛋白質</span><strong className={bodyProfile && daily.totalProteinG >= bodyProfile.dailyProteinGoalG ? 'good' : ''}>{daily.totalProteinG} g</strong><small>/ {bodyProfile?.dailyProteinGoalG ?? '未設定'}</small></div>
       </section>
       <button type="button" className="primary full-width" onClick={() => setQuickEntryOpen((open) => !open)}>
@@ -929,7 +1048,7 @@ function App(): React.JSX.Element {
                   <small>{[foodItem.brand, foodItem.flavor].filter(Boolean).join(' · ')}</small>
                 )}
               </span>
-              <small>{foodItem.perServing.kcal} kcal · {foodItem.perServing.proteinG} g 蛋白</small>
+              <small>{foodItem.perServing.kcal} kcal · {foodItem.perServing.proteinG} g 蛋白<br />{usageText(foodUsageOf(foodUsage, foodItem.id))}</small>
             </button>
           ))}
         </div>

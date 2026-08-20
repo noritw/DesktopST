@@ -5,17 +5,22 @@ import {
   applyEstimateToEntries,
   applyMigrationPack,
   buildDailyView,
+  buildFoodUsageIndex,
   buildMigrationPack,
+  buildNutritionStats,
   calculateGoalAdjustedKcal,
   calculateProteinGoalG,
   calculateTdeeKcal,
   collectReferencedPhotoKeys,
   foodPhotoKey,
+  foodUsageOf,
+  listRangeDates,
   matchFoodItem,
   matchFoodKeyword,
   mealPhotoKey,
   nextFreeFoodPhotoIndex,
   requestPhotoEstimate,
+  resolveStatsRange,
   suggestTodayKcalLimit,
   MAX_FOOD_PHOTOS,
   NUTRITION_PACK_EXTENSION,
@@ -26,6 +31,7 @@ import {
   toIsoDateString,
   type BodyProfile,
   type FoodItem,
+  type FoodUsage,
   type MealLog,
   type MigrationMergeMode,
   type NutritionActivityLevel,
@@ -34,6 +40,8 @@ import {
   type NutritionLlmSettings,
   type NutritionMigrationPack,
   type NutritionSnapshot,
+  type NutritionStatsRange,
+  type NutritionStatsRangeKind,
   type PhotoEstimateResult
 } from '@core/nutrition'
 import type { HealthSnapshot } from '@core/adapters'
@@ -52,7 +60,7 @@ const DEFAULT_LLM_SETTINGS: NutritionLlmSettings = { provider: 'openai', apiKeys
 /** 最近／最常吃的食物名稱清單上限（§3.1，只送名稱不送營養數字）。 */
 const RECENT_FOOD_NAMES_LIMIT = 30
 
-type View = 'daily' | 'library' | 'foodForm' | 'mealEditor' | 'profile' | 'about' | 'transfer' | 'photoEstimate'
+type View = 'daily' | 'library' | 'foodForm' | 'mealEditor' | 'profile' | 'about' | 'transfer' | 'photoEstimate' | 'stats'
 /** 新增／編輯食物表單是從哪裡打開的，返回時要回到同一個地方，而不是永遠回食物庫。 */
 type FoodFormOrigin = 'library' | 'quickEntry' | 'mealEditor'
 
@@ -126,6 +134,55 @@ function useStoredPhotoUrl(photoKey: string | undefined): string | null {
     }
   }, [photoKey])
   return url
+}
+
+/**
+ * 選照片的兩個入口：**拍照**（`capture` 直接叫起相機）與**相簿**。
+ *
+ * 為什麼要拆成兩顆：只給一個 `<input type="file" accept="image/*">` 時，
+ * Android 是否跳出相機完全看廠商的選單長怎樣——owner 實測是只看得到相簿，
+ * 只好先離開 App 用內建相機拍完再回來挑，等於多三步。加上 `capture` 的那顆
+ * 直接開相機，不經過選單。
+ *
+ * `accept` 一律只給 `image/*` 大類（CLAUDE.md §5：列副檔名會讓相簿變空）。
+ * `capture` 走的是系統相機 intent，**不需要**在 AndroidManifest 宣告
+ * CAMERA 權限——宣告了反而要額外處理執行期授權。
+ */
+function PhotoSourceButtons({ multiple, onFiles, large, cameraLabel, galleryLabel }: {
+  multiple?: boolean
+  onFiles: (files: FileList) => void
+  large?: boolean
+  cameraLabel?: string
+  galleryLabel?: string
+}): React.JSX.Element {
+  function handleChange(event: React.ChangeEvent<HTMLInputElement>): void {
+    if (event.target.files && event.target.files.length > 0) onFiles(event.target.files)
+    event.target.value = ''
+  }
+  const className = `photo-add${large ? ' photo-add-large' : ''}`
+  return (
+    <>
+      <label className={className}>
+        <MonoIcon name="camera" className="icon-md" />
+        <span>{cameraLabel ?? '拍照'}</span>
+        <input type="file" accept="image/*" capture="environment" multiple={multiple} onChange={handleChange} />
+      </label>
+      <label className={className}>
+        <MonoIcon name="image" className="icon-md" />
+        <span>{galleryLabel ?? '相簿'}</span>
+        <input type="file" accept="image/*" multiple={multiple} onChange={handleChange} />
+      </label>
+    </>
+  )
+}
+
+/** 「已記錄 12 次 · 上次 8/18」——同名食物要靠這行分辨哪筆是常吃的那筆。 */
+function usageText(usage: FoodUsage): string {
+  if (usage.useCount === 0) return '還沒有記錄引用'
+  const last = usage.lastEatenAt !== undefined
+    ? new Date(usage.lastEatenAt).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' })
+    : null
+  return `已記錄 ${usage.useCount} 次${last ? ` · 上次 ${last}` : ''}`
 }
 
 function PhotoThumb({ photoKey, onRemove, onPreview }: { photoKey: string; onRemove: () => void; onPreview?: () => void }): React.JSX.Element {
@@ -266,16 +323,7 @@ function MealPhotoField({ mealLog, foodItem, onPick, onClear, onPreview }: {
             )}
           </div>
         )}
-        {!ownPhotoKey && (
-          <label className="photo-add">
-            <MonoIcon name="plus" className="icon-md" />
-            <input type="file" accept="image/*" onChange={(event) => {
-              const file = event.target.files?.[0]
-              if (file) onPick(file)
-              event.target.value = ''
-            }} />
-          </label>
-        )}
+        {!ownPhotoKey && <PhotoSourceButtons onFiles={(files) => { const file = files[0]; if (file) onPick(file) }} />}
       </div>
       {!ownPhotoKey && inheritedPhotoKey && <small className="hint">目前顯示食物庫照片；上傳可改用這一筆專屬的照片。</small>}
     </section>
@@ -367,6 +415,14 @@ function App(): React.JSX.Element {
   /** 過去日期的當日總消耗熱量快取（開關 3 開啟時，翻歷史紀錄用）；`undefined`＝還沒查過，`null`＝查過但查無資料。重開 App 會重置，跟 healthSnapshot 一樣不需要持久化。 */
   const [historicalKcalCache, setHistoricalKcalCache] = React.useState<Record<string, number | null>>({})
 
+  // --- 統計頁（週／月平均與合計，日期範圍可切換）---
+  const [statsRangeKind, setStatsRangeKind] = React.useState<NutritionStatsRangeKind>('last-7')
+  const [customRange, setCustomRange] = React.useState<NutritionStatsRange>(() => ({
+    startIsoDate: toIsoDateString(Date.now()),
+    endIsoDate: toIsoDateString(Date.now())
+  }))
+  const [statsBurnLoading, setStatsBurnLoading] = React.useState(false)
+
   const [transferBusy, setTransferBusy] = React.useState(false)
   const [transferMessage, setTransferMessage] = React.useState<string | null>(null)
 
@@ -414,7 +470,7 @@ function App(): React.JSX.Element {
         if (photoPreviewRef.current) { setPhotoPreview(null); return }
         const current = viewRef.current
         if (current === 'foodForm') { leaveFoodForm(); return }
-        if (current === 'library' || current === 'mealEditor' || current === 'profile' || current === 'about' || current === 'transfer' || current === 'photoEstimate') { setView('daily'); return }
+        if (current === 'library' || current === 'mealEditor' || current === 'profile' || current === 'about' || current === 'transfer' || current === 'photoEstimate' || current === 'stats') { setView('daily'); return }
         void CapacitorApp.exitApp()
       }).catch(() => null)
       if (cancelled) void handle?.remove()
@@ -481,6 +537,36 @@ function App(): React.JSX.Element {
     })
     return () => { cancelled = true }
   }, [selectedDate, healthSettings.connected, healthSettings.useWatchCalorieLimit, healthAvailable, healthPermissionGranted, historicalKcalCache])
+
+  /** 統計頁目前看的區間；`custom` 以外都由今天推算，跨過午夜重開頁面自然更新。 */
+  const statsRange: NutritionStatsRange = statsRangeKind === 'custom'
+    ? customRange
+    : resolveStatsRange(statsRangeKind, toIsoDateString(Date.now()))
+
+  // 統計頁的「消耗」逐日補齊：只查還沒查過、且已經到了的日子，查到的結果沿用
+  // 跟翻日曆同一份快取（historicalKcalCache），翻回同一天不會再打一次
+  // Health Connect。沒連接／沒授權就整段跳過，不主動幫使用者要權限。
+  React.useEffect(() => {
+    if (view !== 'stats') return
+    if (!healthSettings.connected || !healthAvailable || !healthPermissionGranted) return
+    const todayIso = toIsoDateString(Date.now())
+    const missing = listRangeDates(statsRange).filter((iso) => iso <= todayIso && !(iso in historicalKcalCache))
+    if (missing.length === 0) return
+    let cancelled = false
+    setStatsBurnLoading(true)
+    void (async () => {
+      const fetched: Record<string, number | null> = {}
+      for (const iso of missing) {
+        if (cancelled) return
+        const value = await nutritionHealthAdapter.readDailyCaloriesBurned(iso).catch(() => undefined)
+        fetched[iso] = value ?? null
+      }
+      if (cancelled) return
+      setHistoricalKcalCache((prev) => ({ ...prev, ...fetched }))
+      setStatsBurnLoading(false)
+    })()
+    return () => { cancelled = true; setStatsBurnLoading(false) }
+  }, [view, statsRange.startIsoDate, statsRange.endIsoDate, healthSettings.connected, healthAvailable, healthPermissionGranted, historicalKcalCache])
 
   function applySnapshot(session: NutritionSession): void {
     setSnapshot({
@@ -1224,6 +1310,9 @@ function App(): React.JSX.Element {
   if (!snapshot) return <main className="shell"><p>載入飲食資料中...</p></main>
 
   const daily = buildDailyView(snapshot.mealLogs, snapshot.foodItems, selectedDate)
+  // 引用次數一律由餐次現算，不吃 FoodItem.useCount 快取——這個數字的用途就是
+  // 「這筆重複資料能不能刪」，看到過期的快取比看不到還糟。
+  const foodUsage = buildFoodUsageIndex(snapshot.mealLogs)
   const bodyProfile = snapshot.bodyProfile
   // 開關 3 開啟時：正在看今天套 suggestTodayKcalLimit()（已消耗＋剩餘時間外推）；
   // 翻到過去的日期則直接用那天的 Health Connect 總消耗熱量本人（那天已經過完，
@@ -1277,6 +1366,7 @@ function App(): React.JSX.Element {
               <div>
                 <strong>{foodItem.name}</strong>
                 <small>{[foodItem.brand, foodItem.flavor].filter(Boolean).join(' · ') || '尚未填寫辨識資訊'}</small>
+                <small className="food-usage">{usageText(foodUsageOf(foodUsage, foodItem.id))}</small>
                 {(foodItem.tags ?? []).length > 0 && (
                   <div className="tag-row">{foodItem.tags!.map((tag) => <span className="tag-chip" key={tag}>{tag}</span>)}</div>
                 )}
@@ -1296,6 +1386,9 @@ function App(): React.JSX.Element {
     return (
       <main className="shell">
         <Header title={isNewFood ? '新增食物' : '編輯食物'} onBack={leaveFoodForm} />
+        {!isNewFood && editingFoodId && (
+          <p className="food-usage-banner">{usageText(foodUsageOf(foodUsage, editingFoodId))}</p>
+        )}
         <section className="food-form">
           <label>食物名稱<input value={foodDraft.name} onChange={(event) => setFoodDraft({ ...foodDraft, name: event.target.value })} /></label>
           <label>別名（用逗號分隔）<input value={foodDraft.aliases} onChange={(event) => setFoodDraft({ ...foodDraft, aliases: event.target.value })} /></label>
@@ -1336,18 +1429,7 @@ function App(): React.JSX.Element {
                 <PhotoThumb key={key} photoKey={key} onRemove={() => void removeFoodPhoto(index)} onPreview={() => setPhotoPreview({ keys: foodDraft.photoKeys, index })} />
               ))}
               {foodDraft.photoKeys.length < MAX_FOOD_PHOTOS && (
-                <label className="photo-add">
-                  <MonoIcon name="plus" className="icon-md" />
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(event) => {
-                      if (event.target.files) void addFoodPhotos(event.target.files)
-                      event.target.value = ''
-                    }}
-                  />
-                </label>
+                <PhotoSourceButtons multiple onFiles={(files) => void addFoodPhotos(files)} />
               )}
             </div>
           </div>
@@ -1387,7 +1469,13 @@ function App(): React.JSX.Element {
           <div className="confirm-overlay" role="dialog" aria-modal="true">
             <div className="confirm-card">
               <strong>確定要刪除「{foodDraft.name}」嗎？</strong>
-              <p>已記錄的餐次會顯示為「已刪除的食物」，但不會被刪除。此動作無法復原。</p>
+              {/* 先講被引用幾次再講後果：owner 砍錯過重複資料，數字要在按下去之前看到。 */}
+              <p>
+                {editingFoodId && foodUsageOf(foodUsage, editingFoodId).useCount > 0
+                  ? `這筆食物已被 ${foodUsageOf(foodUsage, editingFoodId).useCount} 筆飲食紀錄引用，刪除後那些紀錄會變成「已刪除的食物」（紀錄本身不會消失）。`
+                  : '這筆食物還沒有被任何飲食紀錄引用，刪除不會影響既有紀錄。'}
+              </p>
+              <p>此動作無法復原。</p>
               <div className="confirm-actions">
                 <button type="button" onClick={() => setConfirmDeleteFood(false)}>取消</button>
                 <button type="button" className="danger" disabled={saving} onClick={deleteFoodConfirmed}>確定刪除</button>
@@ -1722,25 +1810,149 @@ function App(): React.JSX.Element {
     )
   }
 
+  if (view === 'stats') {
+    const todayIso = toIsoDateString(Date.now())
+    const weekStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-week', todayIso), todayIso, historicalKcalCache)
+    const monthStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-month', todayIso), todayIso, historicalKcalCache)
+    const rangeStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, statsRange, todayIso, historicalKcalCache)
+    const burnConnected = healthSettings.connected && healthAvailable && healthPermissionGranted
+    const maxKcal = Math.max(1, ...rangeStats.days.map((day) => Math.max(day.kcal, day.burnedKcal ?? 0)))
+    const rangeLabels: { kind: NutritionStatsRangeKind; label: string }[] = [
+      { kind: 'last-7', label: '近 7 天' },
+      { kind: 'last-30', label: '近 30 天' },
+      { kind: 'this-week', label: '本週' },
+      { kind: 'this-month', label: '本月' },
+      { kind: 'custom', label: '自訂' }
+    ]
+
+    /** 一個區間的四個數字：合計／日均，攝取／消耗。消耗沒資料就不佔位。 */
+    const periodCard = (title: string, stats: typeof rangeStats, subtitle: string): React.JSX.Element => (
+      <section className="stats-card" key={title}>
+        <header>
+          <strong>{title}</strong>
+          <small>{subtitle}</small>
+        </header>
+        <div className="stats-grid">
+          <div>
+            <span>合計攝取</span>
+            <strong>{stats.totalKcal.toLocaleString('zh-TW')} kcal</strong>
+          </div>
+          <div>
+            <span>日均攝取</span>
+            <strong>{stats.averageKcalPerDay.toLocaleString('zh-TW')} kcal</strong>
+          </div>
+          {stats.burnedDayCount > 0 && (
+            <>
+              <div>
+                <span>合計消耗</span>
+                <strong>{stats.totalBurnedKcal.toLocaleString('zh-TW')} kcal</strong>
+              </div>
+              <div>
+                <span>日均消耗</span>
+                <strong>{stats.averageBurnedPerDay.toLocaleString('zh-TW')} kcal</strong>
+              </div>
+            </>
+          )}
+          <div>
+            <span>日均蛋白</span>
+            <strong>{stats.averageProteinPerDay} g</strong>
+          </div>
+          {stats.averageNetKcalPerDay !== null && (
+            <div>
+              <span>日均淨值</span>
+              {/* 這一格才是「不用焦慮」的重點：單天爆掉，平均下來常常還是赤字。 */}
+              <strong className={stats.averageNetKcalPerDay > 0 ? 'over' : 'good'}>
+                {stats.averageNetKcalPerDay > 0 ? '+' : ''}{stats.averageNetKcalPerDay.toLocaleString('zh-TW')} kcal
+              </strong>
+            </div>
+          )}
+        </div>
+        <small className="hint">
+          日均以「已過 {stats.elapsedDayCount} 天」為分母；其中有紀錄 {stats.loggedDayCount} 天
+          {stats.loggedDayCount > 0 && stats.loggedDayCount < stats.elapsedDayCount
+            && `（只算有紀錄的日子是 ${stats.averageKcalPerLoggedDay.toLocaleString('zh-TW')} kcal）`}
+          {stats.burnedDayCount > 0 && `，有手錶消耗資料 ${stats.burnedDayCount} 天`}
+        </small>
+      </section>
+    )
+
+    return (
+      <main className="shell">
+        <Header title="熱量統計" onBack={() => setView('daily')} />
+
+        {periodCard('本週', weekStats, `${weekStats.range.startIsoDate.slice(5)} – ${weekStats.range.endIsoDate.slice(5)}`)}
+        {periodCard('本月', monthStats, `${monthStats.range.startIsoDate.slice(0, 7)}`)}
+
+        <section className="stats-range-picker">
+          <div className="tag-options">
+            {rangeLabels.map(({ kind, label }) => (
+              <button
+                type="button"
+                key={kind}
+                className={`tag-choice${statsRangeKind === kind ? ' selected' : ''}`}
+                onClick={() => setStatsRangeKind(kind)}
+              >{label}</button>
+            ))}
+          </div>
+          {statsRangeKind === 'custom' && (
+            <div className="stats-custom-range">
+              <label>起<input type="date" value={customRange.startIsoDate} onChange={(event) => setCustomRange((prev) => ({ ...prev, startIsoDate: event.target.value }))} /></label>
+              <label>迄<input type="date" value={customRange.endIsoDate} onChange={(event) => setCustomRange((prev) => ({ ...prev, endIsoDate: event.target.value }))} /></label>
+            </div>
+          )}
+        </section>
+
+        {rangeStats.dayCount === 0
+          ? <p className="empty">日期範圍顛倒了，請把「迄」設在「起」之後。</p>
+          : periodCard(
+            statsRangeKind === 'custom' ? '自訂範圍' : rangeLabels.find((item) => item.kind === statsRangeKind)!.label,
+            rangeStats,
+            `${rangeStats.range.startIsoDate} – ${rangeStats.range.endIsoDate}`
+          )}
+
+        {rangeStats.dayCount > 0 && rangeStats.dayCount <= 62 && (
+          <section className="stats-bars">
+            {rangeStats.days.filter((day) => day.isoDate <= todayIso).map((day) => (
+              <div className="stats-bar-row" key={day.isoDate}>
+                <time>{day.isoDate.slice(5)}</time>
+                <div className="stats-bar-track">
+                  <div className="stats-bar intake" style={{ width: `${(day.kcal / maxKcal) * 100}%` }} />
+                  {day.burnedKcal !== undefined && (
+                    <div className="stats-bar burned" style={{ width: `${(day.burnedKcal / maxKcal) * 100}%` }} />
+                  )}
+                </div>
+                <span className="stats-bar-value">{day.kcal || '—'}</span>
+              </div>
+            ))}
+            <small className="hint">深色＝攝取{burnConnected && '，淺色＝手錶消耗'}</small>
+          </section>
+        )}
+
+        {!healthSettings.connected && (
+          <small className="hint">消耗熱量需要先在「身體資料」頁連接 Health Connect；沒有連接時只統計攝取。</small>
+        )}
+        {healthSettings.connected && !burnConnected && (
+          <button type="button" className="primary full-width" disabled={healthSyncing} onClick={() => void runHealthSync({ requestPermissionIfNeeded: true })}>
+            讀取手錶消耗資料
+          </button>
+        )}
+        {statsBurnLoading && <small className="hint">正在讀取每日消耗資料...</small>}
+      </main>
+    )
+  }
+
   if (view === 'photoEstimate') {
     return (
       <main className="shell">
         <Header title="拍照記錄" onBack={discardEstimate} />
         <section className="food-form">
           {estimatePhase === 'idle' && (
-            <label className="photo-add photo-add-large">
-              <MonoIcon name="plus" className="icon-md" />
-              <span>拍照或從相簿選（最多 {MAX_FOOD_PHOTOS} 張）</span>
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={(event) => {
-                  if (event.target.files) addEstimatePhotos(event.target.files)
-                  event.target.value = ''
-                }}
-              />
-            </label>
+            <>
+              <div className="photo-source-row">
+                <PhotoSourceButtons multiple large onFiles={addEstimatePhotos} cameraLabel="拍照" galleryLabel="從相簿選" />
+              </div>
+              <small className="hint">最多 {MAX_FOOD_PHOTOS} 張，可以直接拍，不用先離開 App 用相機。</small>
+            </>
           )}
           {estimatePhase === 'noteInput' && (
             <section className="estimate-note-section">
@@ -1754,18 +1966,7 @@ function App(): React.JSX.Element {
                   </div>
                 ))}
                 {estimateSelectedFiles.length < MAX_FOOD_PHOTOS && (
-                  <label className="photo-add">
-                    <MonoIcon name="plus" className="icon-md" />
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={(event) => {
-                        if (event.target.files) addEstimatePhotos(event.target.files)
-                        event.target.value = ''
-                      }}
-                    />
-                  </label>
+                  <PhotoSourceButtons multiple onFiles={addEstimatePhotos} />
                 )}
               </div>
               <small className="hint">同一份食物可以拍好幾張（包裝正面、營養成分表、實際內容物），會合併成一筆估算——有拍到成分表的話數字最準。</small>
@@ -1792,19 +1993,9 @@ function App(): React.JSX.Element {
                   回上一步改說明再試一次
                 </button>
               )}
-              <label className="photo-add photo-add-large">
-                <MonoIcon name="plus" className="icon-md" />
-                <span>重新選照片</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  onChange={(event) => {
-                    if (event.target.files) addEstimatePhotos(event.target.files)
-                    event.target.value = ''
-                  }}
-                />
-              </label>
+              <div className="photo-source-row">
+                <PhotoSourceButtons multiple large onFiles={addEstimatePhotos} cameraLabel="重拍" galleryLabel="重選" />
+              </div>
               <button type="button" onClick={() => openFoodForm(null, 'quickEntry')}>改用手動輸入</button>
             </>
           )}
@@ -1857,8 +2048,8 @@ function App(): React.JSX.Element {
         <button type="button" aria-label="後一天" onClick={() => shiftDate(1)}>→</button>
       </section>
       <section className="summary">
-        <div>
-          <span>熱量{dynamicKcalLimit !== null && <small className="dynamic-tag">{isViewingToday ? '依手錶動態' : '當日手錶總消耗'}</small>}</span>
+        <div className="summary-tappable" role="button" tabIndex={0} onClick={() => setView('stats')} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setView('stats') }}>
+          <span>熱量{dynamicKcalLimit !== null && <small className="dynamic-tag">{isViewingToday ? '依手錶動態' : '當日手錶總消耗'}</small>}<MonoIcon name="chart" className="icon-sm summary-chart-icon" /></span>
           <strong className={effectiveKcalLimit !== undefined && daily.totalKcal > effectiveKcalLimit ? 'over' : ''}>{daily.totalKcal} kcal</strong>
           <small>/ {effectiveKcalLimit ?? '未設定'}</small>
         </div>
@@ -1912,7 +2103,7 @@ function App(): React.JSX.Element {
                       <small>{[foodItem.brand, foodItem.flavor].filter(Boolean).join(' · ')}</small>
                     )}
                   </span>
-                  <small>{foodItem.perServing.kcal} kcal · {foodItem.perServing.proteinG} g 蛋白</small>
+                  <small>{foodItem.perServing.kcal} kcal · {foodItem.perServing.proteinG} g 蛋白<br />{usageText(foodUsageOf(foodUsage, foodItem.id))}</small>
                 </button>
               ))}
             </div>

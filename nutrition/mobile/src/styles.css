@@ -221,3 +221,37 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 .confirm-card p { color: #6d887f; font-size: 13px; }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
 
+
+/* 兩顆選照片入口（拍照／相簿）：小尺寸時並排在 photo-grid 裡，
+   大尺寸（拍照記錄首屏）時左右對分一列。 */
+.photo-add span { font-size: 12px; }
+.photo-add:not(.photo-add-large) { flex-direction: column; gap: 2px; }
+.photo-source-row { display: flex; gap: 12px; }
+.photo-source-row .photo-add-large { flex: 1; }
+
+/* 食物庫的引用次數：同名重複資料要靠這行判斷哪筆能刪 */
+.food-usage { color: #6d887f; font-size: 12px; }
+.food-usage-banner { margin: 0 0 4px; padding: 8px 12px; border-radius: 10px; background: #eefaf5; color: #4f9c8a; font-size: 13px; font-weight: 700; }
+
+/* 熱量統計頁 */
+.summary-tappable { cursor: pointer; }
+.summary-chart-icon { margin-left: 6px; vertical-align: middle; color: #4f9c8a; }
+.stats-card { background: white; border: 1px solid #d8ebe4; border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px; }
+.stats-card header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.stats-card header strong { font-size: 16px; }
+.stats-card header small { color: #6d887f; font-size: 12px; }
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.stats-grid > div { display: grid; gap: 2px; }
+.stats-grid span { color: #6d887f; font-size: 12px; }
+.stats-grid strong { font-size: 18px; }
+.stats-range-picker { display: grid; gap: 10px; }
+.stats-custom-range { display: flex; gap: 12px; }
+.stats-custom-range label { flex: 1; display: grid; gap: 4px; color: #6d887f; font-size: 13px; }
+.stats-bars { display: grid; gap: 4px; }
+.stats-bar-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) 48px; align-items: center; gap: 8px; }
+.stats-bar-row time { color: #6d887f; font-size: 11px; }
+.stats-bar-track { position: relative; height: 16px; background: #eefaf5; border-radius: 999px; overflow: hidden; }
+.stats-bar { position: absolute; top: 0; height: 8px; border-radius: 999px; }
+.stats-bar.intake { background: #4f9c8a; }
+.stats-bar.burned { top: 8px; background: #a9d8c8; }
+.stats-bar-value { text-align: right; color: #3d5a52; font-size: 12px; }
