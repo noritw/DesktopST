@@ -161,7 +161,7 @@ describe('requestPhotoEstimate', () => {
   it('不支援的供應商直接丟錯，不送出請求', async () => {
     const http = fakeHttp(async () => { throw new Error('不該被呼叫') })
     await expect(requestPhotoEstimate({
-      llmSettings: { provider: 'gemini', model: 'gemini-3', apiKeys: { gemini: 'key' } },
+      llmSettings: { provider: 'mistral', model: 'mistral-large', apiKeys: { mistral: 'key' } },
       photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
       recentNames: [],
       http
@@ -329,6 +329,32 @@ describe('requestPhotoEstimate', () => {
     expect(capturedBody.messages[0].content[2].source.media_type).toBe('image/webp')
     expect(results[0].perServing).toEqual({ kcal: 320, proteinG: 18 })
   })
+
+  it('gemini 走 generateContent API（不同的端點／標頭／body 形狀）', async () => {
+    let capturedUrl: string | null = null
+    let capturedHeaders: Record<string, string> | null = null
+    let capturedBody: any = null
+    const http = fakeHttp(async (input, init) => {
+      capturedUrl = String(input)
+      capturedHeaders = init?.headers as Record<string, string>
+      capturedBody = JSON.parse(String(init?.body))
+      return jsonResponse({ candidates: [{ content: { parts: [{ text: JSON.stringify({ results: [{ name: '燻雞三明治', perServing: { kcal: 320, proteinG: 18 } }] }) }] } }] })
+    })
+    const results = await requestPhotoEstimate({
+      llmSettings: { provider: 'gemini', model: 'gemini-3.1-flash-lite', apiKeys: { gemini: 'AIza-test' } },
+      photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
+      recentNames: [],
+      http
+    })
+    expect(capturedUrl).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent')
+    expect(capturedHeaders?.['x-goog-api-key']).toBe('AIza-test')
+    expect(capturedHeaders?.['Authorization']).toBeUndefined()
+    expect(capturedBody.model).toBeUndefined()
+    expect(capturedBody.generationConfig).toEqual({ responseMimeType: 'application/json', maxOutputTokens: 1500 })
+    expect(capturedBody.contents[0].role).toBe('user')
+    expect(capturedBody.contents[0].parts[2].inlineData).toEqual({ mimeType: 'image/webp', data: 'AAA' })
+    expect(results[0].perServing).toEqual({ kcal: 320, proteinG: 18 })
+  })
 })
 
 describe('testNutritionLlmConnection', () => {
@@ -369,6 +395,21 @@ describe('testNutritionLlmConnection', () => {
     const http = fakeHttp(async () => { throw new Error('不該被呼叫') })
     const result = await testNutritionLlmConnection({ ...baseLlmSettings, apiKeys: {} }, http)
     expect(result).toEqual({ ok: false, error: expect.stringContaining('API Key') })
+  })
+
+  it('gemini 用 x-goog-api-key 標頭，並解析 `models/xxx` 形狀的回應', async () => {
+    let capturedUrl: string | null = null
+    let capturedHeaders: Record<string, string> | null = null
+    const http = fakeHttp(async (input, init) => {
+      capturedUrl = String(input)
+      capturedHeaders = init?.headers as Record<string, string>
+      return jsonResponse({ models: [{ name: 'models/gemini-3.1-flash-lite' }, { name: 'models/gemini-3.7-flash' }] })
+    })
+    const result = await testNutritionLlmConnection({ provider: 'gemini', model: '', apiKeys: { gemini: 'AIza-test' } }, http)
+    expect(capturedUrl).toBe('https://generativelanguage.googleapis.com/v1beta/models')
+    expect(capturedHeaders?.['x-goog-api-key']).toBe('AIza-test')
+    expect(capturedHeaders?.['Authorization']).toBeUndefined()
+    expect(result).toEqual({ ok: true, models: ['gemini-3.1-flash-lite', 'gemini-3.7-flash'] })
   })
 })
 
@@ -414,6 +455,20 @@ describe('testPhotoEstimateVision', () => {
     const result = await testPhotoEstimateVision({ provider: 'claude', model: 'claude-haiku-4-5', apiKeys: { claude: 'sk-ant-test' } }, http)
     expect(capturedUrl).toBe('https://api.anthropic.com/v1/messages')
     expect(capturedBody.messages[0].content[1].type).toBe('image')
+    expect(result).toEqual({ ok: true, reply: '可以讀圖' })
+  })
+
+  it('gemini 走 generateContent API 格式', async () => {
+    let capturedUrl: string | null = null
+    let capturedBody: any = null
+    const http = fakeHttp(async (input, init) => {
+      capturedUrl = String(input)
+      capturedBody = JSON.parse(String(init?.body))
+      return jsonResponse({ candidates: [{ content: { parts: [{ text: '可以讀圖' }] } }] })
+    })
+    const result = await testPhotoEstimateVision({ provider: 'gemini', model: 'gemini-3.1-flash-lite', apiKeys: { gemini: 'AIza-test' } }, http)
+    expect(capturedUrl).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent')
+    expect(capturedBody.contents[0].parts[1].inlineData).toBeTruthy()
     expect(result).toEqual({ ok: true, reply: '可以讀圖' })
   })
 })

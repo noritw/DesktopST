@@ -4,13 +4,16 @@ import type { NutritionLlmSettings } from './types'
 
 /**
  * 支援 OpenAI 相容的 Chat Completions（openai／local／grok，`/v1/chat/completions`——
- * 這是本地模型伺服器最普遍支援的格式，比 Responses API 涵蓋面更廣）
- * 與 Anthropic 的 Messages API（claude，`/v1/messages`，欄位格式不同、走 `x-api-key`）。
- * `docs/nutrition-photo-estimate-plan.md` §3.3。Gemini 圖片格式又不同，還沒支援。
+ * 這是本地模型伺服器最普遍支援的格式，比 Responses API 涵蓋面更廣）、
+ * Anthropic 的 Messages API（claude，`/v1/messages`，欄位格式不同、走 `x-api-key`），
+ * 與 Google 的 generateContent API（gemini，`/v1beta/models/{model}:generateContent`，
+ * 圖片走 `inlineData`、認證走 `x-goog-api-key`，三家格式互不相容）。
+ * `docs/nutrition-photo-estimate-plan.md` §3.3。
  */
 const OPENAI_COMPATIBLE_PROVIDERS = new Set(['openai', 'local', 'grok'])
 const ANTHROPIC_PROVIDERS = new Set(['claude'])
-const SUPPORTED_PROVIDERS = new Set([...OPENAI_COMPATIBLE_PROVIDERS, ...ANTHROPIC_PROVIDERS])
+const GEMINI_PROVIDERS = new Set(['gemini'])
+const SUPPORTED_PROVIDERS = new Set([...OPENAI_COMPATIBLE_PROVIDERS, ...ANTHROPIC_PROVIDERS, ...GEMINI_PROVIDERS])
 
 export interface PhotoEstimatePhoto {
   /** 送出的照片屬於哪一份食物，對齊補充頁的槽位（§2.6.1）。 */
@@ -68,6 +71,7 @@ function resolveBaseUrl(llmSettings: NutritionLlmSettings): string {
   if (explicit) return explicit.replace(/\/+$/, '')
   if (llmSettings.provider === 'grok') return 'https://api.x.ai/v1'
   if (llmSettings.provider === 'claude') return 'https://api.anthropic.com/v1'
+  if (llmSettings.provider === 'gemini') return 'https://generativelanguage.googleapis.com/v1beta'
   return 'https://api.openai.com/v1'
 }
 
@@ -101,7 +105,7 @@ export class PhotoEstimateRequestError extends Error {
 /** 進請求前的共通檢查，三個對外函式（估算／測連線／測讀圖）共用同一套規則。 */
 function checkBasicRequestPreconditions(llmSettings: NutritionLlmSettings, requireModel: boolean): string | null {
   if (!SUPPORTED_PROVIDERS.has(llmSettings.provider)) {
-    return `拍照估算目前只支援 openai／local／grok／claude 供應商，收到：${llmSettings.provider}`
+    return `拍照估算目前只支援 openai／local／grok／claude／gemini 供應商，收到：${llmSettings.provider}`
   }
   if (requireModel && !llmSettings.model) return '尚未選擇模型'
   const apiKey = resolveApiKey(llmSettings)
@@ -212,6 +216,14 @@ interface ChatContentPart {
   source?: { type: 'base64'; media_type: string; data: string }
 }
 
+/** Gemini `contents[].parts[]` 的實際形狀——沒有判別欄位，只有 `text` 或 `inlineData` 二選一。 */
+type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } }
+
+/** 把中介的 `ChatContentPart[]`（沿用 Anthropic 的 image 形狀）轉成 Gemini 實際送出的 parts。 */
+function toGeminiParts(parts: ChatContentPart[]): GeminiPart[] {
+  return parts.map((p) => (p.type === 'text' ? { text: p.text ?? '' } : { inlineData: { mimeType: p.source!.media_type, data: p.source!.data } }))
+}
+
 /**
  * 圖片前面那句說明文字。**單份食物多張照片是常態**（包裝正面／營養成分表／內容物，
  * 見規格 §2.6 拍法 A），所以標註要講「第幾張、屬於第幾份食物」兩件事——
@@ -223,7 +235,8 @@ function photoCaption(photo: PhotoEstimatePhoto, indexWithinSlot: number, totalS
 }
 
 function imagePart(base64: string, mimeType: string, provider: string): ChatContentPart {
-  return ANTHROPIC_PROVIDERS.has(provider)
+  // Gemini 借用 Anthropic 的中介形狀（都是 base64＋mime type），送出前再由 `toGeminiParts` 轉成 `inlineData`。
+  return ANTHROPIC_PROVIDERS.has(provider) || GEMINI_PROVIDERS.has(provider)
     ? { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64 } }
     : { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}` } }
 }
@@ -253,17 +266,26 @@ function buildRequestHeaders(llmSettings: NutritionLlmSettings, apiKey: string):
       'anthropic-dangerous-direct-browser-access': 'true'
     }
   }
+  if (GEMINI_PROVIDERS.has(llmSettings.provider)) {
+    // 現行標準是 `x-goog-api-key` 標頭（舊版文件常見的 `?key=` query string 一樣可用，
+    // 但金鑰會被存進伺服器存取記錄與瀏覽器歷史，改走標頭比較安全）。
+    return { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }
+  }
   return {
     'Content-Type': 'application/json',
     ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
   }
 }
 
-/** 從回應中取出模型的純文字內容，屏蔽 OpenAI（`choices[0].message.content`）與 Anthropic（`content[].text`）的形狀差異。 */
+/** 從回應中取出模型的純文字內容，屏蔽 OpenAI（`choices[0].message.content`）、Anthropic（`content[].text`）與 Gemini（`candidates[0].content.parts[].text`）的形狀差異。 */
 async function extractReplyText(response: Response, provider: string): Promise<string | undefined> {
   if (ANTHROPIC_PROVIDERS.has(provider)) {
     const json = await response.json().catch(() => null) as { content?: Array<{ type?: string; text?: string }> } | null
     return (json?.content ?? []).filter((b) => b.type === 'text').map((b) => b.text ?? '').join('').trim() || undefined
+  }
+  if (GEMINI_PROVIDERS.has(provider)) {
+    const json = await response.json().catch(() => null) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> } | null
+    return (json?.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? '').join('').trim() || undefined
   }
   const json = await response.json().catch(() => null) as { choices?: Array<{ message?: { content?: string } }> } | null
   return json?.choices?.[0]?.message?.content?.trim() || undefined
@@ -284,6 +306,7 @@ export async function requestPhotoEstimate(params: RequestPhotoEstimateParams): 
   }
   const apiKey = resolveApiKey(llmSettings)
   const isAnthropic = ANTHROPIC_PROVIDERS.has(llmSettings.provider)
+  const isGemini = GEMINI_PROVIDERS.has(llmSettings.provider)
 
   // 補充說明放在格式說明之後、緊鄰圖片之前，是刻意的：這是規格 §1 原則 5 的
   // 「最高優先線索」，離圖片越近模型越不容易忽略它。
@@ -299,13 +322,21 @@ export async function requestPhotoEstimate(params: RequestPhotoEstimateParams): 
 
   const body: Record<string, unknown> = isAnthropic
     ? { model: llmSettings.model, max_tokens: 1500, messages: [{ role: 'user', content }] }
-    : { model: llmSettings.model, messages: [{ role: 'user', content }], response_format: { type: 'json_object' }, ...reasoningAwareParams(llmSettings.model!, 1500) }
+    : isGemini
+      // Gemini 用 `generationConfig.responseMimeType` 原生要求 JSON 輸出，不必像 Anthropic
+      // 那樣在 prompt 裡另外交代格式；model 走 URL path，body 裡不重複帶。
+      ? { contents: [{ role: 'user', parts: toGeminiParts(content) }], generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 1500 } }
+      : { model: llmSettings.model, messages: [{ role: 'user', content }], response_format: { type: 'json_object' }, ...reasoningAwareParams(llmSettings.model!, 1500) }
   if (llmSettings.provider === 'local') {
     // 思考模型會把預算全花在 reasoning、正文回空字串，見 CLAUDE.md §5「本機 LLM 供應商」。
     body.reasoning = { effort: 'none' }
   }
 
-  const url = isAnthropic ? `${resolveBaseUrl(llmSettings)}/messages` : `${resolveBaseUrl(llmSettings)}/chat/completions`
+  const url = isAnthropic
+    ? `${resolveBaseUrl(llmSettings)}/messages`
+    : isGemini
+      ? `${resolveBaseUrl(llmSettings)}/models/${llmSettings.model}:generateContent`
+      : `${resolveBaseUrl(llmSettings)}/chat/completions`
 
   let response: Response
   try {
@@ -343,7 +374,8 @@ export interface NutritionLlmTestResult {
  * 靜態目錄可選（`@core/llm/modelCatalog`），這支主要是給沒有寫死目錄的本機端點用；
  * 呼叫端仍可以拿它驗證雲端的 API Key／端點是否有效。Anthropic 也有對應的
  * `GET /v1/models`（跟 `core/llm/index.ts` 的 `testLLMConnection` 用同一個端點），
- * 回應形狀跟 OpenAI 相容（`{ data: [{ id }] }`），可以共用同一段解析邏輯。
+ * 回應形狀跟 OpenAI 相容（`{ data: [{ id }] }`），可以共用同一段解析邏輯；
+ * Gemini 的 `GET /v1beta/models` 形狀不同（`{ models: [{ name: "models/xxx" }] }`），另外解析。
  */
 export async function testNutritionLlmConnection(
   llmSettings: NutritionLlmSettings,
@@ -355,19 +387,24 @@ export async function testNutritionLlmConnection(
   const timeoutMs = resolveTimeoutMs(llmSettings, requestedTimeoutMs)
   const apiKey = resolveApiKey(llmSettings)
   const isAnthropic = ANTHROPIC_PROVIDERS.has(llmSettings.provider)
+  const isGemini = GEMINI_PROVIDERS.has(llmSettings.provider)
 
   try {
     const response = await fetchWithTimeout(http, `${resolveBaseUrl(llmSettings)}/models`, {
       headers: isAnthropic
         ? { 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_API_VERSION, 'anthropic-dangerous-direct-browser-access': 'true' }
-        : (apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+        : isGemini
+          ? { 'x-goog-api-key': apiKey }
+          : (apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
     }, timeoutMs)
     if (!response.ok) {
       const text = await response.text().catch(() => '')
       return { ok: false, error: `連線失敗（${response.status}）：${text.slice(0, 200)}` }
     }
-    const json = await response.json().catch(() => null) as { data?: Array<{ id?: unknown }> } | null
-    const ids = (json?.data ?? []).map((m) => m.id).filter((id): id is string => typeof id === 'string')
+    const json = await response.json().catch(() => null) as { data?: Array<{ id?: unknown }>; models?: Array<{ name?: unknown }> } | null
+    const ids = isGemini
+      ? (json?.models ?? []).map((m) => (typeof m.name === 'string' ? m.name.replace(/^models\//, '') : null)).filter((id): id is string => !!id)
+      : (json?.data ?? []).map((m) => m.id).filter((id): id is string => typeof id === 'string')
     const limit = llmSettings.provider === 'local' ? 200 : 5
     return { ok: true, models: ids.slice(0, limit) }
   } catch (error) {
@@ -402,6 +439,7 @@ export async function testPhotoEstimateVision(
   const timeoutMs = resolveTimeoutMs(llmSettings, requestedTimeoutMs)
   const apiKey = resolveApiKey(llmSettings)
   const isAnthropic = ANTHROPIC_PROVIDERS.has(llmSettings.provider)
+  const isGemini = GEMINI_PROVIDERS.has(llmSettings.provider)
 
   // 這裡不走 buildContentParts：測試圖片沒有 slot／份數的概念，不需要那些標註文字
   // （先前用字串比對把標註過濾掉，標註文案一改就默默失效——直接組兩個 part 更穩）。
@@ -413,10 +451,16 @@ export async function testPhotoEstimateVision(
 
   const body: Record<string, unknown> = isAnthropic
     ? { model: llmSettings.model, max_tokens: 20, messages: [{ role: 'user', content: trimmedContent }] }
-    : { model: llmSettings.model, messages: [{ role: 'user', content: trimmedContent }], ...reasoningAwareParams(llmSettings.model!, 20) }
+    : isGemini
+      ? { contents: [{ role: 'user', parts: toGeminiParts(trimmedContent) }], generationConfig: { maxOutputTokens: 20 } }
+      : { model: llmSettings.model, messages: [{ role: 'user', content: trimmedContent }], ...reasoningAwareParams(llmSettings.model!, 20) }
   if (llmSettings.provider === 'local') body.reasoning = { effort: 'none' }
 
-  const url = isAnthropic ? `${resolveBaseUrl(llmSettings)}/messages` : `${resolveBaseUrl(llmSettings)}/chat/completions`
+  const url = isAnthropic
+    ? `${resolveBaseUrl(llmSettings)}/messages`
+    : isGemini
+      ? `${resolveBaseUrl(llmSettings)}/models/${llmSettings.model}:generateContent`
+      : `${resolveBaseUrl(llmSettings)}/chat/completions`
 
   try {
     const response = await postJsonWithParamFallback(http, url, headers, body, timeoutMs)

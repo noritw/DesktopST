@@ -124,6 +124,7 @@ function joinNote(base: string, addition: string): string {
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   claude: 'Anthropic Claude',
+  gemini: 'Google Gemini',
   grok: 'Grok',
   local: '本機模型'
 }
@@ -1865,8 +1866,9 @@ function App(): React.JSX.Element {
                   <select value={llmSettings.provider} onChange={(event) => changeLlmProvider(event.target.value)}>
                     <option value="openai">OpenAI</option>
                     <option value="claude">Anthropic Claude</option>
-                    <option value="local">本機（Ollama／LM Studio 等）</option>
+                    <option value="gemini">Google Gemini</option>
                     <option value="grok">Grok</option>
+                    <option value="local">本機（Ollama／LM Studio 等）</option>
                   </select>
                 </label>
                 {llmSettings.provider !== 'local' && (
@@ -1877,7 +1879,7 @@ function App(): React.JSX.Element {
                 ) : (
                   <details className="advanced-endpoint">
                     <summary>進階：自訂端點（一般不需要，除非你走相容代理）</summary>
-                    <label>端點<input value={llmSettings.endpoints?.[llmSettings.provider] ?? ''} onChange={(event) => updateLlmSettings({ endpoints: { ...llmSettings.endpoints, [llmSettings.provider]: event.target.value } })} placeholder={`留空＝官方 ${llmSettings.provider === 'grok' ? 'Grok' : 'OpenAI'} API`} /></label>
+                    <label>端點<input value={llmSettings.endpoints?.[llmSettings.provider] ?? ''} onChange={(event) => updateLlmSettings({ endpoints: { ...llmSettings.endpoints, [llmSettings.provider]: event.target.value } })} placeholder={`留空＝官方 ${PROVIDER_LABELS[llmSettings.provider] ?? llmSettings.provider} API`} /></label>
                   </details>
                 )}
                 <button type="button" disabled={testingConnection} onClick={() => void testLlmConnection()}>

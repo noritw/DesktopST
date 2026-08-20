@@ -25,7 +25,7 @@ import type { LlmProvider } from '../data/types'
  */
 
 /** 模型清單與價格的人工同步日期（依各家官方定價頁） */
-export const MODEL_DATA_UPDATED = '2026-08-01'
+export const MODEL_DATA_UPDATED = '2026-08-20'
 
 /** 建議值：與官方目錄同步手動維護，或以帳戶可用的 `GET https://api.openai.com/v1/models` 為準 */
 export const OPENAI_MODELS = [
@@ -56,6 +56,7 @@ export const CLAUDE_MODELS = [
  * 價格表仍保留它們，讓舊訊息與手打的自訂 ID 還能顯示價格。
  */
 export const GEMINI_MODELS = [
+  'gemini-3.7-flash',
   'gemini-3.6-flash',
   'gemini-3.5-flash',
   'gemini-3.5-flash-lite',
@@ -146,6 +147,8 @@ export const MODEL_PRICES: Record<string, [number, number]> = {
   'claude-opus-4-6': [5, 25],
   'claude-haiku-4-5': [1, 5],
   // Google Gemini（長 prompt 分級價以 ≤200K tokens 計）
+  // gemini-3.7-flash：2026-08-13 推出的導入期價，官方標示 2027-01-01 起調回 $1.5/$7.5
+  'gemini-3.7-flash': [0.75, 3.75],
   'gemini-3.6-flash': [1.5, 7.5],
   'gemini-3.5-flash': [1.5, 9],
   'gemini-3.5-flash-lite': [0.3, 2.5],
