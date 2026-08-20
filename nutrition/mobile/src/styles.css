@@ -255,3 +255,36 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 .stats-bar.intake { background: #4f9c8a; }
 .stats-bar.burned { top: 8px; background: #a9d8c8; }
 .stats-bar-value { text-align: right; color: #3d5a52; font-size: 12px; }
+
+/* 估算中的等待動畫：純文字看起來像當掉，本機模型又可能跑好幾分鐘 */
+.estimate-loading { display: grid; gap: 10px; justify-items: center; padding: 40px 12px; text-align: center; }
+.estimate-spinner { display: flex; gap: 6px; }
+.estimate-spinner span { width: 10px; height: 10px; border-radius: 50%; background: #7fc8b0; animation: estimate-bounce 1.2s ease-in-out infinite; }
+.estimate-spinner span:nth-child(2) { animation-delay: 0.15s; }
+.estimate-spinner span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes estimate-bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.45; }
+  40% { transform: translateY(-6px); opacity: 1; }
+}
+/* 會暈眩的使用者關掉動態效果時，改成靜態的三顆點（仍看得出是等待狀態） */
+@media (prefers-reduced-motion: reduce) {
+  .estimate-spinner span { animation: none; opacity: 0.7; }
+}
+
+/* 語音輸入按鈕：錄音中要一眼看得出來（否則麥克風開著自己不知道） */
+.voice-button { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.voice-button.listening { background: #d94f4f; color: white; border-color: #d94f4f; }
+
+/* 首頁「拍照記錄」下方那行 AI／費用提示 */
+.ai-entry-hint { display: block; margin: -4px 0 4px; }
+/* 份量：接在餐次名稱後面的小字，不換行也不跟名稱搶粗體；名稱過長時截斷的是名稱、不是份量 */
+.meal-row-compact .meal-name-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.meal-row-compact .meal-name-row strong { min-width: 0; }
+.meal-row-compact .meal-servings { flex: none; font-weight: 400; font-size: 11px; color: #6d887f; white-space: nowrap; }
+
+/* 表單的摺疊區（更多營養欄位／貼上自動填） */
+.more-nutrition, .paste-nutrition { border: 1px solid #d8ebe4; border-radius: 10px; padding: 10px 12px; background: white; }
+.more-nutrition summary, .paste-nutrition summary { cursor: pointer; font-size: 13px; color: #6d887f; }
+.more-nutrition[open] summary, .paste-nutrition[open] summary { margin-bottom: 8px; }
+.more-nutrition label, .paste-nutrition textarea { display: grid; gap: 4px; margin-top: 8px; }
+.paste-nutrition textarea { width: 100%; }

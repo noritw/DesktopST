@@ -191,6 +191,8 @@ describe('applyEstimateToEntries', () => {
     flavor: null,
     servings: 1,
     perServing: { kcal: 320, proteinG: 18 },
+    estimatedWeightG: null,
+    portionBasis: null,
     nutritionSource: 'estimate',
     label: null,
     confidence: 'high',
@@ -348,6 +350,30 @@ describe('parsePastedNutrition', () => {
 
   it('抓不到就當沒事，不丟錯', () => {
     expect(parsePastedNutrition('今天天氣真好')).toEqual({})
+  })
+
+  // owner 2026-08-19 實測：網頁 LLM 回的是這個樣子，第一版因為「約」夾在中間全部抓不到。
+  it('容許「約」這類模糊詞、全形冒號與換行（真實 LLM 回覆格式）', () => {
+    const text = '蛋白質：約4克\n碳水化合物：約30克'
+    expect(parsePastedNutrition(text)).toEqual({ proteinG: 4, carbsG: 30 })
+  })
+
+  it('容許條列、全形數字、單位省略與英文標籤', () => {
+    expect(parsePastedNutrition('- 熱量：約 １５０ 大卡\n- 蛋白質 約 4\n- 鈉 約 610 毫克')).toEqual({
+      kcal: 150,
+      proteinG: 4,
+      sodiumMg: 610
+    })
+    expect(parsePastedNutrition('Calories: ~150 kcal, Protein: about 4 g, Carbs: 30g')).toEqual({
+      kcal: 150,
+      proteinG: 4,
+      carbsG: 30
+    })
+  })
+
+  it('不會跨太遠亂抓：句子裡沒有該營養素的數字就不填', () => {
+    // 「蛋白質很低」後面那個數字是熱量，不能被當成蛋白質。
+    expect(parsePastedNutrition('這份蛋白質很低，整份大約有 320 大卡').proteinG).toBeUndefined()
   })
 })
 

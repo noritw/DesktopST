@@ -78,7 +78,9 @@ console.log('[1/3] build mobile + Capacitor sync ...')
 run('npm.cmd', ['run', 'sync:nutrition:android'], { env, shell: true })
 
 console.log('[2/3] assembleDebug ...')
-run('gradlew.bat', ['assembleDebug'], { cwd: androidRoot, env, shell: true })
+// 用絕對路徑呼叫：某些環境（NoDefaultCurrentDirectoryInExePath）下 cmd 不會搜尋
+// 目前目錄，只寫 'gradlew.bat' 會 not recognized。
+run(path.join(androidRoot, 'gradlew.bat'), ['assembleDebug'], { cwd: androidRoot, env, shell: true })
 
 if (!fs.existsSync(apkPath)) fail(`建置完成但找不到 APK：${apkPath}`)
 

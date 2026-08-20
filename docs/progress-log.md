@@ -3241,3 +3241,119 @@ Response 是原生橋接重建的，clone 支援度不如瀏覽器原生。改�
 
 `npm run typecheck`、`npm test`（73 檔、939 項）全過；
 `npm run sync:nutrition:android` 已跑，`capacitor.config.json` 確認含 CapacitorHttp。
+
+---
+
+## 2026-08-19（續十）｜明文流量被擋、逾時砍太早，順手補等待動態／語音輸入／費用提示
+
+### 本機模型連不上（續九的下半場）
+
+續九開了 `CapacitorHttp` 修掉 CORS，owner 實測**還是連不上**。真正的第二個原因：
+`nutrition/mobile/android/app/src/main/AndroidManifest.xml` **少了
+`android:usesCleartextTraffic="true"`**。Mac Mini 上的 Ollama 是區網 `http://`，
+而 `targetSdkVersion` 是 36 —— Android 從 targetSdk 28 起預設禁止明文流量，
+**原生層**（CapacitorHttp 走的 OkHttp）的請求直接被系統擋掉。
+
+- `android.allowMixedContent` 蓋不到這個：那是 WebView 的政策，跟原生 HTTP 是兩層。
+- DeST 主 App 的 manifest 一直有這一行（`android/app/src/main/AndroidManifest.xml:5`），
+  這就是「同樣設定 DeST 連得上、飲食 App 連不上」的全部差別。
+- 兩件事要**一起**才會通：`CapacitorHttp`（繞 CORS）＋ `usesCleartextTraffic`（准明文）。
+  只做一個的症狀長得一模一樣，都是「送出去就失敗」，很容易以為前一個修法沒生效。
+
+順手修 `scripts/build-nutrition-apk.mjs`：`gradlew.bat` 沒帶絕對路徑，
+在停用 `NoDefaultCurrentDirectoryInExePath` 以外的環境下 cmd 不搜尋目前目錄，
+建置會停在 `'gradlew.bat' is not recognized`。
+
+### 測讀圖固定 `The operation was aborted`
+
+那是我們自己的逾時，不是網路問題。`DEFAULT_TIMEOUT_MS = 12_000` 是照雲端抓的，
+**本機視覺模型第一次要把模型載進記憶體**，動輒數十秒到數分鐘，12 秒必砍。
+
+- `photoEstimateLlm.ts` 新增 `resolveTimeoutMs()`：`local` → 300 秒，雲端維持 12 秒；
+  估算／測連線／測讀圖三個入口共用（呼叫端都沒指定逾時，改預設就全數生效）。
+- `describeNetworkError()` 把 `AbortError` 跟「連不上」分開講。原本逾時會套上
+  「檢查 OLLAMA_HOST／防火牆／同一個區網」那串清單，**方向完全錯**，
+  會讓人去查一個沒壞的東西。
+
+### 順手補的四個 UI（owner 當場回報）
+
+1. **「估算中」等待動態**（`EstimateLoading`）：三顆跳動的點＋已等秒數，
+   本機模型等超過 20 秒補一句「第一次要載模型，可能要好幾分鐘」。
+   純文字「估算中...」在本機模型那種等待長度下看起來就是當掉。
+   有 `prefers-reduced-motion` 的靜態版本。
+2. **補充說明的語音輸入**（`nutrition/mobile/src/voiceInput.ts`）：
+   ⚠️ **Web Speech API 在 Android WebView 不能用**——WebView 沒有綁系統語音服務，
+   `webkitSpeechRecognition` 不是不存在就是一啟動就 `network` 錯誤（Chrome 瀏覽器可以，
+   WebView 不行）。走 `@capacitor-community/speech-recognition`，它自己的
+   AndroidManifest 已帶 `RECORD_AUDIO` 與 `RecognitionService` 的 `<queries>`，
+   **這個外掛不必手動合併權限**（跟 geolocation 那次相反）。
+   `available()` 回 false 就不畫按鈕；離開頁面 unmount 時強制 `stop()`，否則麥克風一直開著。
+   照 CLAUDE.md §5 包一層 `{ plugin }` 回傳，不直接 return plugin proxy。
+3. **AI／模型／費用提示行**：拍照入口下方與估算鈕上方各一行。原本按鈕上
+   完全看不出會連網、用哪個模型、要花錢。單價**沿用 `core/llm/modelCatalog`
+   的 `MODEL_PRICES`**，不另編一組憑印象的數字；查無單價顯示「費用未知」不擋操作。
+   金額走既有的 `estimateRequestCost()`，新增 `capabilitiesFromPriceTable()`／
+   `formatEstimatedCost()` 兩支純函式（§2.9.3 的「不換算匯率、帶 ISO 幣別、
+   絕不顯示 $0.00」都在 formatter 裡）。
+4. **今日列表顯示份量**：名稱後面接小字 `2 份`。份量 span 放在 `<strong>` **外面**，
+   長名稱被 ellipsis 截斷時份量才不會跟著被吃掉。
+
+### 文件
+
+`docs/nutrition-photo-estimate-plan.md` 補了 **§6.5 實作對照表**（逐項對過 core／UI）。
+結論值得記住：**`core/` 幾乎全做完了，缺口幾乎都在「UI 沒有呼叫端」**——
+`estimateRequestCost`、`nutritionFromGrams`、`parsePastedNutrition`、
+`checkRequestCompatibility`、`hashPhoto`／`findDuplicateLog` 全是寫好沒人叫的死碼。
+挑下一項做時先看那張表，不要照 §7 分期表的順序推測進度。
+
+---
+
+## 2026-08-19（續十一）｜接上貼上自動填欄位（§2.10.3）與送出前相容性檢查
+
+兩支寫好沒人叫的 core 函式接上呼叫端，都是「接線」不是新功能。
+
+- **`parsePastedNutrition`**：食物表單多一個摺疊區「貼上營養資訊自動填欄位」，
+  貼上就即時填，回報填了哪幾欄；抓不到**不跳錯誤、不阻擋**（規格明文要求）。
+  **零網路請求**，跟 AI 開關無關、開關關閉時照樣可用。
+- 順手發現的缺口：`FoodItem.perServing` 有 `sugarG`／`sodiumMg`，拍照估算也會回存，
+  但**手打表單從來沒有這兩欄的入口**——貼上解析抓得到糖與鈉卻無處可放。
+  補進表單的「更多（糖、鈉）」摺疊區（§1 原則 7b：隨手記、不主打，所以摺疊不佔第一眼）。
+  五個地方要一起改：`FoodDraft` 型別、`blankFoodDraft()`、從既有食物開表單、
+  從估算結果開表單、兩支存檔（`saveFoodDraft`／`duplicateFoodConfirmed`）。
+- **`checkRequestCompatibility`**：估算送出前先擋「沒選模型」「非本機卻沒填 API Key」，
+  照片與說明保留。`vision: false` 這條**擋不了**——沒有 §2.9.1 的能力表就無從得知
+  哪些模型不能讀圖，寧可不擋也不要憑型號名猜（猜錯會擋掉能用的模型）。
+- 開表單時記得清掉貼上區的文字與訊息，否則會留著上一筆食物的內容。
+
+---
+
+## 2026-08-19（續十二）｜貼上自動填欄位實測全部抓不到：解析不能假設格式
+
+owner 貼了網頁 LLM 的實際回覆，**一欄都沒填到**：
+
+```
+蛋白質：約4克
+碳水化合物：約30克
+```
+
+根因：第一版的正則要求數字**緊接在**標籤與冒號後面（`蛋白質?\s*[:：]?\s*(\d+)`），
+中間多一個「約」就整條失效。
+
+**修法方向的取捨**（owner 也問到）：要不要改成「給使用者一段固定格式的 prompt
+去貼給網頁 LLM」？**不採用**——那是把問題丟回給使用者，而且他換一家 LLM
+（甚至同一家不同次回答）格式又不一樣，等於每次都要重來。
+**格式是不可控的輸入，該寬鬆的是解析器。**
+
+現在容許：`約`／`大約`／`~`／`≈` 這類模糊詞、全形數字與冒號、條列符號、
+換行、單位可省略、中英文標籤（`Protein`／`Carbs`／`Calories`）、千分位逗號。
+
+兩個實作上的坑，都有測試守著：
+
+- **`kcal` 不能當標籤去找「後面第一個數字」**：`320 kcal 蛋白 18g` 會把蛋白質的
+  18 抓成熱量。熱量要**先**試「數字在前」的寫法（`320 大卡`），標籤式擺後面。
+- **標籤與數字之間不准跨過逗號或句號**：`這份蛋白質很低，整份大約有 320 大卡`
+  原本會把 320 填進蛋白質。跨過標點就是換一句話了，寧可抓不到讓使用者手打，
+  **也不要填一個錯的數字——錯的數字他不會發現**。
+
+還沒做（owner 提的另一個選項）：把貼上的原文**存進資料裡**留底。
+需要給 `FoodItem` 加一個自由文字欄位，牽涉搬家包與桌面端，這輪先不動。

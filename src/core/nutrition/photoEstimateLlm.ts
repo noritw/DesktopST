@@ -36,6 +36,21 @@ export interface RequestPhotoEstimateParams {
 }
 
 const DEFAULT_TIMEOUT_MS = 12_000
+
+/**
+ * 本機模型的逾時要放得非常寬（owner 2026-08-19 實測：手機測讀圖回
+ * `The operation was aborted`，就是 12 秒砍掉的）。雲端讀圖幾秒就回，
+ * 但本機是「把模型載進記憶體 → 在自己的 GPU／CPU 上跑」，視覺模型
+ * （gemma3n 這類）冷啟動動輒數十秒到數分鐘，第二次才快。
+ * 12 秒對雲端剛好，對本機等於「第一次一定失敗」。
+ */
+const LOCAL_TIMEOUT_MS = 300_000
+
+/** 呼叫端沒指定逾時時，依供應商挑一個合理預設（本機遠比雲端慢，見上）。 */
+function resolveTimeoutMs(llmSettings: NutritionLlmSettings, requested?: number): number {
+  if (requested !== undefined) return requested
+  return llmSettings.provider === 'local' ? LOCAL_TIMEOUT_MS : DEFAULT_TIMEOUT_MS
+}
 const ANTHROPIC_API_VERSION = '2023-06-01'
 
 function resolveApiKey(llmSettings: NutritionLlmSettings): string {
@@ -172,6 +187,13 @@ function extractJsonObject(raw: string): unknown {
  */
 function describeNetworkError(llmSettings: NutritionLlmSettings, error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error)
+  // 逾時要跟「連不上」分開講：兩者的下一步完全不同（一個是等更久／換小模型，
+  // 一個是查網路設定），而原始訊息 `The operation was aborted` 兩邊長得一樣。
+  if (error instanceof Error && error.name === 'AbortError') {
+    return llmSettings.provider === 'local'
+      ? `等待模型回應逾時（${Math.round(resolveTimeoutMs(llmSettings) / 1000)} 秒）。本機視覺模型第一次要把模型載進記憶體，可能非常久；請在電腦上先跑一次同一個模型讓它熱起來，或改用較小的模型。`
+      : '等待模型回應逾時。'
+  }
   if (llmSettings.provider !== 'local') return raw
   return [
     raw,
@@ -252,7 +274,8 @@ async function extractReplyText(response: Response, provider: string): Promise<s
  * 逾時／請求失敗一律丟 `PhotoEstimateRequestError`，呼叫端依規格 §3.3 顯示「重試／手動輸入／取消」。
  */
 export async function requestPhotoEstimate(params: RequestPhotoEstimateParams): Promise<PhotoEstimateResult[]> {
-  const { llmSettings, photos, note, recentNames, scaleReference, http, signal, timeoutMs = DEFAULT_TIMEOUT_MS } = params
+  const { llmSettings, photos, note, recentNames, scaleReference, http, signal } = params
+  const timeoutMs = resolveTimeoutMs(llmSettings, params.timeoutMs)
 
   const precondition = checkBasicRequestPreconditions(llmSettings, true)
   if (precondition) throw new PhotoEstimateRequestError(precondition)
@@ -325,10 +348,11 @@ export interface NutritionLlmTestResult {
 export async function testNutritionLlmConnection(
   llmSettings: NutritionLlmSettings,
   http: HttpAdapter,
-  timeoutMs = DEFAULT_TIMEOUT_MS
+  requestedTimeoutMs?: number
 ): Promise<NutritionLlmTestResult> {
   const precondition = checkBasicRequestPreconditions(llmSettings, false)
   if (precondition) return { ok: false, error: precondition }
+  const timeoutMs = resolveTimeoutMs(llmSettings, requestedTimeoutMs)
   const apiKey = resolveApiKey(llmSettings)
   const isAnthropic = ANTHROPIC_PROVIDERS.has(llmSettings.provider)
 
@@ -371,10 +395,11 @@ export interface PhotoEstimateVisionTestResult {
 export async function testPhotoEstimateVision(
   llmSettings: NutritionLlmSettings,
   http: HttpAdapter,
-  timeoutMs = DEFAULT_TIMEOUT_MS
+  requestedTimeoutMs?: number
 ): Promise<PhotoEstimateVisionTestResult> {
   const precondition = checkBasicRequestPreconditions(llmSettings, true)
   if (precondition) return { ok: false, error: precondition }
+  const timeoutMs = resolveTimeoutMs(llmSettings, requestedTimeoutMs)
   const apiKey = resolveApiKey(llmSettings)
   const isAnthropic = ANTHROPIC_PROVIDERS.has(llmSettings.provider)
 

@@ -8,10 +8,14 @@ import {
   buildFoodUsageIndex,
   buildMigrationPack,
   buildNutritionStats,
+  capabilitiesFromPriceTable,
   calculateGoalAdjustedKcal,
   calculateProteinGoalG,
   calculateTdeeKcal,
+  checkRequestCompatibility,
   collectReferencedPhotoKeys,
+  estimateRequestCost,
+  formatEstimatedCost,
   foodPhotoKey,
   foodUsageOf,
   listRangeDates,
@@ -19,6 +23,7 @@ import {
   matchFoodKeyword,
   mealPhotoKey,
   nextFreeFoodPhotoIndex,
+  parsePastedNutrition,
   requestPhotoEstimate,
   resolveStatsRange,
   suggestTodayKcalLimit,
@@ -45,13 +50,14 @@ import {
   type PhotoEstimateResult
 } from '@core/nutrition'
 import type { HealthSnapshot } from '@core/adapters'
-import { DEFAULT_MODEL_BY_PROVIDER, MODELS_BY_PROVIDER, modelPriceText, splitModelsByPrice } from '@core/llm/modelCatalog'
+import { DEFAULT_MODEL_BY_PROVIDER, MODEL_PRICES, MODELS_BY_PROVIDER, modelPriceText, splitModelsByPrice } from '@core/llm/modelCatalog'
 import { bytesToBase64 } from '@core/util/base64'
 import { buildInfoLines } from './buildInfo'
 import { downloadBytes, pickFile } from './fileTransfer'
 import { nutritionHealthAdapter } from './health'
 import { nutritionMobileHttp } from './http'
 import { compressImageFile } from './imageInput'
+import { isVoiceInputAvailable, startVoiceInput, type VoiceSession } from './voiceInput'
 import { nutritionMobileStorage } from './storage'
 import './styles.css'
 
@@ -74,11 +80,74 @@ interface FoodDraft {
   proteinG: string
   carbsG: string
   fatG: string
+  /** 糖與鈉：規格 §1 原則 7b「隨手記、不主打」，所以收在表單的摺疊區。 */
+  sugarG: string
+  sodiumMg: string
   photoKeys: string[]
 }
 
 function blankFoodDraft(): FoodDraft {
-  return { name: '', aliases: '', brand: '', flavor: '', tags: [], kcal: '400', proteinG: '25', carbsG: '', fatG: '', photoKeys: [] }
+  return { name: '', aliases: '', brand: '', flavor: '', tags: [], kcal: '400', proteinG: '25', carbsG: '', fatG: '', sugarG: '', sodiumMg: '', photoKeys: [] }
+}
+
+/**
+ * 「估算中」的等待畫面。本機模型冷啟動可以跑上好幾分鐘（見
+ * `photoEstimateLlm.ts` 的 `LOCAL_TIMEOUT_MS`），純文字「估算中...」在那段時間
+ * 看起來就像當掉——所以要有會動的東西＋已等秒數，讓人知道還活著。
+ */
+function EstimateLoading({ isLocal }: { isLocal: boolean }): React.ReactElement {
+  const [seconds, setSeconds] = React.useState(0)
+  React.useEffect(() => {
+    const timer = setInterval(() => setSeconds((n) => n + 1), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  return (
+    <div className="estimate-loading" role="status" aria-live="polite">
+      <div className="estimate-spinner" aria-hidden="true"><span /><span /><span /></div>
+      <strong>估算中...</strong>
+      <small className="hint">已等 {seconds} 秒{isLocal && seconds > 20 ? ' — 本機模型第一次要把模型載進記憶體，可能要好幾分鐘' : ''}</small>
+    </div>
+  )
+}
+
+/** `2`／`0.5`／`1.25`：整數不補小數點，非整數最多兩位且不留尾隨的 0。 */
+function formatServings(servings: number): string {
+  return Number.isInteger(servings) ? String(servings) : String(Number(servings.toFixed(2)))
+}
+
+/** 把語音辨識的文字接在原本的說明後面（原文為空時不留開頭空白）。 */
+function joinNote(base: string, addition: string): string {
+  if (!base.trim()) return addition
+  return `${base.trimEnd()} ${addition}`
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  openai: 'OpenAI',
+  claude: 'Anthropic Claude',
+  grok: 'Grok',
+  local: '本機模型'
+}
+
+/**
+ * 「按下去會發生什麼事」那行字（§2.9.3）。owner 2026-08-19：拍照記錄按鈕上
+ * 完全沒提到會呼叫 LLM、用哪個模型、要花多少錢——按鈕看起來就像本機功能。
+ *
+ * `photoCount` 給 0 代表還沒選照片（首頁那行），這時不估金額只講模型。
+ */
+function aiEstimateHint(llmSettings: NutritionLlmSettings, photoCount: number): string {
+  const provider = PROVIDER_LABELS[llmSettings.provider] ?? llmSettings.provider
+  const model = llmSettings.model || '尚未選模型'
+  if (llmSettings.provider === 'local') return `會把照片送到 ${provider} · ${model} 估算 · 本機執行，無 API 費用`
+  const price = MODEL_PRICES[model] ?? null
+  if (photoCount <= 0) {
+    const priceText = modelPriceText(model)
+    return `會把照片送到 ${provider} · ${model} 估算，用你的 API Key 計費${priceText ? `（單價 USD ${priceText} / 每百萬 tokens）` : '（單價未知）'}`
+  }
+  // 提示文字長度當作 prompt token 的粗估基準：真正的 prompt 由 core 組，
+  // 這裡只要量級對就夠（金額本來就標「估」）。
+  const cost = estimateRequestCost(capabilitiesFromPriceTable(model, price, false), photoCount, 2000)
+  const costText = cost ? `預估 ${formatEstimatedCost(cost)}（估）` : '費用未知'
+  return `${provider} · ${model} · ${photoCount} 張圖 · ${costText}`
 }
 
 /** `gpt-4o-mini（$0.15 / $0.6）`，價格是每百萬 tokens 美金價（輸入／輸出），查無價格就只顯示型號名。 */
@@ -377,6 +446,8 @@ function App(): React.JSX.Element {
   const [isNewFood, setIsNewFood] = React.useState(false)
   const [foodFormOrigin, setFoodFormOrigin] = React.useState<FoodFormOrigin>('library')
   const [foodDraft, setFoodDraft] = React.useState<FoodDraft>(blankFoodDraft())
+  const [pastedNutritionText, setPastedNutritionText] = React.useState('')
+  const [pastedNutritionMessage, setPastedNutritionMessage] = React.useState<string | null>(null)
   const [newTagInput, setNewTagInput] = React.useState('')
   const [confirmDeleteFood, setConfirmDeleteFood] = React.useState(false)
   const [confirmDuplicateFood, setConfirmDuplicateFood] = React.useState(false)
@@ -443,6 +514,13 @@ function App(): React.JSX.Element {
   const [estimateSelectedFiles, setEstimateSelectedFiles] = React.useState<File[]>([])
   const [estimatePreviewUrls, setEstimatePreviewUrls] = React.useState<string[]>([])
   const [estimateNote, setEstimateNote] = React.useState('')
+  /** 這台裝置有沒有語音辨識（沒有就不畫麥克風按鈕，不要給一顆按了會失敗的鈕）。 */
+  const [voiceAvailable, setVoiceAvailable] = React.useState(false)
+  const [voiceListening, setVoiceListening] = React.useState(false)
+  const [voiceError, setVoiceError] = React.useState<string | null>(null)
+  const voiceSessionRef = React.useRef<VoiceSession | null>(null)
+  /** 開始錄音時的說明原文；辨識結果接在它後面，不會蓋掉使用者已經打好的字。 */
+  const voiceBaseNoteRef = React.useRef('')
   /**
    * 目前活著的 blob URL。用 ref 而不是直接讀 state：`resetEstimateState()` 會在
    * 存檔完成的 `.then()` 裡被呼叫，那時 closure 抓到的 state 可能已經過期，
@@ -669,6 +747,39 @@ function App(): React.JSX.Element {
     }
   }
 
+  // --- 補充說明的語音輸入（§1 原則「不打字」：講比打快得多）---
+  React.useEffect(() => {
+    void isVoiceInputAvailable().then(setVoiceAvailable)
+  }, [])
+
+  /** 離開拍照流程時一定要收掉錄音，不然麥克風會一直開著。 */
+  React.useEffect(() => {
+    return () => { void voiceSessionRef.current?.stop() }
+  }, [])
+
+  async function toggleVoiceInput(): Promise<void> {
+    setVoiceError(null)
+    const session = voiceSessionRef.current
+    if (session) {
+      voiceSessionRef.current = null
+      setVoiceListening(false)
+      const finalText = await session.stop()
+      if (finalText) setEstimateNote(joinNote(voiceBaseNoteRef.current, finalText))
+      return
+    }
+    try {
+      voiceBaseNoteRef.current = estimateNote
+      setVoiceListening(true)
+      voiceSessionRef.current = await startVoiceInput((partial) => {
+        setEstimateNote(joinNote(voiceBaseNoteRef.current, partial))
+      })
+    } catch (error) {
+      voiceSessionRef.current = null
+      setVoiceListening(false)
+      setVoiceError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
   /** 「一鍵測試能不能傳圖」：設定半天結果模型不支援讀圖太浪費，先送一張測試圖片驗證。 */
   async function testLlmVision(): Promise<void> {
     setTestingVision(true)
@@ -811,9 +922,35 @@ function App(): React.JSX.Element {
       proteinG: String(foodItem.perServing.proteinG),
       carbsG: foodItem.perServing.carbsG !== undefined ? String(foodItem.perServing.carbsG) : '',
       fatG: foodItem.perServing.fatG !== undefined ? String(foodItem.perServing.fatG) : '',
+      sugarG: foodItem.perServing.sugarG !== undefined ? String(foodItem.perServing.sugarG) : '',
+      sodiumMg: foodItem.perServing.sodiumMg !== undefined ? String(foodItem.perServing.sodiumMg) : '',
       photoKeys: [...foodItem.photoKeys]
     } : blankFoodDraft())
+    setPastedNutritionText('')
+    setPastedNutritionMessage(null)
     setView('foodForm')
+  }
+
+  /**
+   * §2.10.3：從別的 AI／網頁複製一段文字回來自動填欄位。
+   * **純本機正則、零網路請求**（`parsePastedNutrition`），解析不出來就當沒事、
+   * 不跳錯誤——使用者照常手打。只填數字欄，不動名稱／品牌（那些猜錯的代價比較高）。
+   */
+  function applyPastedNutrition(text: string): void {
+    setPastedNutritionText(text)
+    const parsed = parsePastedNutrition(text)
+    const filled: string[] = []
+    setFoodDraft((prev) => {
+      const next = { ...prev }
+      if (parsed.kcal !== undefined) { next.kcal = String(parsed.kcal); filled.push('熱量') }
+      if (parsed.proteinG !== undefined) { next.proteinG = String(parsed.proteinG); filled.push('蛋白質') }
+      if (parsed.carbsG !== undefined) { next.carbsG = String(parsed.carbsG); filled.push('碳水') }
+      if (parsed.fatG !== undefined) { next.fatG = String(parsed.fatG); filled.push('脂肪') }
+      if (parsed.sugarG !== undefined) { next.sugarG = String(parsed.sugarG); filled.push('糖') }
+      if (parsed.sodiumMg !== undefined) { next.sodiumMg = String(parsed.sodiumMg); filled.push('鈉') }
+      return next
+    })
+    setPastedNutritionMessage(filled.length > 0 ? `已填入：${filled.join('、')}（可以再手動改）` : null)
   }
 
   function toggleFoodTag(tag: string): void {
@@ -870,9 +1007,13 @@ function App(): React.JSX.Element {
     const proteinG = Number(foodDraft.proteinG)
     const carbsG = foodDraft.carbsG.trim() ? Number(foodDraft.carbsG) : undefined
     const fatG = foodDraft.fatG.trim() ? Number(foodDraft.fatG) : undefined
+    const sugarG = foodDraft.sugarG.trim() ? Number(foodDraft.sugarG) : undefined
+    const sodiumMg = foodDraft.sodiumMg.trim() ? Number(foodDraft.sodiumMg) : undefined
     if (!name || !Number.isFinite(kcal) || !Number.isFinite(proteinG)) return
     if (carbsG !== undefined && !Number.isFinite(carbsG)) return
     if (fatG !== undefined && !Number.isFinite(fatG)) return
+    if (sugarG !== undefined && !Number.isFinite(sugarG)) return
+    if (sodiumMg !== undefined && !Number.isFinite(sodiumMg)) return
     const finalPhotoKeys = foodDraft.photoKeys.slice(0, MAX_FOOD_PHOTOS)
     void runAction(async (session) => {
       const now = Date.now()
@@ -884,7 +1025,7 @@ function App(): React.JSX.Element {
         brand: foodDraft.brand.trim() || undefined,
         flavor: foodDraft.flavor.trim() || undefined,
         tags: foodDraft.tags,
-        perServing: { kcal, proteinG, carbsG, fatG },
+        perServing: { kcal, proteinG, carbsG, fatG, sugarG, sodiumMg },
         photoKeys: finalPhotoKeys as FoodItem['photoKeys'],
         source: existing?.source ?? 'user',
         createdAt: existing?.createdAt ?? now,
@@ -932,9 +1073,13 @@ function App(): React.JSX.Element {
     const proteinG = Number(foodDraft.proteinG)
     const carbsG = foodDraft.carbsG.trim() ? Number(foodDraft.carbsG) : undefined
     const fatG = foodDraft.fatG.trim() ? Number(foodDraft.fatG) : undefined
+    const sugarG = foodDraft.sugarG.trim() ? Number(foodDraft.sugarG) : undefined
+    const sodiumMg = foodDraft.sodiumMg.trim() ? Number(foodDraft.sodiumMg) : undefined
     if (!name || !Number.isFinite(kcal) || !Number.isFinite(proteinG)) return
     if (carbsG !== undefined && !Number.isFinite(carbsG)) return
     if (fatG !== undefined && !Number.isFinite(fatG)) return
+    if (sugarG !== undefined && !Number.isFinite(sugarG)) return
+    if (sodiumMg !== undefined && !Number.isFinite(sodiumMg)) return
 
     void runAction(async (session) => {
       const now = Date.now()
@@ -957,7 +1102,7 @@ function App(): React.JSX.Element {
         brand: foodDraft.brand.trim() || undefined,
         flavor: foodDraft.flavor.trim() || undefined,
         tags: foodDraft.tags,
-        perServing: { kcal, proteinG, carbsG, fatG },
+        perServing: { kcal, proteinG, carbsG, fatG, sugarG, sodiumMg },
         photoKeys: newPhotoKeys as FoodItem['photoKeys'],
         source: 'user',
         createdAt: now,
@@ -1112,6 +1257,26 @@ function App(): React.JSX.Element {
   async function submitEstimate(): Promise<void> {
     const files = estimateSelectedFiles
     if (files.length === 0) return
+    // §2.9.4：本機先擋掉必然失敗的組合，照片與說明都保留不丟。
+    const issues = checkRequestCompatibility(
+      capabilitiesFromPriceTable(llmSettings.model ?? '', null, llmSettings.provider === 'local'),
+      {
+        photoCount: files.length,
+        hasApiKey: Boolean(llmSettings.apiKeys[llmSettings.provider]?.trim()),
+        isLocalModel: llmSettings.provider === 'local'
+      }
+    )
+    if (!llmSettings.model) {
+      setEstimateError('還沒選模型，請先到設定裡選一個支援讀圖的模型')
+      setEstimatePhase('error')
+      return
+    }
+    const blocking = issues.find((issue) => issue.kind === 'missing-api-key')
+    if (blocking) {
+      setEstimateError('這個供應商還沒填 API Key，請先到設定填好再估算（照片與說明都還在）')
+      setEstimatePhase('error')
+      return
+    }
     setEstimatePhase('loading')
     setEstimateError(null)
     try {
@@ -1214,9 +1379,13 @@ function App(): React.JSX.Element {
       proteinG: result.perServing ? String(result.perServing.proteinG) : '',
       carbsG: result.perServing?.carbsG !== undefined ? String(result.perServing.carbsG) : '',
       fatG: result.perServing?.fatG !== undefined ? String(result.perServing.fatG) : '',
+      sugarG: result.perServing?.sugarG !== undefined ? String(result.perServing.sugarG) : '',
+      sodiumMg: result.perServing?.sodiumMg !== undefined ? String(result.perServing.sodiumMg) : '',
       photoKeys
     })
     resetEstimateState()
+    setPastedNutritionText('')
+    setPastedNutritionMessage(null)
     setView('foodForm')
   }
 
@@ -1421,6 +1590,24 @@ function App(): React.JSX.Element {
           <label>每份蛋白質（g）<input value={foodDraft.proteinG} onChange={(event) => setFoodDraft({ ...foodDraft, proteinG: event.target.value })} inputMode="decimal" /></label>
           <label>每份碳水化合物（g，可留空）<input value={foodDraft.carbsG} onChange={(event) => setFoodDraft({ ...foodDraft, carbsG: event.target.value })} inputMode="decimal" /></label>
           <label>每份脂肪（g，可留空）<input value={foodDraft.fatG} onChange={(event) => setFoodDraft({ ...foodDraft, fatG: event.target.value })} inputMode="decimal" /></label>
+          {/* 糖與鈉：隨手記、不主打（規格 §1 原則 7b），所以收在摺疊區不佔第一眼視線。 */}
+          <details className="more-nutrition">
+            <summary>更多（糖、鈉）</summary>
+            <label>每份糖（g，可留空）<input value={foodDraft.sugarG} onChange={(event) => setFoodDraft({ ...foodDraft, sugarG: event.target.value })} inputMode="decimal" /></label>
+            <label>每份鈉（mg，可留空）<input value={foodDraft.sodiumMg} onChange={(event) => setFoodDraft({ ...foodDraft, sodiumMg: event.target.value })} inputMode="decimal" /></label>
+          </details>
+
+          {/* §2.10.3：在別的地方算好，貼回來就自動填。純本機解析，不呼叫任何模型。 */}
+          <details className="paste-nutrition">
+            <summary>貼上營養資訊自動填欄位</summary>
+            <textarea
+              value={pastedNutritionText}
+              onChange={(event) => applyPastedNutrition(event.target.value)}
+              placeholder="貼上例如：熱量 320 大卡，蛋白質 18 克，碳水 34g，脂肪 12 公克，糖 5g，鈉 610mg"
+              rows={3}
+            />
+            <small className="hint">{pastedNutritionMessage ?? '貼上就會自動填到上面的欄位；抓不到數字不會有任何影響，照常手打即可。不會連網、不會呼叫 AI。'}</small>
+          </details>
 
           <div className="photo-section">
             <label>照片（最多 {MAX_FOOD_PHOTOS} 張，可留空）</label>
@@ -1979,12 +2166,25 @@ function App(): React.JSX.Element {
                   autoFocus
                 />
               </label>
+              {voiceAvailable && (
+                <button
+                  type="button"
+                  className={voiceListening ? 'voice-button listening' : 'voice-button'}
+                  onClick={() => void toggleVoiceInput()}
+                >
+                  <MonoIcon name={voiceListening ? 'close' : 'plus'} className="icon-sm" />
+                  {voiceListening ? '聽取中，講完按這裡停止' : '語音輸入'}
+                </button>
+              )}
+              {voiceError && <small className="hint danger-text">{voiceError}</small>}
+              {/* 按下去才知道花多少錢就太晚了（§2.9.3）。 */}
+              <small className="hint">{aiEstimateHint(llmSettings, estimateSelectedFiles.length)}</small>
               <button type="button" className="primary" disabled={estimateSelectedFiles.length === 0} onClick={() => void submitEstimate()}>
                 估算（{estimateSelectedFiles.length} 張）
               </button>
             </section>
           )}
-          {estimatePhase === 'loading' && <p className="empty">估算中...</p>}
+          {estimatePhase === 'loading' && <EstimateLoading isLocal={llmSettings.provider === 'local'} />}
           {estimatePhase === 'error' && (
             <>
               <p className="hint">估算失敗：{estimateError}</p>
@@ -2056,9 +2256,13 @@ function App(): React.JSX.Element {
         <div><span>蛋白質</span><strong className={bodyProfile && daily.totalProteinG >= bodyProfile.dailyProteinGoalG ? 'good' : ''}>{daily.totalProteinG} g</strong><small>/ {bodyProfile?.dailyProteinGoalG ?? '未設定'}</small></div>
       </section>
       {photoEstimateEnabled && (
-        <button type="button" className="primary full-width" disabled={saving} onClick={openPhotoEstimate}>
-          <MonoIcon name="plus" className="icon-sm" /> 拍照記錄
-        </button>
+        <>
+          <button type="button" className="primary full-width" disabled={saving} onClick={openPhotoEstimate}>
+            <MonoIcon name="plus" className="icon-sm" /> 拍照記錄（AI 估算）
+          </button>
+          {/* 按鈕本身看不出會連網、會花錢、用哪個模型（owner 2026-08-19）。 */}
+          <small className="hint ai-entry-hint">{aiEstimateHint(llmSettings, 0)}</small>
+        </>
       )}
       <button type="button" className="primary full-width" disabled={saving} onClick={() => setQuickEntryOpen((open) => {
         const next = !open
@@ -2115,7 +2319,12 @@ function App(): React.JSX.Element {
           <button type="button" className="meal-row-compact" key={meal.mealLog.id} onClick={() => openMealEditor(meal.mealLog, meal.foodItem, meal.name)}>
             <time>{new Date(meal.mealLog.eatenAt).toLocaleTimeString('zh-TW', { hour: 'numeric', minute: '2-digit' })}</time>
             <span className="meal-name">
-              <strong>{meal.name}</strong>
+              {/* 份量要看得到，但不能搶走名稱的視線（owner 2026-08-19）：接在名稱後面的小字。
+                  份量放在 <strong> 外面，長名稱被 ellipsis 截斷時份量才不會跟著被吃掉。 */}
+              <span className="meal-name-row">
+                <strong>{meal.name}</strong>
+                <span className="meal-servings">{formatServings(meal.mealLog.servings)} 份</span>
+              </span>
               {meal.foodItem && (meal.foodItem.brand || meal.foodItem.flavor) && (
                 <small>{[meal.foodItem.brand, meal.foodItem.flavor].filter(Boolean).join(' · ')}</small>
               )}

@@ -422,6 +422,39 @@ export function estimateRequestCost(caps: ModelCapabilities, photoCount: number,
   return { currency: pricing.currency, amount: inputCost + outputCost }
 }
 
+/**
+ * 從 `core/llm/modelCatalog` 的單價表推出能力／價格（§2.9.1 說的
+ * `model-capabilities.json` 之前，先用既有那份表，**不另外自己編一組數字**——
+ * 憑印象填價格比不顯示更糟）。查無單價就回 `pricing: null`，UI 顯示「費用未知」。
+ *
+ * 幣別固定 `USD`：`MODEL_PRICES` 整張表就是美金每百萬 tokens 價。
+ * `imageTokensFormula` 一律 `tiles`（OpenAI／Claude 這類分塊計價的上界較保守，
+ * 寧可估高一點，避免使用者事後看到帳單比預估多）。
+ */
+export function capabilitiesFromPriceTable(
+  modelId: string,
+  price: readonly [number, number] | null,
+  isLocal: boolean
+): ModelCapabilities {
+  return {
+    id: modelId,
+    vision: true,
+    maxImagesPerRequest: UNKNOWN_MODEL_MAX_IMAGES_PER_REQUEST,
+    pricing: isLocal || !price
+      ? null
+      : { currency: 'USD', inputPerMTok: price[0], outputPerMTok: price[1], imageTokensFormula: 'tiles' }
+  }
+}
+
+/**
+ * 費用金額轉顯示字串（§2.9.3）：一律帶 ISO 幣別代碼、不換算匯率、
+ * **絕不顯示 `0.00`**（那會讓人以為免費），小額改用更多位數。
+ */
+export function formatEstimatedCost(cost: EstimatedCost): string {
+  const digits = cost.amount < 0.01 ? 4 : 2
+  return `${cost.currency} $${cost.amount.toFixed(digits)}`
+}
+
 export interface PhotoEstimateRequest {
   photoCount: number
   hasApiKey: boolean
@@ -457,29 +490,103 @@ export interface ParsedNutrition {
   sodiumMg?: number
 }
 
-/** 從貼上的文字抓出營養數字，本機正則、不呼叫任何模型（§2.10.3）。抓不到就當沒事。 */
+/**
+ * 從貼上的文字抓出營養數字，本機正則、不呼叫任何模型（§2.10.3）。抓不到就當沒事。
+ *
+ * ⚠️ **不要假設格式。** 這段文字是使用者從任意一家網頁 LLM 複製回來的，
+ * 每一家（甚至同一家的不同次回答）排版都不一樣，owner 2026-08-19 實測第一版
+ * 全部抓不到，因為第一版要求數字**緊接在**標籤後面，而實際拿到的是：
+ *
+ * ```
+ * 蛋白質：約4克
+ * 碳水化合物：約30克
+ * ```
+ *
+ * ——中間多了一個「約」就整段失效。**與其要求使用者照格式貼，不如讓解析寬鬆**
+ * （要求使用者去改 prompt 等於把問題丟回去給他，而且換一家 LLM 又要重來）。
+ * 現在容許：全形數字與冒號、`約`／`大約`／`~`／`≈` 之類的模糊詞、
+ * 標籤與數字間的空白與換行、單位可有可無、中英文標籤、千分位逗號。
+ */
 export function parsePastedNutrition(text: string): ParsedNutrition {
+  const normalized = normalizeForParsing(text)
   const result: ParsedNutrition = {}
 
-  const kcalMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:kcal|大卡)/i) ?? text.match(/熱量\s*[:：]?\s*(\d+(?:\.\d+)?)/)
-  if (kcalMatch) result.kcal = Number(kcalMatch[1])
+  // 熱量另外處理：它常常是「320 大卡」這種**數字在前**的寫法，其他營養素則幾乎都是標籤在前。
+  // 順序有意義：`320 kcal` 這種數字在前的寫法要先試——否則把 `kcal` 當標籤去找
+  // 「後面第一個數字」，`320 kcal 蛋白 18g` 會把蛋白質的 18 當成熱量。
+  const kcal =
+    matchNumberBeforeUnit(normalized, ['kcal', '大卡', '卡路里']) ??
+    matchLabelled(normalized, ['熱量', '卡路里', 'calories', 'calorie', 'energy'], ['kcal', '大卡', '卡'])
+  if (kcal !== undefined) result.kcal = kcal
 
-  const proteinMatch = text.match(/蛋白質?\s*[:：]?\s*(\d+(?:\.\d+)?)\s*(?:g|克|公克)/i)
-  if (proteinMatch) result.proteinG = Number(proteinMatch[1])
+  const proteinG = matchLabelled(normalized, ['蛋白質', '蛋白', 'protein'], G_UNITS)
+  if (proteinG !== undefined) result.proteinG = proteinG
 
-  const carbsMatch = text.match(/碳水(?:化合物)?\s*[:：]?\s*(\d+(?:\.\d+)?)\s*(?:g|克|公克)/i)
-  if (carbsMatch) result.carbsG = Number(carbsMatch[1])
+  const carbsG = matchLabelled(normalized, ['碳水化合物', '碳水', '醣類', 'carbohydrates', 'carbohydrate', 'carbs'], G_UNITS)
+  if (carbsG !== undefined) result.carbsG = carbsG
 
-  const fatMatch = text.match(/脂肪\s*[:：]?\s*(\d+(?:\.\d+)?)\s*(?:g|克|公克)/i)
-  if (fatMatch) result.fatG = Number(fatMatch[1])
+  const fatG = matchLabelled(normalized, ['總脂肪', '脂肪', 'fat'], G_UNITS)
+  if (fatG !== undefined) result.fatG = fatG
 
-  const sugarMatch = text.match(/糖\s*[:：]?\s*(\d+(?:\.\d+)?)\s*(?:g|克|公克)/i)
-  if (sugarMatch) result.sugarG = Number(sugarMatch[1])
+  const sugarG = matchLabelled(normalized, ['糖', 'sugars', 'sugar'], G_UNITS)
+  if (sugarG !== undefined) result.sugarG = sugarG
 
-  const sodiumMatch = text.match(/鈉\s*[:：]?\s*(\d+(?:\.\d+)?)\s*mg/i)
-  if (sodiumMatch) result.sodiumMg = Number(sodiumMatch[1])
+  const sodiumMg = matchLabelled(normalized, ['鈉', 'sodium', 'salt'], ['mg', '毫克'])
+  if (sodiumMg !== undefined) result.sodiumMg = sodiumMg
 
   return result
+}
+
+const G_UNITS = ['g', 'gram', 'grams', '公克', '克']
+
+/** 半形化：全形數字／冒號／括號一律轉成半形，各種空白（含不斷行空格）壓成一般空白。 */
+function normalizeForParsing(text: string): string {
+  return text
+    .replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .replace(/[：︰]/g, ':')
+    .replace(/[，、]/g, ',')
+    .replace(/[ 　\t]/g, ' ')
+}
+
+/**
+ * `標籤 …… 數字`：中間容許冒號／等號／破折號、`約`這類模糊詞、以及少量空白。
+ *
+ * 刻意**不**跨太遠（`[^\d\n]{0,12}`）：跨行或跨很多字去抓數字，
+ * 「蛋白質很低，這份 320 大卡」這種句子就會把熱量誤認成蛋白質。
+ * 寧可抓不到讓使用者手打，也不要填一個錯的數字進去——錯的數字他不會發現。
+ */
+function matchLabelled(text: string, labels: readonly string[], units: readonly string[]): number | undefined {
+  const unitPattern = units.map(escapeRegExp).join('|')
+  for (const label of labels) {
+    const pattern = new RegExp(
+      `${escapeRegExp(label)}[^\\d\\n,。;；]{0,10}?(\\d+(?:[.,]\\d+)?)\\s*(?:${unitPattern})?`,
+      'i'
+    )
+    const match = text.match(pattern)
+    if (match) {
+      const value = toNumber(match[1])
+      if (value !== undefined) return value
+    }
+  }
+  return undefined
+}
+
+/** `320 大卡` 這種數字在前、標籤即單位的寫法。 */
+function matchNumberBeforeUnit(text: string, units: readonly string[]): number | undefined {
+  const unitPattern = units.map(escapeRegExp).join('|')
+  const match = text.match(new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:${unitPattern})`, 'i'))
+  return match ? toNumber(match[1]) : undefined
+}
+
+function toNumber(raw: string): number | undefined {
+  // `1,234` 是千分位、`1,5` 在部分語系是小數點——都先把逗號當千分位去掉，
+  // 營養數字很少大到需要千分位，猜錯的代價比留著逗號讓 Number() 回 NaN 小。
+  const value = Number(raw.replace(/,/g, ''))
+  return Number.isFinite(value) ? value : undefined
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 // ---------------------------------------------------------------------------

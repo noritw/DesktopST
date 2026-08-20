@@ -1,8 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!--
+      android:usesCleartextTraffic 一定要留著：本機模型（Ollama／LM Studio）走區網
+      http://，targetSdk 28 起系統預設禁止明文流量，原生 CapacitorHttp 的請求會被
+      直接擋掉（WebView 的 allowMixedContent 蓋不到原生層）。DeST 主 App 一直有
+      這一行，這個 App 建立時漏了。
+    -->
     <application
         android:allowBackup="true"
+        android:usesCleartextTraffic="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
