@@ -552,6 +552,8 @@ function App(): React.JSX.Element {
   const [estimateSelectedFiles, setEstimateSelectedFiles] = React.useState<File[]>([])
   const [estimatePreviewUrls, setEstimatePreviewUrls] = React.useState<string[]>([])
   const [estimateNote, setEstimateNote] = React.useState('')
+  /** 結果頁「再解釋一次」的補充文字，還沒送出前的草稿；送出後併進 estimateNote 當作下一輪的說明。 */
+  const [estimateFollowUpNote, setEstimateFollowUpNote] = React.useState('')
   /** 這台裝置有沒有語音辨識（沒有就不畫麥克風按鈕，不要給一顆按了會失敗的鈕）。 */
   const [voiceAvailable, setVoiceAvailable] = React.useState(false)
   const [voiceListening, setVoiceListening] = React.useState(false)
@@ -1242,6 +1244,7 @@ function App(): React.JSX.Element {
     setEstimateError(null)
     setEstimateSelectedFiles([])
     setEstimateNote('')
+    setEstimateFollowUpNote('')
     for (const url of estimatePreviewUrlsRef.current) URL.revokeObjectURL(url)
     estimatePreviewUrlsRef.current = []
     setEstimatePreviewUrls([])
@@ -1291,8 +1294,12 @@ function App(): React.JSX.Element {
       .map((item) => item.name)
   }
 
-  /** 「估算」：補充說明可留白直接送，留白就純依圖片判斷。多張照片一律當成同一份食物（slot 1）。 */
-  async function submitEstimate(): Promise<void> {
+  /**
+   * 送出估算請求的共用邏輯，`noteText` 由呼叫端決定（首次估算 vs 結果頁補充說明再估算，
+   * 見 `submitEstimate()`／`submitFollowUpEstimate()`）。照片一律沿用已選的那批，
+   * 補充說明不對就是解釋不夠，不是換照片。
+   */
+  async function runEstimateRequest(noteText: string): Promise<void> {
     const files = estimateSelectedFiles
     if (files.length === 0) return
     // §2.9.4：本機先擋掉必然失敗的組合，照片與說明都保留不丟。
@@ -1318,13 +1325,16 @@ function App(): React.JSX.Element {
     setEstimatePhase('loading')
     setEstimateError(null)
     try {
-      const bytesList = await Promise.all(files.map((file) => compressImageFile(file)))
+      // 補充說明再估算沿用第一次的照片，不用重壓縮。
+      const bytesList = estimatePhotoBytes.length === files.length
+        ? estimatePhotoBytes
+        : await Promise.all(files.map((file) => compressImageFile(file)))
       setEstimatePhotoBytes(bytesList)
-      const note = estimateNote.trim()
+      setEstimateNote(noteText)
       const results = await requestPhotoEstimate({
         llmSettings,
         photos: bytesList.map((bytes) => ({ slot: 1, base64: bytesToBase64(bytes), mimeType: 'image/webp' })),
-        note: note || undefined,
+        note: noteText || undefined,
         recentNames: recentFoodNames(),
         scaleReference: scaleReference.trim() || undefined,
         http: nutritionMobileHttp
@@ -1339,6 +1349,24 @@ function App(): React.JSX.Element {
       setEstimateError(error instanceof Error ? error.message : String(error))
       setEstimatePhase('error')
     }
+  }
+
+  /** 「估算」：補充說明可留白直接送，留白就純依圖片判斷。多張照片一律當成同一份食物（slot 1）。 */
+  async function submitEstimate(): Promise<void> {
+    await runEstimateRequest(estimateNote.trim())
+  }
+
+  /**
+   * 結果頁「這樣不對，再解釋一次」：把補充文字接在既有說明後面重送一次估算，
+   * 不限次數（AI 有時候會誤解照片或文字，講清楚為止）。重算完一樣回到結果頁，
+   * 可以繼續補充、存入、或改用手動編輯。
+   */
+  async function submitFollowUpEstimate(): Promise<void> {
+    const clarification = estimateFollowUpNote.trim()
+    if (!clarification) return
+    const combinedNote = estimateNote.trim() ? `${estimateNote.trim()}\n補充：${clarification}` : clarification
+    setEstimateFollowUpNote('')
+    await runEstimateRequest(combinedNote)
   }
 
   /** 「存入」：一顆按鈕完成兩筆寫入，不讓使用者選要不要建食物庫（§2.2）。 */
@@ -2185,6 +2213,9 @@ function App(): React.JSX.Element {
                 <PhotoSourceButtons multiple large onFiles={addEstimatePhotos} cameraLabel="拍照" galleryLabel="從相簿選" />
               </div>
               <small className="hint">最多 {MAX_FOOD_PHOTOS} 張，可以直接拍，不用先離開 App 用相機。</small>
+              {/* 按下去才知道花多少錢就太晚了（§2.9.3）；原本放首頁按鈕下方，
+                  跟「快速入帳」並排後會撐壞版面，2026-08-21 owner 要求搬進來這裡。 */}
+              <small className="hint">{aiEstimateHint(llmSettings, 0)}</small>
             </>
           )}
           {estimatePhase === 'noteInput' && (
@@ -2204,24 +2235,26 @@ function App(): React.JSX.Element {
               </div>
               <small className="hint">同一份食物可以拍好幾張（包裝正面、營養成分表、實際內容物），會合併成一筆估算——有拍到成分表的話數字最準。</small>
               <label>補充說明（可留白，但文字比讓模型從圖上猜準得多——至少講一下這是什麼）
-                <textarea
-                  value={estimateNote}
-                  onChange={(event) => setEstimateNote(event.target.value)}
-                  placeholder="例如：燻雞三明治，7-11，吃了一整份"
-                  rows={3}
-                  autoFocus
-                />
+                <div className="note-input-wrap">
+                  <textarea
+                    value={estimateNote}
+                    onChange={(event) => setEstimateNote(event.target.value)}
+                    placeholder="例如：燻雞三明治，7-11，吃了一整份"
+                    rows={3}
+                    autoFocus
+                  />
+                  {voiceAvailable && (
+                    <button
+                      type="button"
+                      className={voiceListening ? 'voice-mic-button listening' : 'voice-mic-button'}
+                      aria-label={voiceListening ? '聽取中，按這裡停止' : '語音輸入'}
+                      onClick={() => void toggleVoiceInput()}
+                    >
+                      <MonoIcon name={voiceListening ? 'stop' : 'mic'} className="icon-sm" />
+                    </button>
+                  )}
+                </div>
               </label>
-              {voiceAvailable && (
-                <button
-                  type="button"
-                  className={voiceListening ? 'voice-button listening' : 'voice-button'}
-                  onClick={() => void toggleVoiceInput()}
-                >
-                  <MonoIcon name={voiceListening ? 'close' : 'plus'} className="icon-sm" />
-                  {voiceListening ? '聽取中，講完按這裡停止' : '語音輸入'}
-                </button>
-              )}
               {voiceError && <small className="hint danger-text">{voiceError}</small>}
               {/* 按下去才知道花多少錢就太晚了（§2.9.3）。 */}
               <small className="hint">{aiEstimateHint(llmSettings, estimateSelectedFiles.length)}</small>
@@ -2272,6 +2305,21 @@ function App(): React.JSX.Element {
                 <button type="button" className="primary" disabled={saving} onClick={saveEstimateResult}>存入</button>
                 <button type="button" disabled={saving} onClick={() => void openFoodFormFromEstimate()}>不對，我改</button>
               </div>
+              <label className="estimate-followup">AI 誤解圖片或文字了嗎？再解釋一次讓它重算
+                <textarea
+                  value={estimateFollowUpNote}
+                  onChange={(event) => setEstimateFollowUpNote(event.target.value)}
+                  placeholder="例如：那是無糖豆漿不是牛奶、份量只吃了一半"
+                  rows={2}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={saving || estimateFollowUpNote.trim().length === 0}
+                onClick={() => void submitFollowUpEstimate()}
+              >
+                用這段補充重新估算
+              </button>
             </section>
           )}
         </section>
@@ -2301,22 +2349,26 @@ function App(): React.JSX.Element {
         </div>
         <div><span>蛋白質</span><strong className={bodyProfile && daily.totalProteinG >= bodyProfile.dailyProteinGoalG ? 'good' : ''}>{daily.totalProteinG} g</strong><small>/ {bodyProfile?.dailyProteinGoalG ?? '未設定'}</small></div>
       </section>
-      {photoEstimateEnabled && (
-        <>
-          <button type="button" className="primary full-width" disabled={saving} onClick={openPhotoEstimate}>
-            <MonoIcon name="plus" className="icon-sm" /> 拍照記錄（AI 估算）
+      <section className="home-actions">
+        {photoEstimateEnabled && (
+          <div className="home-action-col">
+            <button type="button" className="primary home-action-btn" disabled={saving} onClick={openPhotoEstimate}>
+              <MonoIcon name="camera" className="icon-lg" />
+              <span>拍照記錄</span>
+            </button>
+          </div>
+        )}
+        <div className="home-action-col">
+          <button type="button" className="primary home-action-btn" disabled={saving} onClick={() => setQuickEntryOpen((open) => {
+            const next = !open
+            if (next) setQuickEntryTime(timeInputValue(Date.now()))
+            return next
+          })}>
+            <MonoIcon name="edit" className="icon-lg" />
+            <span>{quickEntryOpen ? '關閉入帳' : '快速入帳'}</span>
           </button>
-          {/* 按鈕本身看不出會連網、會花錢、用哪個模型（owner 2026-08-19）。 */}
-          <small className="hint ai-entry-hint">{aiEstimateHint(llmSettings, 0)}</small>
-        </>
-      )}
-      <button type="button" className="primary full-width" disabled={saving} onClick={() => setQuickEntryOpen((open) => {
-        const next = !open
-        if (next) setQuickEntryTime(timeInputValue(Date.now()))
-        return next
-      })}>
-        {quickEntryOpen ? '關閉入帳' : '+ 快速入帳'}
-      </button>
+        </div>
+      </section>
       {quickEntryOpen && (
         <div className="quick-entry-overlay" role="dialog" aria-modal="true" onClick={() => setQuickEntryOpen(false)}>
           <section className="quick-entry-card" onClick={(event) => event.stopPropagation()}>

@@ -209,7 +209,9 @@ owner 決定：提醒資料本身要同步（整份清單，比照角色／情�
       且入帳前門最好等 LLM 那條路徑定案再蓋），本機報表頁最後（純唯讀，
       隨時能補）
 - [ ] Android 桌面小工具 → `docs/mobile-android-widget-plan.md`（DeST 主
-      App 的小工具；飲食記錄 App 的小工具規劃還沒寫，屬於上面 B9b）
+      App 的小工具）；飲食記錄 App 的小工具設計已定案，待動工 →
+      `docs/nutrition-widget-plan.md`（2026-08-21，更新時機＝存檔時／App
+      離開前景時／小工具上手動重新整理按鈕，屬於上面 B9b）
 
 ---
 

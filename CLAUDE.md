@@ -288,7 +288,8 @@ src/mobile/ 手機 UI
 | 實作手機獨立版精準鬧鐘／提醒 | `mobile-standalone-reminder-plan.md`（整份） | 一切長文 |
 | **實作獨立版個人新聞報（缺口 #6）** | `news-standalone-kickoff.md`（整份，開工指令） | 一切長文 |
 | 地方新聞為什麼不是獨立欄了 | `news-local-merge-plan.md`（已完成，看 §9） | 一切長文 |
-| 實作 Android 桌面小工具 (Widget) | `mobile-android-widget-plan.md`（整份） | 一切長文 |
+| 實作 Android 桌面小工具 (Widget，DeST 主 App) | `mobile-android-widget-plan.md`（整份） | 一切長文 |
+| 實作飲食記錄 App 的桌面小工具 | `nutrition-widget-plan.md`（整份，設計中） | `mobile-android-widget-plan.md`（不同專案） |
 | 接本地 LLM（Ollama／LM Studio）當輔助模型 | `local-llm-provider-plan.md`（整份，規劃中未動工） | 一切長文 |
 | 查「以前為什麼這樣做／已知坑」 | `progress-log.md` **Grep 關鍵字** | 整份 log |
 | 實作某桌面／資料規格 | `DesktopST-Spec.md` **對應章節** | 整本 Spec |

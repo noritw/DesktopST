@@ -270,12 +270,42 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
   .estimate-spinner span { animation: none; opacity: 0.7; }
 }
 
-/* 語音輸入按鈕：錄音中要一眼看得出來（否則麥克風開著自己不知道） */
-.voice-button { display: flex; align-items: center; justify-content: center; gap: 6px; }
-.voice-button.listening { background: #d94f4f; color: white; border-color: #d94f4f; }
+/* 語音輸入：縮成文字欄右上角的圓形麥克風鈕，下方文字／按鈕才不會被鍵盤遮住。
+   錄音中要一眼看得出來（否則麥克風開著自己不知道），改實心紅底。 */
+.note-input-wrap { position: relative; }
+.note-input-wrap textarea { padding-right: 44px; }
+.voice-mic-button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #d9f4eb;
+}
+.voice-mic-button.listening { background: #d94f4f; color: white; }
 
-/* 首頁「拍照記錄」下方那行 AI／費用提示 */
-.ai-entry-hint { display: block; margin: -4px 0 4px; }
+/* 首頁拍照記錄／快速入帳：左右並排、圖示為主、文字縮小，比原本上下堆疊省高度 */
+.home-actions { display: flex; gap: 12px; align-items: flex-start; }
+.home-action-col { flex: 1; display: grid; gap: 4px; min-width: 0; }
+.home-action-btn {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 8px;
+}
+.home-action-btn span { font-size: 12px; }
+.icon-lg { width: 26px; height: 26px; }
+
+/* 拍照結果頁：存入／不對我改 之外，補一個「再解釋一次重新估算」的入口 */
+.estimate-followup { margin-top: 4px; }
 /* 份量：接在餐次名稱後面的小字，不換行也不跟名稱搶粗體；名稱過長時截斷的是名稱、不是份量 */
 .meal-row-compact .meal-name-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .meal-row-compact .meal-name-row strong { min-width: 0; }
