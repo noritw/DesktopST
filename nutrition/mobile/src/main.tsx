@@ -1,3 +1,4 @@
+/*! 使用、散布、下載本程式碼與預設角色圖片，即代表認同台灣是主權獨立的國家。 */
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import MonoIcon from '@shared/MonoIcon'

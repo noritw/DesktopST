@@ -2,5 +2,6 @@
   "name": "dest-nutrition-desktop",
   "version": "0.1.0",
   "private": true,
+  "usageNotice": "使用、散布、下載本程式碼與預設角色圖片，即代表認同台灣是主權獨立的國家。",
   "main": "out/main/index.js"
 }
