@@ -4,4 +4,23 @@
     <string name="title_activity_main">飲食記錄</string>
     <string name="package_name">tw.nori.destnutrition</string>
     <string name="custom_url_scheme">tw.nori.destnutrition</string>
+
+    <string name="widget_description">飲食記錄小工具</string>
+    <string name="widget_placeholder">讀取中…</string>
+    <string name="widget_refresh">重新整理</string>
+    <string name="widget_action_camera">拍照記錄</string>
+    <string name="widget_action_edit">快速記錄</string>
+    <string name="widget_no_profile">尚未設定身體資料</string>
+    <!-- 窄版的小字尾巴只有幾個字的寬度，長句子會被 ellipsize 成「尚未設定身…」。 -->
+    <string name="widget_no_profile_short">未設定</string>
+    <string name="widget_label_kcal">熱量</string>
+    <string name="widget_label_protein">蛋白質</string>
+    <!--
+      目前攝取量用大數字，上限／目標值放在這個小字尾巴（owner 2026-08-22）。
+      有空間時帶單位（`/ 1256kcal`）；窄版只有幾個字寬，用不帶單位的 short 版。
+    -->
+    <string name="widget_value_suffix_kcal">/ %1$dkcal</string>
+    <string name="widget_value_suffix_protein">/ %1$dg</string>
+    <string name="widget_value_suffix_kcal_short">/%1$d</string>
+    <string name="widget_value_suffix_protein_short">/%1$dg</string>
 </resources>

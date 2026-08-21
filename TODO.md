@@ -208,18 +208,58 @@ owner 決定：提醒資料本身要同步（整份清單，比照角色／情�
       前置依賴），桌面小工具其次（原生 Kotlin，這個專案原生層踩坑史長，
       且入帳前門最好等 LLM 那條路徑定案再蓋），本機報表頁最後（純唯讀，
       隨時能補）
-- [ ] Android 桌面小工具 → `docs/mobile-android-widget-plan.md`（DeST 主
-      App 的小工具）；飲食記錄 App 的小工具設計已定案，待動工 →
-      `docs/nutrition-widget-plan.md`（2026-08-21，更新時機＝存檔時／App
-      離開前景時／小工具上手動重新整理按鈕，屬於上面 B9b）
+- [ ] Android 桌面小工具（DeST 主 App）→ `docs/mobile-android-widget-plan.md`，尚未動工
+- [x] 飲食記錄 App 的桌面小工具（B9b 一部分）→ ✅ **已實作，自動測試通過，
+      真機驗證部分通過**（2026-08-21）。`docs/nutrition-widget-plan.md` §9 七步全做完；
+      APK 在 Pixel 10a 上裝機驗證：App 啟動正常、三個深連結
+      （`tw.nori.destnutrition://widget/{daily,photo,quick-entry}`）都正確導覽
+      （拍照連結會自動開系統相機、取消後正確落回拍照記錄頁；快速入帳連結直接開
+      入帳面板）、小工具的重新整理 broadcast 在沒有任何小工具實例時不會 crash。
+      **沒驗到的**：實際把小工具拖進主畫面看三種尺寸排版（owner 的主畫面被
+      KWGT 風格的自訂桌面塞滿，找不到空白處長按喚出小工具選單，怕誤觸動到
+      既有排版沒硬點下去）——這步留給 owner 自己在方便的時候用「新增小工具」
+      選單放一個上去看看。專案原本沒有 Kotlin 原生層（純 Java），這次新增：
+      `android/build.gradle` 與 `app/build.gradle` 加了 Kotlin
+      Gradle plugin（對齊 `@capgo/capacitor-health` 已在用的 2.4.10，混用不同版本
+      會炸「compiled with an incompatible version of Kotlin」，`capacitor-filesystem`／
+      `capacitor-camera` 讀的是 `kotlin_version`(底線) 這個 property，不是隨便取的
+      `kotlinVersion`(駝峰) 名字，兩個都要設）。點擊行為沒有走另開一支 Bridge
+      Activity，而是比照 `@capacitor/app` 標準模式：小工具的相機／鉛筆／其餘區域
+      三顆都是帶自訂 scheme 深連結（沿用 Capacitor 產生的 `custom_url_scheme`
+      字串資源）的 `ACTION_VIEW` PendingIntent 打進 MainActivity，JS 端用
+      `getLaunchUrl()`／`appUrlOpen` 收下；小工具存檔／App 離開前景的更新
+      觸發則反過來——JS 沒辦法直接發 Android broadcast，所以另外寫了一支最小
+      Capacitor 外掛 `NutritionWidgetBridgePlugin`（`refresh()` 方法呼叫
+      `NutritionWidgetProvider.updateAll()`），這是計畫書原本檔案結構沒列出來
+      但必要的補充。
+- [ ] **CWA 地震／颱風即時查詢搬到手機獨立版**（2026-08-21 owner 排入，
+      owner 自己要用）。原本標在 §4「獨立版尚未實作」，評估後技術上不難：
+      `main/cwaService.ts` 的 `detectQueryType`／`fetchEarthquake`／
+      `fetchTyphoon` 完全不碰 Electron API，只靠注入的 `HttpAdapter` 打
+      CWA REST、純解析組字串，跟已經兩邊共用的 `core/weather/cwa.ts`
+      背景天氣是同一個模式。要做的事：把這幾支移進 `core/weather/`（或原地
+      留著讓手機 import），手機 `chat.ts` 送出使用者訊息前跑一次關鍵詞偵測，
+      命中就打 CWA、注入 `[即時查詢：...]`——手機聊天管線已經有
+      `[Weather]`／`[Glossary]` 注入的先例可以照抄。預估半天～一天
+- [ ] **對話新聞搜尋搬到手機獨立版**（2026-08-21 owner 排入，owner 自己要
+      用）。原本在 §5「明確不做」，重新評估後改排入。`main/modules/news/
+      conversationSearch.ts`（關鍵詞前置過濾 → LLM 判斷要不要搜 → 打
+      Google News RSS → 注入 prompt）本身也是平台無關邏輯，唯一的坑是用了
+      `rss-parser`（Node 專用）——這個坑手機版**已經踩過也解過**：個人新聞報
+      搬過去時就是同一個問題，換成瀏覽器原生 `DOMParser`
+      （`mobile/adapters/rssParseAdapter.ts`，真機驗證過解析正確），
+      這次直接複用即可。LLM 呼叫手機聊天本來就有自己的 client，不是問題。
+      預估一到兩天（比地震颱風多一層關鍵詞＋LLM 意圖判斷）
 
 ---
 
 ## 4. 獨立版尚未實作（會誠實擲 `not-supported`，不是 bug）
 
-- [ ] 天氣的地震／颱風關鍵詞查詢（目前桌面限定）
 - [ ] Spotify 授權（目前桌面限定）
 - [ ] 日曆授權（目前桌面限定）
+
+> 天氣的地震／颱風關鍵詞查詢原本列在這裡，2026-08-21 owner 排入排程，
+> 移到 §3「排程中／延後」。
 
 缺口總表：`docs/mobile-standalone-gap-inventory.md`（不長，可整份讀）
 
@@ -232,8 +272,11 @@ owner 決定：提醒資料本身要同步（整份清單，比照角色／情�
 RTC 半夜喚醒、把 HTML 打包進遙控 APK、Spotify 自動選歌。
 
 **功能類**：第一版排除自動發話、TTS、Live2D、ST 對話記錄匯入。
-手機不做背景定時抓新聞、對話新聞搜尋、新聞搬家包（皆桌面獨有，刻意不搬）。
+手機不做背景定時抓新聞、新聞搬家包（桌面獨有，刻意不搬）。
 獨立模式的遙控電腦（`remoteControl.*`）**永久不支援**——沒有電腦可控，設計如此。
+
+> 對話新聞搜尋原本也列在「刻意不搬」，2026-08-21 owner 重新評估後排入
+> §3「排程中／延後」，改成要做。
 
 ---
 

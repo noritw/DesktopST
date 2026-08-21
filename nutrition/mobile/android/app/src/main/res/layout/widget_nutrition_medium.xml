@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ★ 寬但矮版（約 3x1／4x1）——owner 2026-08-22 規格 ②：
+  「橫向拉寬到 3x1/4x1 時，熱量／蛋白質的字樣可移到數字左邊」。
+
+  跟最小版一樣只有一格高（60～90dp），所以兩組數字仍然是上下兩列、沒有進度條；
+  差別只在**標籤從「上方」移到「數字左邊」**——橫向空間這個尺寸才夠。
+
+  標籤用 `minWidth="42dp"`：「熱量」兩字、「蛋白質」三字寬度不同，不給最小寬度的話
+  兩列的數字起點會差一個字，看起來像沒對齊。
+-->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_widget_container"
+    android:padding="7dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <ImageView
+        android:id="@+id/widget_btn_refresh"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:background="@drawable/bg_widget_button_refresh"
+        android:padding="3dp"
+        android:src="@drawable/ic_widget_refresh"
+        android:contentDescription="@string/widget_refresh" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="8dp"
+        android:layout_marginEnd="8dp"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="bottom"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_kcal_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="42dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginBottom="1dp"
+                android:textColor="@color/widget_text_sub"
+                android:textSize="10sp"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:text="@string/widget_label_kcal" />
+
+            <TextView
+                android:id="@+id/widget_kcal_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_text"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:fontFeatureSettings="tnum"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:text="@string/widget_placeholder" />
+
+            <TextView
+                android:id="@+id/widget_kcal_suffix"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="3dp"
+                android:layout_marginBottom="1dp"
+                android:textColor="@color/widget_text_sub"
+                android:textSize="10sp"
+                android:fontFeatureSettings="tnum"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="bottom"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_protein_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="42dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginBottom="1dp"
+                android:textColor="@color/widget_text_sub"
+                android:textSize="10sp"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:text="@string/widget_label_protein" />
+
+            <TextView
+                android:id="@+id/widget_protein_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_text"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:fontFeatureSettings="tnum"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:text="@string/widget_placeholder" />
+
+            <TextView
+                android:id="@+id/widget_protein_suffix"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="3dp"
+                android:layout_marginBottom="1dp"
+                android:textColor="@color/widget_text_sub"
+                android:textSize="10sp"
+                android:fontFeatureSettings="tnum"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:ellipsize="end" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!--
+      owner 2026-08-22 規格 ②：這個尺寸的按鈕要**左右排列**並放大。
+      橫向空間是這個版面最不缺的資源，直排反而浪費（而且會被一格高的高度限制住大小）。
+      實際大小由 `applyButtonSizes()` 依寬高算，下面的 dp 只是預設值。
+    -->
+    <LinearLayout
+        android:id="@+id/widget_button_group"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:id="@+id/widget_btn_edit"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="@drawable/bg_widget_button_circle"
+            android:padding="11dp"
+            android:src="@drawable/ic_widget_edit"
+            android:contentDescription="@string/widget_action_edit" />
+
+        <ImageView
+            android:id="@+id/widget_btn_camera"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_widget_button_circle"
+            android:padding="11dp"
+            android:src="@drawable/ic_widget_camera"
+            android:contentDescription="@string/widget_action_camera" />
+    </LinearLayout>
+
+</LinearLayout>

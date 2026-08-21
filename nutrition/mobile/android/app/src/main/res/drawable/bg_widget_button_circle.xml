@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 相機／鉛筆的圓形底（owner 2026-08-22 的 mockup）。扁平、無陰影，見 CLAUDE.md §3。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/widget_mint" />
+</shape>

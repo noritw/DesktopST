@@ -1,7 +1,16 @@
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 
 buildscript {
-    
+    // 對齊 kotlin-stdlib 2.4.x 系列——某些 Capacitor 外掛（capacitor-filesystem／
+    // capacitor-camera／@capgo/capacitor-health）用較新版 Kotlin 編譯，
+    // compiler 版本太舊會讀不動它們的 metadata（"compiled with an incompatible
+    // version of Kotlin"）。`capacitor-filesystem`／`capacitor-camera` 自己的
+    // build.gradle 讀的是 `kotlin_version`（底線）這個 project property 當預設值
+    // 的覆寫來源，不是這裡新增的 `kotlinVersion`（駝峰）——兩個名字都要設，
+    // 否則同一次建置裡 Kotlin daemon 會混到不同版本的 compiler，出現同一種錯誤訊息。
+    ext.kotlinVersion = '2.4.10'
+    ext.kotlin_version = '2.4.10'
+
     repositories {
         google()
         mavenCentral()
@@ -9,6 +18,9 @@ buildscript {
     dependencies {
         classpath 'com.android.tools.build:gradle:8.13.0'
         classpath 'com.google.gms:google-services:4.4.4'
+        // 桌面小工具（NutritionWidgetProvider 等）用 Kotlin 寫，這個專案原本純 Java，
+        // 建立時沒有這個 plugin。
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion"
 
         // NOTE: Do not place your application dependencies here; they belong
         // in the individual module build.gradle files

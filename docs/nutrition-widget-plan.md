@@ -1,7 +1,20 @@
 # 飲食記錄 App —— Android 桌面小工具設計文件 (Nutrition Widget Plan)
 
 > **建立時間**：2026-08-21
-> **狀態**：設計中，待 owner 確認「更新時機」的實作方案後動工
+> **狀態**：**已實作，自動測試通過，真機部分驗證**（2026-08-21）。§9 七步全做完，
+> Pixel 10a 裝機驗證了 App 啟動、三個深連結導覽、重新整理 broadcast 不 crash；
+> **沒驗到的**：把小工具真的拖上主畫面看三種尺寸實際排版（owner 主畫面被自訂
+> 桌布/小工具塞滿，找不到空白處安全長按，留給 owner 自己找時間試）。
+> 實作跟本文件的差異：檔案結構多了一支 `NutritionWidgetBridgePlugin.kt`
+> （最小 Capacitor 外掛，JS 沒辦法直接發 Android broadcast，存檔／App 離開前景
+> 這兩個更新時機要靠它跳回原生層呼叫 `NutritionWidgetProvider.updateAll()`）；
+> 點擊行為沒有走自訂 intent scheme 常數，而是沿用 Capacitor 產生的
+> `custom_url_scheme` 字串資源＋`@capacitor/app` 的 `getLaunchUrl()`／`appUrlOpen`
+> 標準深連結模式。專案原本是純 Java，這次加了 Kotlin 工具鏈，版本對齊
+> `@capgo/capacitor-health` 已在用的 2.4.10（`android/build.gradle` 同時設
+> `kotlinVersion`／`kotlin_version` 兩個 property 名字，因為不同 Capacitor 外掛
+> 各自讀不同名字，混版會出現「compiled with an incompatible version of
+> Kotlin」）。
 > **對象**：`nutrition/mobile/`（獨立飲食記錄 App，`applicationId: tw.nori.destnutrition`），
 > **不是** DeST 主 App 小工具（那份是 `docs/mobile-android-widget-plan.md`，兩者原生專案完全分開）
 
@@ -102,6 +115,40 @@ files/settings.json       # NutritionAppSettings（含 health 子物件）
 退化用 `onAppWidgetOptionsChanged()` 讀 `OPTION_APPWIDGET_MIN_WIDTH` 手動判斷寬度切換 layout。
 
 三種斷點（寬度用 dp 概估，對齊 Android 標準 1 格 ≈ 70dp）：
+
+> **⚠️ 2026-08-22 owner 逐尺寸定案後，下表已經不準，以原始碼為準**
+> （`res/layout/widget_nutrition_{narrow,medium,wide}.xml` 的檔頭有完整說明）：
+>
+> | 版面 | 尺寸 | 內容 |
+> |---|---|---|
+> | `narrow` | 2x1（矮又窄） | **不顯示標籤**，空間全給數字；按鈕圓形**直排** |
+> | `medium` | 3x1／4x1（矮而寬） | 標籤移到**數字左邊**；按鈕圓形**並排**；沒有進度條 |
+> | `square` | 2x2（夠高但窄） | 標籤在上、**按鈕移到最底下一列**讓數字吃整個寬度；沒有進度條 |
+> | `wide` | 4x2 以上（夠高夠寬） | 標籤在上、**有進度條**、按鈕**直排**且隨尺寸縮放 |
+>
+> 按鈕與圖示大小一律由 `buttonSizeDp()`／`applyButtonSizes()` 依**寬高兩者**算
+> （`setViewLayoutWidth/Height` ＋ `setViewPadding`）。**放大邊框時內距一定要跟著放大**，
+> 否則圖示會撐滿整個圓看起來像溢出；**大小也一定要看寬度**，否則 2x2 會被按鈕擠掉文字。
+>
+> 數字字級由 `valueTextSizeSp()` 算，**高度與寬度兩個上限取小的**——只看高度會算出
+> 「高度放得下、寬度卻塞不進」的字級，尾巴就被 ellipsize 吃掉（owner 回報的
+> 「2x2 上限數字被卡掉」）。上下限那行是大數字的 `SUFFIX_RATIO`（0.45）倍，
+> **估算字寬與實際設定共用同一個常數，不可以各寫各的**。
+>
+> 想用真實資料看版面（小工具只顯示今天，常常是 0）→ progress-log 2026-08-22
+> 「怎麼用真實資料測小工具版面」有安全的操作順序與還原驗證方式。
+>
+> **進度條只在最大尺寸出現**——一格高只有 60～90dp，多兩條就會把數字擠爆。
+> 完整版一整欄需要 `82 + 2×數字高度`，所以 `BREAKPOINT_TALL_HEIGHT_DP = 140`，
+> 字級由 `valueTextSizeSp()` 反推。**這條公式跟版面 XML 綁死，改一邊就要改另一邊**
+> ——沒同步正是 owner 兩度回報「數字被裁掉」的原因。
+>
+> 另外兩個 API 實機驗證後**確定不用**（細節見 progress-log 2026-08-22）：
+> `RemoteViews(Map<SizeF, …>)`（系統挑選規則不直覺，373×204dp 時挑了中版而非
+> 完整版）與 `autoSizeTextType`（RemoteViews 裡不會正確重算，實機上蛋白質數字
+> 整個不顯示）。現在**自己讀 options、自己挑版面**，字級由
+> `valueTextSizeSp(heightDp)` 給。真機除錯：`adb logcat -s NutritionWidget`
+> 會印出「實際幾 dp → 挑了哪個版面」。
 
 **版面原則（2026-08-21 owner 追加）：重新整理按鈕要跟相機／鉛筆分開放，
 不能緊鄰**——記帳／拍照是常按的主要動作，重新整理是偶爾才按的次要動作，

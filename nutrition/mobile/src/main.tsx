@@ -59,6 +59,7 @@ import { nutritionMobileHttp } from './http'
 import { compressImageFile } from './imageInput'
 import { isVoiceInputAvailable, startVoiceInput, type VoiceSession } from './voiceInput'
 import { nutritionMobileStorage } from './storage'
+import { refreshNutritionWidget } from './widgetBridge'
 import './styles.css'
 
 const DEFAULT_HEALTH_SETTINGS: NutritionHealthSettings = { connected: false, autoSync: true, useWatchCalorieLimit: false }
@@ -207,6 +208,25 @@ function useStoredPhotoUrl(photoKey: string | undefined): string | null {
 }
 
 /**
+ * 純叫系統相機 intent 拍一張照片，回傳 `File`；使用者取消或原生層不可用回傳 `null`。
+ * 抽成獨立函式讓 {@link PhotoSourceButtons} 與桌面小工具的「拍照記錄」深連結
+ * （見 App() 內 `handleWidgetAction`）共用同一段邏輯，不要各自維護一份。
+ */
+async function captureCameraPhoto(): Promise<File | null> {
+  try {
+    const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera')
+    const photo = await Camera.getPhoto({ resultType: CameraResultType.Uri, source: CameraSource.Camera, quality: 85, saveToGallery: false })
+    if (!photo.webPath) return null
+    const blob = await (await fetch(photo.webPath)).blob()
+    const ext = photo.format ?? 'jpeg'
+    return new File([blob], `camera-${Date.now()}.${ext}`, { type: blob.type || `image/${ext}` })
+  } catch {
+    // 使用者取消拍照，不用做任何事
+    return null
+  }
+}
+
+/**
  * 選照片的兩個入口：**拍照**與**相簿**。
  *
  * 為什麼要拆成兩顆：只給一個 `<input type="file" accept="image/*">` 時，
@@ -245,16 +265,8 @@ function PhotoSourceButtons({ multiple, onFiles, large, cameraLabel, galleryLabe
   }
 
   async function handleCameraCapture(): Promise<void> {
-    try {
-      const { Camera, CameraResultType, CameraSource } = await import('@capacitor/camera')
-      const photo = await Camera.getPhoto({ resultType: CameraResultType.Uri, source: CameraSource.Camera, quality: 85, saveToGallery: false })
-      if (!photo.webPath) return
-      const blob = await (await fetch(photo.webPath)).blob()
-      const ext = photo.format ?? 'jpeg'
-      onFiles([new File([blob], `camera-${Date.now()}.${ext}`, { type: blob.type || `image/${ext}` })])
-    } catch {
-      // 使用者取消拍照，不用做任何事
-    }
+    const file = await captureCameraPhoto()
+    if (file) onFiles([file])
   }
 
   const className = `photo-add${large ? ' photo-add-large' : ''}`
@@ -597,6 +609,62 @@ function App(): React.JSX.Element {
     return () => { cancelled = true; remove?.() }
   }, [])
 
+  /**
+   * 桌面小工具（相機／鉛筆／其餘區域）的深連結導覽。點擊帶
+   * `tw.nori.destnutrition://widget/<path>`，`path` 是 `daily`／`photo`／`quick-entry`
+   * 三選一（見 `widget/NutritionWidgetProvider.kt`、計畫書 §5）。
+   * `photo` 額外自動打開系統相機——小工具的「拍照記錄」按鈕要直接進相機，
+   * 不是進一個還要再按一次拍照鈕的中繼頁。
+   */
+  function handleWidgetAction(url: string): void {
+    let path: string
+    try {
+      path = new URL(url).pathname.replace(/^\/+/, '')
+    } catch {
+      return
+    }
+    const today = toIsoDateString(Date.now())
+    if (path === 'photo') {
+      setSelectedDate(today)
+      openPhotoEstimate()
+      void captureCameraPhoto().then((file) => { if (file) addEstimatePhotos([file]) })
+    } else if (path === 'quick-entry') {
+      setSelectedDate(today)
+      setView('daily')
+      setQuickEntryOpen(true)
+    } else if (path === 'daily') {
+      setSelectedDate(today)
+      setView('daily')
+    }
+  }
+
+  React.useEffect(() => {
+    let cancelled = false
+    let remove: (() => void) | null = null
+    void (async () => {
+      const mod = await import('@capacitor/app').catch(() => null)
+      if (!mod || cancelled) return
+      const { App: CapacitorApp } = mod
+      // 冷啟動：App 本來沒開，小工具直接把它拉起來。
+      const launch = await CapacitorApp.getLaunchUrl().catch(() => null)
+      if (!cancelled && launch?.url) handleWidgetAction(launch.url)
+      // 已在背景：App 沒被殺掉、只是在背景，這條才會觸發（見計畫書 §5 的兩條路徑）。
+      const urlHandle = await CapacitorApp.addListener('appUrlOpen', ({ url }) => handleWidgetAction(url)).catch(() => null)
+      // App 離開前景（背景或被關閉前）時推一次小工具重算（計畫書 §3 觸發點 2）；
+      // 系統直接殺掉 App 時這個事件不一定觸發，那種情況靠觸發點 1（存檔時）兜底。
+      const stateHandle = await CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+        if (!isActive) void refreshNutritionWidget()
+      }).catch(() => null)
+      if (cancelled) {
+        void urlHandle?.remove()
+        void stateHandle?.remove()
+      } else {
+        remove = () => { void urlHandle?.remove(); void stateHandle?.remove() }
+      }
+    })()
+    return () => { cancelled = true; remove?.() }
+  }, [])
+
   const sessionRef = React.useRef<NutritionSession | null>(null)
 
   React.useEffect(() => {
@@ -701,6 +769,9 @@ function App(): React.JSX.Element {
     setSaving(true)
     try {
       await action(session)
+      // 存檔成功就順手推小工具重算（計畫書 §3 觸發點 1）——用「所有存檔動作都推」
+      // 換取簡單可靠，比逐一分辨「這次存檔到底動到 MealLog 沒」便宜也不容易漏。
+      void refreshNutritionWidget()
     } catch (error: unknown) {
       setLoadError(error instanceof Error ? error.message : String(error))
     } finally {

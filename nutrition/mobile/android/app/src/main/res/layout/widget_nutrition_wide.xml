@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ★ 完整版（約 4x2 以上）——owner 2026-08-22 規格 ③：
+  「放到最大 4x2 時，拍照和記錄按鈕尺寸可加大到符合版面高度，重新整理按鈕可稍微放大，
+   此版面可加入進度條」。
+
+  所以這一版跟另外兩個矮版的差別：標籤在數字**上方**、有**進度條**、按鈕**放大**。
+  進度條只在這裡出現——矮版一格高只有 60～90dp，多一條進度條就會把數字擠爆
+  （owner 前一輪回報「資料被卡掉」就是這樣來的）。
+
+  兩個尺寸相關的規則：
+  - 數字字級與按鈕大小**都由 Kotlin 依實際 dp 高度算**
+    （`valueTextSizeSp()`／`largeButtonSizeDp()`，用 `setTextViewTextSize()` 與
+    API 31+ 的 `setViewLayoutWidth/Height()`）。下面的 dp／sp 只是預設值與預覽用。
+  - **數字列不要用 `layout_weight` 撐開**：容器一高就會被拉成上下兩塊空白、
+    標籤跟自己的數字離得老遠。整塊是 `wrap_content` ＋外層垂直置中，
+    多出來的高度變成上下對稱留白。
+-->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_widget_container"
+    android:padding="10dp"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <ImageView
+        android:id="@+id/widget_btn_refresh"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:background="@drawable/bg_widget_button_refresh"
+        android:padding="5dp"
+        android:src="@drawable/ic_widget_refresh"
+        android:contentDescription="@string/widget_refresh" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:layout_marginStart="10dp"
+        android:layout_marginEnd="10dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/widget_kcal_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text_sub"
+            android:textSize="11sp"
+            android:includeFontPadding="false"
+            android:singleLine="true"
+            android:text="@string/widget_label_kcal" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:gravity="bottom"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_kcal_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_text"
+                android:textSize="26sp"
+                android:textStyle="bold"
+                android:fontFeatureSettings="tnum"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:text="@string/widget_placeholder" />
+
+            <TextView
+                android:id="@+id/widget_kcal_suffix"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:textColor="@color/widget_text_sub"
+                android:textSize="11sp"
+                android:fontFeatureSettings="tnum"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/widget_kcal_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="6dp"
+            android:layout_marginTop="5dp"
+            android:max="100"
+            android:progress="0"
+            android:progressTint="@color/widget_mint2"
+            android:progressBackgroundTint="@color/widget_track" />
+
+        <TextView
+            android:id="@+id/widget_protein_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:textColor="@color/widget_text_sub"
+            android:textSize="11sp"
+            android:includeFontPadding="false"
+            android:singleLine="true"
+            android:text="@string/widget_label_protein" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:gravity="bottom"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_protein_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_text"
+                android:textSize="26sp"
+                android:textStyle="bold"
+                android:fontFeatureSettings="tnum"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:text="@string/widget_placeholder" />
+
+            <TextView
+                android:id="@+id/widget_protein_suffix"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:textColor="@color/widget_text_sub"
+                android:textSize="11sp"
+                android:fontFeatureSettings="tnum"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/widget_protein_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="6dp"
+            android:layout_marginTop="5dp"
+            android:max="100"
+            android:progress="0"
+            android:progressTint="@color/widget_mint2"
+            android:progressBackgroundTint="@color/widget_track" />
+    </LinearLayout>
+
+    <!-- mockup 的順序是鉛筆在上、相機在下。 -->
+    <LinearLayout
+        android:id="@+id/widget_button_group"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <ImageView
+            android:id="@+id/widget_btn_edit"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_widget_button_circle"
+            android:padding="12dp"
+            android:src="@drawable/ic_widget_edit"
+            android:contentDescription="@string/widget_action_edit" />
+
+        <ImageView
+            android:id="@+id/widget_btn_camera"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_widget_button_circle"
+            android:padding="12dp"
+            android:src="@drawable/ic_widget_camera"
+            android:contentDescription="@string/widget_action_camera" />
+    </LinearLayout>
+
+</LinearLayout>

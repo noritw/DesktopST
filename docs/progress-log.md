@@ -3357,3 +3357,224 @@ owner 貼了網頁 LLM 的實際回覆，**一欄都沒填到**：
 
 還沒做（owner 提的另一個選項）：把貼上的原文**存進資料裡**留底。
 需要給 `FoodItem` 加一個自由文字欄位，牽涉搬家包與桌面端，這輪先不動。
+
+---
+
+## 2026-08-21（續）｜飲食記錄 App 桌面小工具（B9b）：專案第一次加 Kotlin
+
+`docs/nutrition-widget-plan.md` §9 七步照做完。這個 App 原本純 Java（`MainActivity.java`
+只有五行），小工具三支原生檔（`NutritionWidgetDataReader`／`NutritionWidgetProvider`／
+`NutritionWidgetBridgePlugin`）第一次引入 Kotlin，`android/build.gradle`／
+`app/build.gradle` 要補 Kotlin Gradle plugin。
+
+**踩到的坑**：`gradlew assembleDebug` 一開始炸滿頁
+`Class 'kotlin.Unit' was compiled with an incompatible version of Kotlin`，
+根因是 `@capgo/capacitor-health` 自己的 `android/build.gradle` 寫死用
+Kotlin **2.4.10**，但 `capacitor-filesystem`／`capacitor-camera` 讀的是
+`project.hasProperty('kotlin_version')`（底線）當覆寫來源、預設 2.2.20——
+我原本只設了 `ext.kotlinVersion`（駝峰，自己取的名字），這些外掛完全不认，
+繼續用各自的預設版本，導致同一次建置裡編譯器版本對不齊。**兩個屬性名字都要設**
+（`kotlin_version` 底線才是這幾支外掛真正在讀的）。
+
+**點擊行為沒有另開一支 Activity**，比照 `@capacitor/app` 標準深連結模式：三顆按鈕
+（相機／鉛筆／其餘區域）都是 `ACTION_VIEW` PendingIntent，帶 Capacitor 產生的
+`custom_url_scheme` 字串資源（原本就在 `strings.xml` 裡、一直沒用到）當 scheme，
+JS 端用 `getLaunchUrl()`（冷啟動）＋`appUrlOpen`（App 已在背景）收下。「拍照」
+連結額外自動打開系統相機（不是進一個還要再按一次的中繼頁）——抽出
+`captureCameraPhoto()` 共用函式，跟既有的 `PhotoSourceButtons` 元件共用同一段
+呼叫 `@capacitor/camera` 的邏輯，不重寫第二份。
+
+**存檔／App 離開前景這兩個更新時機**卡在「JS 沒辦法直接發 Android broadcast」——
+只有小工具「重新整理」按鈕是原生層自己收廣播（不進 App）。另外寫了一支最小
+Capacitor 外掛 `NutritionWidgetBridgePlugin`（`refresh()` 呼叫
+`NutritionWidgetProvider.updateAll()`），這是計畫書原本檔案結構沒列出來、
+但存檔／背景觸發點缺不了的補充。`runAction()` 存檔成功後一律推一次（不逐一分辨
+是不是真的動到 MealLog，換取簡單可靠）。
+
+**真機驗證（Pixel 10a，debug APK）**：App 啟動無 crash、三個深連結
+（`daily`／`photo`／`quick-entry`）都正確導覽（拍照連結開系統相機、取消後正確
+落回拍照記錄頁；快速入帳連結直接開入帳面板）、小工具重新整理 broadcast 在
+zero widget instance 時 `updateAll()` 安全 no-op 不 crash。**沒驗到**：實際把
+小工具拖上主畫面看三種尺寸排版——owner 的主畫面是塞滿 KWGT 風格自訂桌布/小工具
+的複雜排版，找不到安全的空白處長按喚出「新增小工具」選單，怕誤觸動到既有排列
+沒硬點下去，留給 owner 自己找時間試。
+
+`npm run typecheck`／`npm test`（955 項）皆過。
+
+---
+
+## 2026-08-22｜飲食小工具版面重做：RemoteViews 的尺寸宣告要對得起實際內容高度
+
+owner 實機回報兩輪，第二輪的症狀是「寬度縮小時空一大塊，然後資料被卡掉」。
+
+**根因不是版面本身，是尺寸宣告說謊。** `RemoteViews(Map<SizeF, RemoteViews>)` 的
+每個 `SizeF` 意思是「這個版面**最少需要多大**」，系統會挑「放得下的當中最大的」。
+我把中版宣告成 `SizeF(180f, 40f)`（高 40dp 就適用），但中版實際堆了五列
+（重新整理自己佔一列＋標籤＋數字＋標籤＋數字），真實高度要 80dp 以上。
+於是系統照著宣告把它挑進一格高的容器，塞不下就**從底部整片裁掉**——
+被裁掉的正好是蛋白質數字，而使用者看到的「莫名空白」其實是被裁掉的內容留下的洞。
+
+**一格高的小工具內部大約只有 45～50dp 可用**，這個預算比想像中緊得多：
+
+- 重新整理按鈕**不能佔一列**，要跟數字、按鈕同一列（垂直置中）擺角落。
+- 相機／鉛筆在一格高**只能並排**：直排要 2×26＋間距 ≈ 56dp，比整個可用高度還高。
+  owner 要的「按鈕上下排、把旁邊空間讓出來」只有在高版（≥3 格高）兌現得了。
+- 兩組數字在「寬但矮」時要**左右並排**而不是上下堆——橫向空間拿來換稀缺的垂直空間，
+  這樣連標籤字都放得下。
+- `includeFontPadding="false"` 兩列文字可省 6～8dp，在這個預算下是關鍵不是微調。
+
+現在三個版面各自對應一種**形狀**（不是單看寬度）：窄／矮（無標籤）、寬／矮
+（數字左右並排＋標籤）、高（上下堆＋進度條＋按鈕直排）。斷點常數
+`BREAKPOINT_*` 的註解寫明「這幾個數字必須 ≥ 對應版面的實際內容高度」，
+高版門檻抓 120dp 而內容約 110dp，刻意留 10dp 餘裕。
+
+順帶修掉 owner 第一輪回報的另外兩點：數字改粗體＋等寬數字（`tnum`，
+這是「看起來像時鐘」的主因——每個數字寬度固定，不會因為 1 窄 8 寬而跳動）；
+**蛋白質的紅字方向跟熱量相反**（熱量超標紅字，蛋白質**沒達標**才紅字，
+達標用新增的 `widget_good` 綠）。目前攝取量用大字、上限／目標值退成小字尾巴。
+
+### 同日續：照 owner 的 mockup 重做，並放棄兩個「看起來很聰明」的 API
+
+owner 給了一張 mockup（標籤小字在上、大數字主導、`/ 1256kcal` 小字尾巴、
+鉛筆／相機**圓形直排**在右、重新整理在左側垂直置中、**沒有進度條**）。
+照著做的過程中，兩個原本以為能一勞永逸的 API 都被實機打臉：
+
+- **`RemoteViews(Map<SizeF, RemoteViews>)` 不要用。** 它由系統決定挑哪一份，
+  而挑選規則不是直覺的「放得下的當中最大的」。owner 那個 **373×204dp** 的
+  小工具，明明完整版（宣告 150×76）放得下，系統卻挑了中版（宣告 200×40）。
+  版面選擇正是這個小工具反覆出包的地方，所以改成**自己讀 options、自己挑**
+  （`pickLayout()`），API 26–30 與 31+ 走同一條路徑，只需要驗一次。
+  順手加了 `Log.d(TAG=NutritionWidget)` 印出「實際幾 dp → 挑了哪個版面」——
+  就是靠這行才知道真實尺寸是 373×204（之前都在用截圖比例硬猜）。
+  真機除錯：`adb logcat -s NutritionWidget`。
+- **`autoSizeTextType` 在 RemoteViews 裡不可靠。** 想用它一勞永逸解決「內容溢出」，
+  搭配 `layout_height="match_parent"`＋weight 後，owner 實機上**蛋白質那個數字
+  整個沒顯示**（只剩 `/ 70g`），熱量那個卻正常——量測時機的問題，很難除錯。
+  改成 `NutritionWidgetProvider.valueTextSizeSp(heightDp)` 依實際高度算好字級，
+  再用 `setTextViewTextSize()` 指定：行為完全確定，而且順便讓數字會**跟著
+  小工具變高而變大**（22→40sp 階梯），這是 autosize 本來想要的效果。
+
+還有一個排版陷阱：**數字列不要用 `layout_weight` 撐開**。容器一高（204dp）就會
+被拉成上下兩大塊空白、標籤跟自己的數字離得老遠。現在整個數字區塊是
+`wrap_content` ＋ 外層 `gravity="center_vertical"`，多出來的高度變成上下對稱留白。
+
+### 同日再續：三種尺寸各自的規格（owner 定案）
+
+owner 逐一尺寸給了規格，三個版面現在職責分明：
+
+| 版面 | 尺寸 | 內容 |
+|---|---|---|
+| `narrow` | 2x1 | **不顯示標籤**，把空間全給數字 |
+| `medium` | 3x1／4x1 | 標籤移到**數字左邊**（`minWidth=42dp` 讓兩列數字起點對齊） |
+| `wide` | 4x2 以上 | 標籤在上、**有進度條**、**按鈕放大到符合版面高度** |
+
+**進度條只在最大尺寸出現**——一格高只有 60～90dp，多兩條進度條就會把數字擠爆。
+
+⚠️ **加東西進完整版時一定要回頭調 `BREAKPOINT_TALL_HEIGHT_DP`。**
+這一輪 owner 回報「2x1／3x1 的蛋白質數字只剩半個字」，就是進度條加回來之後
+門檻還停在 76dp，害一格高的容器誤用完整版。現在完整版一整欄要
+`82 + 2×數字高度`（padding 20 ＋ 2×(標籤 13 ＋ 數字 ＋ 進度條 11) ＋ 組間距 10），
+所以門檻設 140dp，字級由 `valueTextSizeSp()` 反推：`V ≤ (高度 − 88) / 2`。
+**這條公式跟版面 XML 是綁死的，改其中一邊就要改另一邊。**
+
+### 同日三續：按鈕尺寸的兩個錯誤（owner 逐尺寸回饋第二輪）
+
+owner 一次貼了 2x1／3x1／4x2／2x2 四種尺寸的實機畫面，抱怨看起來是四件事，
+根因其實只有兩個：
+
+1. **放大邊框卻沒放大內距。** 只用 `setViewLayoutWidth/Height()` 把圓形底撐到
+   80dp，`padding` 卻還是 XML 寫死的 12dp → 圖示變成 56dp，幾乎填滿整個圓，
+   邊緣看起來像畫出去（owner 回報「icon 太大而且有點畫出去」）。
+   現在內距固定佔邊長的 26%，跟著一起算。
+   ⚠️ `setViewPadding()` 吃的是 **px 不是 dp**，要自己乘 `displayMetrics.density`。
+2. **按鈕大小只看高度、沒看寬度。** 2x2 那種又高又窄的尺寸，只看高度會算出很大的
+   按鈕，把文字擠到只剩「蛋⋯」（owner 回報 ④）。現在同時受
+   「高度能放多少」與「不可以吃掉超過 28%（直排）／32%（並排）寬度」兩個上限夾。
+
+順帶處理的三件小事：**3x1／4x1 的按鈕改左右並排**（橫向空間是這個版面最不缺的
+資源，直排反而被一格高的高度限制住大小）；**上下限那行字級跟著大數字等比放大**
+（`大數字 × 0.45`，夾 10～20sp），否則大數字旁邊會像註腳；**2x1 恢復顯示
+`kcal` 單位**——原本一律用不帶單位的 short 版，但 2x1 沒有標籤列其實放得下，
+真正會擠的是完整版又高又窄（2x2）那種，改成只有那個情況才退回 short。
+
+API 30 以下沒有 `setViewLayoutWidth/Height`，按鈕會吃 XML 的預設大小、不會跟著
+縮放（內距則不受限，至少比例是對的）——這是能力限制不是 bug。
+
+### 同日四續：2x2 專用版面，與「字級也要看寬度」
+
+owner 回報「2x2 的上限數字被卡掉，可能需要自適應大小」。兩個修正：
+
+**① 字級同時受寬度限制（通用防呆）。** 原本只從高度反推字級，又高又窄的尺寸就會
+算出「高度放得下、寬度卻塞不進」的字級，尾巴被 `ellipsize` 吃掉。現在會先估
+這行要多寬（粗體等寬數字每字約 0.62em、尾巴每字約 `SUFFIX_RATIO × 0.55em`），
+再反推寬度容許的字級上限，取兩者較小。**估算與實際設定共用同一個 `SUFFIX_RATIO`
+常數**，不可以各寫各的，否則估算會失準。
+
+實測（8/21 真資料搬到今天）：2x1 顯示 `1103 / 1256kcal`、`90 / 70g` 時字級被壓到
+**20.2sp**（高度本來允許 32sp），完整顯示沒有被裁；資料是 `0` 時則回到 31.9sp。
+**字級會隨數字位數變動**是這個設計的必然結果，如果覺得跳動礙眼，就要改成固定
+用最壞情況（四位數）算——目前選擇「能大就大」。
+
+**② 2x2 改用新的方形版 `widget_nutrition_square.xml`。** 完整版是「左數字、右按鈕直排」，
+2x2 的寬度要分給重新整理＋標籤欄＋按鈕，數字欄只剩 55dp 左右，四位數上限一定塞不下；
+純縮字級要縮到 15sp，大數字就沒意義了。方形版**把按鈕移到最下面一列**，
+數字欄因此吃到整個寬度（約 135dp），同樣資料可以用 23sp 以上顯示。
+代價是沒有進度條（垂直空間要留給按鈕列）。
+
+版面選擇因此變成四種形狀：`wide`（夠高夠寬）／`square`（夠高但窄）／
+`medium`（矮而寬）／`narrow`（矮又窄）。
+
+### 怎麼用真實資料測小工具版面（安全作法，之後會一直用到）
+
+小工具只顯示「今天」的合計，剛開始用的時候常常是 0，看不出版面好不好。
+把過去某天的資料暫時搬到今天來測，**順序很重要**，否則會把假資料寫死進使用者的紀錄：
+
+1. `run-as <pkg> cp files/meal-logs.json files/meal-logs.bak`（裝置端備份）
+   ＋ `run-as <pkg> base64 files/meal-logs.json` 拉回本機，**算 SHA256 記下來**。
+2. **先還原真資料、再啟動 App**，讓 App 記憶體裡是真的——這樣就算中途被觸發存檔，
+   寫回去的也是真資料。
+3. 換上假資料檔，然後**開 App 再按 HOME**：`appStateChange(isActive:false)` 會
+   推一次小工具更新。⚠️ `am broadcast` 送自訂 action 給 Provider **實測不會觸發**
+   （被 force-stop 過之後尤其不會，`-f 0x00000020` 也救不回來），走 App 這條才可靠。
+4. 截圖看版面。
+5. **先 `am force-stop`**（丟掉記憶體裡的假資料）**再還原檔案**，然後比對 SHA256
+   確認逐位元組相同，最後刪掉裝置端備份、重開 App 讓它讀回真資料。
+
+⚠️ 這次測完有確實驗證：`sha256` 與原始完全相同、64 筆、沒有殘留 `-fake` id。
+
+### 同日五續：「無法載入小工具」＝ RemoteViews 的 view 白名單
+
+owner 拉到 2x2 時整個變成「無法載入小工具」。logcat 一看就有答案：
+
+```
+android.view.InflateException: ... Class not allowed to be inflated android.view.View
+```
+
+**RemoteViews 只允許白名單內的 view 類別**（LinearLayout／RelativeLayout／FrameLayout／
+GridLayout／TextView／ImageView／ProgressBar／Button／ImageButton／Chronometer／
+ViewFlipper／ViewStub／TextClock…）。我在方形版底列用了一個
+`<View>` 當彈性間隔物——**純 `android.view.View` 與 `Space` 都不在名單上**，
+一放進去整個小工具就掛掉。改成 `RelativeLayout` ＋ `alignParentStart`／
+`alignParentEnd` 讓兩邊各自靠邊，不需要間隔物。
+
+**這類錯誤在編譯期完全看不出來**（XML 合法、Gradle 也過），只有真機放上去才會炸，
+而且症狀是整個小工具不顯示、看不出是哪一行。診斷方式固定：
+
+```bash
+adb logcat -d | grep -i "not allowed to be inflated"
+```
+
+它會直接指出檔名與行號。加新的版面時可以先跑一次
+`grep -ho '^\s*<[A-Za-z][A-Za-z.]*' widget_*.xml | sort -u` 自我檢查用到哪些類別。
+
+驗證方式（不需要在真機上拖曳改尺寸）：暫時把 `pickLayout()` 的回傳值寫死成要測的
+版面、裝上去截圖，確認後再改回來。這樣可以在**不動使用者主畫面版型**的前提下
+驗證任何一個版面能不能正常 inflate。
+
+⚠️ **不要用 adb 的 `input swipe` 去測小工具 resize。** 這次踩到：長按叫出調整
+把手後，接著的拖曳被 launcher 判定成「點擊」而不是「拖把手」，點到鉛筆按鈕
+→ 開了快速入帳 → 又選到清單裡的食物，**在 owner 的真實飲食紀錄裡寫進一筆
+垃圾資料**（零卡蒟蒻、份量 4）。因為是零卡食物、總計數字沒變，畫面上完全看不出來，
+是後來去 `run-as cat files/meal-logs.json` 逐筆比對才發現的。
+已用 `run-as base64` 把整份檔案取出、刪掉那筆再寫回（其餘 63 筆逐筆比對完全相同）。
+**小工具的尺寸驗證只能請 owner 自己動手**，AI 不要在真機上模擬拖曳手勢。

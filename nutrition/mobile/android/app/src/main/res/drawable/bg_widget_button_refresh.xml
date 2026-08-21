@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 重新整理是次要動作，用比主要按鈕淡的底色＋較小的圓形範圍，跟相機／鉛筆視覺上明顯分開。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/widget_track" />
+</shape>

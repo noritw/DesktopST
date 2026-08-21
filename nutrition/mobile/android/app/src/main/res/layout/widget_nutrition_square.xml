@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ★ 方形版（約 2x2：又高又窄，寬度 <200dp 但高度 ≥140dp）。
+
+  為什麼不共用完整版：完整版是「左邊數字、右邊按鈕直排」，橫向要分給
+  重新整理＋標籤欄＋大按鈕，2x2 只剩 55dp 左右給數字——四位數的上限直接被擠掉
+  （owner 2026-08-22 回報「2x2 的上限數字被卡掉」）。純縮字級要縮到 15sp 才塞得下，
+  大數字就沒意義了。
+
+  這一版把**按鈕移到最下面一列**，數字區因此吃到整個寬度（約 135dp），
+  同樣的資料可以用 23sp 以上顯示。代價是**沒有進度條**——垂直空間要留給按鈕列。
+
+  重新整理放在底列最左邊，跟右邊的相機／鉛筆分開（§4 的硬規則：次要動作不要
+  跟常按的主要動作相鄰）。
+-->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_widget_container"
+    android:padding="10dp"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/widget_kcal_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/widget_text_sub"
+            android:textSize="10sp"
+            android:includeFontPadding="false"
+            android:singleLine="true"
+            android:text="@string/widget_label_kcal" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:gravity="bottom"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_kcal_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_text"
+                android:textSize="24sp"
+                android:textStyle="bold"
+                android:fontFeatureSettings="tnum"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:text="@string/widget_placeholder" />
+
+            <TextView
+                android:id="@+id/widget_kcal_suffix"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="3dp"
+                android:textColor="@color/widget_text_sub"
+                android:textSize="10sp"
+                android:fontFeatureSettings="tnum"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:ellipsize="end" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/widget_protein_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:textColor="@color/widget_text_sub"
+            android:textSize="10sp"
+            android:includeFontPadding="false"
+            android:singleLine="true"
+            android:text="@string/widget_label_protein" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:gravity="bottom"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_protein_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_text"
+                android:textSize="24sp"
+                android:textStyle="bold"
+                android:fontFeatureSettings="tnum"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:text="@string/widget_placeholder" />
+
+            <TextView
+                android:id="@+id/widget_protein_suffix"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="3dp"
+                android:textColor="@color/widget_text_sub"
+                android:textSize="10sp"
+                android:fontFeatureSettings="tnum"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:ellipsize="end" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!--
+      ⚠️ 底列用 RelativeLayout「左右各自靠邊」，**不要用 LinearLayout ＋ `<View>` 當間隔物**。
+      RemoteViews 只允許白名單內的 view 類別（LinearLayout／RelativeLayout／FrameLayout／
+      GridLayout／TextView／ImageView／ProgressBar／Button／Chronometer…），
+      **純 `android.view.View` 與 `Space` 都不在名單上**，一放進來整個小工具會變成
+      「無法載入小工具」——owner 2026-08-22 實機踩到，logcat 訊息是
+      `Class not allowed to be inflated android.view.View`。
+    -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp">
+
+        <ImageView
+            android:id="@+id/widget_btn_refresh"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_alignParentStart="true"
+            android:layout_centerVertical="true"
+            android:background="@drawable/bg_widget_button_refresh"
+            android:padding="4dp"
+            android:src="@drawable/ic_widget_refresh"
+            android:contentDescription="@string/widget_refresh" />
+
+        <LinearLayout
+            android:id="@+id/widget_button_group"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentEnd="true"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/widget_btn_edit"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="@drawable/bg_widget_button_circle"
+                android:padding="10dp"
+                android:src="@drawable/ic_widget_edit"
+                android:contentDescription="@string/widget_action_edit" />
+
+            <ImageView
+                android:id="@+id/widget_btn_camera"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_widget_button_circle"
+                android:padding="10dp"
+                android:src="@drawable/ic_widget_camera"
+                android:contentDescription="@string/widget_action_camera" />
+        </LinearLayout>
+    </RelativeLayout>
+
+</LinearLayout>

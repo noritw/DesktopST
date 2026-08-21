@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  多尺寸自適應（計畫書 §4）：API 31+ 用 targetCellWidth/Height 宣告最小網格，
+  搭配 Provider 端用 RemoteViews(Map<SizeF, RemoteViews>) 依實際尺寸挑排版；
+  API 26–30（本專案 minSdk）退化用 onAppWidgetOptionsChanged() 手動判斷寬度。
+  resizeMode 兩個方向都開，讓使用者能自由拖拉調整大小。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="40dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="40dp"
+    android:maxResizeWidth="320dp"
+    android:maxResizeHeight="180dp"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="3600000"
+    android:initialLayout="@layout/widget_nutrition_wide"
+    android:description="@string/widget_description"
+    android:previewLayout="@layout/widget_nutrition_wide" />

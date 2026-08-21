@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      小工具固定用預設薄荷主題（`src/mobile/ui/theme.ts` 的 `mint`），
+      不跟隨 App 內選的配色主題——小工具沒有管道讀取 App 目前選的主題，
+      而 mint 是全站預設值，見 CLAUDE.md §3「視覺」。
+    -->
+    <color name="widget_bg">#F7FFFC</color>
+    <color name="widget_surface">#FFFFFF</color>
+    <color name="widget_mint">#CBFBC4</color>
+    <color name="widget_mint2">#AAEEDD</color>
+    <color name="widget_text">#3D5A52</color>
+    <color name="widget_text_sub">#7AA898</color>
+    <!--
+      「紅字」慣例：熱量超標與蛋白質沒達標時用。這兩個是相反方向的警示——
+      熱量寧可少不要多，蛋白質寧可多不要少，見 owner 2026-08-21 回報。
+    -->
+    <color name="widget_exceeded">#C0524A</color>
+    <!-- 蛋白質吃到／超過目標時用的「達標」色，比 widget_text 更肯定一點，但不喧賓奪主。 -->
+    <color name="widget_good">#2F8A62</color>
+    <color name="widget_track">#E4F5EE</color>
+</resources>
