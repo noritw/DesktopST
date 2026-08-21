@@ -2471,11 +2471,15 @@ function App(): React.JSX.Element {
         <div className="quick-entry-overlay" role="dialog" aria-modal="true" onClick={() => setQuickEntryOpen(false)}>
           <section className="quick-entry-card" onClick={(event) => event.stopPropagation()}>
             <button type="button" className="quick-entry-close" aria-label="關閉" onClick={() => setQuickEntryOpen(false)}><MonoIcon name="close" className="icon-md" /></button>
-            <label className="quick-entry-time">記錄時間
-              <input type="time" value={quickEntryTime} onChange={(event) => setQuickEntryTime(event.target.value)} />
-            </label>
+            <div className="quick-entry-time-row">
+              <strong>記錄時間</strong>
+              <input type="time" className="quick-entry-time-input" value={quickEntryTime} onChange={(event) => setQuickEntryTime(event.target.value)} />
+              <button type="button" className="time-now-button" aria-label="重設為目前時間" onClick={() => setQuickEntryTime(timeInputValue(Date.now()))}>
+                <MonoIcon name="refresh" className="icon-sm" />
+              </button>
+            </div>
             <div className="quick-entry-header">
-              <strong>選擇食物</strong>
+              <strong>從食物庫選擇</strong>
               <button type="button" className="add-food-button" aria-label="新增食物到食物庫" onClick={() => { setQuickEntryOpen(false); openFoodForm(null, 'quickEntry') }}>
                 <MonoIcon name="plus" className="icon-sm" /> 新增食物
               </button>
@@ -2503,7 +2507,11 @@ function App(): React.JSX.Element {
                       <small>{[foodItem.brand, foodItem.flavor].filter(Boolean).join(' · ')}</small>
                     )}
                   </span>
-                  <small>{foodItem.perServing.kcal} kcal · {foodItem.perServing.proteinG} g 蛋白<br />{usageText(foodUsageOf(foodUsage, foodItem.id))}</small>
+                  <span className="food-option-stats">
+                    <small className="food-option-macro">{foodItem.perServing.kcal} kcal</small>
+                    <small className="food-option-macro">{foodItem.perServing.proteinG} g 蛋白</small>
+                    <small className="food-option-usage">{usageText(foodUsageOf(foodUsage, foodItem.id))}</small>
+                  </span>
                 </button>
               ))}
             </div>

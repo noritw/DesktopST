@@ -93,16 +93,16 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
   display: grid;
   place-items: center;
   z-index: 999;
-  padding: 16px;
+  padding: 8px;
 }
 .quick-entry-card {
   background: white;
   border-radius: 16px;
   padding: 16px;
-  max-height: 80vh;
+  max-height: 94vh;
   overflow: auto;
   width: 100%;
-  max-width: 320px;
+  max-width: 640px;
   display: grid;
   gap: 10px;
   position: relative;
@@ -120,15 +120,26 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
   justify-content: center;
   color: #6d887f;
 }
-.quick-entry-time { display: grid; gap: 5px; color: #4f6e65; font-size: 13px; font-weight: 700; }
-.quick-entry-time input { font-weight: 400; }
-.quick-entry-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.quick-entry-time-row { display: flex; align-items: center; gap: 8px; color: #4f6e65; font-size: 13px; font-weight: 700; }
+.quick-entry-time-input {
+  font-weight: 400;
+  width: auto;
+  background: #eefaf5;
+  border: 1px solid #c9e3da;
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: #3d5a52;
+}
+.time-now-button { flex-shrink: 0; padding: 6px; background: #eefaf5; border: 1px solid #c9e3da; display: inline-flex; align-items: center; justify-content: center; color: #4f9c8a; }
+.quick-entry-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .quick-entry-header button { background: white; border: 1px solid #c9e3da; padding: 6px 11px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
 .quick-entry-header .add-food-button { background: #65bda6; border-color: #65bda6; color: white; font-weight: 700; }
-.food-options { display: grid; gap: 7px; max-height: 260px; overflow: auto; }
+.food-options { display: grid; gap: 7px; max-height: 55vh; overflow: auto; }
 .food-option { justify-content: space-between; gap: 12px; text-align: left; background: white; border: 1px solid #c9e3da; }
-.food-option > small { color: #6d887f; white-space: nowrap; }
-.food-option-name { display: grid; gap: 1px; min-width: 0; text-align: left; }
+.food-option-stats { display: grid; gap: 1px; flex-shrink: 0; width: 88px; text-align: right; }
+.food-option-macro { display: block; color: #6d887f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.food-option-usage { display: block; font-size: 50%; color: #6d887f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.food-option-name { display: grid; gap: 1px; min-width: 0; flex: 1 1 auto; text-align: left; }
 .food-option-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .food-option-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6d887f; font-size: 11px; }
 
