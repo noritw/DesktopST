@@ -3600,3 +3600,45 @@ owner：「2x2 有沒有機會加入進度條而不弄壞版面？」
 
 一般化的教訓：**小工具的垂直空間永遠比橫向稀缺**。要加東西時先問
 「能不能跟既有的某一列共用一行」，而不是直接往下堆。
+
+---
+
+## 2026-08-22（續七）｜小工具的熱量上限跟 App 同步（含手錶動態）
+
+owner：「上限數字設定可以跟 App 內同步嗎？如果有跟手錶連動就用手錶的。」
+
+靜態上限本來就同步（小工具每次都重讀 `body-profile.json`）。真正對不起來的是
+**手錶動態上限**：App 顯示 1163、小工具顯示 1256。原因是動態上限由
+`suggestTodayKcalLimit()` 現算，而它需要的 `healthSnapshot` 只活在 React state、
+從不落地，原生層根本讀不到。
+
+**作法：App 落地「原生層拿不到的原料」，小工具在繪製當下補完最後一步。**
+新檔 `files/widget-health.json` 存三個數：`burnedSoFarToday`、`measuredAt`、
+`restingKcalPerHour`；Kotlin 只做 `已消耗 + 剩餘時間 × restingKcalPerHour`。
+
+兩個決定值得記下來：
+
+1. **存原料而不是存算好的上限。** 公式含「剩餘時間」會隨時間遞減，存定值的話
+   小工具整天顯示早上那個數、連按重新整理都不會變。存原料由小工具現算，上限
+   就會自己收斂——真正會過期的只有 `burnedSoFarToday`（那個只有 App 前景查
+   Health Connect 才拿得到，這是無法避免的部分）。
+2. **連 `restingKcalPerHour` 都先在 TS 算好。** BMR 有兩套公式（有體脂率用
+   Katch-McArdle、否則 Mifflin-St Jeor），在 Kotlin 抄一份就是計畫書 §7 警告的
+   跨語言漂移。先算好之後原生層只剩一次乘加，沒有可以抄錯的東西。
+   **這個「把跨語言的複雜計算留在 TS、只把純量結果送過去」的模式，
+   之後小工具要再加任何衍生數值都應該照做。**
+
+**用「檔案在不在」表達開關狀態**：關掉 `useWatchCalorieLimit`（或還沒同步過）時
+App 把檔案刪掉，小工具自動退回靜態上限。這樣小工具就不必再讀 `settings.json`
+判斷開關，少一個要保持同步的真相來源。`measuredAt` 不是今天時也退回靜態值，
+判斷與 `suggestTodayKcalLimit()` 一致。
+
+⚠️ **寫檔的條件必須跟畫面上 `todayDynamicKcalLimit` 那段完全一致**，
+不然就會再次出現「App 一個數、小工具另一個數」——那正是這次要修的問題本身。
+
+上限來自手錶時，有標籤的版面把「熱量」改成「熱量 · 手錶」（2x1 沒有標籤列，
+`setTextViewText` 對不存在的 id 安靜略過，不必特別判斷尺寸）。
+
+真機驗證（03:01）：`widget-health.json` 內容為
+`burnedSoFarToday=146.5、restingKcalPerHour=48.46`，App 顯示 `/ 1163`（帶
+「依手錶動態」標籤）、小工具顯示 `/ 1163kcal`，**兩邊完全一致**。

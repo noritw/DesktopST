@@ -14,6 +14,8 @@
     <!-- 窄版的小字尾巴只有幾個字的寬度，長句子會被 ellipsize 成「尚未設定身…」。 -->
     <string name="widget_no_profile_short">未設定</string>
     <string name="widget_label_kcal">熱量</string>
+    <!-- 上限來自手錶動態計算時用這個，比照 App 內的「依手錶動態」標籤。 -->
+    <string name="widget_label_kcal_dynamic">熱量 · 手錶</string>
     <string name="widget_label_protein">蛋白質</string>
     <!--
       目前攝取量用大數字，上限／目標值放在這個小字尾巴（owner 2026-08-22）。

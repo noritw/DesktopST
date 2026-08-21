@@ -71,12 +71,44 @@ files/settings.json       # NutritionAppSettings（含 health 子物件）
 即時算一個動態上限（已消耗＋剩餘時間 × BMR/24），**這個數字目前完全不落地**，
 只存在 `main.tsx` 的 React state。
 
+> **✅ 2026-08-22 已實作**（owner 要求：「上限數字要跟 App 內同步，有跟手錶連動
+> 就用手錶的」）。下面這段「先只支援靜態上限」的結論已經作廢，實際作法如下。
+
+**作法：App 落地「原生層拿不到的原料」，小工具在繪製當下補完最後一步。**
+
+App 把三個數寫進 `files/widget-health.json`（`mobile/src/widgetBridge.ts` 的
+`WidgetHealthState`）：`burnedSoFarToday`、`measuredAt`、`restingKcalPerHour`。
+小工具讀檔後只做一次乘加：`已消耗 ＋ 剩餘時間 × restingKcalPerHour`。
+
+兩個關鍵設計決定：
+
+1. **不存算好的上限，存原料。** 上限公式含「剩餘時間」，會隨時間遞減；存成定值
+   的話小工具整天都顯示早上算的那個數，按重新整理也不會變。存原料、由小工具在
+   繪製當下乘上剩餘時間，上限就會自己收斂——真正會過期的只有 `burnedSoFarToday`
+   （那個只有 App 前景查 Health Connect 時拿得到）。
+2. **連 `restingKcalPerHour` 都先在 TS 算好。** BMR 有兩套公式（Katch-McArdle／
+   Mifflin-St Jeor），在 Kotlin 抄一份就是 §7 警告的跨語言漂移。先算好之後
+   原生層只剩乘加，沒有可以抄錯的東西。
+
+**用「檔案在不在」表達開關狀態**：`useWatchCalorieLimit` 關閉、或還沒同步過時
+App 會把檔案刪掉，小工具因此自動退回 `bodyProfile.dailyKcalLimit`——小工具就
+不必再讀 `settings.json`，少一個要同步的真相來源。`measuredAt` 不是今天時
+也會退回靜態值（跟 `suggestTodayKcalLimit()` 的判斷一致）。
+
+上限來自手錶時，有標籤的版面會把「熱量」改顯示成「熱量 · 手錶」，比照 App 內
+那個「依手錶動態」小標籤，免得使用者覺得「怎麼跟我設定的上限不一樣」。
+
+真機驗證（2026-08-22 03:01）：App 顯示 `/ 1163`、小工具顯示 `/ 1163kcal`，一致。
+
+<details><summary>原本的規劃（已作廢，保留供對照）</summary>
+
 小工具沒有能力自己重算這個（要嘛重新實作 Health Connect 查詢＋BMR 公式，
 要嘛等 App 算完寫檔）。**這版小工具先只支援靜態上限**：
 - `useWatchCalorieLimit` 關閉時：小工具顯示 `bodyProfile.dailyKcalLimit`，跟 App 內一致。
 - 開啟時：小工具退回顯示靜態 `dailyKcalLimit`，但在上限數字旁加一個小提示
   （例如淡化处理或加註記），避免使用者誤以為那是含手錶動態調整的即時上限。
-- 之後要接動態上限，见 §8「暫不做」。
+
+</details>
 
 ---
 
@@ -241,8 +273,10 @@ nutrition/mobile/android/app/src/main/res/
 
 ## 8. 這次刻意不做
 
-- Health 動態熱量上限即時反映到小工具（§2.1）——等有真的需求或
-  Health 讀資料落地存檔後再說，不要為了小工具去改 App 的 Health 快照儲存策略。
+- ~~Health 動態熱量上限即時反映到小工具（§2.1）~~ → **2026-08-22 owner 提出需求，
+  已實作**，作法見 §2.1。當初擔心的「為了小工具去改 App 的 Health 快照儲存策略」
+  沒有發生：新增的是一個獨立的小檔（`widget-health.json`），沒有動到既有的
+  `BodyProfile`／`settings.json` 結構，關掉開關就把檔案刪掉。
 - 小工具內直接記帳（不開 App）——超出「快速入口」的範疇，且小工具無法安全地
   跑 LLM 拍照辨識流程。
 - iOS（沒有這回事，本專案沒有 iOS 版）。

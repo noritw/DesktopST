@@ -9,6 +9,7 @@ import {
   buildMigrationPack,
   buildNutritionStats,
   capabilitiesFromPriceTable,
+  calculateBmr,
   calculateGoalAdjustedKcal,
   calculateProteinGoalG,
   calculateTdeeKcal,
@@ -59,7 +60,7 @@ import { nutritionMobileHttp } from './http'
 import { compressImageFile } from './imageInput'
 import { isVoiceInputAvailable, startVoiceInput, type VoiceSession } from './voiceInput'
 import { nutritionMobileStorage } from './storage'
-import { refreshNutritionWidget } from './widgetBridge'
+import { refreshNutritionWidget, writeWidgetHealthState } from './widgetBridge'
 import './styles.css'
 
 const DEFAULT_HEALTH_SETTINGS: NutritionHealthSettings = { connected: false, autoSync: true, useWatchCalorieLimit: false }
@@ -705,6 +706,31 @@ function App(): React.JSX.Element {
     })
     return () => unsubscribe?.()
   }, [])
+
+  /**
+   * 把「今日動態熱量上限」的原料落地給桌面小工具用（owner 2026-08-22 要求
+   * 小工具的上限要跟 App 內一致、有手錶連動就用手錶的）。
+   *
+   * 原生層自己算不出這個上限：`caloriesBurnedSoFarToday` 要查 Health Connect，
+   * 而那是 JS 外掛的能力。所以由這裡把原料寫成檔案，小工具讀檔後在繪製當下
+   * 補上「剩餘時間」那一項（見 `widgetBridge.ts` 的 `WidgetHealthState` 說明）。
+   *
+   * 條件跟畫面上 `todayDynamicKcalLimit` 那段**必須一致**，否則會出現
+   * 「App 顯示 1156、小工具顯示 1256」這種對不起來的狀況——這正是 owner 回報的問題。
+   */
+  React.useEffect(() => {
+    const profile = snapshot?.bodyProfile
+    const burned = healthSnapshot?.caloriesBurnedSoFarToday
+    if (!profile || !healthSettings.connected || !healthSettings.useWatchCalorieLimit || burned === undefined) {
+      void writeWidgetHealthState(null)
+      return
+    }
+    void writeWidgetHealthState({
+      burnedSoFarToday: burned,
+      measuredAt: healthSnapshot!.measuredAt,
+      restingKcalPerHour: calculateBmr(profile) / 24
+    })
+  }, [snapshot?.bodyProfile, healthSettings.connected, healthSettings.useWatchCalorieLimit, healthSnapshot])
 
   // 開關 3 開啟時，翻到過去的日期也查一次那天的 Health Connect 總消耗熱量，
   // 快取起來（過去的一天已經過完，不用像「今天」那樣外推剩餘時間——見下方

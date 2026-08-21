@@ -333,6 +333,13 @@ class NutritionWidgetProvider : AppWidgetProvider() {
                 views.setTextColor(R.id.widget_kcal_value, kcalColor)
                 views.setTextColor(R.id.widget_protein_value, proteinColor)
 
+                // 上限是手錶動態算出來的時候標一下，不然使用者會覺得「怎麼跟我設定的
+                // 上限不一樣」。比照 App 內那個「依手錶動態」小標籤。
+                // 2x1（narrow）沒有這個 view，setTextViewText 會安靜略過。
+                if (snapshot.isDynamicKcalLimit) {
+                    views.setTextViewText(R.id.widget_kcal_label, context.getString(R.string.widget_label_kcal_dynamic))
+                }
+
                 // 只有夠高的兩種版面有進度條；矮版（narrow／medium）一格高塞不下，
                 // 那兩個版面根本沒有這兩個 id，setProgressBar 會安靜略過——
                 // 但還是明確判斷，免得之後有人以為矮版也該有。
