@@ -1,8 +1,33 @@
 import type { AppSettings, Message, PersonaPreset, WorldPreset } from '../types'
 
 /** Returns the API key for the active provider, falling back to legacy apiKey field */
+/**
+ * 這個供應商需不需要 API Key。
+ *
+ * `local`（使用者自架的 OpenAI 相容端點）不需要——多數本地伺服器沒有 auth，
+ * 逼使用者填一把假的只會讓人以為自己設定錯了。
+ */
+export function providerNeedsApiKey(provider: string): boolean {
+  return provider !== 'local'
+}
+
+/**
+ * 「現在能不能發請求」。**所有擋在 LLM 呼叫前面的檢查都要用這支**，
+ * 不要各自寫 `apiKeys[provider]?.trim()`——那樣寫的地方目前有十幾處，
+ * 漏掉任何一處，本機模型就會在那條路徑上被擋下並顯示
+ * 「尚未設定 API Key」（而使用者根本不需要金鑰，訊息本身就是錯的）。
+ */
+export function hasUsableApiKey(settings: AppSettings): boolean {
+  if (!providerNeedsApiKey(settings.llm.provider)) return true
+  return !!settings.llm.apiKeys?.[settings.llm.provider]?.trim()
+}
+
 export function resolveApiKey(settings: AppSettings): string {
-  return settings.llm.apiKeys?.[settings.llm.provider] || settings.llm.apiKey || ''
+  const key = settings.llm.apiKeys?.[settings.llm.provider] || settings.llm.apiKey || ''
+  // 自架端點通常不驗金鑰，但 OpenAI SDK 不接受空字串。塞個 placeholder，
+  // 伺服器一律忽略；使用者若真的設了金鑰（LiteLLM、有 auth 的反向代理）照樣走上面。
+  if (!key && settings.llm.provider === 'local') return 'local'
+  return key
 }
 
 /** Returns the model for the active provider, falling back to the legacy single model field */
@@ -131,6 +156,14 @@ export type ChatLLMParams = {
   triggerDirective?: string
   /** 是否省略情緒輸出合約（由後續獨立情緒分類呼叫處理） */
   splitEmotion?: boolean
+  /**
+   * 呼叫端根本不需要情緒標籤，省略情緒輸出合約。
+   *
+   * 與 `splitEmotion` 的差別在於**沒有**後續的分類呼叫：手機獨立版是單張主圖、
+   * 不做表情差分，情緒合約（表情 id 清單＋逐項說明）送出去也沒有東西會用，
+   * 只是白花 token。角色卡帶著表情圖時那段可能長達數十行。
+   */
+  omitEmotionTag?: boolean
   /** 輕量工具 call（意圖萃取等）：跳過角色扮演規則、輸出格式、系統時間、輸入來源等與角色扮演相關的段落 */
   minimal?: boolean
   /** 可用於中途取消本次 LLM 請求 */
@@ -184,15 +217,28 @@ export function expandNewsLinkForPrompt(messages: Message[]): Message[] {
   return messages.map(m => {
     if (m.role !== 'user' || !m.newsLink) return m
     const link = m.newsLink
+    // ⚠️ 空字串與 undefined **意義不同**：`''` 是使用者按了「清除摘要」，
+    // `undefined` 是從來沒整理過（那時仍該退回 summary）。
+    // 所以這裡是 `??` 不是 `||`——寫成 falsy 判斷的話清除按鈕等於沒作用。
     const pc = (link.promptContext ?? link.summary ?? '').trim()
     const title = (link.title || m.content).trim()
     if (!title && !pc) return m
-    const lines = ['[Sharing a news item with you]']
-    if (title) lines.push(`Title: ${title}`)
-    if (pc && pc !== title) lines.push(`Details: ${pc}`)
-    if (link.source) lines.push(`Source: ${link.source}`)
-    lines.push('')
-    lines.push('(The chat bubble only shows the title; use the Details above as background. Reply in character.)')
+
+    // 摘要被清空＝「這則聊過了，留個紀錄就好」（owner 2026-08-12）。
+    // 只留一行標題，**來源與說明句都不要**：角色當時的回覆本來就還在對話裡，
+    // 脈絡不缺；而指著不存在的 Details 說「用上面的背景」只會讓模型自己編。
+    // 之後按「重新摘要」把 promptContext 補回來，下面的完整格式就會回來。
+    const lines = pc
+      ? [
+          '[Sharing a news item with you]',
+          ...(title ? [`Title: ${title}`] : []),
+          ...(pc !== title ? [`Details: ${pc}`] : []),
+          ...(link.source ? [`Source: ${link.source}`] : []),
+          '',
+          '(The chat bubble only shows the title; use the Details above as background. Reply in character.)'
+        ]
+      : [`[Shared News] ${title}`]
+
     // 若使用者在標題外還打了別的字，保留在後面
     const extra = m.content.trim()
     const body = extra && extra !== title ? `${lines.join('\n')}\n\n${extra}` : lines.join('\n')
@@ -296,8 +342,8 @@ export function buildTimeMoodGuideline(hours: number): string {
   return 'Late evening (around 10–11 PM) — tone may relax slightly, but keep it natural.'
 }
 
-// Matches ASCII word chars or CJK unified ideographs — used for custom emotion IDs
-const EMOTION_TOKEN = /[a-z_一-鿿㐀-䶿]+/i
+// 自訂 sprite id 常含時間戳數字（如 1779213835889_KT_rpg_default）；不可只吃字母。
+const EMOTION_TOKEN = /[a-z0-9_一-鿿㐀-䶿]+/i
 
 /** Returns the flat list of effective emotion IDs for a character (used to parse bare CJK tags). */
 export function buildEmotionIdList(char: PromptCharacter): string[] {
@@ -404,7 +450,12 @@ export function applyUtilitySettings(settings: AppSettings): AppSettings {
       models: {
         ...(settings.llm.models ?? {}),
         [utilityProvider]: utilityModel
-      }
+      },
+      // 端點跟著 provider 走：主模型與輔助模型共用 `endpoints` 表，換 provider
+      // 就自然換到那家的端點，這是「主＝雲端／輔助＝本機」成立的機制。
+      // ⚠️ 舊的單一 `endpoint` 欄位必須清掉——否則主模型的端點會被輔助模型沿用，
+      // 拿著雲端 URL 去找本機模型（或反過來）。
+      endpoint: settings.llm.endpoints?.[utilityProvider]
     }
   }
 }
@@ -575,6 +626,11 @@ export function buildSystemPrompt(
     )
     parts.push(outputLines.join('\n'))
   }
+
+  // ── [5] USER-DEFINED EXTRA INSTRUCTION ──────────────────────────────────
+  // 放在最後：使用者的補充規則理應蓋過前面的通用規則，而不是被稀釋。
+  const extra = sanitizePromptText(settings.llm.extraInstruction)
+  if (extra) parts.push(extra)
 
   return parts.join('\n\n')
 }

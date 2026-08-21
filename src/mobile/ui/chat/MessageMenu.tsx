@@ -78,6 +78,21 @@ export function MessageMenu({ messageId }: { messageId: string }): JSX.Element {
       )}
       <MenuItem icon="edit" label="編輯" hint="改內容，不會重新產生回覆" onClick={() => void edit()} />
       <MenuItem icon="trash" label="刪除" destructive onClick={() => void remove()} />
+
+      {/* 除錯用（清單 A6 追加）。**只有真的還留著 prompt 的訊息才給入口** ——
+          超過保留則數的舊訊息會被 `prune` 剝掉，常駐顯示等於給一顆多半按了沒東西的按鈕。
+          一般使用者用不到，所以藏在選單最後而不是放在泡泡上。 */}
+      {(message.hasDebugPrompt === true || message.hasNewsDebug === true) && (
+        <MenuItem
+          icon="prompt"
+          label="顯示完整 Prompt"
+          hint="這則實際送給模型的內容（只留最近幾則）"
+          onClick={() => {
+            ui.pop()
+            ui.push('message-prompt', messageId)
+          }}
+        />
+      )}
     </div>
   )
 }

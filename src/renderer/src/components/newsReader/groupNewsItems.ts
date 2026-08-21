@@ -1,18 +1,16 @@
 import type { NewsItem, NewsKeywordGroup, NewsSource } from '../../modules/news/types'
 import { DEFAULT_KEYWORD_GROUP_ID, effectiveGroupId } from '../../modules/news/types'
 import {
-  BREAKOUT_SECTION_ID, LOCAL_SECTION_ID, OTHER_SECTION_ID, groupReaderSections
+  BREAKOUT_SECTION_ID, OTHER_SECTION_ID, groupReaderSections
 } from '@core/news/reader'
 
 export const BREAKOUT_GROUP_ID = BREAKOUT_SECTION_ID
 export const BREAKOUT_GROUP_LABEL = '🔥 熱門話題'
-export const LOCAL_GROUP_ID = LOCAL_SECTION_ID
-export const LOCAL_GROUP_LABEL = '📍 地方新聞'
 export const OTHER_GROUP_ID = OTHER_SECTION_ID
 export const OTHER_GROUP_LABEL = '其他'
 
 export interface GroupedNews {
-  /** keywordGroup.id、sourceId、或特殊 id（破圈／地方／單一關鍵字） */
+  /** keywordGroup.id、sourceId、或特殊 id（破圈／單一關鍵字） */
   groupId: string
   /** 顯示名稱 */
   label: string
@@ -34,7 +32,6 @@ export function groupNewsItems(
     : [{ id: DEFAULT_KEYWORD_GROUP_ID, name: '預設組' }]
 
   const breakoutItems: NewsItem[] = []
-  const localItems: NewsItem[] = []
   const otherItems: NewsItem[] = []
   const keywordBuckets = new Map<string, NewsItem[]>()
   const feedBuckets = new Map<string, { label: string; items: NewsItem[] }>()
@@ -48,11 +45,6 @@ export function groupNewsItems(
       breakoutItems.push(item)
       continue
     }
-    if (item.sourceId.startsWith('loc-')) {
-      localItems.push(item)
-      continue
-    }
-
     const src = sourceById.get(item.sourceId)
     if (src?.type === 'keyword' || item.sourceType === 'keyword') {
       const gid = effectiveGroupId(src?.groupId)
@@ -89,10 +81,6 @@ export function groupNewsItems(
     }
   }
 
-  if (localItems.length > 0) {
-    result.push({ groupId: LOCAL_GROUP_ID, label: LOCAL_GROUP_LABEL, items: localItems })
-  }
-
   for (const [id, { label, items: feedItems }] of feedBuckets) {
     if (feedItems.length > 0) {
       result.push({ groupId: `feed:${id}`, label, items: feedItems })
@@ -108,7 +96,7 @@ export function groupNewsItems(
 
 /**
  * 報紙牆用：依「單一關鍵字／來源」分框。
- * 同樣關鍵字的新聞放同一格，破圈／地方／RSS 各自成框。
+ * 同樣關鍵字的新聞放同一格，破圈／RSS 各自成框。
  *
  * ⚠️ **規則本體在 `@core/news/reader`**（B3 階段 6）：手機版原本在
  * `assets/mobile.html` 抄了第二份（`nrGroupByKeyword`），改 React 時統一走 core。
@@ -127,6 +115,5 @@ export function groupNewsItemsByKeyword(
 
 const FIXED_SECTION_LABELS: Record<string, string> = {
   [BREAKOUT_GROUP_ID]: BREAKOUT_GROUP_LABEL,
-  [LOCAL_GROUP_ID]: LOCAL_GROUP_LABEL,
   [OTHER_GROUP_ID]: OTHER_GROUP_LABEL
 }

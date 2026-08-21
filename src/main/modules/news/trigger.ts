@@ -1,10 +1,9 @@
-import { fetchAllSources } from './sources'
-import { filterAndPick } from './filter'
-import { loadNewsModuleSettings, saveNewsModuleSettings } from './settings'
-import { getActiveNewsTopic } from './topicState'
-import { applyEnrichToItem, enrichNewsForChat } from './enrich'
+import { saveNewsModuleSettings } from './settings'
+import * as core from '../../../core/news/injection'
+import { electronHttp } from '../../adapters/httpAdapter'
+import { electronRssParser } from '../../adapters/rssParseAdapter'
+import { electronStorage } from '../../adapters/storageAdapter'
 import {
-  buildNewsContextString, buildNewsDirective, buildTopicContextString, buildTopicDirective,
   shouldGrabNews, markNewsSeen as markNewsSeenPure
 } from '../../../core/news/trigger'
 import type { NewsModuleSettings, NewsSelectionContext } from './types'
@@ -14,18 +13,13 @@ import type { NewsLinkInfo } from '../../../core/types'
 /**
  * 新聞發話的桌面端外殼。
  *
- * 指令組裝（角色怎麼把新聞講出來的全部措辭）已搬到 `core/news/trigger.ts`——
- * 那是桌面與手機必須完全一致、最禁不起 drift 的部分。
+ * 指令組裝（角色怎麼把新聞講出來的全部措辭）在 `core/news/trigger.ts`；
+ * 抽選／記已讀／enrich 的整套流程在 `core/news/injection.ts`（B1 抽 core，步驟⑦）——
+ * 桌面與手機現在共用同一套，不再各自兜一份。
  *
- * 留在這裡的是需要平台能力的三件事：
- * - 讀寫模組設定（`settings.ts` 走檔案存取）
- * - 抓取來源（`sources.ts`，見下方說明）
- * - 待結算回饋的 process 級狀態
- *
- * ⚠️ **`sources.ts` 尚未進 core**，因為它用了 `crypto.createHash` 與 `rss-parser`，
- * 兩者在手機端都需要替代方案（前者可換成純 JS hash，後者要確認能否在 WebView 跑，
- * 或改走 §3.3 提到的 news provider 介面）。這是 B4 模組移植要決定的事，
- * 不該在純重構階段順手決定。
+ * 留在這裡的只剩桌面獨有的東西：待結算回饋（`pendingNewsCreditSourceId`）與
+ * 「聊這個」暫存 newsLink（`pendingUserNewsLink`）——這兩個是 process 級單例，
+ * 手機獨立版另有自己的訊息流程，不透過這裡。
  */
 
 export {
@@ -58,12 +52,17 @@ export function markNewsSeen(settings: NewsModuleSettings, id: string): NewsModu
   return next
 }
 
+const injectionDeps: core.NewsInjectionDeps = { http: electronHttp, rss: electronRssParser, storage: electronStorage }
+
 /**
  * 為「說點什麼」取得一則新聞素材。
  * 回傳 null 代表：模組停用 / 這次不抓 / 沒有可用候選。
  * 會把抽中的新聞記入 seenIds；必要時 enrich 後再組字串。
+ *
+ * 本體搬到 `core/news/injection.ts`（B1 抽 core，步驟⑦）——桌面與手機共用同一套
+ * 抽選／記已讀／enrich 流程，不再各自兜一份。
  */
-export async function getNewsInjectionForSpeak(
+export function getNewsInjectionForSpeak(
   options: {
     force?: boolean
     rng?: () => number
@@ -72,50 +71,7 @@ export async function getNewsInjectionForSpeak(
     appSettings?: AppSettings
   } = {}
 ): Promise<import('../../../core/news/trigger').NewsInjection | null> {
-  const settings = loadNewsModuleSettings()
-  // enabledOverride：呼叫端算好的有效開關（情境覆蓋優先），未傳時用全域設定
-  if (!(options.enabledOverride ?? settings.enabled)) return null
-
-  // 主題模式優先：有釘住的話題時，主動發話一律圍繞它聊（覆寫 speakButton、不抽新）。
-  const topic = getActiveNewsTopic()
-  if (topic) {
-    return {
-      text: buildTopicContextString(topic),
-      directive: buildTopicDirective(topic),
-      item: null,
-      fromTopic: true
-    }
-  }
-
-  const rng = options.rng ?? Math.random
-  if (!options.force && !shouldGrabNews(settings.speakButton, rng)) return null
-
-  const items = await fetchAllSources(settings, {}, options.ctx)
-  const { picked } = filterAndPick(items, settings, { rng, ctx: options.ctx })
-  if (!picked) return null
-
-  markNewsSeen(settings, picked.id)
-
-  let item = picked
-  try {
-    const enrich = await enrichNewsForChat(picked, {
-      settings,
-      appSettings: options.appSettings
-    })
-    item = applyEnrichToItem(picked, enrich)
-    if (enrich.warning) {
-      console.warn('[news enrich]', picked.id, enrich.warning)
-    }
-  } catch (e) {
-    console.warn('[news enrich] failed, using RSS fallback', e)
-  }
-
-  return {
-    text: buildNewsContextString(item, settings),
-    directive: buildNewsDirective(item),
-    item,
-    fromTopic: false
-  }
+  return core.getNewsInjectionForSpeak(injectionDeps, options)
 }
 
 /**

@@ -3,6 +3,22 @@ import { DataError } from '../../src/core/data'
 import type { DataSource } from '../../src/core/data'
 import { RemoteDataSource } from '../../src/mobile/data/remoteDataSource'
 import { LocalDataSource } from '../../src/mobile/data/localDataSource'
+import { createMemoryStorage } from '../../src/mobile/adapters/memoryStorage'
+import { createSecretAdapterFromKey, generateMasterKey } from '../../src/mobile/adapters/secretCrypto'
+import { bootStandaloneSession } from '../../src/mobile/runtime/session'
+import type { PlatformAdapters } from '../../src/core/adapters'
+
+async function makeLocal(): Promise<LocalDataSource> {
+  const adapters: PlatformAdapters = {
+    storage: createMemoryStorage(),
+    secrets: createSecretAdapterFromKey(generateMasterKey()),
+    http: { fetch: globalThis.fetch.bind(globalThis), supportsStreaming: false },
+    scheduler: { schedule() {}, cancel() {}, cancelAll() {} },
+    notifier: { async notify() {} }
+  }
+  const session = await bootStandaloneSession(adapters, { skipPackFetch: true })
+  return new LocalDataSource(session)
+}
 
 /**
  * 資料來源抽象（B3 階段 0-③）。
@@ -233,8 +249,9 @@ describe('Capabilities：模式的真實差異', () => {
     expect(makeRemote({}, 200, true).ds.capabilities.apiKeyAccess).toBe(true)
   })
 
-  it('獨立模式恆有 API Key、恆無遙控與截圖', () => {
-    expect(new LocalDataSource().capabilities).toEqual({
+  it('獨立模式恆有 API Key、恆無遙控與截圖', async () => {
+    const local = await makeLocal()
+    expect(local.capabilities).toEqual({
       apiKeyAccess: true,
       remoteControl: false,
       screenshot: false
@@ -244,7 +261,7 @@ describe('Capabilities：模式的真實差異', () => {
 
 describe('兩個實作對 UI 是同一個形狀', () => {
   const shape = (ds: DataSource) => ({
-    top: ['getState', 'sendMessage', 'getMessageImageUrl'].every((k) => typeof (ds as unknown as Record<string, unknown>)[k] === 'function'),
+    top: ['getState', 'sendMessage', 'stopGenerating', 'getMessageImageUrl'].every((k) => typeof (ds as unknown as Record<string, unknown>)[k] === 'function'),
     conversations: Object.keys(ds.conversations).sort(),
     messages: Object.keys(ds.messages).sort(),
     characters: Object.keys(ds.characters).sort(),
@@ -254,18 +271,53 @@ describe('兩個實作對 UI 是同一個形狀', () => {
     remoteControl: Object.keys(ds.remoteControl).sort()
   })
 
-  it('方法集合完全相同', () => {
+  it('方法集合完全相同', async () => {
     const { ds: remote } = makeRemote()
-    expect(shape(new LocalDataSource())).toEqual(shape(remote))
+    const local = await makeLocal()
+    expect(shape(local)).toEqual(shape(remote))
   })
 
-  it('本機尚未實作的方法一律 reject 而非假裝成功', async () => {
-    const local = new LocalDataSource()
-    const { ds: remote } = makeRemote()
-    // 「假裝成功」會讓使用者以為存檔了 —— 這是刻意要避免的行為。
-    await expect(local.conversations.list()).rejects.toMatchObject({ code: 'not-supported' })
-    await expect(local.characters.save({} as never)).rejects.toMatchObject({ code: 'not-supported' })
-    // 預設組遠端寫入已在 B3 階段 5 補齊；端點與欄位另由下方契約測試鎖住。
+  it('獨立模式可讀寫對話與角色；個人新聞報全部接完（B1 抽 core）', async () => {
+    const local = await makeLocal()
+    await expect(local.conversations.list()).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ active: true })])
+    )
+    await expect(local.characters.list()).resolves.toEqual(
+      expect.arrayContaining([expect.objectContaining({ present: true })])
+    )
+    const imported = await local.characters.importCard({
+      bytes: new TextEncoder().encode(
+        JSON.stringify({
+          name: '測試卡',
+          description: 'desc',
+          personality: 'nice',
+          firstMessage: '嗨',
+          exampleDialogue: ''
+        })
+      ),
+      kind: 'json'
+    })
+    expect(imported.name).toBe('測試卡')
+    // 個人新聞報 15 支已全部接完（B1 抽 core，缺口 #6）；
+    // 新聞模組預設關閉，回應是正常拒絕不是連線錯誤
+    await expect(local.news.fetchBatch()).resolves.toEqual({ ok: false, error: '新聞模組尚未啟用' })
+    await local.news.setKeywordGroups(['g1'])
+    await expect(local.news.getSettings()).resolves.toMatchObject({ enabled: false })
+    // enrichForChat 沒開 enrichForChat 開關時走 rssFallback，直接回退回 title/summary，不連線也不 reject
+    await expect(
+      local.news.enrichForChat({
+        id: 'n1',
+        title: '標題',
+        summary: '',
+        source: '',
+        tags: [],
+        url: '',
+        publishedAt: '',
+        sourceId: 's1',
+        sourceType: 'rss',
+        sourceWeight: 'normal'
+      })
+    ).resolves.toMatchObject({ ok: true })
   })
 
   /**
@@ -273,7 +325,7 @@ describe('兩個實作對 UI 是同一個形狀', () => {
    * 因為獨立模式沒有電腦可控這件事不會隨任何未來階段改變。
    */
   it('遙控在獨立模式永久不支援（不是 pending stage）', async () => {
-    const local = new LocalDataSource()
+    const local = await makeLocal()
     await expect(local.remoteControl.getState()).rejects.toMatchObject({ code: 'not-supported' })
     await expect(local.remoteControl.click(1, 2, { button: 'left', double: false })).rejects.toMatchObject({ code: 'not-supported' })
     await expect(local.remoteControl.systemAction('shutdown')).rejects.toMatchObject({ code: 'not-supported' })

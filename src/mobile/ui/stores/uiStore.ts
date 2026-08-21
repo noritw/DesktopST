@@ -1,5 +1,18 @@
 import { create } from 'zustand'
 import type { ColorTheme } from '@core/types'
+import type { ChoiceMap, PairTable } from '@core/sync/pair'
+import type { SettingsChoiceMap, SettingsFieldRow } from '@core/sync/settingsPair'
+import type { ConvChoiceMap, ConvFieldChoiceMap, ConvRow } from '@core/sync/convPair'
+
+/** `openSyncCompare` 的成功結果——資料／設定／對話各自一份 map。 */
+export interface SyncCompareResult {
+  choices: ChoiceMap
+  settingsChoices: SettingsChoiceMap
+  /** 對話走完全不同的合併模型（聯集，不是二選一），見 `core/sync/convPair.ts`。 */
+  convChoices: ConvChoiceMap
+  /** 對話裡標題／摘要那些單值欄位的二選一。 */
+  convFieldChoices: ConvFieldChoiceMap
+}
 
 /**
  * 介面狀態：畫面堆疊、toast、對話框、主題。
@@ -23,6 +36,8 @@ export type ViewKind =
   | 'presence'
   | 'character-menu'
   | 'message-menu'
+  /** 這則訊息送出去的完整 prompt（除錯用，從訊息選單進去）。 */
+  | 'message-prompt'
   | 'characters'
   | 'character-editor'
   | 'presets'
@@ -30,6 +45,7 @@ export type ViewKind =
   | 'settings'
   | 'reminders'
   | 'reminder-editor'
+  | 'reminder-history'
   | 'news'
   | 'news-settings'
   | 'random-tools'
@@ -37,8 +53,12 @@ export type ViewKind =
   | 'lorebook-editor'
   /** 遙控電腦（清單 H1–H11，B6）。只有 `capabilities.remoteControl` 為真時入口才會出現。 */
   | 'remote'
+  /** 從電腦匯入（S1，roadmap §4.7）。只有獨立模式才有入口。 */
+  | 'sync-import'
   /** 頂部那顆 ☰ 展開的主選單（B3 2026-08-06 資訊架構重整）。 */
   | 'menu'
+  /** header 左上角兩字標籤點進來的「關於本程式」。 */
+  | 'about'
 
 export interface ViewEntry {
   /** 每次 push 都不同，讓 React 的 key 穩定（同一個 kind 可以疊兩層）。 */
@@ -72,6 +92,13 @@ export interface DialogRequest {
   multiline?: boolean
   confirmLabel?: string
   destructive?: boolean
+  /**
+   * 送出／取消之外的額外動作（新聞上下文的「原文 ↗」與「清除摘要」）。
+   *
+   * 預設**不關閉對話框**——像「原文」是離開去看別的東西，回來還要接著編輯。
+   * 自己就是終點的動作（清除）才設 `closeAfter`。
+   */
+  extraActions?: { label: string; onClick: () => void; closeAfter?: boolean }[]
   /** 回傳：confirm 給 boolean，prompt 給字串或 null（取消）。 */
   resolve: (value: string | boolean | null) => void
 }
@@ -94,6 +121,62 @@ interface UiState {
   /** 上一張／下一張。到頭就停住，不繞回去（繞回去會分不清有沒有看完）。 */
   stepLightbox: (delta: number) => void
 
+  /**
+   * 頭像裁切畫面（選完圖 → 裁切 → 確認才真的存檔）。
+   *
+   * 跟 `dialog`（`confirm`/`prompt`）同一個 Promise 包裝套路：`openAvatarCrop`
+   * 回傳的 Promise 要等到使用者按「完成」或「取消」才 resolve，讓
+   * `CharacterEditor.tsx` 的 `changeAvatar()` 能直接 `await` 拿到裁切完的檔案，
+   * 不用另外接事件。放在 store 而不是元件內部狀態，理由跟 Lightbox 一樣——
+   * 這是一個蓋在最上層的全螢幕畫面，要吃返回鍵。
+   */
+  avatarCrop: { file: File; resolve: (result: File | null) => void } | null
+  openAvatarCrop: (file: File) => Promise<File | null>
+  closeAvatarCrop: (result: File | null) => void
+
+  /**
+   * 推送前的同名角色勾選（S2 M3，owner 2026-08-13 拍板）。
+   *
+   * 與 `avatarCrop` 同一套 Promise 包裝：`openNameConflicts` 要等使用者按完
+   * 才 resolve，`syncPush` 才能在推送迴圈開始前拿到答案。回 `null` ＝ 取消整趟推送。
+   * 用獨立欄位而不是 `dialog`：`ui.confirm` 只能回是／否，這裡要回一組勾選結果。
+   */
+  nameConflicts: {
+    items: { id: string; name: string }[]
+    resolve: (selected: Set<string> | null) => void
+  } | null
+  openNameConflicts: (items: { id: string; name: string }[]) => Promise<Set<string> | null>
+  closeNameConflicts: (selected: Set<string> | null) => void
+
+/**
+   * 切換模式前的逐項比對（S2 M4，owner 2026-08-13 指定；S2 M5 加入「設定」分頁）。
+   *
+   * 取代 M3 那個「帶過去／直接切／取消」的三選一對話框——那個版本只能整包
+   * 決定，而且判斷「兩邊是不是同一筆」靠的是壞掉的基準表，結果是每切換一次
+   * 兩邊就多一批重複資料。這裡改成把每一筆攤開來讓使用者自己選哪一邊。
+   *
+   * 資料（角色／使用者設定／世界觀／情境／用語解說）與設定（LLM、記憶、配色、
+   * 模組）是兩套獨立的比對系統（`core/sync/pair.ts` 與 `core/sync/settingsPair.ts`），
+   * 一起放進同一個畫面、同一趟 resolve，是因為對使用者而言這就是「切換前要
+   * 決定的東西」，不該因為實作上的兩套型別而拆成兩個先後彈出的畫面。
+   *
+   * 與 `nameConflicts` 同一套 Promise 包裝：resolve 一份結果才往下做，
+   * 回 `null` ＝ 使用者取消（**呼叫端必須把它和「連不上」分開處理**，
+   * 混在一起會讓取消跳出「上次那台電腦連不上了」的假錯誤）。
+   */
+  syncCompare: {
+    table: PairTable
+    settingsRows: SettingsFieldRow[]
+    convRows: ConvRow[]
+    resolve: (result: SyncCompareResult | null) => void
+  } | null
+  openSyncCompare: (
+    table: PairTable,
+    settingsRows: SettingsFieldRow[],
+    convRows: ConvRow[]
+  ) => Promise<SyncCompareResult | null>
+  closeSyncCompare: (result: SyncCompareResult | null) => void
+
   stack: ViewEntry[]
   push: (kind: ViewKind, param?: string) => void
   /**
@@ -103,6 +186,14 @@ interface UiState {
    * 而不是回到選單再按一次。用 `push` 的話選單會留在堆疊裡變成多一層。
    */
   replace: (kind: ViewKind, param?: string) => void
+  /**
+   * 改寫堆疊中某一層（不一定是最上層）的 `param`，畫面本身不重推。
+   *
+   * 用途：畫面把「目前展開哪一分頁」這類 component-local state 寫回自己在堆疊裡
+   * 的 entry，這樣被上層畫面蓋住又卸載（`ViewStack` 只畫最上層）、返回時重新掛載，
+   * 也能從 `param` 讀回原本展開的分頁，而不是重置成預設值。
+   */
+  setEntryParam: (id: number, param: string | undefined) => void
   pop: () => void
   /**
    * 使用者要求關閉最上層畫面（✕、點遮罩、返回鍵三者共用）。
@@ -154,13 +245,61 @@ export const useUiStore = create<UiState>((set, get) => ({
       return { lightbox: { ...s.lightbox, index: next } }
     }),
 
+  avatarCrop: null,
+  openAvatarCrop: (file) =>
+    new Promise<File | null>((resolve) => {
+      set({ avatarCrop: { file, resolve } })
+    }),
+  closeAvatarCrop: (result) => {
+    const c = get().avatarCrop
+    set({ avatarCrop: null })
+    // 先清掉再 resolve：跟 closeDialog 同理，呼叫端可能在 then 裡立刻做下一步。
+    c?.resolve(result)
+  },
+
+  nameConflicts: null,
+  openNameConflicts: (items) =>
+    new Promise<Set<string> | null>((resolve) => {
+      set({ nameConflicts: { items, resolve } })
+    }),
+  closeNameConflicts: (selected) => {
+    const c = get().nameConflicts
+    set({ nameConflicts: null })
+    c?.resolve(selected)
+  },
+
+  syncCompare: null,
+  openSyncCompare: (table, settingsRows, convRows) =>
+    new Promise<SyncCompareResult | null>((resolve) => {
+      set({ syncCompare: { table, settingsRows, convRows, resolve } })
+    }),
+  closeSyncCompare: (result) => {
+    const c = get().syncCompare
+    set({ syncCompare: null })
+    c?.resolve(result)
+  },
+
   stack: [],
   // 疊新畫面時清掉 guard：它屬於底下那一層，留著會讓上層被誤攔。
-  push: (kind, param) => set((s) => ({ stack: [...s.stack, { id: nextId(), kind, param }], closeGuard: null })),
+  push: (kind, param) => set((s) => {
+    diagNav('push', kind, s.stack)
+    return { stack: [...s.stack, { id: nextId(), kind, param }], closeGuard: null }
+  }),
   replace: (kind, param) =>
-    set((s) => ({ stack: [...s.stack.slice(0, -1), { id: nextId(), kind, param }], closeGuard: null })),
-  pop: () => set((s) => ({ stack: s.stack.slice(0, -1), closeGuard: null })),
-  popAll: () => set({ stack: [], closeGuard: null }),
+    set((s) => {
+      diagNav('replace', kind, s.stack)
+      return { stack: [...s.stack.slice(0, -1), { id: nextId(), kind, param }], closeGuard: null }
+    }),
+  setEntryParam: (id, param) =>
+    set((s) => ({ stack: s.stack.map((e) => (e.id === id ? { ...e, param } : e)) })),
+  pop: () => set((s) => {
+    diagNav('pop', '', s.stack)
+    return { stack: s.stack.slice(0, -1), closeGuard: null }
+  }),
+  popAll: () => set((s) => {
+    diagNav('popAll', '', s.stack)
+    return { stack: [], closeGuard: null }
+  }),
 
   closeGuard: null,
   setCloseGuard: (fn) => set({ closeGuard: fn }),
@@ -198,14 +337,44 @@ export const useUiStore = create<UiState>((set, get) => ({
 }))
 
 /**
+ * 畫面堆疊的變動 log。
+ *
+ * ⚠️ **這支是為了追「新聞報自己跳回首頁」加的**（owner 2026-08-12 回報，
+ * 尚未定位）。堆疊會被清空的路徑有好幾條——`pop`／`popAll`／返回手勢轉成的
+ * `popstate`／整個 app 重載——光看畫面分不出是哪一條，
+ * 而且只在真機偶發（瀏覽器上那次是 vite 熱重載，不算重現）。
+ *
+ * `stack` 印出來就能分辨：
+ *   - 有 `pop`／`popAll` → 是我們自己關的，往呼叫端追
+ *   - 只有 `back` 沒有後續 → 返回手勢被誤觸發
+ *   - 什麼都沒有、直接從 `push menu` 重新開始 → WebView 整個重載了
+ */
+function diagNav(op: string, kind: string, stack: { kind: string }[]): void {
+  console.info(`[nav-diag] ${op}${kind ? ' ' + kind : ''} stack=[${stack.map((e) => e.kind).join(',')}]`)
+}
+
+/**
  * Android 實體返回鍵 ／ 瀏覽器上一頁的處理。
  *
  * 回傳 true 表示「我消化掉了」，呼叫端就不要讓系統退出 app。
  * 順序有意義：**由上而下關**，燈箱 > 對話框 > 畫面堆疊。
  * 燈箱是全螢幕蓋在最上層的，先關掉它以外的任何東西都會讓畫面看起來沒反應。
  */
+
 export function handleBack(): boolean {
   const s = useUiStore.getState()
+  diagNav('back', s.avatarCrop ? 'avatarCrop' : s.nameConflicts ? 'nameConflicts' : s.lightbox ? 'lightbox' : s.dialog ? 'dialog' : 'stack', s.stack)
+  // 裁切畫面蓋在最上層（從角色編輯器叫出來的），比燈箱／對話框都優先關。
+  if (s.avatarCrop) {
+    s.closeAvatarCrop(null)
+    return true
+  }
+  // 返回＝取消整趟推送（等同按取消），不是「當作全都不覆蓋」——
+  // 後者會安靜地推一半，使用者不會知道自己漏掉了什麼。
+  if (s.nameConflicts) {
+    s.closeNameConflicts(null)
+    return true
+  }
   if (s.lightbox) {
     s.closeLightbox()
     return true

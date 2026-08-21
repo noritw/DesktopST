@@ -3,6 +3,7 @@ import {
   WEIGHT_LABELS, nextWeight, DEFAULT_KEYWORD_GROUP_ID, effectiveGroupId,
   type LangMode, type NewsModuleSettings, type NewsPreviewResult, type NewsReplyModel, type NewsSource, type NewsWeight, type SpeakMode
 } from './types'
+import { LOCAL_KEYWORD_GROUP_ID } from '@core/news/settings'
 import type { ReminderSchedule } from '../../types'
 
 const SPEAK_OPTIONS: { value: SpeakMode; label: string; hint: string }[] = [
@@ -364,45 +365,39 @@ export function NewsSettingsPanel() {
     }
   }
 
-  // ── 地方新聞 ──────────────────────────────────────────────
-  function addLocation(name: string, fromDetection = false) {
+  // ── 「偵測我的縣市」──────────────────────────────────────
+  // 地方新聞已經併回一般關鍵字組（`docs/news-local-merge-plan.md`），
+  // 這裡只剩這顆便利按鈕：偵測到城市就當成一個普通關鍵字加進「地方」組。
+  // owner 2026-08-12：「出外時看一下當地狀況有用」。
+  function addLocalKeyword(name: string) {
     const n = name.trim()
     if (!n) return
     update(prev => {
-      if (prev.localNews.locations.some(l => l.name === n)) return prev
+      if (prev.sources.some(s => s.type === 'keyword' && s.label.trim() === n)) return prev
+      const hasGroup = prev.keywordGroups.some(g => g.id === LOCAL_KEYWORD_GROUP_ID)
       return {
         ...prev,
-        localNews: {
-          ...prev.localNews,
-          locations: [...prev.localNews.locations, { name: n, weight: 'normal', fromDetection }]
-        }
+        keywordGroups: hasGroup
+          ? prev.keywordGroups
+          : [...prev.keywordGroups, { id: LOCAL_KEYWORD_GROUP_ID, name: '地方' }],
+        sources: [...prev.sources, {
+          id: crypto.randomUUID(),
+          type: 'keyword' as const,
+          label: n,
+          weight: 'normal' as const,
+          enabled: true,
+          origin: 'user' as const,
+          groupId: LOCAL_KEYWORD_GROUP_ID
+        }]
       }
     })
-    setCityInput('')
-  }
-
-  function removeLocation(name: string) {
-    update(prev => ({
-      ...prev,
-      localNews: { ...prev.localNews, locations: prev.localNews.locations.filter(l => l.name !== name) }
-    }))
-  }
-
-  function cycleLocationWeight(name: string) {
-    update(prev => ({
-      ...prev,
-      localNews: {
-        ...prev.localNews,
-        locations: prev.localNews.locations.map(l => l.name === name ? { ...l, weight: nextWeight(l.weight) } : l)
-      }
-    }))
   }
 
   async function detectMyCounty() {
     setDetecting(true)
     try {
       const result = await window.api.invoke('weather:detect-ip') as { city: string } | null
-      if (result?.city) addLocation(result.city, true)
+      if (result?.city) addLocalKeyword(result.city)
     } finally {
       setDetecting(false)
     }
@@ -816,52 +811,21 @@ export function NewsSettingsPanel() {
         </label>
       </section>
 
-      {/* 地方新聞 */}
+      {/* 地方新聞已併回一般關鍵字（上面的「興趣關鍵字」就能編）；只留這顆便利按鈕 */}
       <section className="space-y-2">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            className="accent-teal w-4 h-4"
-            checked={settings.localNews.enabled}
-            onChange={e => update(prev => ({ ...prev, localNews: { ...prev.localNews, enabled: e.target.checked } }))}
-          />
-          <span className="text-sm font-semibold text-primary">📍 也聊地方新聞</span>
-        </label>
-        {settings.localNews.enabled && (
-          <div className="ml-6 space-y-2">
-            <p className="text-xs text-secondary">加入你關心的縣市（可多個，點縣市切換常聊／普通／偶爾）。</p>
-            <div className="flex flex-wrap gap-2">
-              {settings.localNews.locations.map(loc => (
-                <span key={loc.name} className={`flex items-center gap-1 text-xs px-3 py-1 rounded-full ${weightChipClass(loc.weight)}`}>
-                  <button type="button" onClick={() => cycleLocationWeight(loc.name)}>
-                    {loc.name}{loc.fromDetection ? ' 📍' : ''}
-                    <span className="ml-1 opacity-70">· {WEIGHT_LABELS[loc.weight]}</span>
-                  </button>
-                  <button type="button" className="ml-0.5 opacity-60 hover:opacity-100" onClick={() => removeLocation(loc.name)}>×</button>
-                </span>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={cityInput}
-                placeholder="輸入縣市，例如：台北、新北、台南"
-                className="input-field flex-1 text-sm"
-                onChange={e => setCityInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addLocation(cityInput) } }}
-              />
-              <button type="button" className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary shrink-0" onClick={() => addLocation(cityInput)}>加入</button>
-            </div>
-            <button
-              type="button"
-              disabled={detecting}
-              className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint-40 disabled:opacity-50"
-              onClick={detectMyCounty}
-            >
-              {detecting ? '偵測中…' : '📍 自動偵測我的縣市'}
-            </button>
-          </div>
-        )}
+        <p className="text-sm font-semibold text-primary">📍 在地話題</p>
+        <p className="text-xs text-secondary">
+          縣市就是一般的興趣關鍵字，在上面的「興趣關鍵字」新增、排序、分組即可。
+          這顆按鈕只是幫你把目前所在的縣市加進「地方」組。
+        </p>
+        <button
+          type="button"
+          disabled={detecting}
+          className="text-xs px-3 py-1.5 rounded-full border border-border text-primary hover:bg-mint-40 disabled:opacity-50"
+          onClick={detectMyCounty}
+        >
+          {detecting ? '偵測中…' : '📍 加入我目前的縣市'}
+        </button>
       </section>
 
       {/* 破圈話題 */}

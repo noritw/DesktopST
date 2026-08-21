@@ -4,6 +4,7 @@ import type { ViewEntry, ViewKind } from '../stores/uiStore'
 import { ThemePicker } from './ThemePicker'
 import { RandomToolsSheet } from '../chat/RandomToolsSheet'
 import { MessageMenu } from '../chat/MessageMenu'
+import { MessagePromptView } from '../chat/MessagePromptView'
 import { CharacterMenu } from '../characters/CharacterMenu'
 import { PresenceSheet } from '../characters/PresenceSheet'
 import { CharacterLibrary } from '../characters/CharacterLibrary'
@@ -11,6 +12,7 @@ import { CharacterEditor } from '../characters/CharacterEditor'
 import { SettingsView } from '../settings/SettingsView'
 import { RemindersView } from '../settings/RemindersView'
 import { ReminderEditor } from '../settings/ReminderEditor'
+import { ReminderHistoryView } from '../settings/ReminderHistoryView'
 import { PresetsView } from '../presets/PresetsView'
 import { PresetEditor } from '../presets/PresetEditor'
 import { ConversationsView } from '../conversations/ConversationsView'
@@ -20,6 +22,8 @@ import { NewsView } from '../news/NewsView'
 import { NewsSettingsView } from '../news/NewsSettingsView'
 import { RemoteControlView } from '../remote/RemoteControlView'
 import { MainMenu } from './MainMenu'
+import { AboutView } from './AboutView'
+import { SyncImportView } from '../sync/SyncImportView'
 
 /**
  * 畫面堆疊的渲染端（清單 G3）。
@@ -34,6 +38,7 @@ const TITLES: Record<ViewKind, string> = {
   presence: '這次對話有誰在場',
   'character-menu': '角色',
   'message-menu': '訊息',
+  'message-prompt': '完整 Prompt',
   characters: '角色庫',
   'character-editor': '編輯角色',
   presets: '情境與設定組',
@@ -41,13 +46,16 @@ const TITLES: Record<ViewKind, string> = {
   settings: '設定',
   reminders: '提醒',
   'reminder-editor': '編輯提醒',
+  'reminder-history': '提醒紀錄',
   news: '個人新聞報',
   'news-settings': '新聞設定',
   'random-tools': '隨機工具',
   'theme-picker': '色彩主題',
   'lorebook-editor': '編輯用語解說',
+  'sync-import': '從電腦匯入',
   remote: '遙控電腦',
-  menu: '選單'
+  menu: '選單',
+  about: '關於'
 }
 
 export function ViewStack(): JSX.Element | null {
@@ -83,20 +91,24 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'characters') return <CharacterLibrary />
   if (entry.kind === 'character-editor' && entry.param) return <CharacterEditor characterId={entry.param} />
   if (entry.kind === 'settings') return <SettingsView />
+  if (entry.kind === 'about') return <AboutView />
   if (entry.kind === 'menu') return <MainMenu />
   // param 選填：header 的狀態標籤點「情境」就帶 'scene' 進來直接展開那一組。
-  if (entry.kind === 'presets') return <PresetsView openParam={entry.param} />
+  if (entry.kind === 'presets') return <PresetsView id={entry.id} openParam={entry.param} />
   if (entry.kind === 'preset-editor' && entry.param) return <PresetEditor presetKey={entry.param} />
   if (entry.kind === 'reminders') return <RemindersView />
   if (entry.kind === 'reminder-editor' && entry.param) return <ReminderEditor reminderId={entry.param} />
+  if (entry.kind === 'reminder-history') return <ReminderHistoryView />
   if (entry.kind === 'lorebook-editor' && entry.param) return <LorebookEditor bookId={entry.param} />
   if (entry.kind === 'news') return <NewsView />
   if (entry.kind === 'news-settings') return <NewsSettingsView />
+  if (entry.kind === 'sync-import') return <SyncImportView />
   if (entry.kind === 'remote') return <RemoteControlView />
   // param 是必要的：沒有它不知道在講哪個角色／哪則訊息。
   // 缺了就當成程式錯誤讓它顯示「尚未實作」，不要靜靜地畫一個空選單。
   if (entry.kind === 'character-menu' && entry.param) return <CharacterMenu characterId={entry.param} />
   if (entry.kind === 'message-menu' && entry.param) return <MessageMenu messageId={entry.param} />
+  if (entry.kind === 'message-prompt' && entry.param) return <MessagePromptView messageId={entry.param} />
 
   // 走到這裡就是 param 缺了（例如點角色選單卻沒帶角色 id）。
   // 刻意寫得很明顯，避免看到空白畫面時誤以為是壞掉。

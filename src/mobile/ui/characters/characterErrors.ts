@@ -35,7 +35,7 @@ export function describeCharacterError(e: unknown, action: string): string {
     case 'invalid-input':
       return `${action}失敗：內容不符合限制（角色名稱不可空白；匯入的檔案要是角色卡或 .dstpack）。`
     case 'not-supported':
-      return `${action}失敗：這台電腦上的 DeST 版本還不支援，請更新到新版。`
+      return `${action}失敗：目前這個模式還不支援（若你在「本機」模式，請改用匯入 PNG／JSON／.dstpack，或先新建角色）。`
     default:
       return `${action}失敗，請再試一次。`
   }

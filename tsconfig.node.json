@@ -15,5 +15,5 @@
     "paths": { "@core/*": ["./src/core/*"] },
     "outDir": "out"
   },
-  "include": ["tests", "vitest.config.ts", "src/core", "src/main", "src/preload", "electron.vite.config.ts", "capacitor.config.ts"]
+  "include": ["tests", "vitest.config.ts", "src/core", "src/main", "src/preload", "electron.vite.config.ts", "capacitor.config.ts", "nutrition/desktop/src/main", "nutrition/desktop/electron-vite.config.ts", "nutrition/mobile/vite.config.ts", "nutrition/mobile/capacitor.config.ts"]
 }

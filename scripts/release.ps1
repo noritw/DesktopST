@@ -90,11 +90,20 @@ if ($doVersionBump) {
     }
 }
 
+# ── 手機 APK 要不要一起打 ──────────────────────────────────
+# 先問完所有問題再開始跑，中間就不用顧著看螢幕（桌面 build 本身要好幾分鐘）。
+Write-Host ""
+Write-Host "要不要一併打包手機 APK 並附到 Release？" -ForegroundColor White
+Write-Host "  這是 debug 簽章的 APK，裝的人得允許「未知來源」，也無法上架商店。" -ForegroundColor Gray
+Write-Host "  會多花約 1 分鐘（gradle）。" -ForegroundColor Gray
+$apkChoice = Read-Host "打包 APK？(y/N)"
+$buildApk = $apkChoice -match '^[Yy]$'
+
 # ══════════════════════════════════════════════════════════════
-#  [1/5] 檢查 git 狀態
+#  [1/6] 檢查 git 狀態
 # ══════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[1/5] 檢查 git 狀態..." -ForegroundColor Cyan
+Write-Host "[1/6] 檢查 git 狀態..." -ForegroundColor Cyan
 $gitStatus = git status --porcelain 2>&1
 $modified = $gitStatus | Where-Object { $_ -match '^\s?[MADRU]' }
 if ($modified) {
@@ -120,11 +129,11 @@ if ($LASTEXITCODE -ne 0 -or -not "$prevTag".Trim()) {
 $changelogLines = @($rawLog | Where-Object { $_ -notmatch '^- release: v' -and $_.Trim() -ne '' })
 
 # ══════════════════════════════════════════════════════════════
-#  [2/5] 升版號
+#  [2/6] 升版號
 # ══════════════════════════════════════════════════════════════
 Write-Host ""
 if ($doVersionBump) {
-    Write-Host "[2/5] 升級版本號至 v$newVersion..." -ForegroundColor Cyan
+    Write-Host "[2/6] 升級版本號至 v$newVersion..." -ForegroundColor Cyan
     if ($bumpType) {
         npm version $bumpType --no-git-tag-version | Out-Null
     } else {
@@ -133,7 +142,7 @@ if ($doVersionBump) {
     $pkgNew = Get-Content "package.json" -Raw | ConvertFrom-Json
     Write-Host "      package.json 已更新：v$($pkgNew.version)" -ForegroundColor Green
 } else {
-    Write-Host "[2/5] 略過版本升級。" -ForegroundColor Gray
+    Write-Host "[2/6] 略過版本升級。" -ForegroundColor Gray
 }
 
 # ══════════════════════════════════════════════════════════════
@@ -161,10 +170,10 @@ if (Test-Path $dstpackPath) {
 }
 
 # ══════════════════════════════════════════════════════════════
-#  [3/5] 打包
+#  [3/6] 打包
 # ══════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[3/5] 執行打包（這需要一點時間...）" -ForegroundColor Cyan
+Write-Host "[3/6] 執行打包（這需要一點時間...）" -ForegroundColor Cyan
 Write-Host ""
 npm run build
 if ($LASTEXITCODE -ne 0) {
@@ -189,10 +198,10 @@ Write-Host ""
 Write-Host "      安裝檔：$exePath ($exeSizeMB MB)" -ForegroundColor Yellow
 
 # ══════════════════════════════════════════════════════════════
-#  [4/5] 建立免安裝版 zip（win-unpacked 全體）
+#  [4/6] 建立免安裝版 zip（win-unpacked 全體）
 # ══════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[4/5] 建立免安裝版 zip..." -ForegroundColor Cyan
+Write-Host "[4/6] 建立免安裝版 zip..." -ForegroundColor Cyan
 
 $zipPath = $null
 $unpackedDir = "dist\win-unpacked"
@@ -212,10 +221,43 @@ if (-not (Test-Path $unpackedDir)) {
 }
 
 # ══════════════════════════════════════════════════════════════
-#  [5/5] Git commit + tag + push + GitHub Release
+#  [5/6] 手機 APK（可選）
 # ══════════════════════════════════════════════════════════════
 Write-Host ""
-Write-Host "[5/5] Git 推送與 GitHub Release..." -ForegroundColor Cyan
+$apkRelease = $null
+if (-not $buildApk) {
+    Write-Host "[5/6] 略過手機 APK。" -ForegroundColor Gray
+} else {
+    Write-Host "[5/6] 打包手機 APK..." -ForegroundColor Cyan
+    node scripts\build-mobile-apk.mjs
+    if ($LASTEXITCODE -ne 0) {
+        # APK 失敗不該讓桌面版跟著陪葬 —— 桌面安裝檔這時已經好了
+        Write-Host ""
+        Write-Host "      APK 打包失敗，桌面版不受影響。" -ForegroundColor Yellow
+        $cont = Read-Host "      繼續發布（不含 APK）？(Y/n)"
+        if ($cont -match '^[Nn]$') {
+            Write-Host "已中止。" -ForegroundColor Gray
+            Read-Host "按 Enter 結束"; exit 1
+        }
+    } else {
+        $apkSrc = "out\apk\DeST-debug.apk"
+        if (Test-Path $apkSrc) {
+            # 檔名帶版本號，Release 附件列表才看得出是哪一版
+            $apkRelease = "dist\DeST-v$ver-debug.apk"
+            Copy-Item $apkSrc $apkRelease -Force
+            $apkSizeMB = [math]::Round((Get-Item $apkRelease).Length / 1MB, 1)
+            Write-Host "      APK：$apkRelease ($apkSizeMB MB)" -ForegroundColor Yellow
+        } else {
+            Write-Host "      打包回報成功但找不到 $apkSrc，略過附件。" -ForegroundColor Yellow
+        }
+    }
+}
+
+# ══════════════════════════════════════════════════════════════
+#  [6/6] Git commit + tag + push + GitHub Release
+# ══════════════════════════════════════════════════════════════
+Write-Host ""
+Write-Host "[6/6] Git 推送與 GitHub Release..." -ForegroundColor Cyan
 
 # 決定是否推送
 $shouldPush = $false
@@ -271,6 +313,7 @@ if (-not $shouldPush) {
     # 建立上傳檔案清單
     $uploadFiles = @($exePath)
     if ($zipPath -and (Test-Path $zipPath)) { $uploadFiles += $zipPath }
+    if ($apkRelease -and (Test-Path $apkRelease)) { $uploadFiles += $apkRelease }
     if ($dstpackUpdated) { $uploadFiles += $dstpackPath }
 
     # 檢查 gh 是否安裝
@@ -306,6 +349,15 @@ if (-not $shouldPush) {
             "- **EXE版**：``DesktopST $ver.exe``（檔案較小，執行時才自動解壓縮所需檔案）",
             "- **ZIP版**（開啟速度較快）：``DesktopST-v$ver-full.zip``（解壓縮後直接執行 ``DesktopST.exe``）"
         )
+        if ($apkRelease -and (Test-Path $apkRelease)) {
+            $notesLines += @(
+                "",
+                "## Android（測試版）",
+                "",
+                "- ``DeST-v$ver-debug.apk``　—　debug 簽章，安裝時需允許「未知來源」。",
+                "  可獨立使用，也可以掃電腦上的 QR 把角色與設定帶過去。"
+            )
+        }
         # Set-Content -Encoding UTF8 在 PS 5.1 會加 BOM，gh 傳給 GitHub 後中文亂碼
         # 改用 .NET 直接寫 UTF-8 無 BOM
         [System.IO.File]::WriteAllText($notesFile, ($notesLines -join "`n"), (New-Object System.Text.UTF8Encoding $false))

@@ -7,7 +7,9 @@ import type {
   CharactersApi,
   LlmSettingsSnapshot,
   LorebooksApi,
+  LoreGenerateResult,
   MemorySettingsSnapshot,
+  MessageDebug,
   ModuleToggle,
   WeatherNowSnapshot,
   WeatherSettingsSnapshot,
@@ -80,6 +82,8 @@ export class RemoteDataSource implements DataSource {
       conversation: AppStateSnapshot['conversation']
       colorTheme: AppStateSnapshot['colorTheme']
       randomToolsEnabled: boolean
+      showLlmBadge?: boolean
+      showPersonaName?: boolean
       maxImages: number
       activeSceneId?: string
       activePersonaId?: string
@@ -94,6 +98,9 @@ export class RemoteDataSource implements DataSource {
       conversation: d.conversation ?? null,
       colorTheme: d.colorTheme,
       randomToolsEnabled: d.randomToolsEnabled,
+      // 舊版電腦端沒這個欄位；缺就當開啟（與 settings 的 `!== false` 同義）
+      showLlmBadge: d.showLlmBadge !== false,
+      showPersonaName: d.showPersonaName !== false,
       maxImagesPerMessage: d.maxImages,
       activeSceneId: d.activeSceneId,
       activePersonaId: d.activePersonaId,
@@ -112,6 +119,17 @@ export class RemoteDataSource implements DataSource {
     })
   }
 
+  async stopGenerating() {
+    const r = await this.http.post<{
+      ok: boolean
+      stopped?: boolean
+      content?: string
+      images?: string[]
+    }>('/api/stop', {})
+    if (!r.stopped) return null
+    return { content: r.content ?? '', images: r.images }
+  }
+
   async getMessageImageUrl(messageId: string, index: number): Promise<string | null> {
     // 圖片按需取用（base64 不隨快照走）。`<img>` 沒法加 header，所以走 query token。
     return this.http.url(`/api/message-image/${encodeURIComponent(messageId)}/${index}`)
@@ -122,7 +140,18 @@ export class RemoteDataSource implements DataSource {
     load: async (id) => { await this.http.post('/api/conversations/load', { id }) },
     create: async (title) => (await this.http.post<{ conversation: ConversationListItem }>('/api/conversations/new', { title })).conversation,
     rename: async (id, title) => (await this.http.post<{ conversation: ConversationListItem }>('/api/conversations/rename', { id, title })).conversation,
-    remove: async (id) => this.http.post<{ activeConversationId: string }>('/api/conversations/delete', { id })
+    remove: async (id) => this.http.post<{ activeConversationId: string }>('/api/conversations/delete', { id }),
+    getMemory: async (id) => {
+      const r = await this.http.post<{ summary: string; coversTs: number; coveredCount: number }>('/api/conversations/summary/get', { id })
+      return { summary: r.summary, coversTs: r.coversTs, coveredCount: r.coveredCount }
+    },
+    summarizeMemoryNow: async (id) =>
+      this.http.post<{ ok: boolean; noNew?: boolean; error?: string; summary?: string; coveredCount?: number }>(
+        '/api/conversations/summary/generate',
+        { id }
+      ),
+    updateMemory: async (id, summary) => { await this.http.post('/api/conversations/summary/update', { id, summary }) },
+    clearMemory: async (id) => { await this.http.post('/api/conversations/summary/clear', { id }) }
   }
 
   readonly messages: MessagesApi = {
@@ -131,7 +160,18 @@ export class RemoteDataSource implements DataSource {
     // 會被端點當成缺參數擋下並回 400，而 UI 只會看到「操作失敗」。
     remove: async (id) => { await this.http.post('/api/messages/delete', { id }) },
     edit: async (id, content) => { await this.http.post('/api/messages/edit', { id, content }) },
-    resend: async (id) => { await this.http.post('/api/messages/resend', { id }) }
+    resend: async (id) => { await this.http.post('/api/messages/resend', { id }) },
+    // 舊版電腦端沒這支端點：當成「這則沒留 prompt」處理（回 null）而不是報錯，
+    // UI 顯示「找不到」總比丟一個看不懂的連線錯誤好。
+    getDebug: async (id) => {
+      try {
+        const d = await this.http.post<{ debug: MessageDebug | null }>('/api/messages/debug', { id })
+        return d.debug ?? null
+      } catch (e) {
+        if (e instanceof DataError && (e.code === 'not-found' || e.code === 'not-supported')) return null
+        throw e
+      }
+    }
   }
 
   readonly characters: CharactersApi = {
@@ -205,7 +245,7 @@ export class RemoteDataSource implements DataSource {
     activatePersona: async (id) => { await this.http.post('/api/presets/activate-persona', { id }) },
     activateWorld: async (id) => { await this.http.post('/api/presets/activate-world', { id }) },
     applyScene: async (id) => { await this.http.post('/api/scenes/apply', { id }) },
-    captureScene: async (id) => { await this.http.post('/api/scenes/capture', { id }) },
+    captureScene: async (id, name) => (await this.http.post<{ scene: ScenePreset }>('/api/scenes/capture', { id, name })).scene,
 
     savePersona: async (preset): Promise<void> => { await this.http.post('/api/presets/persona/save', { preset }) },
     saveWorld: async (preset): Promise<void> => { await this.http.post('/api/presets/world/save', { preset }) },
@@ -217,12 +257,23 @@ export class RemoteDataSource implements DataSource {
 
   readonly settings: SettingsApi = {
     setColorTheme: async (theme) => { await this.http.post('/api/settings/color-theme', { theme }) },
+    setShowLlmBadge: async (show) => { await this.http.post('/api/settings/show-llm-badge', { show }) },
+    setShowPersonaName: async (show) => { await this.http.post('/api/settings/show-persona-name', { show }) },
 
     getLlm: async () => (await this.http.get<{ llm: LlmSettingsSnapshot }>('/api/settings/llm')).llm,
     setLlmProvider: async (provider) => { await this.http.post('/api/settings/llm-provider', { provider }) },
     setLlmModel: async (provider, model) => { await this.http.post('/api/settings/llm-model', { provider, model }) },
-    setLlmEndpoint: async (endpoint) => { await this.http.post('/api/settings/llm-endpoint', { endpoint }) },
+    setLlmEndpoint: async (endpoint, provider) => { await this.http.post('/api/settings/llm-endpoint', { endpoint, provider }) },
+    setLlmExtraInstruction: async (text) => { await this.http.post('/api/settings/llm-extra-instruction', { text }) },
+    setLlmUtilityEnabled: async (enabled) => { await this.http.post('/api/settings/llm-utility-enabled', { enabled }) },
+    setLlmUtilityProvider: async (provider) => { await this.http.post('/api/settings/llm-utility-provider', { provider }) },
+    setLlmUtilityModel: async (provider, model) => { await this.http.post('/api/settings/llm-utility-model', { provider, model }) },
     setLlmApiKey: async (provider, apiKey) => { await this.http.post('/api/settings/llm-apikey', { provider, apiKey }) },
+    testLlmConnection: async (provider, endpoint) =>
+      this.http.post<{ ok: true; models?: string[] } | { ok: false; error: string }>(
+        '/api/settings/llm-test-connection',
+        { provider, endpoint }
+      ),
     setLlmChatLimits: async (limits) => { await this.http.post('/api/settings/llm-chat-limits', limits) },
 
     getMemory: async () => (await this.http.get<{ memory: MemorySettingsSnapshot }>('/api/settings/memory')).memory,
@@ -246,7 +297,9 @@ export class RemoteDataSource implements DataSource {
     get: async (id) => (await this.http.get<{ book: Lorebook }>(`/api/lorebooks/${encodeURIComponent(id)}`)).book,
     save: async (book) => (await this.http.post<{ book: Lorebook }>('/api/lorebooks/save', { book })).book,
     remove: async (id) => { await this.http.post('/api/lorebooks/delete', { id }) },
-    create: async (name) => (await this.http.post<{ book: Lorebook }>('/api/lorebooks/create', { name })).book
+    create: async (name) => (await this.http.post<{ book: Lorebook }>('/api/lorebooks/create', { name })).book,
+    generateEntry: (characterId, lorebookId) =>
+      this.http.post<LoreGenerateResult>('/api/lorebooks/generate-entry', { characterId, lorebookId })
   }
 
   /**
@@ -295,7 +348,15 @@ export class RemoteDataSource implements DataSource {
     create: async () => (await this.http.post<{ reminder: Reminder }>('/api/reminders/create')).reminder,
     save: async (reminder) => (await this.http.post<{ reminder: Reminder }>('/api/reminders/save', { reminder })).reminder,
     remove: async (id) => { await this.http.post('/api/reminders/delete', { id }) },
-    toggle: async (id, enabled) => { await this.http.post('/api/reminders/toggle', { id, enabled }) }
+    toggle: async (id, enabled) => { await this.http.post('/api/reminders/toggle', { id, enabled }) },
+    /*
+     * 遙控模式下歷史紀錄是**手機獨立版才有**的東西——桌面端目前沒有記錄
+     * 觸發歷史。回空陣列而不是擲錯：UI 會顯示「還沒有紀錄」，比一個紅色
+     * 錯誤誠實也不礙事。桌面補上記錄後再接端點。
+     */
+    history: async () => [],
+    removeHistoryItem: async () => {},
+    clearHistory: async () => {}
   }
 
   /**

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { TextareaHTMLAttributes } from 'react'
 import type { PersonaPreset, ScenePreset, WorldPreset } from '@core/types'
-import type { PresetListItem } from '@core/data'
+import { DataError, type PresetListItem } from '@core/data'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from '../settings/settingsErrors'
@@ -8,6 +9,19 @@ import { describeSettingsError } from '../settings/settingsErrors'
 type Kind = 'scene' | 'persona' | 'world'
 type Draft = PersonaPreset | WorldPreset | ScenePreset
 const now = (): number => Date.now()
+
+/** 自動撐高的 textarea（與 CharacterEditor 同款）。 */
+function AutoTextarea({ minHeight = 72, className = '', ...props }: TextareaHTMLAttributes<HTMLTextAreaElement> & { minHeight?: number }): JSX.Element {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  const grow = (): void => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.max(el.scrollHeight, minHeight)}px`
+  }
+  useEffect(() => { grow() })
+  return <textarea ref={ref} rows={1} style={{ minHeight, resize: 'none', overflow: 'hidden' }} className={`field ${className}`} onInput={grow} {...props} />
+}
 
 function blank(kind: Kind): Draft {
   const stamp = now()
@@ -74,7 +88,12 @@ export function PresetEditor({ presetKey }: { presetKey: string }): JSX.Element 
       if (kind === 'persona') await api.removePersona(id); else if (kind === 'world') await api.removeWorld(id); else await api.removeScene(id)
       dirty.current = false; setIsDirty(false)
       await refresh(); toast('已刪除'); pop()
-    } catch (e) { toast(describeSettingsError(e, '刪除'), 'error') } finally { setBusy(false) }
+    } catch (e) {
+      // 這條路徑的 conflict 只有一種成因，直接講清楚 —— 共用文案會列出三種可能，
+      // 使用者得自己猜是哪一種。
+      const lastOne = e instanceof DataError && e.code === 'conflict' && kind !== 'scene'
+      toast(lastOne ? `至少要留一組${kind === 'persona' ? '使用者設定' : '世界觀'}，最後一組不能刪。` : describeSettingsError(e, '刪除'), 'error')
+    } finally { setBusy(false) }
   }
   if (!draft) return <div className="py-8 text-center text-sm text-[var(--text-sub)]">載入中⋯⋯</div>
   const lore = 'lorebookIds' in draft ? draft.lorebookIds ?? [] : []
@@ -90,8 +109,8 @@ export function PresetEditor({ presetKey }: { presetKey: string }): JSX.Element 
     {id !== 'new' && <button type="button" disabled={busy} onClick={() => void remove()} className="w-full rounded-full border border-[var(--danger)] py-2.5 text-sm text-[var(--danger)] disabled:opacity-50">刪除</button>}
   </div>
 }
-function PersonaFields({ draft, change }: { draft: PersonaPreset; change: (x: Draft) => void }): JSX.Element { return <><Field label="顯示名稱"><input className="field" placeholder="你的名字" value={draft.displayName} onChange={e => change({ ...draft, displayName: e.target.value })} /></Field><Field label="暱稱"><input className="field" placeholder="主人、大人、小名..." value={draft.nickname} onChange={e => change({ ...draft, nickname: e.target.value })} /></Field><Field label="自我描述"><textarea className="field min-h-[100px]" placeholder="讓角色更了解你..." value={draft.description} onChange={e => change({ ...draft, description: e.target.value })} /></Field></> }
-function WorldFields({ draft, change }: { draft: WorldPreset; change: (x: Draft) => void }): JSX.Element { return <><Field label="世界觀"><textarea className="field min-h-[120px]" placeholder="描述這個世界的背景設定..." value={draft.worldSetting} onChange={e => change({ ...draft, worldSetting: e.target.value })} /></Field><Field label="互動範例"><textarea className="field min-h-[100px]" placeholder="角色之間如何互動的範例..." value={draft.interactionExample} onChange={e => change({ ...draft, interactionExample: e.target.value })} /></Field></> }
+function PersonaFields({ draft, change }: { draft: PersonaPreset; change: (x: Draft) => void }): JSX.Element { return <><Field label="顯示名稱"><input className="field" placeholder="你的名字" value={draft.displayName} onChange={e => change({ ...draft, displayName: e.target.value })} /></Field><Field label="暱稱"><input className="field" placeholder="主人、大人、小名..." value={draft.nickname} onChange={e => change({ ...draft, nickname: e.target.value })} /></Field><Field label="自我描述"><AutoTextarea minHeight={100} placeholder="讓角色更了解你..." value={draft.description} onChange={e => change({ ...draft, description: e.target.value })} /></Field></> }
+function WorldFields({ draft, change }: { draft: WorldPreset; change: (x: Draft) => void }): JSX.Element { return <><Field label="世界觀"><AutoTextarea minHeight={120} placeholder="描述這個世界的背景設定..." value={draft.worldSetting} onChange={e => change({ ...draft, worldSetting: e.target.value })} /></Field><Field label="互動範例"><AutoTextarea minHeight={100} placeholder="角色之間如何互動的範例..." value={draft.interactionExample} onChange={e => change({ ...draft, interactionExample: e.target.value })} /></Field></> }
 function SceneFields({ draft, change, lorebooks, modules, personas, worlds, toggleLore }: { draft: ScenePreset; change: (x: Draft) => void; lorebooks: {id:string;name:string}[]; modules: {id:string;label:string;enabled:boolean}[]; personas: PresetListItem[]; worlds: PresetListItem[]; toggleLore: (id:string)=>void }): JSX.Element { const overrides = draft.moduleOverrides ?? {}; return <><Field label="使用者設定"><select className="field" value={draft.activePersonaId} onChange={e => change({ ...draft, activePersonaId: e.target.value })}><option value="">沿用目前使用中的設定</option>{personas.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field><Field label="世界觀"><select className="field" value={draft.activeWorldId} onChange={e => change({ ...draft, activeWorldId: e.target.value })}><option value="">沿用目前使用中的世界觀</option>{worlds.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></Field><LorePicker ids={draft.lorebookIds ?? []} books={lorebooks} toggle={toggleLore} /><Field label="模組開關覆蓋" hint="未選擇就是跟隨全域設定。">{modules.map(m => <div key={m.id} className="mb-2 flex items-center justify-between text-sm"><span>{m.label}</span><select className="rounded border border-[var(--border)] bg-[var(--bg)] p-1" value={overrides[m.id] ?? ''} onChange={e => { const next = { ...overrides }; if (e.target.value) next[m.id] = e.target.value as 'on'|'off'; else delete next[m.id]; change({ ...draft, moduleOverrides: next }) }}><option value="">跟隨全域</option><option value="on">強制開啟</option><option value="off">強制關閉</option></select></div>)}</Field></> }
 function LorePicker({ ids, books, toggle }: { ids: string[]; books: {id:string;name:string}[]; toggle: (id:string)=>void }): JSX.Element { return <Field label="用語解說">{books.length ? <div className="space-y-1">{books.map(b => <label key={b.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={ids.includes(b.id)} onChange={() => toggle(b.id)} />{b.name}</label>)}</div> : <p className="text-xs text-[var(--text-sub)]">尚無用語解說</p>}</Field> }
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }): JSX.Element { return <label className="block text-sm text-[var(--text)]"><span className="mb-1 block font-medium">{label}</span>{hint && <span className="mb-1 block text-xs text-[var(--text-sub)]">{hint}</span>}{children}</label> }

@@ -25,7 +25,7 @@ import type { LlmProvider } from '../data/types'
  */
 
 /** 模型清單與價格的人工同步日期（依各家官方定價頁） */
-export const MODEL_DATA_UPDATED = '2026-08-01'
+export const MODEL_DATA_UPDATED = '2026-08-20'
 
 /** 建議值：與官方目錄同步手動維護，或以帳戶可用的 `GET https://api.openai.com/v1/models` 為準 */
 export const OPENAI_MODELS = [
@@ -50,15 +50,18 @@ export const CLAUDE_MODELS = [
   'claude-haiku-4-5'
 ]
 
+/*
+ * 2.5 系列已從清單移除：Google 對新帳戶關閉了這批模型，實測回
+ * `404 This model models/gemini-2.5-flash-lite is no longer available to new users`。
+ * 價格表仍保留它們，讓舊訊息與手打的自訂 ID 還能顯示價格。
+ */
 export const GEMINI_MODELS = [
+  'gemini-3.7-flash',
   'gemini-3.6-flash',
   'gemini-3.5-flash',
   'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
-  'gemini-3.1-pro-preview',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.5-pro'
+  'gemini-3.1-pro-preview'
 ]
 
 export const GROK_MODELS = [
@@ -68,13 +71,43 @@ export const GROK_MODELS = [
   'grok-4.20-0309-non-reasoning'
 ]
 
+/**
+ * 本機／自訂端點沒有固定型號 —— 使用者自己 pull 什麼就有什麼。
+ * 清單刻意留空，由「測試連線」打 `GET /v1/models` 動態填入（見 `testLLMConnection`）。
+ */
+export const LOCAL_MODELS: string[] = []
+
 /** 供應商 → 該家的模型清單。手機的下拉選單直接吃這個。 */
 export const MODELS_BY_PROVIDER: Record<LlmProvider, string[]> = {
   openai: OPENAI_MODELS,
   claude: CLAUDE_MODELS,
   gemini: GEMINI_MODELS,
-  grok: GROK_MODELS
+  grok: GROK_MODELS,
+  local: LOCAL_MODELS
 }
+
+/**
+ * 每家的預設模型（切換供應商時自動選這個）。
+ *
+ * **一律挑該家最便宜、且非高單價區的**。不要拿清單第一個當預設——
+ * 清單是照新舊排的，Claude 的第一個是 `claude-fable-5`（$10/$50），
+ * 使用者切過去隨手聊兩句就會很痛。
+ */
+export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProvider, string> = {
+  openai: 'gpt-5.6-luna',
+  claude: 'claude-haiku-4-5',
+  gemini: 'gemini-3.1-flash-lite',
+  grok: 'grok-4.3',
+  // 本機沒有「大家都有」的型號，猜一個只會讓連線測試失敗得莫名其妙。
+  // 留空 → UI 逼使用者先測連線再從實際清單挑。
+  local: ''
+}
+
+/** 本機端點常見預設值，UI 拿去當 placeholder／快速填入。 */
+export const LOCAL_ENDPOINT_PRESETS: Array<{ label: string; url: string }> = [
+  { label: 'Ollama', url: 'http://localhost:11434/v1' },
+  { label: 'LM Studio', url: 'http://localhost:1234/v1' }
+]
 
 /** 每百萬 tokens 美金價（輸入, 輸出）；未列出的模型（如官方快照 ID、自訂 ID）不顯示價格 */
 export const MODEL_PRICES: Record<string, [number, number]> = {
@@ -114,6 +147,8 @@ export const MODEL_PRICES: Record<string, [number, number]> = {
   'claude-opus-4-6': [5, 25],
   'claude-haiku-4-5': [1, 5],
   // Google Gemini（長 prompt 分級價以 ≤200K tokens 計）
+  // gemini-3.7-flash：2026-08-13 推出的導入期價，官方標示 2027-01-01 起調回 $1.5/$7.5
+  'gemini-3.7-flash': [0.75, 3.75],
   'gemini-3.6-flash': [1.5, 7.5],
   'gemini-3.5-flash': [1.5, 9],
   'gemini-3.5-flash-lite': [0.3, 2.5],

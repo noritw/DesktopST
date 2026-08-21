@@ -6,7 +6,8 @@ import type { NewsSource, SpeakMode } from '@core/news/types'
 import type { ReminderSchedule } from '@core/types'
 import { getData } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
-import { describeNewsError } from './newsStore'
+import { describeNewsError, useNewsStore } from './newsStore'
+import { BREAKOUT_SECTION_ID } from '@core/news/reader'
 
 /**
  * 新聞設定（清單 6.1 最後一項：黑名單、訂閱來源、排程）。
@@ -36,6 +37,26 @@ const SPEAK_OPTIONS: { value: SpeakMode; label: string; hint: string }[] = [
   { value: 'always', label: '每次', hint: '每次都會挑一則新聞來聊' }
 ]
 
+const LS_BREAKOUT_MEMO = 'desktopst.mobileReader.breakoutQuotaMemo'
+
+/** 關掉熱門話題前記住的則數，打開時還原。存不了就回預設 3。 */
+function readBreakoutMemo(): number {
+  try {
+    const n = Number(localStorage.getItem(LS_BREAKOUT_MEMO))
+    return Number.isFinite(n) && n >= 1 && n <= 20 ? Math.floor(n) : 3
+  } catch {
+    return 3
+  }
+}
+
+function writeBreakoutMemo(n: number): void {
+  try {
+    localStorage.setItem(LS_BREAKOUT_MEMO, String(n))
+  } catch {
+    /* 只是偏好 */
+  }
+}
+
 export function NewsSettingsView(): JSX.Element {
   const toast = useUiStore((s) => s.toast)
   const confirm = useUiStore((s) => s.confirm)
@@ -55,6 +76,37 @@ export function NewsSettingsView(): JSX.Element {
   useEffect(() => {
     void load()
   }, [load])
+
+  /**
+   * 熱門話題的開關。
+   *
+   * 背後就是把那一欄的配額設成 0 —— `setReaderQuota` 對 `__breakout__` 本來就
+   * 允許 0（其他欄最低是 1），配額 0 的欄取不到東西也就不會顯示。
+   * 這裡只是把這件**本來就做得到、但完全沒地方看得出來**的事變成一顆開關
+   * （owner 2026-08-12：「熱門話題可以自己選擇開啟關閉嗎」）。
+   *
+   * 走 `useNewsStore` 而不是這頁自己的 `settings`：`readerBreakoutQuota` 不在
+   * `NewsEditableSettings` 裡，而新聞報那份 store 本來就有，也才會即時反映到欄位上。
+   */
+  const breakoutQuota = useNewsStore((s) => s.readerBreakoutQuota)
+  const setQuota = useNewsStore((s) => s.setQuota)
+  const [breakoutBusy, setBreakoutBusy] = useState(false)
+  const breakoutOn = breakoutQuota > 0
+
+  const toggleBreakout = async (): Promise<void> => {
+    setBreakoutBusy(true)
+    try {
+      // 關掉前記住則數，打開時還原（一律回 3 的話使用者調過的設定會被吃掉）
+      if (breakoutOn) {
+        writeBreakoutMemo(breakoutQuota)
+        await setQuota(BREAKOUT_SECTION_ID, 0)
+      } else {
+        await setQuota(BREAKOUT_SECTION_ID, readBreakoutMemo())
+      }
+    } finally {
+      setBreakoutBusy(false)
+    }
+  }
 
   /** 送出一個 partial；成功後以電腦端正規化過的結果為準（新來源的 id 就是這樣拿到的）。 */
   const save = async (
@@ -127,6 +179,26 @@ export function NewsSettingsView(): JSX.Element {
             </button>
           ))}
         </div>
+      </Section>
+
+      {/* ── 熱門話題 ───────────────────────────────────── */}
+      <Section title="熱門話題" hint="不跟著你的關鍵字，抓當下比較多人在看的">
+        <button
+          type="button"
+          disabled={breakoutBusy}
+          onClick={() => void toggleBreakout()}
+          className={`flex w-full items-center justify-between rounded-[14px] border px-3 py-2 text-left disabled:opacity-50 ${
+            breakoutOn ? 'border-[var(--mint2)] bg-[var(--mint)]' : 'border-[var(--border)] bg-[var(--bg)]'
+          }`}
+        >
+          <span className="text-sm text-[var(--text)]">在新聞報顯示熱門話題</span>
+          <span className="text-[11px] text-[var(--text-sub)]">{breakoutOn ? `${breakoutQuota} 則` : '關閉'}</span>
+        </button>
+        <Note>
+          {breakoutOn
+            ? '則數在新聞報那一欄的數字框調整。'
+            : '關掉之後新聞報就不會出現「🔥 熱門話題」這一欄。'}
+        </Note>
       </Section>
 
       <p className="rounded-[14px] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[12px] leading-relaxed text-[var(--text-sub)]">

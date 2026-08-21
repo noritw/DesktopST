@@ -12,6 +12,39 @@
 export const SETTINGS_KEY = 'settings.json'
 export const PINNED_NOTES_KEY = 'pinned-notes.json'
 export const REMINDERS_KEY = 'reminders.json'
+/** 提醒觸發的歷史紀錄（見 `core/reminder/history.ts`）。 */
+export const REMINDER_HISTORY_KEY = 'reminder-history.json'
+/**
+ * 每則提醒「最近一次生成的台詞」快取。
+ *
+ * 只在現場生成失敗（離線／API 掛掉／逾時）時當 fallback 用，
+ * 見 `docs/mobile-standalone-reminder-plan.md` §2.1。
+ * 這是**衍生資料**，刪掉不影響任何設定，因此不進同步也不進搬家包。
+ */
+export const REMINDER_CACHE_KEY = 'reminder-cache.json'
+/**
+ * 手機記住的「同步主機」（roadmap §4.7 星狀拓樸：只綁定一台）。
+ *
+ * 不放進 `settings.json` 是因為它**不該跟著設定被同步或匯出**——
+ * 那是「這台裝置跟誰配對」，換一台手機就該重配，不是使用者偏好。
+ */
+export const SYNC_HOST_KEY = 'sync-host.json'
+/**
+ * 手機記住「上次用哪個模式」（S2 M1，`docs/mobile-mode-switch-sync.md` §4）。
+ *
+ * 只有原生殼會寫入／讀取這個 key——網頁版永遠是遙控模式（拓樸限制），
+ * 這份偏好對它沒有意義。同樣不放進 `settings.json`：換一台手機不該帶著走。
+ */
+export const MODE_PREF_KEY = 'mode-pref.json'
+/**
+ * S2 M2 差異預覽的同步基準（`docs/mobile-mode-switch-sync.md` §5）。
+ *
+ * 只在手機上存在——電腦端不記任何同步狀態（星狀拓樸下手機只綁一台
+ * 同步主機，見 §5.1）。這一版（M2）**只讀不寫**：基準要等資料真的搬過去
+ * 才會更新（§7.2），M2 還沒有搬資料的功能。不放進 `settings.json`：
+ * 這是同步游標，不是使用者資料，換一台手機不該帶著走。
+ */
+export const SYNC_BASELINE_KEY = 'sync-baseline.json'
 
 export const MODULES_DIR = 'modules'
 export const CHARACTERS_DIR = 'characters'

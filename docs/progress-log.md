@@ -816,3 +816,2544 @@
 - `cyber`：**不用純黑＋霓虹**；底 `#0F1518`、冷白字、深綠／深藍當區塊底，明顯彩度留給使用者語氣色（護眼優先）。
 - 信任邊界：`mobileServer.ts` 的 `MOBILE_COLOR_THEMES` 白名單必須同步，否則手機選新主題會 400、桌面卻正常。
 - Spec §介面配色段落已改「共 12 種」；Release 草稿：`docs/release-notes-0.4.0-draft.md`。
+
+## 2026-08-08 W3 debug APK 上機 ＋ 首輪真機修正
+
+**APK 出來了**（Pixel 10a 實測通過）。建置流程與兩個環境陷阱寫在 `src/mobile/README.md`，
+`android/` 是 gitignored 所以那份 README 是唯一的紀錄來源。
+
+- ⚠️ **Capacitor 外掛必須放 `dependencies`。** `cap sync` 只掃 dependencies，
+  放 devDependencies 會靜默不註冊 Filesystem／SecureStorage 的原生實作 ——
+  **APK 裝得起來、沒有任何編譯錯誤，但儲存與金鑰全滅**。
+  正常時 sync 會印 `Found 2 Capacitor plugins for android`。
+- ⚠️ **`JAVA_HOME` 不能指向 Android Studio 的 jbr**（本機那顆是 JDK 25，
+  Gradle 8.14 只到 Java 24）→ `Unsupported class file major version 69`。
+- `httpAdapter` 不可在模組載入時 bind `globalThis.fetch`：CapacitorHttp 是 plugin
+  初始化才 patch，先 bind 會抓到未 patch 的 WebView fetch，**只在真機上炸**。
+
+**真機驗過**：預設角色包解開、settings／對話落地、API Key 以 `enc:v1:` 密文存入
+（Android Keystore 正常），force-stop 重開資料都在。
+
+### 這輪修掉的 LLM 問題（都是真機才發現的）
+
+- **Claude 完全不能用**：`@anthropic-ai/sdk` 偵測到 `window` 就拒跑。已加
+  `dangerouslyAllowBrowser`（OpenAI 那支本來就有，Claude 是漏掉）。
+  WebView 只跑我們這份 bundle、金鑰在本機 Keystore，該防護在此無意義。
+- **Gemini 2.5 三個型號下架**（新帳戶 404），已從清單移除，價格表保留。
+- **預設模型不可以拿清單第一個**：清單照新舊排，Claude 第一個是 `claude-fable-5`
+  （$10／$50）。改用 `DEFAULT_MODEL_BY_PROVIDER`，一律挑該家最便宜且非高單價的。
+- **`llm.model` 是早期單一供應商時代的欄位**，`resolveModel()` 仍會拿它墊底。
+  跨供應商墊會把 gpt 型號真的送去 Anthropic（畫面上則卡在 Claude 清單頂端）。
+  切換供應商時要同步它，且只在型號屬於本家時才採用。
+- Grok 借用 OpenAI 相容那支實作，該處把 `debugPrompt.provider` 寫死成 `openai`，
+  導致 Grok 回覆被標成 OpenAI（桌面同樣中獎）。
+
+### 其他
+
+- **訊息模型小圖示**：角色名右邊 14px 小圓，點一下展開型號（桌面是 hover）。
+  開關 `settings.ui.showLlmBadge`（預設開，設定 → 對話），電腦與手機共用同一個值，
+  桌面 Log 視窗也跟著關。字母對照表在 `src/shared/llmBadge.ts`，桌面 re-export。
+- **獨立模式改資料後一定要 `events.push({ kind: 'state-invalidated' })`**。
+  「重新發送」漏推 → 截斷後畫面不更新，要重開 app 才正確。新增／刪除／編輯都有推，就它漏了。
+- 獨立模式 LLM 失敗**不要往上拋**：使用者訊息早已落地，往上拋會讓 `Composer`
+  誤報「送出失敗」並把圖片倒回附件列，照提示重送就產生重複訊息。
+- `tests/mobile/standaloneSession.test.ts` —— 獨立模式 runtime 的第一組測試。
+
+---
+
+## 2026-08-08 對話記錄三項可用性補強（發話身分／完整 Prompt／頭像進角色卡）
+
+owner 實機使用後回報。三項都同時做在**獨立模式與遙控模式**，走同一份 `DataSource` 介面。
+
+### 1. 對話記錄顯示「這句是誰說的」
+
+使用者身分可以隨時切換，玩角色扮演時回頭看會分不清哪句是哪個身分說的。
+
+- 新欄位 `Message.personaName`，**發話當下寫入的快照**（顯示名 → 暱稱 → 設定組名稱，
+  與輸入框上方身分列同一套取名規則）。
+- ⚠️ **刻意存名字而不是 id**：身分之後被改名或刪掉，舊記錄仍該保持當時的樣子。
+  舊訊息沒有這個欄位就**不顯示**，不要拿目前使用中的身分去補 —— 那會是錯的。
+- 開關 `settings.ui.showPersonaName`（未設定＝開，與 `showLlmBadge` 同慣例），
+  UI 放在「情境與設定組 → 使用者設定」區塊裡，而不是設定頁：
+  會想關掉它的人正是在那頁切身分的人。
+- 寫入點有兩處，改一邊會漏：`ipcHandlers.ts` 的 `send-message`（桌面／遙控）
+  與 `src/mobile/runtime/chat.ts`（獨立）。
+
+### 2. 訊息選單「顯示完整 Prompt」（除錯用）
+
+- **沒有做成長按。** `MessageList` 早就寫了理由：長按在 WebView 會跟系統選字選單打架，
+  也沒有任何提示告訴使用者這裡可以長按。改成放進既有的 ⋯ 選單最後一項。
+- **只有 `hasDebugPrompt`／`hasNewsDebug` 為真的訊息才出現入口** ——
+  `core/store/prune.ts` 會把較舊訊息的 prompt 剝掉（不然對話檔會被撐爆），
+  常駐顯示等於給一顆多半按了沒東西的按鈕。「沒保留」是正常結果，畫面顯示說明而不是報錯。
+- 排版與圖片剝除從 `LogWindow.tsx` 搬到 `core/prompt/debugPromptView.ts` 兩邊共用：
+  抄成兩份的話，比對桌面與手機為什麼結果不同時會先被排版差異誤導。
+- 新增 `MessagesApi.getDebug()`、`POST /api/messages/debug`。
+  遙控模式打到舊版電腦端會 404 → 客戶端當成 `null` 處理，不丟連線錯誤。
+
+### 3. 聊天串點角色頭像 → 角色卡
+
+原本要繞去角色庫再找一次。`Avatar` 外面包一層按鈕 push `character-editor`。
+（**2026-08-08 稍晚改掉**：改成 push `character-menu`，見下一則。）
+
+**驗過**：`?mode=standalone` 下發話、身分名顯示與開關即時生效、頭像進角色卡、
+沒留 prompt 的訊息不出現除錯入口。typecheck 與 375 個測試全綠。
+
+---
+
+## 2026-08-08 真機第二輪回饋（表情合約、Token、頭像選單、分隔線）
+
+owner 在 Pixel 10a 上用 debug APK 實測後回報。四項都是小改，但第一項省的是每則對話的錢。
+
+### 1. ⚠️ 獨立版 prompt 白白帶著整份表情合約
+
+owner 看到 `[Output Format]` 裡有一串「寫死的表情檔名」，追下去發現不是寫死的：
+`buildEmotionContract()` 會把角色卡每張表情圖的 **id（預設取自圖檔檔名）與用途**
+逐條寫進 system prompt，好讓模型第一行輸出 `[emotion_id]` 來選圖。
+
+問題是**手機獨立版是單張主圖、不做表情差分**（roadmap 定的範圍），
+`src/mobile/runtime/chat.ts` 也從來沒呼叫 `classifyEmotionWithLLM`。
+從桌面匯入的角色卡帶著十幾張表情圖時，那段可以長到數十行 —— 每則對話都白付。
+
+桌面靠 `splitEmotion`（`utilityEnabled && hasCustomSprites`）省掉這段，
+但它的語意是「稍後有獨立的分類呼叫接手」，手機沒有那個呼叫。
+所以另開 `ChatLLMParams.omitEmotionTag`：**呼叫端根本不需要情緒標籤**。
+三家 provider 都是 `splitEmotion: params.splitEmotion || params.omitEmotionTag`。
+
+> 之後手機若要做表情差分，改的是這個旗標，不是 `buildEmotionContract`。
+
+### 2. 完整 Prompt 顯示 Token 數
+
+與桌面 Log 視窗同樣三組（主模型／輔助／對話搜尋）。
+**沒留 prompt 的訊息也要顯示** —— token 數存在訊息本體，`prune` 不會剝掉它。
+欄位不存在就整組不顯示，不要印「0」（那會被讀成「這次沒花錢」）。
+
+### 3. 頭像點擊改成開角色選單
+
+owner：「群組聊天要一直手打名字。」`character-menu` 加一項**提及** ——
+把角色名插進輸入框（走 `composerStore.insert`，插在游標處）。
+插純名字**不加 `@`**：`isAddressed()` 直接比對別名，而名字會原樣留在送出的訊息裡，
+多一個符號在對話記錄看起來很怪。前後只在真的黏著別的字時才補空白。
+
+聊天串頭像改 push `character-menu`（與頂部 `AvatarBar` 同一個選單）
+而不是自己做一個兩項的小選單：同一顆頭像在兩個地方點出不同東西會很奇怪。
+
+### 4. debug prompt 分隔線縮短
+
+`── [system] ───⋯` 原本補到 44 字元，手機寬度不夠會折成兩行，反而看不出分段。
+縮成 `── [role] ────`。
+
+> ⚠️ 這條分隔線**只在除錯檢視裡**，沒有送給模型，所以縮短它不會省 token
+> （owner 原本以為會）。真正在省 token 的是上面第 1 項。
+
+---
+
+## 2026-08-08 獨立版缺口 #1：情境與設定組刪除
+
+owner：「手機上無法刪除使用者資料、無法修改情境很不方便。」
+`PresetsView`／`PresetEditor` 的畫面與按鈕**本來就都在**，缺的只是
+`LocalDataSource` 那六支 `pending`。接上之後不必動任何 UI。
+
+### 設定層套用抽到 `core/scene/apply.ts`
+
+桌面 `applySceneById` 有一段是純設定指派（persona／world／sceneId／配色／
+lastActiveConversationId），與手機一模一樣；剩下的開關角色視窗、搬視窗座標才是平台專屬。
+把共用那段抽成 `applySceneSettings()`，兩邊都改成呼叫它 —— 日後情境多一個欄位時
+不會只有一邊記得跟上。
+
+`colorTheme` 與 `lastActiveConversationId` **只有情境真的存了才覆蓋**：
+舊情境檔沒有這兩欄，拿 `undefined` 蓋下去會把使用者現在的配色洗成預設。
+
+### 手機專屬的兩個判斷
+
+- **情境帶著手機沒有的角色 id**（從電腦匯入的情境必然如此）：只留這台真的有的，
+  一個都沒有時維持原狀。照抄會讓聊天列出現一排點不開的空角色。
+- **`captureScene` 要保留** `newsKeywordGroupId`／`lorebookIds`／`moduleOverrides`：
+  它們不是「目前狀態」的一部分，一起清掉會讓使用者以為設定被吃了（桌面同樣保留）。
+
+### 其他
+
+- `getState().activeSceneDirty` 原本硬寫 `false`，改成真的用 `isActiveSceneDirty()` 算，
+  「存回目前狀態」那顆按鈕才會在該出現時出現。
+- 刪最後一組 persona／world 一律擋（`conflict`，與桌面同規則）。
+  `PresetEditor` 的刪除路徑自己翻這個代碼 —— 共用文案會列出三種可能成因，
+  使用者得自己猜是哪一種。
+- 刪掉正在用的情境只是「不再跟著任何情境」，身分與世界觀維持現狀。
+
+**驗過**：typecheck 綠、381 個測試綠（新增 6 個情境／設定組測試）。
+
+---
+
+## 2026-08-08 S1 對話匯入（勾選式，預設全不選）
+
+owner：「掃電腦 QRCode 沒辦法把對話資料帶過來？要給使用者勾選，
+並且要有『全選』『取消全選』，**預設全部不選**。」
+
+### 為什麼預設不選
+
+對話是所有資料裡最私密、也最佔空間的。預設全帶＝使用者在不知情下把整個聊天記錄
+複製到另一台裝置。全選那顆按鈕讓「我就是要全部」只多按一下，成本很低。
+
+### 電腦端兩支端點
+
+| 端點 | 回什麼 | 為什麼分開 |
+|---|---|---|
+| `GET /api/sync-conversations` | 標題／則數／參與角色，**不含訊息** | 十幾則對話的內容一次送是幾十 MB，而這一步只是在挑 |
+| `GET /api/sync-conversation?id=` | 一則的完整內容 | 同 `/api/sync-pack`：訊息帶圖片 data URI，整批會在 CapacitorHttp 的 base64 bridge 上爆掉，也沒進度可顯示 |
+
+`getConversationForSyncDirect()` **不切換電腦上正在看的那則**
+（`loadConversationDirect` 會切，那是遙控用的），並剝掉 `debugPrompt` 三兄弟與
+`newsDebug` —— 一則 prompt 動輒數十 KB，手機那邊只是要保存聊天記錄。圖片保留。
+
+> ⚠️ 解析 `?id=` 要用 `requestUrl` 不是 `url`，`url` 已經去掉 query 了
+> （`/api/sync-pack` 踩過同一個坑）。
+
+### 角色 id 要重新對上
+
+`.dstpack` 解包一律發新 id（`extractOneCharacter`），所以電腦端訊息裡的
+`characterId` 在手機上根本不存在。**靠名字對** —— 名字也正是 S1 判斷「同名衝突」的依據，
+兩處用同一把尺才不會出現「匯入時算同一隻、對話卻對不上」。
+
+對不上的（角色沒一起帶、或事後改名）原樣保留：內容照樣看得到，只是少了名字與頭像。
+硬塞給別隻角色比這糟糕得多。
+
+### 留給 S2 的對應關係
+
+`Conversation.importedFrom = { sourceId, sourceUpdatedAt, importedAt }`。
+
+`sourceUpdatedAt` 記的是**匯入當下電腦那份**的 `updatedAt`：S2 要判斷「電腦端有沒有
+變動過」得比對它，本地的 `updatedAt` 一被使用者接著聊天就往前跑了。
+
+匯入一律發新 id、不覆蓋手機上任何既有對話，也**不設為使用中** ——
+一次勾五則的話，最後一則變成正在看的那則毫無道理。
+
+### 其他
+
+- 已匯入過的照樣列在清單裡但停用勾選並標「已經帶過來了」。直接濾掉的話
+  使用者會以為那幾則不見了。`runSyncImport` 那邊再擋一次當保險。
+- 舊版電腦沒有這兩支端點 → 清單抓失敗時**只隱藏這一區**，角色與設定照樣匯入。
+- 進度條分母改成「角色 ＋ 對話」的總和。
+
+**驗過**：typecheck 綠、387 個測試綠（新增 6 個對話匯入測試）、`build:mobile` 綠。
+
+---
+
+## 2026-08-08 獨立版天氣（缺口 #4）＋「從電腦重新拉設定」
+
+owner：「天氣和提醒希望也可以和電腦同步，這樣我不用設定兩次。」
+
+### 先拆成兩件事
+
+「同步設定」和「功能能用」不是同一回事。天氣設定帶過去，手機**還是查不到天氣**
+——獨立模式沒有電腦可問，得自己打 Open-Meteo。所以這輪是**先把天氣做出來**，
+設定同步只是順手。
+
+提醒**刻意沒動**：同步過去但不會響（缺口 #5 未做）比現在誠實失敗更糟，
+而且會冒出「兩邊都響」的新問題。決議與 `Reminder` 要加的欄位見
+`mobile-standalone-gap-inventory.md` §3.1。
+
+### 邏輯搬進 `core/weather/`
+
+`main/weatherService.ts` 原本就只用標準 `fetch`，沒有 Node 專屬 API，
+所以整組搬得動。桌面現在是薄殼，只補兩件平台的事：注入 `electronHttp`、
+以及仍屬桌面限定的地震／颱風關鍵詞查詢。
+
+| 檔案 | 放什麼 |
+|---|---|
+| `core/weather/wmo.ts` | WMO 代碼 → 中文 |
+| `core/weather/providers.ts` | 地理編碼、IP 定位、Open-Meteo、wttr.in 備援、`[Weather]` 排版 |
+| `core/weather/cwa.ts` | `cwaFetch` ＋ **只有背景預報**（F-C0032-001） |
+| `core/weather/context.ts` | 30 分鐘快取、潤飾、來源選擇 |
+
+CWA 只搬背景那一支。地震（E-A0016-001）與颱風（W-C0034-005）是**關鍵詞即時查詢**，
+綁在桌面聊天管線上，手機還沒接 —— 硬搬過去只會多一份沒人呼叫的程式碼。
+
+`WeatherDeps` 形狀比照 `LLMDeps`。**一定要注入 http、不能用全域 `fetch`**：
+手機的全域 fetch 要被 CapacitorHttp patch 過才繞得過 CORS，而那個 patch 是
+plugin 初始化後才生效。
+
+### 手機定位：GPS 優先、退回 IP
+
+順序跟桌面**相反**。桌面只有對外 IP，而 IP 常落在電信商機房；手機會移動、
+又有定位硬體，沒理由不用。
+
+- 新依賴 `@capacitor/geolocation`（放 `dependencies`）
+- ⚠️ **這個外掛的 AndroidManifest 是空的，權限不會自動合併** ——
+  `ACCESS_COARSE_LOCATION` 得自己寫進 `android/app/src/main/AndroidManifest.xml`
+- **只要粗略位置**。天氣是縣市級的，`FINE` 純屬過度索取，
+  而且 Android 會多跳一層「精確／大概」讓使用者猶豫
+- 動態 `import()` 載入外掛：瀏覽器煙測與 vitest 沒有原生 plugin，
+  靜態 import 會讓整個模組在載入時就炸，連退回 IP 都走不到
+- GPS 只給經緯度，`locationName` 另外用 BigDataCloud 反查（Open-Meteo 沒有反向地理編碼）
+- 權限被拒**不是錯誤**，安靜退回 IP
+- `locationSource` union 加了 `'gps'`（`core/types.ts` 的 `WeatherLocationSource`）
+
+`ip-api.com` 免費版只有明文 HTTP。這裡可以接受：請求不含使用者資料，
+回應揭露的「你在哪個城市」本來就是網路業者從 IP 看得到的。真正精確的那條是
+GPS，走裝置本機、根本不出網路。另補了 HTTPS 的 `ipwho.is` 當備援（ip-api 有 45 次／分鐘限制）。
+
+### 聊天真的會帶天氣了
+
+`mobile/runtime/chat.ts` 原本**完全沒有** `extraSystemContext` ——
+就算設定裡開了天氣也不會進 prompt。這才是缺口 #4 的實質內容，
+不接上的話前面三支 API 只是裝飾。
+
+### S1 帶天氣設定，但**不帶地點**
+
+owner 選的：手機自己定位為主。帶電腦的座標過去只會讓它出門在外顯示家裡的天氣。
+
+帶的是「設定兩次很煩」的那幾項：潤飾開關、CWA 縣市與金鑰。
+`cwaApiKey` 規矩完全比照 LLM 金鑰 —— 判定在電腦端做，非直連時**連欄位都不出現**
+（不是空字串，否則手機會誤判成「電腦上清空了」而洗掉自己填的那把）。
+
+### 「從電腦重新拉設定」
+
+S1 是一次性的，解決不了「電腦改了設定、手機又要再設一次」。那本來是 S2 的範圍，
+但 S2 貴在雙向合併與差異預覽；**把方向固定成電腦 → 手機**就退化成單純的覆蓋，
+不需要任何衝突處理。
+
+`pullSettingsFromDesktop()`，入口在設定頁「與電腦同步」，可重複按。
+
+**刻意不碰**角色、預設組、對話 —— 這三樣每次匯入都會新增一份（一律發新 id），
+放進可重複執行的入口會爆量。天氣地點同樣不碰。
+
+按鈕寫「以電腦的設定覆蓋」不是「同步」：手機這邊改過的真的會被蓋掉，
+這種事不能用含糊的字眼帶過。
+
+順手記住同步主機（`sync-host.json`，roadmap §4.7 星狀拓樸），下次不必重掃。
+**權杖會在電腦重開手機連線時換新，所以 401 是最常見的失敗、不是異常** ——
+UI 直接請使用者重掃，不要丟一句「請再試一次」。
+
+不放進 `settings.json`：那是「這台裝置跟誰配對」，不該跟著設定被同步或匯出。
+
+**驗過**：typecheck 綠、415 個測試綠（新增 20 個天氣與同步測試）、
+`build:mobile` 綠、**debug APK 建置並安裝成功**（42.5 MB）。
+
+---
+
+## 2026-08-08 根目錄 bat 從七個併成三個
+
+owner：「現在太多個我搞不清步驟了。」
+
+七個 `.bat` 裡有五個叫 `MobileST-*`，檔名長得像但做的事天差地遠 ——
+`build-apk` 打包、`serve-apk` 只重開 QR、`test`／`real-test` 是完全不打包的 HMR 預覽、
+`allow-apk-firewall` 是一次性的防火牆。要點哪個得先想一下，這本身就是設計失敗。
+
+### 現在只有三個
+
+| 檔案 | 做什麼 |
+|---|---|
+| `DesktopST-dev.bat` | 日常開發（未動） |
+| `MobileST.bat` | 手機全部，選單三項，直接 Enter＝打包裝機 |
+| `release.bat` | 發布，新增可選的 APK |
+
+選單邏輯在 `scripts/mobile-tool.mjs`，**只做編排**；實際工作仍在原本那三支
+（`build-mobile-apk`／`serve-apk`／`mobile-test-qr`），沒有搬動邏輯。
+
+### 順手修掉的兩個問題
+
+**防火牆從「使用者要自己想到」變成「工具會問」。** `serve-apk` 本來就會試著加規則，
+但沒提權時是**靜靜失敗**的 —— 症狀是手機瀏覽器一直轉圈，看起來完全像網路問題。
+現在 `[1]`／`[2]` 會先查規則在不在，不在就問一句並提權加一次（規則是永久的，只煩一次）。
+
+**`build-mobile-apk.mjs` 不再自己開 serve 視窗。** 那是給舊 bat 用的方便設計，
+但單獨跑這支（例如 `release.bat` 裡）就會莫名冒出一個關不掉的視窗。
+開 QR 改由 mobile-tool 負責。同時刪掉裡面寫死的「本輪測試提醒」清單 —— 那種東西下一次改動就過期。
+
+### `release.bat` 的 APK
+
+打包前一次問完（`y/N`，預設不打），中途不用顧螢幕。debug 簽章，
+所以提示裡就講明「裝的人要允許未知來源、不能上架」，附件檔名帶版本號
+（`DeST-v0.4.0-debug.apk`），Release notes 會多一段 Android 說明。
+
+**APK 失敗不讓桌面版陪葬** —— 那時桌面安裝檔早就好了，改問要不要繼續發布。
+
+---
+
+## 2026-08-08 手機版顯示建置資訊（設定頁最底）
+
+owner：「手機獨立版要有版本號，不然我不知道我更新了沒。」
+
+### 主角是建置時間，不是版本號
+
+照字面做「顯示 `package.json` 的版本」會**解決不了他的問題** ——
+debug APK 一天重打十次，從頭到尾都是 `0.4.0`，畫面上那行字永遠不變，
+還是不知道裝到的是哪一份。真正能分辨的是建置時間，所以那才是第二行的主角。
+
+顯示三個值：版本、建置時間（裝置當地時區）、git 短雜湊（回報問題時對照程式碼）。
+
+第一行還標了模式，因為兩種模式的「更新」是不同的動作：
+遙控模式跑的是**電腦提供的** bundle，時間戳舊代表該去電腦上 `build:mobile`，不是手機沒更新。
+
+```
+DeST v0.4.0 · 獨立版
+建置 2026-08-08 16:21 · 775e41d
+```
+
+### 怎麼進到 bundle
+
+`vite.mobile.config.ts` 的 `define`，bundle 階段就替換成字面值 ——
+執行期零成本，也不需要 IPC（獨立模式根本沒有電腦可問）。
+包裝在 `src/mobile/buildInfo.ts`，型別在 `src/mobile/vite-env.d.ts`；
+元件不要直接碰 `__APP_VERSION__` 那三個全域名字。
+
+取不到 git 就給空字串、時間壞掉就整行不顯示 —— 沒有 `.git` 的原始碼包也要建得起來。
+
+### 不做成可收合區塊
+
+`Section` 都是可收合的，但這行字的意義就是「捲到底一眼確認」，
+多一次點擊就沒意義了。所以是 `<footer>`，永遠攤開。
+
+### 順手：Android 的版本號本來是騙人的
+
+`cap add android` 產生的 `build.gradle` 寫死 `versionCode 1` / `versionName "1.0"`，
+跟 `package.json` 毫無關係 —— `adb shell dumpsys package` 與系統的「應用程式資訊」
+一直顯示 1.0。`prepare-android.mjs` 現在每次 sync 都同步過去
+（`versionCode` = major×10000 + minor×100 + patch，0.4.0 → 400）。
+
+`android/` 是 gitignored，所以跟權限一樣，只能靠這支腳本每次補。
+
+**驗過**：typecheck 綠、415 測試綠、`build:mobile` 產物內確認有版本／雜湊／時間戳，
+**連續兩次建置時間戳不同**（這是整件事的重點），瀏覽器實際開設定頁確認頁尾算繪正確。
+APK 重打後 `adb shell dumpsys package` 確認 `versionCode=400 versionName=0.4.0`。
+
+### 順手抓到的 bug：serve-apk 的 Content-Length 會過期
+
+驗證過程中發現 8731 還開著一個 16:14 啟動的 serve，而 APK 在 16:23 被我重打覆蓋。
+`serve-apk.mjs` 原本在**啟動時**就 `fs.statSync` 記死大小，於是它宣告 44,614,018 bytes、
+實際檔案只有 39,612,057 —— 手機會等那些永遠不會來的位元組，**下載卡在 89% 不動**，
+症狀看起來完全像網路問題。
+
+這個視窗常開著不關、旁邊繼續重打 APK，所以踩到的機率不低。
+改成每次請求重新 stat；檔案不在（正在重打）時回 503 並說明原因，
+不要讓手機下載到一半的檔案。
+
+---
+
+## 2026-08-08 情境匯入 id 未重映射＋清單左右對調＋版號上移 header
+
+### 情境星號永遠亮、套用沒反應
+
+owner：「APK 版切情境都會顯示星號，而且角色和對話也沒跟著套用，是因為資料從電腦匯過來的關係嗎？」——**是。**
+
+S1 匯入預設組時只換了情境自己的 id，內部的 `activePersonaId`／`activeWorldId`／
+`desktopCharacters[].characterId`／`lastActiveConversationId` 仍是電腦端 id。
+角色與對話匯入時都會發新 id，所以套用時：
+
+- 在場角色過濾全滅 → roster 不變
+- 對話 lookup 失敗 → 不切換
+- dirty 比對永遠不相等 → 星號常亮
+
+修法：`remapSceneReferences`，靠名字對回本地 id（對話靠 `importedFrom.sourceId`）。
+對不到的角色／對話引用刪掉，不要留幽靈 id。
+**「從電腦重新拉設定」也會跑同一支**，用來修舊資料——同名情境再匯入會被略過，
+光重做 S1 修不到已經壞掉的那幾份。
+
+順手：情境沒記 `colorTheme` 時 dirty 不再視同 mint（與 `applySceneSettings` 一致），
+否則非 mint 主題下星號會永遠關不掉。
+
+### 清單：左邊編輯、右邊套用
+
+owner：「套用或者加入／移除會比編輯常用」。
+角色庫／在場／情境／使用者／世界觀／對話統一：點名稱（＋小鉛筆）進編輯，
+右側較大的 `StatusChip` 做套用／加入／開啟。
+
+### 版號移到 header 左上角
+
+模式標籤下方加 `v0.4.0 · 08-08 16:21`，一步看得到。
+HeaderChips 去掉 `overflow-x-auto`，改 `overflow-hidden`＋chip 可收縮，
+避免字一長右邊出現橫向捲軸。
+
+---
+
+## 2026-08-09 情境同名略過導致套用永遠對不齊電腦
+
+owner：「從電腦拉資料，但切情境時都沒有切到和電腦一樣的角色和對話。」
+
+兩層洞疊在一起：
+
+1. **同名情境直接略過**——手機上只要有同名（先前匯壞的、或空的），
+   電腦那份在場角色／綁定對話永遠寫不進來；只做 id remap 也救不了「內容根本是空的」。
+2. **對話預設不匯入**——情境要切的那則若不在手機上，套用時 lookup 失敗就不動。
+
+修法：同名情境改為覆寫綁定欄位；S1 與「重新拉設定」都會自動帶上
+**情境綁定的那幾則對話**（使用者沒勾也會帶）。套用時若情境有記在場角色，
+對不到也不再「靜靜保持原狀」。
+
+---
+
+## 2026-08-11 提醒：台詞生成策略定案 ＋ 進階選項與歷史紀錄（原生化前的 TS 部分）
+
+### 為什麼不預先生成台詞
+
+owner：「我有可能先設完提醒、然後再大量跟角色互動、之後才關掉 App，
+如果預先生成的話，設定提醒之後的互動會被略過。」
+
+所以**建立提醒時就把台詞生好是明確否決的做法**，不要再提。
+「劃掉 App 的當下生成」也不成立——從最近工作清單上滑劃掉之前 App 早就
+`pause` 過了，`onTaskRemoved` 不保證跑得完一次 LLM 往返。可攔截的是
+「離開前景」，不是「劃掉」。
+
+**定案：現場生成為主、快取為底**（詳見 `mobile-standalone-reminder-plan.md` §2.1）：
+
+- 主線＝AlarmManager 到點 → short foreground service → **隱藏 WebView 載入既有
+  手機版 HTML（headless 旗標）** → `reminderSpeak.ts` 原封不動跑一遍。
+  好處是 **TS 邏輯零重寫**、**API Key 直接可用**（同一個 App 的 WebView，
+  secure storage 正常）。
+- **不要用 `@capacitor/background-runner`**：獨立 QuickJS context，拿不到
+  secure storage（＝拿不到金鑰）也讀不到資料層，等於被迫重造一套。
+- 底線＝快取台詞，只在現場生成失敗且 `allowOfflineFallback !== false` 時使用。
+
+### 這一輪做完的（純 TS，原生層尚未開工）
+
+| 項目 | 說明 |
+|---|---|
+| 型別 | `Reminder` 加 `wakeMode`／`inactiveBehavior`／`allowOfflineFallback`／`sceneId`／`sceneConstraint`／`conversationId`；新增 `ReminderHistoryItem`／`ReminderHistoryStatus` |
+| `core/reminder/gate.ts` | 「該不該響」的單一真相。手機 JS 排程器、日後原生喚醒、桌面三條路徑共用，否則同一則提醒在不同路徑上結果會不一樣。**情境比對排在螢幕判定前面**——情境不符是「根本不該出現」，不該被 `notify_on_unlock` 補發 |
+| `core/reminder/cache.ts` | 快取的保鮮期（24h）與「對話沒動過就不重生」的判斷（省 Token 的主要閘） |
+| `core/reminder/history.ts` | 歷史的組裝／上限（100）／刪除。`reminderLabel` 是觸發當下的快照，提醒改名或刪掉後舊紀錄仍讀得懂 |
+| 排程器 | `fire()` 前先過 gate；`defer` 的進 `deferred` set，`flushDeferredReminders()` 在回前景時補發（**只留 id 不留內容**，補發時要重新生成當下的台詞） |
+| `reminderSpeak.ts` | **不再退回 `reminder.prompt` 原文**（那是給角色的指令，照搬等於降級成行事曆）。改成退回快取台詞；沒有快取或使用者關掉降級就回 `null`。新增 `mode: 'cache-refresh'`（只回台詞、不進對話、不推事件） |
+| 生命週期 | `visibilitychange`：hidden → `refreshReminderCache()`（唯一吃得到「剛剛那輪互動」的時機）；visible → 補發押後的提醒 |
+| UI | `ReminderEditor` 進階摺疊區（預設收起，設過的話自動展開）；`ReminderHistoryView` 新畫面，入口在提醒清單底下 |
+| 測試 | `tests/core/reminderGate.test.ts` 14 條；`reminderSpeak.test.ts` 改寫成新契約（原本斷言「退回提醒原文」的兩條已不成立） |
+
+### 順手修正
+
+計畫書原本寫 package 是 `tw.nori9.dest`，實際是 **`tw.nori.dest`**
+（`android/app/src/main/java/tw/nori/dest/`，目前只有 `MainActivity.java`）。
+
+### 已知未完成
+
+`screenLikelyOn()` 目前**一律回 true** —— 純 JS 側無法判定螢幕狀態
+（App 在背景不等於螢幕暗），保守回 true 寧可多響。真正的判定要等原生層的
+`PowerManager.isInteractive()`。因此 `screen_on_only` 現階段等同 `always`，
+欄位存得下、UI 選得到，但要等第②步原生化才會真的生效。
+
+### 同日：②a 原生鬧鐘完成
+
+`android/app/src/main/java/tw/nori/dest/reminder/` 新增五個類別：
+`ReminderPlugin`（Capacitor 介面）、`ReminderScheduler`（AlarmManager）、
+`ReminderAlarmStore`（SharedPreferences 落地，開機重註冊靠它）、
+`ReminderAlarmReceiver`（到點；`PowerManager.isInteractive()` 判定螢幕）、
+`ReminderBootReceiver`（BOOT_COMPLETED ＋ MY_PACKAGE_REPLACED）、
+`ReminderNotifier`（頻道 id 與 JS 側同一個 `dest-reminders-v1`）。
+
+要點：
+
+- **原生完全不碰 prompt**。JS 在註冊鬧鐘時就把「App 死掉時要發什麼」
+  （快取台詞）一起交過去，原生只負責發出來。快取一刷新就 `rearmNativeAlarms()`
+  重註冊，否則刷了等於白刷。
+- **快取是空的就不發通知**。硬擠一則「提醒：喝水」等於降級成行事曆。
+- **原生鬧鐘刻意慢 15 秒**（`NATIVE_ALARM_GRACE_MS`）。JS 計時器與原生會同刻到期，
+  同時響的話使用者會看到舊句子被新句子蓋掉、橫幅彈兩次。App 活著時 JS 發完會
+  `cancelNativeAlarm`；App 死著時就晚這幾秒。②b 接上後要拿掉。
+- **權限**：Android 14+ 一般 App 拿不到 `SCHEDULE_EXACT_ALARM`，要用
+  `USE_EXACT_ALARM`（本來就是「使用者自己設的鬧鐘」情境）。兩個都宣告；
+  真的沒拿到時 `ReminderScheduler` 退回 `setAndAllowWhileIdle`（誤差數分鐘），
+  且提醒清單頁會出現引導banner——**不能靜默失敗**，不然使用者只覺得「提醒不準」。
+- **PendingIntent 要用 `setData` 區分**：extras 不參與比對，只靠 requestCode
+  不夠，會互相覆蓋。
+- 順手修好 `AndroidManifest.xml` 裡位置權限那段被寫成亂碼的中文註解。
+
+驗證：`gradlew assembleDebug` 通過，合併後的 manifest 確認兩個 receiver 與
+三個新權限都在。**尚未實機測試**（手邊沒有連著的裝置）。
+
+### 同日：②b headless 現場生成完成
+
+提醒到點 → `ReminderForegroundService`（shortService）起隱藏 WebView →
+載 `index.html?headless=reminder` → 既有 `reminderSpeak.ts` 原封不動跑一遍 →
+結果回原生發通知。**TS 邏輯零重寫**，桌面／前景／背景三處同一份 prompt 組裝。
+
+關鍵是三個 adapter（`src/mobile/headless/bridgeAdapters.ts`）：headless 沒有
+Capacitor Bridge，Filesystem／SecureStorage／CapacitorHttp 都用不了，
+改用 `HeadlessBridge.java` 注入的 `window.DestHeadless` 補回同樣形狀。
+檔案根目錄用 `getFilesDir()`——實測 `@capacitor/filesystem` 的
+`Directory.Data` 就是它，不一致的話 headless 會讀到空資料夾然後安靜地什麼都不做。
+
+`SecureStoreReader.java` 解 master key，**與外掛內部格式綁定**
+（`WSSecureStorageSharedPreferences`、U+0010 分隔的 ciphertext∥iv、
+KeyStore alias ＝ prefixedKey）。升級 `@aparajita/capacitor-secure-storage` 要回頭確認。
+拿不到就回 null，headless 退回快取台詞，不會崩。
+
+實作時推翻的兩個原計畫假設：
+
+1. **「②b 之後就能拿掉 15 秒偏移」不成立**。兩條路徑各自都會生成，
+   同時跑＝兩次 LLM ＋ 兩個 session 寫同一個對話檔（後寫的蓋掉先寫的）。
+   偏移要留，而且 `cancelNativeAlarm` 必須在**開始生成之前**呼叫，
+   不能等發完通知——生成一慢就來不及。
+2. **回到前景一定要重讀對話**。背景那句話是另一個 session 寫進檔案的；
+   前景記憶體是舊的，不重讀就會在下次存檔時把它蓋掉，看起來像提醒沒觸發。
+   `onAppResumed()` 現在會重讀對話／提醒／歷史並推 `state-invalidated`。
+
+`useCache` 旗標：只有 TS 整條路壞掉時才讓原生補快取台詞。「情境不符」
+「關掉離線降級」是判定結果，TS 已考慮過快取——原生再補會讓「安靜略過」失效。
+
+驗證：瀏覽器煙測（假 bridge ＋ 記憶體檔案系統）跑過四條路徑——
+找不到提醒、快取降級（訊息有進對話、歷史有紀錄）、情境不符略過、
+關掉降級時安靜略過；`assembleDebug` 通過、manifest 確認 shortService 與兩個權限。
+**仍未實機測試。**
+
+### 同日：實機第一輪回報的三個 bug
+
+owner 實測：「通知是 A 角色叫我洗杯子，點進 App 卻是 B 角色說的」、
+「把提醒改成別的內容，時間到了跳出來的還是一模一樣的舊句子」。
+
+**根因 1（最關鍵）：master key 一直讀不出來 → 每次都在走降級。**
+`@aparajita/capacitor-secure-storage` 的 `set()` 存的是 `JSON.stringify(value)`，
+所以解密後拿到的是**帶雙引號**的 `"BASE64=="`。`SecureStoreReader` 第一版直接
+原樣回傳，`base64ToBytes` 解出垃圾 → 金鑰無效。
+
+雪上加霜的是 `unavailableSecrets.decrypt` 是**原樣回傳**，於是 `enc:v1:…`
+那串密文被當成 API Key 送去打 LLM，拿 401、進 catch、退回快取——
+整條路徑「看起來有在跑」，只是永遠用舊句子。
+headless 改用專屬的 `undecryptableSecrets`（密文一律回空字串，
+`hasApiKey` 直接是 false），並在拿到金鑰時驗長度是否為 32 bytes。
+
+**根因 2：降級時用「這次隨機挑到的角色」掛名。**
+快取只存了文字，`useFallback` 拿當下挑到的 `char` 去掛——
+通知標題是快取存的 A、對話訊息卻掛在 B 身上。快取改成連
+`characterId`／`characterName` 一起帶，降級時掛回原本那個角色。
+
+**根因 3：改了提醒內容，快取不會重生。**
+`needsRefresh()` 只比對「對話有沒有更新」。加上 `reminderFingerprint`
+（label／prompt／角色／情境／對話／注入開關，**不含排程時間**——
+含了的話每算一次下一輪就白重生一次），並在 `saveReminder` 時
+內容一變就立刻丟掉那則快取＋重刷，不等下一次背景刷新。
+
+順帶：降級原因（`fallbackReason`）現在會一路寫進提醒紀錄並顯示在畫面上。
+在此之前「現場生成一直失敗」與「本來就沒網路」長得一模一樣，只能翻 logcat。
+
+### 同日：實機第二輪——headless HTTP 沒帶回應標頭
+
+owner 實測兩次：10:17 完全沒通知、紀錄寫「連不上網，跳過」；
+10:23 有通知但紀錄底下吐出一大片錯誤。**兩次同一個根因。**
+
+紀錄裡的錯誤訊息是關鍵：
+
+```
+Cannot use 'in' operator to search for 'object' in {…整包 API 回應…}
+```
+
+OpenAI SDK 用 `content-type` 決定要不要 `JSON.parse`（`openai/core.mjs` 的
+`isJSON`）。headless 的 `httpRequest` 只回了 status 與 body、**沒帶回應標頭**，
+於是 SDK 把整包回應當純文字字串回傳，接著在 `'object' in text` 炸掉。
+**LLM 其實每次都正常回話了**（紀錄裡看得到 `usage.total_tokens: 2437`
+與生成好的中文台詞），卻整趟被判定失敗而退回快取。
+
+- 10:23：有快取 → 用了 10:22 生成的舊句子（所以「看起來正常」）
+- 10:17：快取還不存在 → 沒有底線可用 → 完全不發
+
+修法：`HeadlessBridge.httpRequest` 把 `conn.getHeaderFields()` 一併回傳
+（key 為 null 的 status line 那筆要跳過），TS 端 `new Response(body, { status, headers })`。
+
+順帶修的三件事：
+
+| 問題 | 修法 |
+|---|---|
+| 回 `null` 的路徑什麼都沒留下，紀錄只寫得出「跳過」 | `speakStandaloneReminder` 加 `onFailure` 回呼；沒角色／沒對話／空回覆／生成失敗都會回報，session 收進 `lastSpeakFailure` 寫進歷史 |
+| 錯誤訊息把整包 API 回應存進 `reminder-history.json` | `history.ts` 加 `ERROR_MESSAGE_LIMIT = 200`，存之前壓成單行並截斷 |
+| 狀態標籤寫死「連不上網，跳過」會誤導 | 改成「沒有可用的台詞，跳過」——實際上常常是生成失敗／沒金鑰／沒角色 |
+
+**實機驗證（這次是自己在裝置上跑完的）**：
+推一則 `once` 提醒進 `reminders.json`、開 App 讓它註冊鬧鐘
+（`shared_prefs/dest_reminder_alarms.xml` 確認 `body: ""`＝**故意不給快取**），
+`am kill` 殺掉進程模擬劃掉，等鬧鐘。結果：
+
+```
+headless 驗證 | success | 22:33:37
+角色：琉緋璃
+台詞：欸，背景生成正常運作，今天也順利把我蹦出來了。
+```
+
+沒有快取還能發出通知且 `status: success`，證明走的是現場生成。
+
+> 之後要重現這個測法：`am force-stop` 會**清掉鬧鐘**，不能用；
+> 要先按 HOME 讓 App 進背景，再 `am kill`（只殺得掉背景進程）。
+
+### 同日：實機第三輪——同一次觸發被做了兩遍
+
+owner：「手錶跳了提醒，過幾分鐘解鎖螢幕，程式又現場重新生成了一個，
+對話看到的是後者，提醒紀錄變成兩筆。」
+
+紀錄對得上：排程 22:41:00 → 背景 22:41:24 觸發一次 → **22:47:10 又一次**（解鎖時）。
+
+**根因：JS `setTimeout` 在 App 被凍結時不會觸發，回到前景會「補跑」。**
+原生鬧鐘早就在背景把那次做完了，但 JS 這條完全不知道。
+先前做的 `cancelNativeAlarm` 只擋得住「JS 先跑」那個方向，擋不住反向。
+
+修法是兩邊都問一次「這一次是不是已經有人做過了」：
+
+- `core/reminder/gate.ts` 加 `occurrenceAlreadyHandled(lastTriggeredAt, fireAtMs)`。
+  比對基準是**這個計時器原本預定的觸發時刻**，不是現在——否則分不出
+  「補跑同一次」與「interval 的下一輪」。
+- JS 側：`scheduleOne` 記下 `fireAtMs` 傳進 `fire()`；觸發前透過
+  `hooks.occurrenceHandled` **重讀磁碟上的** `reminders.json` 比對
+  （記憶體那份是舊的，背景寫的它看不到）。
+- 原生側：鬧鐘多帶一個 `occurrenceAtMs`（= 預定時刻，不含刻意延後的 15 秒），
+  一路傳到 headless；`runReminderHeadless` 同樣先比對。
+  **這個方向也真的會發生**：前景服務會把整個 App 進程解凍，
+  被凍住的 JS 計時器可能搶在 headless 之前補跑。
+
+順帶修：**一次性提醒響過之後 `enabled=false` 沒有落地**。
+原本只在排程器的記憶體裡設，重開 App 後那則用過的提醒在清單上還是開著的。
+改在 `recordReminderTriggered` 裡一併寫檔。
+
+**實機驗證**：推一則 `once` 提醒 → 開 App 註冊（JS 計時器 23:02:10、
+原生鬧鐘 23:02:25）→ **按 HOME 並關螢幕但不殺進程**（讓 JS 計時器留著被凍結）
+→ 等鬧鐘 → 解鎖回前景。結果：
+
+```
+23:02:26 [headless] 啟動        23:02:30 [headless] 結束：success（發通知）
+23:03:44 回到前景 → 沒有任何補跑觸發
+提醒紀錄：這次觸發只有 1 筆        對話：只有 1 則訊息
+reminders.json：enabled 已落地為 false
+```
+
+> 重現這個測法的注意事項：**不能 `am kill`**——那樣 JS 計時器跟著死掉，
+> 就測不到補跑。要讓進程活著被系統凍結（HOME ＋ 關螢幕）。
+
+### 同日：實機第四輪——離線時提醒整個被吞掉
+
+owner：「沒有網路的情況下提醒被吞掉是正常的嗎？」紀錄是
+`skipped_offline`＋`Connection error.`，快取是空的。
+
+**不正常，而且是 UI 承諾了程式沒做到的事。** 那個開關的標籤是
+「連不上網時仍要提醒」、預設開著，勾了卻完全沉默。原本的設計
+（「沒有快取就不發，免得降級成行事曆」）在這個情況推過頭了——
+沉默比一則樸素通知更糟，連「有件事該做」都丟了。
+
+改成三層（見計畫書 §2.1）：成功→角色的話；失敗有快取→先前的角色台詞；
+失敗沒快取且開關開著→**樸素提醒事項**（`offline_plain`，老實寫
+「（離線中，角色暫時說不了話）」，不裝成角色在講話、不進對話）；
+開關關著才是真的沉默。原生鬧鐘身上那份底線也照同樣三層準備。
+
+**修的時候又抓到一個更隱蔽的**：第一次驗證時狀態記成 `offline_fallback`
+而不是 `offline_plain`，追下去發現**刷快取把降級結果存起來了**——
+按 HOME 進背景時已經離線，`refreshReminderCache` 生成失敗後走了降級，
+然後把「（離線中，角色暫時說不了話）」當成生成結果寫進 `reminder-cache.json`
+（`characterId` 還是空的）。快取會這樣一路自我複製下去。
+修法：`cache-refresh` 模式下**永不降級**（直接回 null），
+`refreshReminderCache` 再加一道 `status === 'success'` 才存。
+
+**實機驗證**（飛航模式、快取清空、App 背景凍結）：
+
+```
+23:32:05 已交給前景服務現場生成 → [headless] 啟動
+23:32:09 [headless] 結束：offline_plain（發通知）
+提醒紀錄：離線驗證2 | offline_plain | 「提醒我把水壺裝滿（離線中，角色暫時說不了話）」
+快取：{} —— 沒有被毒化
+```
+
+---
+
+## 手機獨立版個人新聞報（缺口 #6，2026-08-12）
+
+依 `news-standalone-kickoff.md` §4 的建議順序，分七步把新聞報從只有桌面能用
+抽成桌面／手機共用的 `core/news/`，逐步接上 `LocalDataSource.news.*`（15 支
+`pending` 全部接完）。過程中每步都 `npm test` ＋ `typecheck`，重要節點另外
+用 Browser 分頁跑過。
+
+**新增的 core 檔案**：`moduleId.ts`（module id 單一來源）、`rssAdapter.ts`
+（`RssParseAdapter` 介面）、`sources.ts`（抓取／快取，改吃注入的
+`{http, rss}`）、`readerState.ts`（釘選／不看了）、`settings.ts`（正規化＋
+讀寫）、`readerFetch.ts`（批次／單欄抓取＋配額／排序）、`enrich.ts`
+（原本純規則那半之外，把抓原文／輔助模型摘要那半也搬進來，改吃
+`{http, storage}`）、`schedule.ts`（定時陪聊要塞進提醒清單的那條特殊
+Reminder，純函式）、`injection.ts`（「說點什麼」／主動發話的抽選＋記已讀＋
+enrich 整套流程，桌面與手機共用）。桌面 `main/modules/news/*` 全部改薄殼，
+固定綁 `electronHttp`／`electronRssParser`（包 `rss-parser` 的 `parseString`）
+／`electronStorage`，函式簽章不變，`ipc.ts`／`mobileRoutes.ts` 完全沒動。
+
+**§3.1 的技術決策（RSS 解析）**：實測 `rss-parser`（底層 `xml2js`）在
+`vite build --config vite.mobile.config.ts` 下會把 `events`／`timers`／
+`stream` 外部化成空殼——build 不報錯，但那些模組是真的被用到（`sax` 內部
+靠 `events.EventEmitter`），一執行就炸。改成 `core` 只定義
+`RssParseAdapter` 介面（`parseFeed`／`parseTrendsFeed`，吃已解析好的
+`ParsedFeed`），桌面注入包 `rss-parser` 的版本，手機注入
+`mobile/adapters/rssParseAdapter.ts`（瀏覽器原生 `DOMParser`，含 Google
+Trends 的 `ht:news_item` 命名空間解析）。手機版沒辦法走 vitest（Node 環境
+沒有 `DOMParser`），改用 Browser 分頁的 `javascript_tool` 對著真的 Chromium
+餵 Google News／一般 RSS＋`content:encoded`／Atom／Trends 熱搜四種樣本
+XML，全部欄位解析正確才定案。
+
+**步驟⑦「聊天注入」是真正的缺口本體**：`mobile/runtime/chat.ts` 原本
+只認得已經掛好的 `newsLink`（「聊這個」明確點選才會動，靠 `chatWithLLM`
+內建的 `expandNewsLinkForPrompt` 自動展開，這段其實早就通了），但完全沒有
+「主動抽一則新聞當話題」的邏輯——`forceSpeakStandalone`（說點什麼）與
+`reminderSpeak.ts`（`reminder.injectNews`）都是照抄桌面砍掉新聞那段留下的
+空缺。這次比照桌面 `ipcHandlers.ts` 的兩條路徑接上
+`core/news/injection.ts` 的 `getNewsInjectionForSpeak`：說點什麼走
+`triggerDirective` 傳指令（跟桌面 force-speak 路徑一致），提醒路線因為
+沒有「便利貼併選」的候選機制，指令直接併進 `[發話重點]`（跟桌面提醒路線
+一致）。兩處都會把抽中的新聞（或釘住的話題）轉成 `newsLink` 掛回訊息，
+讓聊天泡泡的 📰 標題與「作為後續聊天主題」按鈕動起來。角色卡的
+`newsKeywords`／情境的 `newsKeywordGroupId` 也一併接上抽選情境。
+
+**刻意沒做的**：桌面「使用者回話後幫剛聊的新聞來源加分」那段
+process 級待結算回饋（`pendingNewsCreditSourceId`）沒有搬——那是回饋
+微調的錦上添花，不是「聊天會不會提到新聞」的必要條件，先不擴大這輪的
+風險面。背景定時抓新聞、對話新聞搜尋、搬家包三項延續 kickoff 文件原本
+就排除的範圍，這輪沒碰。
+
+`MainMenu.tsx` 的 `STANDALONE_PENDING.news` 與 `ReminderEditor.tsx`
+「抓一則新聞當話題」的灰字都已解除。新增／改動測試：
+`tests/core/moduleSettings.test.ts`、`tests/news/{readerState,readerFetch,
+schedule,injection}.test.ts`，`tests/data/dataSource.test.ts` 更新了
+「未接的面該 reject」那個斷言（15 支全部接完，改驗證 `enrichForChat` 在
+沒有 URL 時走 RSS fallback 而不連線）。全程 `npm test`（516 通過）、
+`typecheck`、`build:mobile`（無 Node 模組外部化警告）、`npm run build`
+（桌面 electron-builder 全量打包）都過。
+
+### 同日：owner 實機回報的兩件事
+
+**① 「新聞模組打勾完切到個人新聞報又回到沒開的狀態」。**
+
+`session.ts` 的 `listModules` 把 `desktopst.news` 的 enabled 寫死成
+`false`，`setModuleEnabled` 對新聞是**空的 no-op**，註解還留著
+「獨立模式新聞模組設定檔尚未接；先忽略不炸」——接 core 那七步全程沒掃到
+這兩處，因為它們在 `session.ts` 的模組開關區、不在新聞相關檔案裡。
+
+根因是**新聞的開關與其他三個模組不同層**：天氣／Spotify／日曆都住在
+`settings.json`（所以 `listModules` 一直是同步的），新聞的住在
+`modules/desktopst.news/settings.json`，讀寫是非同步的。`DataSource`
+介面本來就宣告 `listModules(): Promise<ModuleToggle[]>`，只是 session
+那層偷懶做成同步，於是新聞沒地方接。改成 async 之後兩邊都對上了。
+
+補了迴歸測試（`tests/mobile/standaloneSession.test.ts`）：打開 →
+**用同一份 storage 重新 boot** → 仍是開的。重點在「重新 boot」而不是
+只驗當下的回傳值，不然這個 bug 照樣測不出來。
+
+**② 「新聞設定能從電腦匯入過來嗎？不然我要手動重設關鍵字很麻煩」。**
+
+`/api/sync-init` 的 bundle 加 `news` 欄位（`getNewsSyncSettingsDirect`），
+手機端新增 `applyNewsSettings` 落地。因為新聞設定不在 `settings.json`，
+沒辦法塞進既有的同步 `applySettings`，得另外走一支非同步的。
+
+**刻意不帶的四項**（都寫進了函式註解，免得日後有人「順手補齊」）：
+- `enabled`：走既有的 `modules`。兩處各送一份而值不同時，行為會變成看
+  誰後套用，不值得為了「一次寫完」冒這個險。
+- `seenIds`：「這則聊過了」是每台裝置各自的去重歷史，不是設定。
+- `feedback.adjustments`：學習來的權重是衍生資料，跟著各自的使用習慣長。
+- `reminder`（定時陪聊排程）：手機的提醒是原生精準鬧鐘、有自己一套，
+  把電腦的排程灌過去會憑空多出一則使用者沒在這台裝置答應過的鬧鐘。
+
+順帶補上 `applySettings` 的模組開關迴圈**原本也漏掉新聞**——同一個遺留的
+另一半，只是這半要等 ① 修好才有意義。
+
+**驗證方式的限制**：瀏覽器分頁抓不到真新聞（`news.google.com` 沒有
+`Access-Control-Allow-Origin`，只有真機的 CapacitorHttp 繞得過）。
+但這反而驗到了三件事：關鍵字加完重整後還在、抓取管線用它組出了正確的
+Google News URL 並真的發了請求、被 CORS 擋下之後畫面正確落回
+「目前沒有新聞」而不是炸掉。**除了網路層本身，其餘都通了。**
+
+---
+
+## 2026-08-12｜獨立版新聞「聊這個」真機除錯：解不開 Google 新聞原文
+
+owner 實機試用個人新聞報時回報三件事，其中一件牽出了一個**只在手機發生、
+而且會靜悄悄退化**的根因。整輪是插 USB 開 logcat、加診斷 log、
+打 debug APK 反覆驗證出來的。
+
+### 症狀
+
+「聊這個」抓不到原文，面板只給一段很短的 RSS 摘要，角色講得很空泛。
+owner 的體感是「有的成功有的失敗」。
+
+### 診斷過程（`[news-diag]` log 就是這次加的，**請保留**）
+
+`core/news/enrich.ts` 整條管線橫跨四個外部依賴（解 Google 跳板 → 抓正文 →
+抽內文 → 輔助模型），失敗時只會回一句籠統的 warning，**分不出斷在哪一步**。
+所以先加了 `diag()`，每一步印 `[news-diag]`，真機用
+`adb logcat -s Capacitor/Console | grep news-diag` 就能定位。
+
+第一輪 log 立刻推翻了「有時成功」的假設：
+
+```
+start  isGoogle=false → end source=rss-adequate     ← 成功的其實是這種
+start  isGoogle=true  → end source=rss-fallback warning=google-news-resolve-failed
+```
+
+**成功的那些根本沒走抓原文那條路**（RSS 摘要夠完整就直接採用，連輔助 LLM
+都沒叫）。凡是 Google 新聞來源的，一律失敗，`forceRefresh` 也一樣。
+
+### 根因（兩層，第二層才是真的）
+
+**第一層**：`batchexecute` 的回應是**分段格式**，每段前面有一行長度數字、
+段數不固定。舊寫法只剝掉第一個長度數字就整包 `JSON.parse`，多一段就必炸。
+炸完落在一條沒有 log 的早退路徑上（`if (!Array.isArray(envelopes)) return null`），
+所以連錯誤都看不到。
+
+**第二層（真正只影響手機的那個）**：修完第一層真機仍全滅，log 顯示
+
+```
+resolve.rpc-body head=")]}'\n\n[[\"wrb.fr\",\"Fbv4je\",\"[\\\"garturlres\\\",\\\"https://…
+```
+
+換行是**字面上的 `\n` 兩個字元**、引號是 `\"`、`garturlres` 前面**三個**反斜線
+—— **CapacitorHttp 把回應多做了一次 JSON 編碼**。原因是這個回應宣稱
+`content-type: application/json`，但有 `)]}'` 前綴不是合法 JSON，原生層
+`JSON.parse` 失敗後當字串留著，fetch patch 再 `JSON.stringify` 一次還給我們。
+
+**桌面走 Node fetch 不會這樣**，所以症狀是「桌面完全正常、只有手機壞」，
+而且壞得很安靜。這條已寫進 `CLAUDE.md` §5。
+
+### 修法
+
+- `extractGarturlres()`：逐段掃（跳過長度數字行），最後留一層 regex 保底，
+  Google 之後再改外層包裝也不會整條啞掉。regex 用 `\*`（零到多個反斜線），
+  **不要寫死轉義層數**。
+- `normalizeRpcBody()`：偵測到「沒有真換行、卻有字面 `\n`」才還原，
+  桌面那條路徑逐字不受影響。
+- 測試直接用真機 log 觀察到的字串形狀釘住（`tests/news/enrich.test.ts`）。
+
+修完真機四則全部 `resolve.ok` → 抓到原文 → 兩則走輔助模型摘要、
+兩則正文夠短直接用，整趟 0.8–4.4 秒，沒有任何 warning。
+
+### 同一輪的其他三項
+
+**① 「聊這個」面板下緣被手勢列吃掉、按不到「確認帶去聊」。**
+原本整塊 `overflow-y-auto` ＋ `max-h-[80vh]`：整塊捲會把按鈕推到捲動區最底，
+`vh` 又不含 Android 手勢列。改成外層 flex column、只有中段 textarea 捲，
+`85dvh` ＋ `paddingBottom: calc(var(--safe-bottom) + 12px)`。真機確認 OK。
+
+**② 面板補齊到與桌面 `NewsContextPanel` 對等**：來源、失敗提示
+（`hintFromWarning`，文案與桌面逐字對齊）、開原文 ↗、**重新總結**
+（`forceRefresh: true`，跳過 enrich 快取真的重抓）。
+
+原本 UI 只看 `enrichForChat` 的 `ok`，但**失敗時兩邊都回 `ok: true` ＋
+`warning`**，於是「抓原文失敗、退回 RSS 摘要」被畫成正常結果——使用者只看到
+一段沒總結過的字，不知道發生什麼事，也不知道可以重試。
+
+**③ 送出之後找不到原文、也清不掉摘要。**
+- 聊天紀錄點 📰 標題的視窗加「原文 ↗」（手機借 `DialogRequest.extraActions`，
+  桌面在 `NewsContextPanel` 加 `onClear`／既有的 `onOpenOriginal`）。
+- 加「清除摘要」。**摘要會跟著訊息一路留在上下文視窗裡**
+  （`expandNewsLinkForPrompt` 每輪重新展開），不清就一直在。
+  owner 要的語意是「留下我們討論過這則的紀錄，細節不用」——
+  所以清除後 **Prompt 只留 `Title:`**，不帶 `Details:`。
+- ⚠️ 沒有 Details 時那句 `use the Details above` **要換掉**，指著不存在的東西
+  會讓模型自己補一段沒人講過的內容。
+- ⚠️ **空字串與 `undefined` 意義不同**：`''` 是使用者清掉的，`undefined` 是
+  從沒整理過（仍該退回 `summary`）。面板初始值原本寫 `promptContext || summary`，
+  `||` 會把空字串當「沒有」→ 清掉、關掉、再點開摘要就**復活**，
+  看起來像按鈕壞掉。兩邊都改成 `??`。
+- ⚠️ `cacheManualPromptContext(id, '')` 原本會把空字串當有效的手動摘要存進
+  enrich 快取，於是清除之後同一則再按「聊這個」拿到空的，4 小時內連
+  「重新總結」都救不回來。改成空的就刪快取。
+
+### 不是 bug 的那一項
+
+owner 回報角色回覆句尾出現 `♀♀♀♀`。把手機上的對話 JSON 拉下來逐字檢查：
+`ZWJ(200D): 0 / VS16(FE0F): 0 / 非 BMP 字元: 0`，程式碼裡也沒有任何地方會
+產生或過濾這個字元。**不是 emoji 被截斷（那會留下 ZWJ 或變體選擇符），
+是模型自己吐的**（gpt-5.6-luna）。程式面無事可修。
+
+> 真機除錯備忘：`adb shell run-as tw.nori.dest cat files/conversations/<id>.json`
+> 可以直接讀原始對話（debug build 才行），懷疑「畫面顯示壞掉」時先看這個，
+> 能立刻分辨是資料本來就長這樣還是 UI 畫錯。
+
+---
+
+## 2026-08-12（續）｜新聞報 UI 四項回報：兩個真 bug、一個誤解、一個版面重做
+
+承上一節，owner 繼續試用時回報四件事。真機用 `adb shell input tap` ＋ `screencap`
+逐項驗過（螢幕不能鎖，鎖了就只能請 owner 解）。
+
+### ① 「操作到一半自己跳回首頁」＝ 返回鍵在 APK 裡從來沒生效過
+
+**最有價值的一條。** 加 `[nav-diag]`（`uiStore.ts`，印每次 push／pop／popAll／back
+與當下堆疊）之後，真機按一次返回鍵 —— log 裡**完全沒有 `back`**，app 直接被關掉。
+
+根因：`useBackButton.ts` 原本整支只靠 `history.pushState` ＋ `popstate`，
+註解還寫著「Android WebView 會把返回鍵轉成 popstate」。**那是錯的。**
+Capacitor 8 的 `BridgeActivity` **沒有覆寫 `onBackPressed`**，返回鍵走 Activity
+預設行為（`finish()`），完全不碰 WebView 歷史。於是每一層 sheet 都是單向陷阱：
+往回滑 ＝ 結束 activity，從最近使用回來是全新啟動、停在聊天畫面——
+使用者看到的就是「我在管理關鍵字，點一點就跳回首頁」。
+
+修法就是那段註解自己預言的：裝 `@capacitor/app`，用它的 `backButton` 事件。
+瀏覽器仍走 popstate，兩條路徑共用 `handleBack()`，所以「哪一層先關」只有一份規則。
+真機驗證：新聞設定 →（返回）→ 新聞報 →（返回）→ 聊天，app 不再退出。
+
+> ⚠️ 這個 bug **在瀏覽器上永遠測不出來**（瀏覽器的返回真的會發 popstate）。
+> 凡是「返回鍵／手勢」相關的行為，只有真機算數。
+
+### ② 配額設 5 卻只拿到 3 —— 兩個原因，都不是抓取端的錯
+
+`[news-diag] pick` 印每一欄的 `limit / pool / excluded / taken` 之後就清楚了：
+
+```
+初次抓取  kw:女性向  limit=5 pool=5 excluded=0 taken=5
+重抓      kw:女性向  limit=5 pool=5 excluded=4 taken=1
+```
+
+- **配額根本沒送到抓取端**：`newsStore.setQuota` **從來不更新 store 裡的配額**
+  （`readerBreakoutQuota`／`readerPerKeyword`／`sources[].readerQuota` 都沒動），
+  數字框是 `key={value}` 的 uncontrolled，於是畫面停在舊值。已補上，
+  正規化規則與 `core/news/readerFetch.setReaderQuota` 對齊。
+- **更陰的一層**：`setReaderQuota` 是「先存檔、再重抓那一欄」，原本的程式碼在
+  `!r.ok` 時直接 return —— **重抓失敗不代表沒存到**。配額更新必須放在 `r.ok`
+  檢查**之前**，否則弱網下存了卻不反映，就是「設了 5 還是 3」。
+- 剩下的「只有 4 則」是真的：「女性向」整個池子只有 5 則（其他關鍵字是 50–108）。
+  重抓只拿 1 則則是 `strictExclude` 的預期行為（寧願少也不重複）。
+
+### ③ 「選管理關鍵字就跳回全部」
+
+`NewsView` 有一條「目前分頁的欄沒東西了就退回全部」的保險，但在管理面板裡
+加／刪／改名關鍵字都會讓欄位 id 變動，每編一次就被踢回全部；而分頁列當下是
+隱藏的，所以只在關掉面板時才發現。改成**面板開著時不判**，關掉後再判一次。
+
+### ④ 兩層導覽 ＋ 熱門話題開關（owner 選的方向）
+
+- 導覽拆成第一層「關鍵字組」、第二層「該組底下的欄」（縮排＋小一號字）。
+  固定欄（熱門／地方／訂閱／其他）不屬於任何關鍵字組，集中成「其他來源」，
+  不散在關鍵字組之間。只有一個組時第一排不畫。
+- 熱門話題開關：背後就是把該欄配額設 0（`setReaderQuota` 對 `__breakout__`
+  本來就允許 0），**沒有新機制**，只是把本來做得到卻看不出來的事變成開關。
+  關掉前記住則數，打開時還原。
+
+### 不是 bug 的那一項
+
+角色回覆句尾的 `♀♀♀♀`：把手機上的對話 JSON 拉下來逐字檢查，
+`ZWJ: 0 / VS16: 0 / 非 BMP 字元: 0`，程式碼也沒有任何地方會產生或過濾它。
+不是 emoji 被截斷（那會留下 ZWJ 或變體選擇符），是模型自己吐的。
+
+### 還沒做
+
+owner 提議**把地方新聞併回一般關鍵字組**（它本來就是 `type: 'keyword'`，
+只是 `origin: 'location'` ＋ 六處特例）。已討論方向與三個要決定的點
+（`fromDetection` 自動帶入要不要留、搬家包語意會變、必須保留一個預設組），
+**實作計畫待寫**。
+
+---
+
+## 2026-08-12（續二）｜地方新聞併回一般關鍵字組
+
+owner 提議、拍板後當天做完。計畫與落地紀錄在 `docs/news-local-merge-plan.md`
+（含 §9 的兩處「與計畫不同」與兩個真機 bug），這裡只留索引與最關鍵的一條教訓。
+
+**做了什麼**：地方新聞本來就是 `type: 'keyword'`、縣市名當查詢字，只差一個
+`origin: 'location'` 與散在 9 個檔案的 10 處特例。把資料搬平成一般關鍵字之後
+特例全刪，桌面／遙控／獨立版自動一致。順帶解掉「手機完全編輯不到地方新聞」
+（`NewsEditableSettings` 不含 `localNews`）。
+
+**owner 的兩個決定**：
+- 情境切換會讓地方新聞跟著被切掉 → **接受**（「不是每個使用者都想看地方新聞」）
+- 「偵測我的縣市」按鈕**保留**（「出外時看一下當地狀況有用」），改成加一個一般關鍵字
+
+**最關鍵的教訓**：**遷移只寫在讀取路徑等於沒有做完。** 正規化是純函式、
+只作用在記憶體，磁碟要等下次有人存設定才會被覆蓋；在那之前每次讀都重跑遷移，
+冪等旗標永遠不生效。單元測試全綠、畫面完全正常，只有 `adb shell run-as ... cat
+settings.json` 看得出磁碟還是舊的。已寫進 `CLAUDE.md` §5。
+
+---
+
+## 2026-08-13｜S2 M3 推送實作盤點與文件校正
+
+M3 的手機 → 電腦推送引擎已落地：角色、人設、世界觀、Lorebook、情境會依使用者選取
+逐項送出；每一項成功後立即寫回 `sync-baseline.json`，角色重推另會先確認基準中的
+`remoteId` 仍存在，避免過期基準覆蓋同名但無關的電腦角色。相關測試在
+`tests/mobile/syncPush.test.ts`。
+
+**尚未完成／不可宣稱 M3 完成：**設定推送尚未接入主流程，電腦 → 手機拉取尚未接入，
+對話仍屬 M4。更重要的是，檢查發現 `ModeSwitcher` 把手機 → 電腦的 `pushSync()` 接在
+「遙控 → 獨立」流程；正確的資料流應是「獨立 → 遙控」推送，以及「遙控 → 獨立」拉取。
+這是 P1：修正前不可用真機同步驗收，以免手機舊資料覆蓋電腦資料。
+
+本次盤點時 `npm.cmd run typecheck` 與 `npm.cmd test` 均通過（45 個測試檔、594 項測試）；
+自動測試目前未覆蓋 `ModeSwitcher` 的兩個實際切換方向，修正時須補上流程測試與 Pixel
+真機資料驗證。
+
+---
+
+## 2026-08-13（續）｜S2 M3 P1 方向修正
+
+修正上面那條 P1：`ModeSwitcher.tsx` 的 `tryConnect`（獨立 → 遙控，含 `goRemote`／
+`onScan`／`onManual` 三個入口）現在選「帶過去並切換」時呼叫 `pushLocalToRemote()`
+（手機 → 電腦，沿用既有 `syncPush.ts`）；`goStandalone`（遙控 → 獨立）選同一個選項
+時改呼叫 `pullRemoteToLocal()`（電腦 → 手機，新檔 `src/mobile/runtime/syncPull.ts`）。
+
+**拉取方向的做法**：不是重新設計一套「依 diff 逐項選取」的拉取邏輯，而是直接複用
+S1 既有的 `runSyncImport()`，`onConflict` 固定 `'overwrite'`——當作「使用者在切換
+當下按下的這次帶過去，等同再跑一次初始化匯入，且電腦端是剛用過的那份，同名就該
+蓋過去」。丟給 `runSyncImport()` 前會先拔掉 `bundle.llm.apiKeys` 與
+`bundle.weather.realtimeQuery.cwaApiKey`——`runSyncImport()` 本來是 S1 專用，會把
+電腦附的金鑰一併帶下來，但 S2 同步任何情況都不該碰金鑰。
+
+**路由邏輯抽成純函式**：新檔 `src/mobile/runtime/modeSwitchSync.ts` 匯出
+`pushLocalToRemote()`／`pullRemoteToLocal()` 兩支，不碰 React／zustand／Capacitor，
+讓「哪個方向該打哪些端點」能被單元測試直接驗證，而不必掛整個 UI 元件才測得到
+P1 這種方向接錯的問題。新增 `tests/mobile/modeSwitchSync.test.ts`（驗證兩個方向
+分別只打各自的端點，不會混）與 `tests/mobile/syncPull.test.ts`（驗證真的落地資料、
+API Key 被拔掉、同名 overwrite）。
+
+**仍未完成**：設定推送（`syncPush.ts` 的 `pushSettings()`）還是死碼，獨立 → 遙控
+這個方向推不動手機端改過的設定；對話同步仍是 M4，兩個方向這次都沒碰。
+`npm run typecheck` 與 `npm test` 均通過（47 個測試檔、600 項）——**這只驗證了
+邏輯正確，不是真機驗證**。真機上兩條切換路徑（獨立→遙控的推送終點是電腦、
+遙控→獨立的拉取終點是手機）尚待用 Pixel 10a 實測，細節列在
+`docs/mobile-sync-m3-kickoff.md` §9。
+
+---
+
+## 2026-08-13（續二）｜手機頭像三連修（真機測 S2 M3 時一路揪出來的）
+
+owner 真機驗證 S2 M3 的過程中連續踩到三個頭像相關的坑，成因**互不相同**，
+但症狀都長得像「圖片壞了」。按發現順序：
+
+### ① 獨立版選圖後頭像放不進去（`?v=` 把 data URI 弄壞）
+
+換頭像後為了破瀏覽器快取，程式會在網址後面接 `?v=N`。遙控模式的頭像是真的
+網址（`/api/avatar/:id`），接了沒事；但**獨立模式回的是
+`data:image/png;base64,...`**（`session.avatarDataUrl()`），在 base64 內容
+後面接 `?v=1` 等於把整串弄成非法 data URI。**瀏覽器不會拋錯**，`<img>` 只是
+靜靜 `onerror`，畫面上就是「選完圖欄位閃一下又變空、沒有任何錯誤訊息」。
+修法：`withCacheBuster()` 只對非 `data:` 開頭的網址加版本號
+（`ui/characters/useAvatarUrl.ts`，有單元測試）。
+
+### ② 裁切畫面全黑（`<img>` 掛在 `ready &&` 底下，ref 抓不到）
+
+新做的裁切畫面（見下）一開始把 `<img>` 包在 `{ready && ...}` 裡，但設定
+`src` 的程式碼在解碼完成的 callback 裡、**那時 `ready` 還是 `false`**，
+`imgRef.current` 是 `null`，設 src 那段被靜靜跳過；等 `setReady(true)` 讓
+`<img>` 真的掛上去時，設 src 的程式碼早就跑完不會重跑。結果畫面全黑
+（看到的只是黑底遮罩），按完成時 `drawImage` 對著一張沒有 src 的圖裁，
+存進去的頭像也是黑的。修法：`<img>` 一律掛著，用 `visibility` 控制可見性。
+
+**教訓**：要用 ref 抓的 DOM 節點不能條件式掛載，否則「設定它」與「它存在」
+的時序不保證對得上。
+
+### ③ 電腦端換的主圖不會反映到遙控版（伺服器沒送快取標頭）
+
+最隱蔽的一個。`GET /api/avatar/:id` **完全沒送任何 `Cache-Control`**，
+瀏覽器就套用啟發式快取自己猜有效期，之後連問都不問直接用舊圖。
+而網址（`/api/avatar/:id`）在換圖前後**一模一樣**，所以沒有任何東西會
+讓它失效。
+
+**症狀為什麼難聯想**：owner 的回報是「電腦上改角色卡內文有即時反映到手機，
+只有圖片不行」——因為文字是 JSON，點進角色詳細資料時
+`CharacterEditor.load()` 當場重抓一份，永遠是新的；圖片則只是一張永遠
+不變的「提貨單」，倉庫裡換了貨沒人通知它。看起來像「圖片同步沒做」，
+實際上兩者根本走不同機制。
+
+修法兩半：
+- **伺服器端**（真正的修法）：送 `Cache-Control: no-cache` ＋ 由 mtime／size
+  算的 ETag，沒換過回 304 不傳位元組。已寫進 CLAUDE.md §5。
+- **手機端**：已經畫在畫面上的 `<img>` 就算重新 render 也不會自己重抓，
+  所以 `state-invalidated` 要順手清掉全部頭像快取（`invalidateAllAvatars()`）。
+  版本號**故意改成全站共用一個**而不是每隻角色一個——那個事件不會告訴你是
+  哪一隻角色變了，與其去追蹤「哪些角色可能被電腦動過」，不如換頭像這種低頻
+  操作就讓全部一起重問。
+
+⚠️ 中途一度誤判：先只做了手機端那半，並跟 owner 說「切背景再切回來就會更新」。
+owner 回報「我沒切背景，文字就已經是新的了」才發現**那個事件在該情境根本沒觸發**
+（文字新是因為畫面掛載時自己重抓，不是事件驅動），手機端那半對該情境完全無效。
+**教訓：使用者說「A 會更新、B 不會」時，要先確認 A 是靠哪條路徑更新的，
+不要假設兩者走同一條。**
+
+### 順帶完成：選頭像後的裁切畫面（owner 2026-08-13 提案）
+
+拿手機相簿實測才發現沒有裁切根本不能用（塞進去的都是構圖不對的原圖）。
+規格由 owner 拍板：pinch 縮放、正方形裁切框、選完圖直接跳裁切、
+圓形虛線預覽框（頭像顯示時是圓的）。
+
+- `ui/characters/AvatarCropView.tsx`——全螢幕，套路照抄專案裡唯一有手勢的
+  `Lightbox.tsx`（觸控事件自己掛不用 React 的 `onTouchMove`，因為 React 掛的是
+  passive listener、`preventDefault()` 沒作用；手勢狀態放 ref 不進 state，
+  否則每幀重繪整棵樹會頓；雙指放開剩一指要重設平移基準否則畫面會跳）。
+- `ui/characters/avatarCropMath.ts`——座標數學抽成純函式另外測（9 例）。
+  抽出來的理由：pinch/拖曳**只有真機摸得出手感**，瀏覽器煙測驗不到，
+  程式碼至少要能用單元測試鎖住「裁切框對應原圖哪個矩形」的公式沒寫錯。
+- 掛在 `uiStore` 的獨立欄位（比照 `lightbox`，不進 `stack`），用
+  Promise 包裝讓 `changeAvatar()` 能直接 `await`；返回鍵優先關它。
+- **GIF 跳過裁切**：裁切一定要過 canvas，動圖只會留下第一格。
+
+`npm run typecheck`／`npm test`（49 檔、613 項）／`npm run build:mobile` 全過。
+①② 已經真機驗證通過（owner 實測選圖正常、裁切畫面正常顯示）；
+③ 的伺服器端修正**尚未真機驗證**（要重開電腦端 DeST 才會生效）。
+
+---
+
+## 2026-08-13（續三）｜同步造成的角色 id 斷裂：修復 ＋ 加名字快照
+
+### 出了什麼事
+
+owner 回報「電腦上之前的對話記錄，角色名稱掉光了」。查磁碟後確認**對話內容一個字都沒少**，
+壞的是「訊息 → 角色」這條連結：訊息只存 `characterId`、不存名字，7 隻角色的 id 換掉之後
+五月到八月的對話全部查不到人。
+
+**成因鏈**（每一環都是這兩天在修的東西）：
+1. S2 M3 方向接錯（遙控→獨立時反而把手機資料推去電腦）＋ 基準沒寫回
+2. → 同一批角色被反覆推去電腦，每次都被判成新角色 → 電腦上出現整批重複角色
+3. → owner 手動把重複的移走（`D:\duplicates`），但**留下來的是手機推過去的新複本（新 id）**
+4. → 所有舊對話與情境指向的原始 id 全部消失
+
+### 修法：把原始角色搬回去，而不是改寫對話
+
+一開始打算改寫對話裡的 id，查完之後改用相反的方向，理由是資料本身講得很清楚：
+
+- 兩邊內容**完全相同**（連 8 張表情差分圖的檔名與大小都一樣）——手機那趟來回沒有損失任何東西
+- **幾乎所有東西都在用舊 id**：22 則對話（含兩個各約 95MB 的大檔）、全部情境
+- 用新 id 的只有三處：一則當天凌晨的對話、`settings.json` 裡桌面上的兩隻角色
+
+所以把 7 個原始資料夾搬回角色庫，對話與情境**全部自動修好**，完全不用碰那 190MB 的對話檔；
+只需要改那三處。實際執行：備份 → 搬回原始 → 新複本移到 `D:\duplicates-新複本`（不刪）→
+改三處 id。驗證結果：22 則對話與全部情境的角色都查得到。
+
+> **教訓**：修資料前先問「哪一邊的引用比較多」。往引用少的那邊改，動的檔案少一個數量級。
+
+### 加上名字快照（`Message.characterName`）
+
+owner 提議「對話記錄要不要多存一個角色名稱」——對，而且這個專案**早就對使用者身分做了同樣的事**
+（`personaName`，註解寫著「身分可以被改名或刪除，但當時的對話記錄應該保持原樣」）。
+角色那一側沒防到，正是這次名字整片消失的原因。
+
+實作上與 `personaName` 有一個關鍵差異，**不要照抄**：
+
+| | `personaName` | `characterName`（新） |
+|---|---|---|
+| 定位 | 唯一來源（純快照） | **只做備援** |
+| 顯示 | 一律用快照 | id 查得到 → 用角色**現在**的名字；查不到才用快照 |
+| 理由 | 「當時用哪個身分講話」是歷史事實 | 角色是至今仍存在的實體，改名後舊對話也該跟著更新 |
+
+- 邏輯放 `core/chat/characterName.ts`（`resolveCharacterName` / `stampCharacterNames`），兩平台共用，有單元測試
+- 補寫時機在**存檔收口**：桌面 `fileStore.saveConversation`、手機 `session.saveConversation`。
+  不在 13 個建立訊息的地方各寫一次——那種散彈式改法一定會漏，而且之後新增的路徑也不會記得帶
+- 桌面的角色名單靠注入（`fileStore.setCharacterNameSource`），不讓 fileStore 自己讀檔：
+  真相在 `ipcHandlers` 的記憶體名單上，讀檔會拿到落後一步的版本。傳 getter 不傳陣列，
+  因為 `characters` 這個變數會被整個換掉
+- 規則刻意保守：**只補不覆蓋**（已有的快照比現在的猜測可信）、**查不到就不寫**
+  （寧可留空讓 UI 顯示「不知道是誰」，也不要塞一個猜的名字進使用者的存檔）
+- ⚠️ `src/renderer/src/types/index.ts` 有一份**平行的 `Message` 定義**（不是 core 的 re-export，
+  `src/main/types.ts` 才是）。core 加欄位時這裡要一起加，否則 renderer 讀得到值卻過不了型別檢查
+
+**沒有回填舊訊息**：修復方式改成搬檔案之後，補名字就不再是「順便」的事，而是要額外改寫 250MB
+對話檔。所以只讓**之後**產生的訊息帶名字，舊訊息要不要回填另外決定。
+
+`npm run typecheck`／`npm test`（50 檔、623 項）／`build:mobile` 全過。
+
+### 還沒解決的隱患
+
+**基準失效時遇到同名角色仍會直接新增**。這次修掉的是「重複推同一隻角色」（基準有效時改用
+overwrite），但基準本身失效／不存在時（例如這次把角色搬回去之後，手機基準記的新 id 全部消失），
+下一次推送仍會判成「沒推過」而新增一批重複。**這正是這次出事的原始機制，還在。**
+在處理掉之前，不要從手機推角色到電腦。
+
+---
+
+## 2026-08-13（續四）｜開 App 卡在「載入中」（遙控模式 ＋ 電腦已關機）
+
+owner 回報：上次停在遙控版，之後電腦上的 DeST 關掉了，下次開 App「卡在那邊沒東西」。
+
+**成因**：`App.tsx` 的 attach effect 在遙控模式下會先 `await detectLanDirect(conn)`
+才 `attach()`，而 `detectLanDirect` 用的是**沒有逾時的 `fetch`**。APK 上 `fetch` 是
+CapacitorHttp，`signal` 無效（CLAUDE.md §5 早就記過這條，但只套用在 `core/` 的
+`httpAdapter`，`connection.ts` 這幾支探測用的 `fetch` 是漏網之魚）。電腦**整台關機**時
+封包沒有任何人回應，作業系統的 TCP 逾時可能超過一分鐘 —— 這段期間 `attach()` 根本
+沒被呼叫，`ready` 永遠 false、`loadError` 永遠 null，於是連既有的 `LoadFailed`
+重試畫面都出不來，只剩「載入中⋯⋯」。
+
+**修法**兩件事：
+
+1. `connection.ts` 新增 `probeRemote()`：一次問完「電腦在不在 ＋ 是不是區網直連」
+   （兩者共用同一支 `/api/connection-info`，分兩次問等於在關機時等兩次逾時），
+   並用 `Promise.race` 自帶 6 秒逾時。`detectLanDirect()` 保留為它的薄包裝，
+   `AboutView` 那邊不用改。
+   權杖過期（401／403）刻意算成「電腦在」——那要走重新配對，不是叫使用者切回本機。
+2. 連不上時**問使用者**（owner 拍板的互動）：「要先改用手機獨立版嗎？」
+   是 → `switchTo({ mode: 'standalone' })`，effect 帶著新的 conn 重跑；
+   否 → 照常 `attach()`，由 `RemoteEventSource` 自己退避重連，畫面顯示既有的
+   離線橫幅與重試按鈕。
+
+**刻意不自動切**：電腦只是還沒開機的人會莫名其妙進到另一個資料庫，而兩邊的對話是
+分開的，看起來就像資料不見了。設計文件 §4.3 那句「切到獨立永遠是安全的」講的是
+使用者主動切換的情境，開機這條路徑要問過。
+
+**一次開機只問一次**（`askedOfflineRef`）：之後的斷線由 `RemoteEventSource` 退避重連，
+每次失敗都彈視窗會沒完沒了。用 ref 不用 state —— 問過就不再問這件事不需要重繪，
+而且 state 會讓 attach effect 因相依變動而重跑。
+
+`npm run typecheck`／`npm test`（50 檔、623 項）／`build:mobile` 全過。
+**真機未驗**：要在 Pixel 10a 上「停在遙控模式 → 關掉電腦的 DeST → 重開 App」才測得到。
+
+---
+
+## 2026-08-13（續五）｜三個連環問題：API Key 消失 ＋ 兩處切換卡死
+
+owner 回報三件事，查完是**兩個根因**，而且第一個是這次 S2 M3 改動造成的資料損失。
+
+### ① 獨立版的 API Key 不見了（我造成的，資料已無法復原）
+
+**鏈路**（每一步都是既有設計，湊在一起才致命）：
+
+1. `App.tsx` **只在獨立模式分支**呼叫 `initCapacitorSecrets()`；遙控模式下整個
+   app 從沒解封過 secrets
+2. `ModeSwitcher` 在遙控模式下臨時 `bootStandaloneSession()` 讀本機資料 —— 沒初始化
+3. `capacitorSecrets` 這時是 `unavailableSecrets`，`decrypt()` **原樣回傳**
+   `enc:v1:…` 密文
+4. `hydrateSettings()` 看到解出來的還是密文，依既有規則把記憶體裡的金鑰設成 `''`
+   （本意良善：別讓使用者看到亂碼、以為要自己清掉）
+5. S2 M3 新增的「從電腦帶回資料」跑 `runSyncImport()` → `session.saveSettings()`
+   → `encrypt('')` 也原樣回傳 `''` → **磁碟上的密文被空字串覆蓋**
+
+M2 那一版同樣會 boot 這份 session，但**唯讀、不存檔**，所以一直沒事；
+M3 加上寫入之後才引爆。**金鑰已無法復原**（密文沒了，Keystore 裡的 master key
+救不回不存在的密文），owner 需重新輸入。
+
+**修法兩道**：
+
+- **保險絲（第一道，新增）**：`session.saveSettings()` 在
+  「secrets 不可用 ＋ 磁碟上是密文 ＋ 準備寫入空字串」三者同時成立時保留舊值。
+  回歸測試 `tests/mobile/secretsFuse.test.ts`，最關鍵的一項是**用正確的 secrets
+  重開一次、確認金鑰解得回原文**，不只是比對字串沒變。
+- **呼叫端（第二道）**：`ModeSwitcher` 的三處 boot 收斂成 `localSessionForSync()`，
+  裡面先 `await initCapacitorSecrets()`。
+
+> **教訓**：「安靜地毀掉使用者資料」的失敗不能只靠「每個呼叫端都記得先做某件事」。
+> 既有的 `hydrateSettings` 把解不開的金鑰填成 `''` 本身是合理的 UI 考量，
+> 但它預設了「之後一定有人拿正確的 secrets 存回去」——這個假設沒有任何東西在保護。
+
+### ②③ 切換模式卡在「連線中」／「載入中」
+
+同一類根因，**而且是同一天內第三次踩到**：CapacitorHttp 忽略 `signal`，
+電腦整台關機時封包沒人回應，TCP 逾時可能超過一分鐘。上一則日誌只修了開機那條
+（`detectLanDirect`），沒把其他路徑一起掃：
+
+| 症狀 | 卡在哪 |
+|---|---|
+| 開 App 停在「載入中⋯⋯」 | `detectLanDirect()`（上一則已修） |
+| 獨立→遙控 停在「連線中⋯⋯」 | `resolveLiveRemote()` → `fetchSyncInitInfo()` |
+| 遙控→獨立 沒反應 | 切換前預覽 `fetchRemoteManifest()` → `syncTransport.request()` |
+
+現在的逾時：探測 6 秒、切換前 manifest 8 秒、`syncTransport` 預設 30 秒
+（那支也用來抓角色包，可能好幾 MB，不能設短）。`request()` 逾時直接丟
+`SyncError('unreachable')`，呼叫端既有的錯誤處理就會接手——切換前預覽抓不到清單
+本來就會當成「這次不帶資料」放行，不擋切換（設計文件 §7.7）。
+
+> **教訓**：修這種「整類」的問題時，**修一處不等於修完**。已在 CLAUDE.md §5
+> 列出 `mobile/` 底下所有對電腦的 `fetch` 位置，下次改連線相關程式先掃一遍。
+
+`npm run typecheck`／`npm test`（51 檔、625 項）／`build:mobile` 全過。
+**真機未驗**：三條都要在 Pixel 10a 上關掉電腦的 DeST 才測得到。
+
+---
+
+## 2026-08-13（續六）｜等待時顯示倒數秒數
+
+owner 提議：「可以在 UI 上顯示時間倒數嗎？這樣我才知道是卡住還是還沒跑完。」
+
+合理，而且是前一天連續踩三次逾時之後的直接後果——使用者已經不信任「連線中⋯⋯」
+這種沒有進展資訊的提示了。會動的數字同時回答兩件事：**它還活著**、
+**最久還要等多久**。
+
+- `ui/shell/useCountdown.ts`：`useCountdown(totalMs, running)` ＋
+  `countdownLabel()`。算術抽成純函式 `secondsLeftAt()` 另外測邊界
+  （不足一秒仍顯示 1，不會提早跳 0——跑著卻顯示 0 看起來像壞掉）。
+- **以「開始時刻 ＋ 現在時刻」推算，不是每秒遞減**：手機把背景分頁計時器降頻是
+  常態，遞減式倒數切出去再切回來會嚴重落後，牆上時鐘不會。
+- 三個等待點都接上：開機探測（`App.tsx`，6 秒）、切換到遙控
+  （`ModeSwitcher` 的 `resolveLiveRemote`，6 秒）、切換前預覽
+  （`fetchRemoteManifest`，8 秒）。
+
+> ⚠️ **倒數的秒數一定要跟真正的逾時同一個來源。** `PROBE_TIMEOUT_MS` 與
+> `MANIFEST_TIMEOUT_MS` 都改成 export，UI 直接用同一個常數。自己另外寫死一個
+> 數字的話，兩邊一旦不一致就會出現「倒數到 0 卻還在轉」或「還沒數完就跳錯誤」——
+> **那比沒有倒數更糟**，因為它會讓使用者不再相信畫面上的任何提示。
+> `tests/mobile/useCountdown.test.ts` 有一項專門釘住這兩個常數。
+
+另外把 `ModeSwitcher` 的按鈕文字分成三態：等待中顯示倒數、`busy` 但沒在等網路
+（使用者正在看對話框、或正在逐項推送）顯示「處理中⋯⋯」、其餘顯示原本的動作名稱。
+`busy` 涵蓋整趟切換含使用者思考的時間，直接拿它做倒數會對不上。
+
+**瀏覽器實測過**：`dev:mobile` 帶 `?server=http://192.0.2.1:3721`
+（TEST-NET-1，保證不可路由）開啟，畫面確實出現「正在連電腦⋯⋯（4 秒）」並在
+逾時後往下走。真機仍待驗（手勢／WebView 行為不同）。
+
+`npm run typecheck`／`npm test`（52 檔、632 項）／`build:mobile` 全過。
+
+---
+
+## 2026-08-13（續七）｜斷線提示、同名角色勾選、金鑰帶到手機
+
+owner 三個回報，其中第二個解除了「不敢測手機→電腦推送」的封鎖。
+
+### ① 用到一半斷線沒有任何提示
+
+原本只有一條很細的紅色橫幅（`py-1.5`、12px 字），而且**任何開著的 Sheet
+都會蓋住它**——owner 把電腦的 DeST 關掉時完全沒注意到。改成：
+
+- 斷線持續 8 秒後主動跳對話框問要不要改用本機。**不是一斷就問**：鎖屏、
+  切背景、Wi-Fi 換頻段都會造成幾秒斷線且會自己接回來，一斷就問會在正常
+  使用中打斷好幾次
+- 選「取消」＝繼續等，橫幅升級成有圖示、粗體、而且**帶一顆「改用本機」按鈕**，
+  拒絕之後不會變成死路
+- 重連成功會把「問過了」歸零，下一次斷線重新問（不是整個 app 生命週期只問一次）
+- 已經有別的對話框開著就不搶（`uiStore.dialog` 只有一個位子，蓋過去會把
+  使用者正在看的東西弄掉），這時仍有橫幅按鈕可用
+
+### ② 同名角色：列出清單讓使用者勾（解除測試封鎖）
+
+這是「角色名稱掉光」事故的**正源頭**，也是先前叫 owner 不要推角色的原因。
+owner 拍板：列出同名清單逐一勾選，要有全選／全不選，**預設全選**。
+
+語意上做了一個收斂並在 UI 上標明：
+
+- **打勾＝覆蓋電腦上那隻**。電腦端 `importDstPackDirect` 的 nameHit 分支會
+  **沿用它原本的 id**，所以舊對話的連結不會斷——正是上次斷掉的那個環節
+- **沒打勾＝這次不推這隻**，而**不是**「另外建一隻新的」。刻意不留那條路：
+  它就是出事的機制。真的想要第二隻同名角色，在手機上改個名字再推
+
+實作要點：
+- `pushSync` 在推送迴圈**開始前**一次算完所有衝突並問一次（`onNameConflicts`
+  回調），不是邊推邊問——推到一半才跳視窗，前面已經送出去的收不回來
+- 基準記的 remoteId 還在電腦上 → 已知是同一隻，**不問**（那是正常重推）
+- **沒有提供回調時一律不推**衝突的那幾隻。舊的預設值是「默默送出去變成重複」，
+  那個預設害過一次，不留回頭路
+- 略過的角色會列在推送結果的「未推送」段落，不能默默不推
+- 名字比對去空白、統一大小寫，與電腦端判定一致
+- UI 走 `avatarCrop` 那套 Promise 包裝（`uiStore` 獨立欄位 ＋ 頂層元件），
+  因為 `ui.confirm` 只能回是／否。返回鍵＝取消整趟，不是「當作全都不覆蓋」——
+  後者會安靜地推一半
+
+`tests/mobile/syncPush.test.ts` 新增 7 例涵蓋：有問／勾了用 overwrite／沒勾要
+出現在 skippedByName／取消丟 `PushCancelled`／沒回調時保守不推／大小寫空白仍算
+同名／沒同名就完全不問。
+
+### ③ 電腦的 API Key 能不能帶到手機
+
+**可以，而且本來就有**：設定頁的「從電腦重新拉設定」（`DesktopPullSection`）會
+帶金鑰，只是**限區網直連**（走中繼會被電腦端剝掉，roadmap §4.7 硬規則）。
+S2 的模式切換同步刻意不碰金鑰，兩者是不同的東西——這次沒有改任何規則，
+只是把既有入口指給 owner。
+
+`npm run typecheck`／`npm test`（52 檔、639 項）／`build:mobile` 全過。
+
+---
+
+## 2026-08-13（續八）｜斷線提示還是沒跳：重連狀態把計時歸零
+
+owner 回報「遙控版斷線好像還是沒跳訊息」，接 USB 用 adb 直接查。
+
+**先排除舊版本**：`dumpsys package tw.nori.dest` 顯示 `lastUpdateTime=20:50`，
+而斷線提示是 20:39 那一版就建置進去的 —— 功能確實在 APK 裡，是真的沒生效。
+
+**成因**（logcat 直接看到）：
+
+```
+21:03:17 [RemoteEventSource] close
+21:03:19 [RemoteEventSource] connecting ws://192.168.50.136:3721/...
+```
+
+斷線後 2 秒就重連一次，而 `RemoteEventSource.connect()` 開頭會
+`setStatus('connecting')`。所以斷線期間狀態是這樣一直跳：
+
+```
+offline → connecting → offline → connecting → ⋯   （退避 0.5→1→2→4→8 秒）
+```
+
+第一版的判斷是「`status === 'offline'` 就開始計時，**否則歸零**」——
+`'connecting'` 落進了「否則」，於是每次重連嘗試都把計時歸零。退避上限 8 秒、
+門檻也是 8 秒，**計時永遠數不完**，對話框自然不會出現。
+
+**修法**：規則抽成純函式 `ui/shell/offlineWatch.ts` 的 `nextOfflineSince()`——
+**只有真的 `'online'` 才算恢復**，`'connecting'`／`'idle'` 一律維持原本的計時。
+7 個回歸測試，其中一項直接模擬 offline→connecting→offline 的跳動串，
+驗證計時一路從第一次算起。
+
+> **教訓**：連線狀態不是二元的。看到 `status !== 'offline'` 就當成「連上了」
+> 是很自然的直覺，但重連中的狀態既不是斷線也不是連線——**寫這種判斷時要把
+> 狀態機的所有值都列出來想一遍**，尤其是這種「中間態會高頻反覆出現」的。
+> 也是這次驗證方式的價值：純粹讀程式碼很難發現，接 USB 看 logcat 兩行就清楚了。
+
+`npm run typecheck`／`npm test`（52 檔、646 項）／`build:mobile` 全過。
+真機仍待驗（要重打 APK）。
+
+---
+
+## 2026-08-13（續九）｜斷線提示：橫幅踩同一個坑，外加「從頭就連不上」的漏洞
+
+owner 回報「有跳詢問視窗了，但沒有斷線提示，點進去顯示連線中」，並提議把左上角
+模式標籤在斷線時轉成警告色。三件事一起處理。
+
+### ① 橫幅踩的是我剛修好的同一個坑
+
+上一則只修了「計時器」，**橫幅本身還是 `status === 'offline'`**。重連退避期間
+狀態多數時間是 `'connecting'`，所以橫幅一閃一閃、幾乎看不到 —— owner 點進
+「關於」看到「連線中」正是如此。改成看 `offlineSince`（真的連上之前不會歸零）。
+
+> **教訓**：同一個錯誤觀念通常不只寫在一個地方。修掉「把 connecting 當成已連線」
+> 之後應該把**所有**依賴連線狀態的 UI 掃一遍，而不是只修觸發我去看的那一處。
+
+### ② 更大的漏洞：「一開始就連不上」完全不會有提示
+
+瀏覽器實測（`?server=http://192.0.2.1:3721`，TEST-NET-1 不可路由）抓到的：
+**14 秒內橫幅與標籤都沒出現**。原因是這種情況下 WebSocket 一直卡在連線中，
+`'offline'` 根本不會出現（要等 TCP 逾時，可能好幾分鐘），而 `nextOfflineSince`
+當時只認 `'offline'`。
+
+也就是說：**用到一半斷線**會提示，**開 App 時電腦就關著**（或按了「繼續嘗試連線」）
+反而一片安靜——後者才是 owner 最早回報的那個情境。
+
+修法：`'connecting'` 也開始計時，只有真的 `'online'` 才歸零；`'idle'`（事件來源
+還沒啟動）維持不動，避免開 App 瞬間就誤判。橫幅文案同步改成「連不上電腦，正在
+重試⋯⋯」，同時涵蓋兩種情況（原本寫「連線中斷」對第二種是錯的）。
+
+### ③ 左上角標籤轉警告色（owner 提議）
+
+持續連不上 8 秒後，標籤變成 `電腦·斷線` ＋ 警告底色。橫幅是即時顯示（短暫閃斷
+也會看到，那是正確的資訊），標籤則要「持續一段時間」才變色，兩層分開。
+
+### ④ 反覆重連的代價（owner 提問）
+
+原本不論斷多久都固定每 8 秒試一次而且**永遠不停**（原生殼沒有 `onNeedsReload`，
+不會走重載那條路）。電腦關機一整晚＝整晚每 8 秒一次 TCP 連線嘗試：單次成本很小，
+但會週期性喚醒網路介面。改成連續失敗 10 次之後（約一分鐘）退避上限放寬到 30 秒——
+前一分鐘維持快節奏讓「電腦重開機」「Wi-Fi 換頻段」能立刻接回，之後才降頻。
+
+**瀏覽器實測**（同上不可路由位址）：橫幅立刻出現；約 8 秒後標籤變成
+`電腦·斷線`、底色由 `rgb(247,255,252)` 轉為 `rgb(255,187,187)`。
+
+`npm run typecheck`／`npm test`（52 檔、651 項）／`build:mobile` 全過。
+真機仍待驗。
+
+---
+
+## 2026-08-13（續十）｜本機模式常駐掃 QR ＋ 切模式後清掉斷線提示
+
+### ① 本機模式一律顯示掃 QR（owner：隨時可以換一台電腦）
+
+原本配對區塊只有在「連上次那台」失敗時（`setShowPair(true)`）才會出現，於是
+**已經配對過的人永遠找不到換電腦的入口**——記憶反而把功能藏起來了。
+
+改成本機模式一律顯示掃 QR／手動貼網址；「切換到遙控」那顆按鈕則只在真的有
+記住主機時才畫（沒記憶時按下去只會什麼都不做，不如不要畫），文案也改成
+「連上次那台」，與「掃 QR 換一台」區分開。有記憶時說明文字改成
+「要改連別台電腦，掃那台的 QR 就會換過去」。
+
+### ② 切到本機之後斷線提示還留著
+
+`nextOfflineSince` 的規則沒問題，但 effect 裡是
+`if (conn?.mode !== 'remote') return` —— **early return 等於「不更新」，不是
+「歸零」**，所以從遙控切到本機時計時值原封不動留著，橫幅與紅色標籤跟著留在
+本機模式的畫面上。
+
+修法：模式也交給純函式判斷（`nextOfflineSince(..., isRemote)`，本機一律回
+`null`），effect 裡不再自己判斷任何東西。橫幅與標籤另外加一道
+`conn?.mode === 'remote'` 的算繪閘門當第二層保險。
+
+> **教訓**：這個 effect 已經因為「在裡面自作聰明判斷」踩了兩次
+> （①把 connecting 當成已連線 ②本機模式 early return）。狀態推進的規則
+> **全部**放進純函式，effect 只負責把結果塞回 state —— 現在檔頭註解直接寫死
+> 這條，避免第三次。
+
+**瀏覽器實測**：斷線 9 秒後橫幅出現、標籤為 `電腦·斷線`／`rgb(255,187,187)`。
+**沒有驗到的**：切模式之後的清除、以及本機模式的配對 UI —— 兩者都只在原生殼
+出現（`ModeSwitcher` 與橫幅的按鈕都有 `Capacitor.isNativePlatform()` 閘門），
+瀏覽器摸不到，只有純函式那層有單元測試涵蓋。真機待驗。
+
+`npm run typecheck`／`npm test`（52 檔、653 項）／`build:mobile` 全過。
+
+---
+
+## 2026-08-14（續十一）｜S2 M4（逐項比對）＋ M5（設定同步）
+
+### ① M3 的重複問題根因與修法
+
+M3 實機驗發現資料愈同步愈多份：電腦端 23 個情境（應該 7 個）、各 10 份世界觀與
+使用者設定。**根因是基準表整份是假的**（`syncPush` 推送時記 `remoteId: id`，
+但電腦端 `savePersonaPresetDirect` 會丟掉送來的 id 另發 uuid，手機完全沒讀過
+回應），加上 diff 的名字後備配對無法收斂 ＋ 推情境沒翻譯參照導致電腦側死參照。
+
+**改成每次切換當場配對**（`core/sync/pair.ts`，純函式，身分判斷＝id 相同或名稱
+相同），左手機右電腦逐列選（本機／電腦／保留差異），內容一致判斷**看 contentHash
+不看 updatedAt**——推送會把接收端時間戳覆蓋成現在，用時間戳永遠對不齊。
+
+新增 M4 的比對畫面（`SyncComparePicker.tsx`，沿用 nameConflicts 那套視覺語言），
+UI 設計上完全不同於名稱衝突：**資料衝突同一列裡兩邊都可能有對方沒有的項目**
+（聯集合併，不是互斥選擇），呈現方式是「手機有⋯⋯，電腦有⋯⋯」的對照。
+
+選項語意統一（本機／電腦／不動），三顆快捷鍵「全部用手機」「全部用電腦」「全部不動」。
+**刪除一律走既有 API**（刪手機走 `session.remove*`，刪電腦走 DELETE 端點），
+刪除本身由一套獨立的防線保護（警告色 ＋ 二次確認逐筆清單 ＋ 推送端不產生刪除）。
+參照翻譯靠 `syncApply` 的 id 對應表，避免情境推送時找不到角色。
+
+**教訓**（M3→M4）：不要依賴基準表判斷「兩邊是不是同一個」，每次都現場配對。
+同時確保 `contentHash`、欄位子集等定義**只有一份**（放在 `core/`），
+M4 那次 `contentHash.ts` 的漂移正是因為桌面和手機各自手打了一份判斷邏輯。
+
+### ② M5 設定同步（獨立型別、逐欄位比對）
+
+跟資料不同，設定欄位**兩邊永遠都有值**（沒有「只有手機有」的狀態），所以不能
+用 M4 那套「單邊獨有＝刪除」的語意。另起一套型別（`core/sync/settingsPair.ts`），
+選項只有 `'local' | 'remote' | 'keep'`（預設不動）。
+
+涵蓋 LLM（供應商＋每個供應商各自的模型、端點、對話限制）、記憶、外觀主題、模組開關，
+都經由 `core/sync/settingsSnapshot.ts` 統一定義（用來對齊桌面與手機，避免
+M4 那次欄位漂移的坑）。`POST` 時分組端點要整個送（例如對話限制分三欄但用同一支
+端點），推送邏輯**算出「電腦端最終狀態」**：被推的欄位用手機值，其餘（不動或拉）
+維持電腦原值，不會漏送的欄位被當成清空。
+
+同步 UI 多開一個「設定」分頁，沿用比對畫面；跟資料分頁獨立（資料部分選的快捷鍵
+不影響設定、反之亦然）。新增 `GET /api/settings/sync-snapshot` 讓手機能對齐讀到
+兩邊的完整值並排顯示。
+
+**2026-08-14 追加（owner 真機回報）**：第一版遺漏了 `weather.polish`
+（天氣是否經輔助模型潤飾）——模組除了 `enabled` 常帶子設定，但子設定要不要同步
+是逐個判斷的決定，不是「加了 modules 分組就自動涵蓋」。現在補進去；
+其餘模組子設定（新聞的關鍵字組、提醒的喚醒模式…）尚未逐一排查，之後如有人
+回報也大概率是同一類漏掉。
+
+`npm run typecheck`／`npm test`（47 檔、600 項）全過。
+真機驗證六項見 `docs/mobile-sync-m4-compare.md` §7 ＆ §8.6。
+
+---
+
+## 2026-08-15（續十一）｜本機 LLM 供應商（Ollama、LM Studio 等相容端點）
+
+新增供應商 `local`，支援任何 OpenAI 相容的自架或本機 LLM（Ollama、LM Studio、
+llama.cpp 等）。**主模型與輔助模型都能各自選**：配對一家雲端＋一家本機是合法
+組態（主要特性 Claude、分類特性 Qwen3:8B），`endpoints` 按 provider 分流，
+換 provider 時端點跟著換，無須另起 `utilityEndpoints` 欄位。
+
+不需寫新 adapter：Ollama 支援 Responses API，沿用 `openai.ts`，只多送
+`reasoning:{effort:'none'}`（思考模型會把 token 預算吃光、正文回空字串）。
+模型清單靠「測試連線」打 `GET /v1/models` 動態取得；金鑰選填。
+
+**既有 bug 順手修掉**：
+1. 輔助模型連線測試用錯端點（寫死主模型的 URL）
+2. `httpAdapter` 的 30 秒天花板被套在有 signal 的請求上（本機 LLM 冷啟動會超）——
+   現改成有 signal 就只聽呼叫端的。⚠️ 這條影響**全部手機請求**，不只本機模型，
+   真機驗證時值得留意副作用
+
+**金鑰檢查散落十幾處**：第一輪只改了連線測試，導致本機仍聊不了（`ipcHandlers.ts`
+與手機 runtime 各自寫著 `apiKeys[provider]?.trim()`，共 9 處關卡都會說「尚未設定
+API Key」——訊息本身是錯的）。現統一走 `hasUsableApiKey(settings)` ＋
+`providerNeedsApiKey(provider)`，UI 金鑰欄位在 local 下改成「不需要填」。
+
+新增欄位 `llm.extraInstruction`（使用者自訂補充指示，選填），通用於所有供應商，
+接進設定同步；位在 prompt 尾端讓使用者規則蓋過預設規則（而非被稀釋在中間）。
+
+`npm run typecheck`／`npm test`（58 檔、731 項）全過。
+**尚未驗證**：桌面 UI（供應商下拉、端點欄位、連線後模型回填）、手機真機（特別是
+§9.2 的逾時改動有無副作用）、設定同步的端點逐列比對。
+
+---
+
+## 2026-08-15（續十二）｜載入中點選單白畫面、背景等候回應誤報網路錯誤
+
+### ① 載入中點選單白畫面
+
+獨立版開機路徑較長（探測區網、啟動 standalone session），`MainMenu` 可能在
+appStore 的 `deps` 還沒 `attach()` 時被渲染，`getData()` 例外未被 catch，整棵
+React 樹由 Error Boundary 卸載成白畫面。修法：選單按鈕在 ready 前禁用；
+`MainMenu` 改用 `isAttached()` 安全讀取而非直接呼叫 `getData()`。
+頂層再加一個 `ErrorBoundary` 當最後防線。
+
+### ② 背景等候時誤報網路錯誤
+
+手機切到背景，系統會砍斷連線讓 `send()` 失敗（`unreachable`）。但電腦端的 LLM
+是獨立在跑、不會因此停下。修法：`send()` 遇到 `unreachable` 時先呼叫 `refresh()`
+對帳一次，如果樂觀訊息不在新清單裡（代表已經被伺服器版本取代），就不顯示錯誤
+——實際有送到，不該給使用者假的「連不上電腦」。真的沒送到（電腦真的離線）才
+會留下錯誤泡泡。
+
+### ③ 回前景時立刻重連
+
+一直沒被呼叫的 `EventSource.notifyForeground()` 現在補上來源：
+`App.tsx` 的 resume 事件。回前景時立刻 reconnect ＋ refresh，而不是乾等
+退避重連排程。
+
+`npm run typecheck`／`npm test`（52 檔、653 項）全過。
+
+---
+
+## 2026-08-16｜B-1 對話刪除（階段一：整則對話），真機驗證通過
+
+owner 2026-08-16 真機測試 S2 對話同步時回報：故意刪掉的對話，同步後又被另一邊
+補回來（`convPair.ts` 的 `copy` 預設行為）。收斂成 `TODO.md` §1.1b B-1，分兩階段，
+先做風險較低的階段一。
+
+`core/sync/convPair.ts` 的 `ConvChoice` 加一個 `'delete'`，只在**單邊獨有**的列
+有意義（`convActionFor` 對應到 `delete-local`／`delete-remote`）；兩邊都有的合併列
+不受影響——`merge` 仍然不刪東西，訊息聯集裡少的一律當「還沒收到」。執行端在
+`mobile/runtime/syncConversations.ts`：本機呼叫既有的 `session.removeConversation`，
+電腦呼叫既有的 `/api/conversations/delete`（rename 用的同一支端點，不用新開）。
+UI 複用資料分頁（`pair.ts`／`CompareRow`）已驗證過的那套：警告色外框、
+`DeleteHint` 副標、送出前逐筆確認清單（`listConvDeletions`）。
+
+**真機測出一個漏洞，過程中就地修掉**：`ModeSwitcher.tsx` 判斷「這趟同步要不要
+真的跑」的加總式（openSyncCompare 之後、要不要呼叫 apply 系列函式之前）沒算進
+新加的 `convPlan.deleteLocal`／`deleteRemote`。結果是使用者只選了刪除、其他列都
+不動時，`SyncComparePicker` 的確認流程整段都正常（外框變紅、二次確認清單都對），
+但 `ModeSwitcher` 把「合計為 0」誤判成「沒事要做」，**整個跳過 apply 步驟直接
+切換模式**——症狀是「畫面上看起來刪除成功，電腦端卻什麼也沒發生」，而且沒有
+任何錯誤訊息。修法：加總式補上那兩個欄位。這類「加了新的 plan 欄位、卻漏改
+某處既有的加總判斷」的坑，改 `ConvPlanCounts`／`PairPlanCounts` 之類的結構時
+要記得全域搜一次所有把各欄位加總的地方，不能只改定義那一處。
+
+階段二（訊息層刪除，哪幾句被刪）仍未做，理由見 `convPair.ts` 檔頭：`merge` 光看
+指紋分不出「對面新增的」跟「這邊被刪的」，要墓碑紀錄或逐句確認清單，等階段一
+用一陣子再決定要不要做。
+
+`npm run typecheck`／`npm test`（61 檔、797 項）全過。
+
+---
+
+## 2026-08-16（續）｜B-2 修正：「保留差異」快捷鍵改成真的全部不動
+
+M4 第 8 條真機測試發現：按「保留差異」，單邊獨有的列沒有變成「不動」，還是
+照樣被補到對面去，跟按鈕字面意思不符。
+
+原因在 `core/sync/pair.ts` 的 `applyPreset()`：`preset === 'keep'` 時，兩邊都有
+的列會走到 `defaultChoice()` 正確判成 `keep`，但單邊獨有的列 `defaultChoice()`
+判的是 `local`／`remote`（＝補到對面），這其實是原本刻意的設計——`defaultChoice`
+的語意本來是給「開啟比對畫面時的預設值」用的，「保留差異」快捷鍵直接沿用它
+只是圖方便，沒考慮到單邊獨有那段語意會漏出來，讓按鈕文字跟實際行為對不上。
+
+跟 owner 確認後決定：「保留差異」改成**整批真的不動**，不再呼叫
+`defaultChoice()` 補單邊缺的資料——要補齊的話用「全部用手機／電腦」或逐列
+自己按。`pair.test.ts` 原本把舊行為釘成測試（`onlyL` 期待 `'local'`），一併改成
+期待 `'keep'`。
+
+`npm run typecheck`／`npm test`（61 檔、797 項）全過。**尚未真機驗證。**
+
+---
+
+## 2026-08-16（續二）｜B-4／B-5／B-6 修正：真機測試揪出的三個小 bug
+
+### B-4：同步完馬上點設定／角色會顯示「載入失敗」
+
+切換模式時 `App.tsx` 的 attach effect 先同步 `detach()` 舊的、再非同步 `attach()`
+新的，中間有一段 `deps === null` 的空窗。`appStore.ts` 原本只有 `getData()`
+throw 一個「appStore not attached」——`SettingsView.tsx`／`CharacterEditor.tsx`
+的 `load()` 把這個 throw 跟真的失敗混在一起看待，兩者都設 `failed = true`，
+顯示「載入失敗」。
+
+新增 `appStore` 的 `attached` 欄位（`attach()` 設 true，detach 的 cleanup 設
+false），並讓 detach 順便把 `ready` 也歸零——不歸零的話 `App.tsx` 頂層的選單
+按鈕判斷不出「現在其實接不上」，使用者照樣點得進設定／角色編輯。兩個畫面的
+`load()` 改成：`catch` 裡先問 `isAttached()`，沒接上就安靜放棄（不設
+`failed`），讓已有的 `if (!llm) 載入中⋯⋯`／`if (!draft) 載入中⋯⋯` 自然接手；
+`useEffect` 依賴加上 `attached`，變 true 時自動重跑 `load()`。真的接上了卻還
+失敗，才是貨真價實的失敗，才顯示「載入失敗」＋重試鍵。
+
+### B-5：手機上傳圖片送出後第一時間看不到縮圖
+
+`appStore.ts` 的 `handleEvent` 對 `'message'` 事件原本直接 `e.message as
+MessageSnapshot` 硬轉型——但 `AppEvent` 的 `message` 欄位型別雖然標成
+`Message`，兩種模式實際塞進去的形狀不一樣：獨立模式（`chat.ts`）塞的是真的
+完整 `Message`（帶 `images: string[]`，沒有 `imageCount`）；遙控模式收到的
+WS 廣播早被電腦端 `mobileServer.ts` 的 `sanitizeMessage()` 拿掉 `images`、
+換算成 `imageCount` 送過來。獨立模式送出的使用者訊息回音取代樂觀訊息時，
+把原本正確算好的 `imageCount`（`appStore.ts` 的 `send()` 那邊有算）蓋成
+`undefined`，`MessageList.tsx` 的縮圖判斷 `if (message.imageCount)` 因此不
+渲染——圖確實送出去了、角色也正確看得到，只是手機自己那則泡泡沒縮圖，
+要等下一次 `state-invalidated` 重抓（`refresh()` 走的是不同的
+`toMessageSnapshot()`，那支沒這問題）才會冒出來。
+
+新增 `toEventMessageSnapshot()`：有 `imageCount` 就直接信，沒有才用
+`images.length` 現算，兩條路徑都接得住。
+
+### B-6：電腦上改對話名稱，手機上方標題列沒即時更新
+
+遙控模式下切去獨立模式前，`ModeSwitcher.localSessionForSync()` 會自己 boot
+一份「拋棄式」session 來跑同步比對（比對當下 `sessionHolder` 的 `current`
+還是 null，遙控模式沒有活著的獨立 session）。同步把改動（例如對面改過的
+對話標題）寫進**這份** session 的記憶體與磁碟，但緊接著的 `switchTo()` 會讓
+`App.tsx` 的 attach effect 重跑，重新 boot **另一份**新 session——理論上兩份
+都讀同一份磁碟，最終仍會收斂，但中間有雙重 boot 造成的時序空窗，使用者會
+看到標題暫時沒更新。
+
+直接讓 `ModeSwitcher` 把剛 boot 好的 session 塞進 `sessionHolder` 的
+`current` 沒有用：`App.tsx` attach effect 的 cleanup **無條件**
+`setStandaloneSession(null)`，而且 cleanup 一定搶在新 effect 本體之前跑，
+塞進去的東西會在被讀到之前就被清掉（那段 cleanup 邏輯本身踩過好幾次坑，
+不敢直接改）。改用另一個完全獨立的變數繞開：`sessionHolder.ts` 新增
+`setPendingStandaloneSession`／`takePendingStandaloneSession`，`App.tsx`
+進入獨立模式時優先收下這裡的 session，不再重複 boot。順手拿掉
+`localSessionForSync()` 原本傳的 `skipPackFetch: true`——這份 session 現在
+真的會被拿來用，裝置角色庫全空時（第一次用獨立模式）不該跳過抓預設角色包；
+其餘裝置這個 fetch 一定會被 `seedDefaultCharactersIfEmpty` 的
+`existingKeys.length > 0` 短路掉，不會多花時間。
+
+三個都只是**自動測試通過，尚未真機驗證**。`npm run typecheck`／`npm test`
+（62 檔、810 項）全過。
+
+---
+
+## 2026-08-16（續三）｜B-2／B-4／B-5／B-6 真機驗證通過
+
+owner 在 Pixel 10a 逐項驗證了今天修的四個小 bug（B-2 保留差異快捷鍵、B-4
+同步後載入失敗、B-5 圖片縮圖沒有樂觀更新、B-6 對話標題沒即時更新），
+三項全部通過。`docs/handoff/real-device-checklist.md` 的「本次測試結論」
+B-1～B-6 除了 B-3（無法重現，擱置）跟 M4 第 6 條補驗（開電腦端檔案核對），
+其餘全部收尾。
+
+---
+
+## 2026-08-16（續四）｜v0.4.0 真機煙測：新聞泡泡揪出 3 個小 bug
+
+配色主題（12 組）與遙控 owner 真機測過沒問題（多半是先前已測過、只是文件沒補記錄）。
+新聞陪聊「聊這個」流程揪出三個獨立的小 bug：
+
+1. **摘要視窗下緣被系統手勢列擋住**：`Composer.tsx` 裡「點輸入框上方新聞泡泡看摘要」
+   那個 sheet 沒補安全區底部留白，是 `NewsContextSheet.tsx` 已經修過的同一個坑
+   （Android 手勢列吃掉畫面下緣，按鈕按不到）——新的 sheet 是後來加的，沒沿用
+   同一套處理。補上 `paddingBottom: calc(var(--safe-bottom) + 16px)`，高度改用
+   `dvh`（不含網址列／手勢列動態高度的 `vh` 不夠）。
+
+2. **不打字直接送新聞泡泡會誤報「送不出去：內容或圖片不符合限制」**：
+   `main/mobileServer.ts` 的 `POST /api/send` 判斷「這是不是空訊息」時，條件裡
+   有 `content`／`images`／`randomResult(s)`，但漏了 `newsLink`——手機端
+   `Composer.tsx` 的 `submit()` 本來就允許「只掛新聞標題泡泡、不打字不附圖」
+   直接送出，這一關卻把它當空訊息擋掉回 400，手機收到的錯誤訊息還誤導成
+   「圖片太大或張數太多」。補上 `!payload.newsLink` 這個條件。
+
+3. **某幾組配色下新聞標題幾乎看不到**：`MessageList.tsx` 裡已送出訊息的新聞標題
+   用 `--mint2` 當文字色，疊在 `--user-bubble` 背景上。深色三組主題（深色／
+   復古／賽博）的 `--mint2` 刻意調暗（原本設計是給邊框／強調色用，不是給文字用），
+   跟同樣偏暗的 `--user-bubble` 疊在一起對比度趨近於零；淺色系粉彩主題裡兩者
+   也常是同色系深淺相近的版本，一樣不夠清楚。改用泡泡本文本來就在用的
+   `--text`——那是保證跟 `--user-bubble`／`--surface` 在所有 12 組主題下都
+   讀得清楚的顏色，同一個泡泡裡已經在用。
+
+三個都只有自動測試（`npm run typecheck`／810 項 `npm test`）驗過，`mobileServer.ts`
+沒有既有測試骨架（`npm test` 範圍只到 `src/core/`），沒硬加。尚未真機覆驗。
+
+---
+
+## 2026-08-17｜S2 M5 設定同步補幾項漏掉的欄位（§2.1／§2.2）
+
+owner 逐項決定 `docs/handoff/module-settings-audit.md` 的盤點結果：
+
+- **輔助模型設定（§2.1）**：要同步。`core/sync/settingsSnapshot.ts` 的
+  `LlmSyncSubset` 加 `utilityEnabled`／`utilityProvider`／`utilityModels`，
+  逐 provider 拆列（比照既有的 `models`／`endpoints`），跟已經在同步的
+  `endpoints` 是同一張表的另外幾欄，理由跟當初補 `weather.polish`一樣：
+  手機 UI 已經做出來、卻永遠不會同步、也沒有任何錯誤訊息。執行端沿用既有的
+  `/api/settings/llm-utility-*` 三支端點（本來就是給手機 UI 自己調用的）。
+
+- **外觀（顯示模型徽章／發話身分名稱）跟新聞陪聊頻率（§2.2）**：也同步了，
+  沿用既有端點，跟 `colorTheme` 是同一類單值偏好。
+
+- **Spotify／日曆的 `enabled`**：owner 決定從比對範圍拿掉——這兩個模組的
+  授權只接桌面（OAuth 跳轉流程），手機同步 `enabled: true` 也用不了，
+  容易誤導使用者以為手機上能用。`settingsPair.ts` 加 `EXCLUDED_MODULE_IDS`
+  白名單排除，id 對齊 `main/ipcHandlers.ts` 的 `SPOTIFY_MODULE_ID`／
+  `CALENDAR_MODULE_ID`。
+
+- **新聞其餘欄位沒有一起補**：`langMode`／`replyModel`／`maxAgeDays`／
+  `readerMaxItems` 這些手機端**根本沒有讀寫路徑**——`NewsApi.getSettings()/
+  saveSettings()`（`session.getNewsEditableSettings()`）跟桌面端
+  `POST /api/news/settings` 的白名單都只認 `enabled`／`sources`／
+  `keywordGroups`／`blacklist`／`speakButton` 五個欄位。要同步這些得先幫
+  兩層都開洞，範圍比「加一列比對」大很多，這次只做了白名單裡本來就有、
+  手機也調得到的 `speakButton`。
+
+- **`keywordGroups`／`sources`（清單型）、`blacklist`／`excluded*`（聯集型）**：
+  owner 決定先擱著。這類資料不能套簡單的三選一（會讓某一邊辛苦調的組整包
+  消失或被覆蓋），得另外做一套類似對話同步的逐項比對／合併畫面，工程量
+  接近一個新功能。
+
+- **天氣 `realtimeQuery.enabled`、日曆細節設定**：套用跟 Spotify／日曆
+  `enabled` 同一個判斷——功能本身桌面限定，手機沒有對應功能可以生效，
+  不需要同步。
+
+- **提醒同步**：owner 決定要同步提醒資料本身（逐項比對，比照角色／情境），
+  但「哪台裝置響」跟裝置本地細節設定留在各自裝置、不進同步子集。**方向已定，
+  尚未實作**——這是新的同步類別，工程量接近對話同步，還沒動工。
+
+`npm run typecheck`／`npm test`（62 檔、819 項）全過。全部只有自動測試驗過，
+尚未真機驗證。
+
+## 2026-08-18｜飲食記錄 App：B9a UI 四項微調＋Health 讀提前排程
+
+owner 用過 B9a 之後回報四個 UI 問題，桌面／手機（`nutrition/desktop`、
+`nutrition/mobile`）都同樣修：
+
+- **快速入帳選食物看不出是哪一種**：`food-option` 選項比照食物庫列表加上
+  品牌／口味小字（`food-option-name`），跟同名不同品牌／口味的食物能一眼分開。
+- **「新增食物」按鈕不夠明顯**：快速入帳卡片裡的按鈕從 `icon-button`
+  改成 `add-food-button`（實心底色），跟旁邊其他次要按鈕拉開視覺層級。
+- **食物表單返回會固定跳食物庫**：`openFoodForm()` 加 `origin` 參數
+  （`library`／`quickEntry`／`mealEditor`），`leaveFoodForm()`／存檔後都
+  改呼叫新的 `returnFromFoodForm()` 依來源導回——從快速入帳點「新增食物」
+  存完／取消會回快速入帳（並重新展開），不會被丟去食物庫。
+- **編輯飲食紀錄只能改當筆用到的欄位**：在 `mealEditor` 底下加
+  「食物庫資料」區塊，文字講清楚這些欄位（品牌／口味／別名／標籤／碳水
+  脂肪／照片）存在食物庫、不是這筆紀錄的一部分；按「編輯食物庫資料」直接
+  開現有的食物表單（`openFoodForm(linkedFoodItem, 'mealEditor')`），
+  沿用同一套 UI 與存檔邏輯，不重複造欄位，改完存檔後照 origin 導回
+  `mealEditor`。
+
+另外 owner 要求把 Google Health 讀（體重／體脂雲端同步、手錶當日消耗熱量
+→ 動態調整 `dailyKcalLimit`）從 B9c 提前到 B9b（LLM 拍照估價）之前，理由：
+拍照估價有「先手動輸入」可以頂著，體重／體脂／手錶消耗熱量目前完全沒有
+替代輸入路徑，owner 自用天天要看。**這次只更新規格排程**
+（`future-nutrition-module.md` §3.5／§6／§8 已改），還沒有寫任何 Health
+串接程式碼——Health Connect／Google Fit 的 OAuth、權限、真機測試留到真的
+開工那一輪再做。
+
+`npm run typecheck` 全過；`tests/core/nutrition/*` 8 檔 38 項全過（這次只動
+UI 層，沒有改 `core/`，資料模型／純函式不受影響）。這次沒有真機／模擬器
+手動驗證。
+
+## 2026-08-19｜飲食記錄 App：Health 讀（B9-Health-lite）真機驗證通過，修掉 3 個真機才會出現的 bug
+
+分支 `feat/nutrition-health-connect`。owner 在家用真機（Android 手機＋
+Pixel Watch＋MovingLife 體重計）走完整套流程，開工指令
+`docs/nutrition-health-lite-kickoff.md` §7 步驟①的兩個開放問題當場確認：
+手錶來源 App 是 Watch / Health，體重計是 MovingLife；開關 2（自動同步）
+預設開（跟程式碼原本寫死的一致，不用改）。
+
+真機組 APK、跑起來後陸續揪出 3 個自動測試完全測不出來的 bug：
+
+- **`minSdkVersion` 太低，Gradle build 直接失敗**：`@capgo/capacitor-health`
+  的 manifest 要求 `minSdk 26`（Health Connect 的正式最低支援版本），這個
+  App 沿用 DeST 主 App 的 `minSdkVersion = 24`。manifest merger 報錯
+  「uses-sdk:minSdkVersion 24 cannot be smaller than version 26」。改成
+  26 才編得過——**代價是 Android 7.x 裝置從此裝不了這個 App**，owner 自用
+  機器沒問題。
+- **體重同步到好幾週前的舊數字**：根因是 `@capgo/capacitor-health` 原生層
+  的分頁邏輯（`HealthManager.kt` 的 `readRecords()`）湊到 `limit` 筆就停止
+  翻頁，但 Health Connect 不保證分頁本身是新到舊排序。體重／體脂原本用
+  `limit: 5`，在 30 天視窗裡真機實測會抓到「30 天內最舊的 5 筆」而非最新
+  5 筆，導致同步進 `BodyProfile` 的體重跟 Google Health App 顯示的差很多。
+  改成外掛單頁上限 `500`（跟 `totalCalories` 原本就用的值一致）——500 遠
+  超過 30 天內正常量測次數，一次就能蓋滿整個時間窗，之後排序取最新才有
+  意義。`totalCalories` 因為本來就用 500，這次真機比對只有約 50 kcal 的
+  小誤差，量級上印證了同一個根因。
+- **體重／體脂帶一長串小數**：Health Connect 的公斤數是從來源 App 單位
+  （常見是磅）換算來的，換算會拖出浮點數尾巴。加了 `roundToOneDecimal()`，
+  讀進來就四捨五入到小數點後一位。
+
+owner 追加了一個原規劃沒有的需求：翻到過去的日期時，也顯示「當日手錶總
+消耗熱量」當作那天的熱量上限。因為過去的一天已經過完，§5.1 公式的「剩餘
+時間外推」項自然歸零，不需要新公式——只需要新的查詢方式：`HealthAdapter`
+加 `readDailyCaloriesBurned(dateIso)`（查某一整天的加總，跟「今日到現在」
+的 `readSnapshot()` 不同），`main.tsx` 用 `historicalKcalCache` 依日期
+快取查詢結果避免翻頁反覆打 Health Connect。真機比對 Google Health App，
+誤差同樣落在約 50 kcal 內。
+
+另外照 owner 要求在「Health 同步」設定區塊加了兩行簡短說明（讀 Health
+Connect／Google Health 背後同一份資料，已驗證 Pixel Watch 與 MovingLife，
+其他品牌未實測），第一版字數太長，砍半到兩行。
+
+驗證通過的完工判準（`nutrition-health-lite-kickoff.md` §8）：三個開關的
+預設值與隱藏/顯示邏輯、開啟開關 1 走一次授權流程、開關 2 自動/手動同步、
+體重體脂同步寫回並顯示「上次同步」時間、開關 3 開關切換時 `dailyKcalLimit`
+本身完全不被動態值覆蓋、Health Connect 未安裝時自然降級、桌面完全沒有
+新增 Health 相關程式碼。**沒驗證到的兩條**（次要，不阻擋收工）：拒絕權限
+的 UI 分支（owner 這輪一路都允許）、資料是舊的（非今日）時的提示文案
+（這輪真機資料一直是新鮮的）。
+
+`npm run typecheck`、`npm test`（71 檔、861 項）全過。
+
+---
+
+## 2026-08-19（續）｜拍照估熱量 P1：core 純函式＋單元測試
+
+B9b 第一個切片開工，規格見 `docs/nutrition-photo-estimate-plan.md`。這次只做
+**P1**（該文件 §7 分期表第一項）：`src/core/nutrition/photoEstimate.ts` 一次
+到位，含規格 §6 列出的所有純函式——`matchFoodItem`、`buildPhotoEstimatePrompt`、
+`parseEstimateResult`、`applyEstimateToEntries`、`resolveEatenAt`、
+`hashPhoto`／`findDuplicateLog`、`resolveMaxFoodSlots`／`canAddAnotherFoodSlot`、
+`estimateRequestCost`、`checkRequestCompatibility`、`parsePastedNutrition`、
+`normalizeLabel`、`nutritionFromGrams`、`stepServings`／`formatServings`。
+`hashPhoto` 直接複用既有的 `core/util/sha1.ts`（新聞模組已經寫過同一顆輪子）。
+
+`types.ts` 同步補齊 §6 的資料欄位：`FoodNutritionPerServing` 加
+`sugarG`／`sodiumMg`；新增 `FoodNutritionLabel`／`NutritionLabelBasis`；
+`FoodItem.source` 擴充 `label`／`llm-photo`／`llm-photo-edited`（`label`
+最硬，之後任何 LLM 路徑都不准覆寫）；`FoodItem` 加 `labelRaw`／`lastAmount`；
+`MealLog` 加 `amountMode`／`grams`／`eatenAtSource`／`photoHash`／
+`photoHashes`／`estimatedCostMinor`／`tokenUsage`；`NutritionAppSettings`
+加第三層開關 `photoEstimate?: { enabled }`（規格 §2.10 拍板，**預設關**）。
+
+`normalizeLabel` 的 `per100g` 基準換算要特別注意 `eatenPortion` 的意義隨
+`basis` 而變：`perServing`／`perPackage` 時是「吃了幾份／幾包」，直接當乘數；
+`per100g` 時卻是「吃了幾個『一份量 × 份數』的包裝單位」，要先乘出總克數
+再除 100——規格文件裡的 JSON 範例三個基準都叫同一個欄位 `eatenPortion`，
+但語意其實不同，寫測試時發現規格範例自己的數字（sugarG／sodiumMg 那兩欄）
+兜不起來，判斷是文件手寫範例本身的四捨五入誤差，沒有照抄，改用內部自洽
+的數字驗證邏輯正確性。
+
+`estimateRequestCost` 的圖片 token 估值（`FIXED_MODEL_IMAGE_TOKENS`／
+`TILED_MODEL_IMAGE_TOKENS`）規格沒給精確數字，用業界常見的量級抓一個
+保守估值——反正這行字本來就標「（估）」，且單價表本身也可能是使用者自填。
+
+**這次只做 P1**，還沒有：手機／桌面 UI、真的呼叫 LLM、拍照入口、補充頁、
+份量 stepper 元件、`model-capabilities.json` 執行期檔案（型別已定義，
+資料檔案是 P2.8 的事）。下一步是 P2（手機拍照→結果卡→存入的三步正常路徑）。
+
+`npm run typecheck`、`npm test`（72 檔、894 項）全過。
+
+---
+
+## 2026-08-19（續二）｜拍照估熱量 P2：接真模型＋手機三步正常路徑
+
+延續（續）的 P1，這次做 P2（§7）：真的呼叫模型、手機拍照→結果卡→存入。
+**範圍刻意縮小到單張照片、單份食物**——多份食物、送出前補充頁、營養標示、
+相簿補記都還沒做，那些是 P2.5 之後的分期，先把「拍一張、存一筆」的骨架
+跑通、真的接上模型，比一次把全部功能疊起來更容易抓錯。
+
+**core 新增** `src/core/nutrition/photoEstimateLlm.ts`（`requestPhotoEstimate`）：
+
+- 走 OpenAI 相容的 **Chat Completions**（`/v1/chat/completions`），不是
+  `openai.ts` 那條走的 Responses API——這支是本地模型伺服器（Ollama／
+  LM Studio）最普遍支援的格式，且不想把 `openai` SDK 這個重依賴拉進
+  `nutrition/mobile` 這個目前很輕量的獨立小 App（它的 `package.json`
+  只有 4 個 Capacitor 套件）。直接用注入的 `HttpAdapter` 打 fetch，
+  `response_format: json_object` 要求模型回 `{ "results": [...] }`
+  （json_object 模式要求根節點是物件，不能直接回陣列）。
+- 只支援 `openai`／`local`／`grok` 三家（都是 OpenAI 相容格式）；Claude／
+  Gemini 圖片格式不同，且 nutrition.llm 是獨立於角色主模型的一套設定，
+  暫不支援，丟明確錯誤而不是靜默失敗。
+- 逾時外部自己包 `AbortController`＋`setTimeout`（規格 §3.3 建議 12 秒）——
+  跟 CLAUDE.md §5 提醒的「CapacitorHttp 忽略 signal」是同一個坑，這支雖然
+  目前用瀏覽器原生 fetch，但寫法上不依賴呼叫端的 signal 生效，先把保險絲
+  裝上。
+- 9 項新測試（假 `HttpAdapter` 驗證請求 URL／body／逾時／各種錯誤情境）。
+
+**手機 UI**（`nutrition/mobile/src/main.tsx`）新增第三層開關「AI 拍照估算」
+（`docs/nutrition-photo-estimate-plan.md` §2.10，預設關）：
+
+- 設定頁（「身體資料與每日目標」畫面）新增一個區塊，開關開啟時同一頁
+  能設 `nutrition.llm`（供應商／模型／API Key／端點），不必跳到別的設定頁。
+- 開關關閉時，日常首頁「拍照記錄」入口整個不渲染（不是變灰）。
+- 拍照流程：相機直接開（`<input capture="environment">`）→ 壓縮
+  （沿用既有 `compressImageFile`，跟食物庫照片同一套管線）→ 呼叫模型
+  → 本機 `matchFoodItem` 比對食物庫（命中就沿用庫內數字，不採用 AI 的）
+  → 結果卡（名稱／品牌／熱量／蛋白／來源徽章／`note`）→「存入」一次寫
+  `FoodItem`（未命中時）＋`MealLog`；「不對，我改」直接把估算結果帶進
+  **既有的食物新增表單**（不重造一套編輯 UI，複用 `openFoodForm` 那一路
+  的欄位與存檔邏輯）。
+- 新增 `nutrition/mobile/src/http.ts`：這個獨立 App 目前沒有裝
+  CapacitorHttp（跟 DeST 主 App 不同），直接用瀏覽器原生 fetch 實作
+  `HttpAdapter`——之後若要繞 CORS 打本地模型，這是要補的地方。
+
+**順手修掉一個潛伏 bug**：`src/core/nutrition/storage.ts` 的
+`normalizeSettings()` 過去手動列出 `llm`／`health` 兩個欄位重建整個
+settings 物件，**沒有把 `showWeightBadge`（上一輪剛加的體重徽章開關）
+轉存過去**——代表那個開關每次重開 App 讀檔案時都會被靜靜清空。這次加
+`photoEstimate` 時發現同一個坑，一併補上兩個欄位並加了回歸測試
+（`storage.test.ts` 新增一筆：寫入含這兩欄位的 settings.json，讀回來
+要原封不動）。這類「加一個頂層設定欄位」的坑以後還會再踩，寫在
+`normalizeSettings` 旁邊的註解提醒了。
+
+**手機端手動驗證**（瀏覽器預覽 + mock fetch，非真機）：`npm run
+build:nutrition:mobile` 建置成功後，用 Browser 工具跑了一次完整路徑——
+開關開啟後「拍照記錄」按鈕出現 → 塞一張假圖片並攔截 `fetch` 回傳假的
+模型回應 → 結果卡正確顯示「燻雞三明治 · 7-11 · 約 320 kcal · 蛋白 18 g」
+→ 按「存入」→ 回到今日列表，熱量／蛋白數字正確累加、清單多一筆紀錄，
+全程 console 無錯誤。**這不是真機驗證**，Capacitor 原生層（相機權限、
+CapacitorHttp 若之後補裝）完全沒測到。
+
+尚未做（P2.5 起）：多份食物與翻頁確認、送出前補充說明頁、營養成分表
+OCR 與換算、秤重模式、相簿補記批次流程、模型能力／費用預估 UI、
+「不對，我改」的對話式重估、舊食物一鍵重估。
+
+`npm run typecheck`、`npm test`（73 檔、904 項）全過。
+
+---
+
+## 2026-08-19（續三）｜拍照估熱量：模型清單下拉＋一鍵測試能不能傳圖
+
+owner 實測 P2 時回報兩個上手障礙：模型欄只能手打型號 ID（跟 DeST 桌面／
+手機那份共用模型目錄體驗不一致，光要湊對一個型號名稱就卡關）；設完
+才發現選錯模型不支援讀圖，白設一輪。兩個都在這次補上。
+
+**模型清單**：`nutrition/mobile/src/main.tsx` 直接從 `@core/llm/modelCatalog`
+（純資料，不含任何 SDK）拉 `MODELS_BY_PROVIDER`／`DEFAULT_MODEL_BY_PROVIDER`／
+`splitModelsByPrice`／`modelPriceText`——跟桌面／DeST 手機共用同一份目錄，
+之後桌面加新型號這裡自動跟上，不會重蹈 roadmap §4.1 提過的模型清單
+drift（`providerInfo.ts` 檔頭記載的同一個坑）。`modelOptionLabel()` 沒有
+直接從 `providerInfo.ts`（DeST 手機自己的 UI 文案層）import——那支已經
+耦合了 DeST 手機的其他 UI 型別，硬拉進來會把 nutrition 這個獨立小 App
+跟主 App 的手機 UI 層綁在一起；改成在 nutrition 這邊用同樣兩行邏輯
+（`modelPriceText` + 組字串）自己重寫一份，型別/資料仍是同一份，
+只有那行組字串的文案重複，不算違反單一事實來源。
+
+**下拉選單分兩層**：`local` 供應商本來就沒有寫死目錄（使用者自己 pull
+什麼就有什麼），下拉清單改吃「測試連線」按鈕動態抓回來的
+`localModels`；`openai`／`grok` 吃靜態目錄，並用 `splitModelsByPrice`
+分「一般／⚠ 高單價」兩個 `optgroup`，跟桌面／DeST 手機的分組規則同一份。
+選單下方保留一個「或手動輸入模型 ID」文字欄——清單不可能永遠跟得上
+新模型發布，兩者共用同一個 `llmSettings.model` 狀態，選或打都算數。
+切換供應商時 (`changeLlmProvider`) 自動帶出 `DEFAULT_MODEL_BY_PROVIDER`
+的預設值，不會讓舊供應商選過的型號卡在欄位裡誤導使用者。
+
+**core 新增兩支函式**（`src/core/nutrition/photoEstimateLlm.ts`）：
+
+- `testNutritionLlmConnection`：`GET /v1/models`，local 用來抓實際模型
+  清單（上限 200），雲端供應商純粹驗證 Key／端點有效（上限 5，跟桌面
+  `testLLMConnection` 的量級一致）。
+- `testPhotoEstimateVision`：owner 這次明確要的「一鍵測試能不能傳圖」——
+  送一張 1×1 透明像素 PNG（體積接近零）＋簡短指令「看得到就回『可以讀圖』」，
+  故意跟 `requestPhotoEstimate` 分開一支、不要求 JSON 格式，這樣失敗時
+  好判斷是「模型真的不支援讀圖」還是「JSON 格式沒照指示回」兩種不同問題。
+  空回應或回覆內容講到「無法／看不到」的情況都判定失敗（有些模型看不到圖片
+  時不會老實說看不到，而是照樣掰一段話，所以不能只看「有沒有回應」）。
+  兩支跟 `requestPhotoEstimate` 共用抽出來的 `fetchWithTimeout()` 與
+  `checkBasicRequestPreconditions()`，避免第三次複製貼上同一段逾時／
+  前置檢查邏輯。
+
+**手機 UI**：設定頁新增「測試連線」（local 顯示「測試連線（抓模型清單）」）
+與「一鍵測試能不能傳圖」兩顆按鈕，結果訊息用 `.hint.danger-text`
+（新色票）跟一般提示區分。兩顆按鈕與模型清單邏輯都用瀏覽器預覽
+＋ mock `fetch` 驗證過：openai 選 `gpt-4o-mini` 測讀圖成功顯示
+「✅ 這個模型可以讀圖」，換一個回「無法看到圖片」的假回應顯示
+「❌ 模型回應顯示看不到圖片內容」；local 供應商測試連線後下拉選單
+正確填入 `qwen3:8b`／`llama3.2-vision:11b`。
+
+8 項新測試（`testNutritionLlmConnection` 4 項、`testPhotoEstimateVision`
+4 項），加上既有 9 項 `requestPhotoEstimate` 測試維持全過（重構抽出共用
+函式沒改變外部行為）。
+
+`npm run typecheck`、`npm test`（73 檔、912 項）全過；
+`npm run build:nutrition:mobile` 建置成功。
+
+---
+
+## 2026-08-19（續四）｜拍照估算修 3 個 owner 實測回報的問題
+
+owner 實測上一輪的模型清單／測讀圖功能，選 OpenAI 卻還看得到「端點」欄位、
+測連線說「已連線找到 5 個模型」但不確定連到哪、選 `gpt-5.6-luna` 一鍵測讀圖
+回 400。三個都修了：
+
+1. **`gpt-5.6-luna` 400 錯誤（根因）**：gpt-5／o 系列（推理模型）的
+   Chat Completions **不接受 `max_tokens`**，要用 `max_completion_tokens`
+   ——跟 `core/llm/openai.ts` 的 `shouldOmitTemperature()` 判斷同一批模型
+   （`/^gpt-5(\.|-|$)/i` 或 `/^o\d/i`），只是換了要繞的參數。
+   `photoEstimateLlm.ts` 新增 `reasoningAwareParams()`，兩個呼叫模型的
+   函式（`requestPhotoEstimate`、`testPhotoEstimateVision`）都改用它。
+   順手處理了第二個坑：推理模型的**推理本身會佔用同一份 token 預算**，
+   讀圖測試原本的 20 tokens 很容易被推理吃光、正文回空字串（看起來像
+   「沒反應」而不是「不支援讀圖」）——加 `reasoning_effort: 'minimal'`
+   把推理壓到最低，並把測試用的預算下限拉到 300。
+2. **openai 供應商為什麼有端點欄位**：那個欄位其實是給「走 OpenAI 相容
+   代理」這種進階情境用的，但攤平顯示在主要欄位裡讓人誤以為必填。
+   照桌面／DeST 手機（`SettingsView.tsx` 的「進階」收合區）同樣的處理方式，
+   雲端供應商（openai／grok）的端點欄位收進 `<details>「進階：自訂端點」`，
+   `local` 供應商維持攤平顯示（那裡是必填）。
+3. **「已連線，找到 5 個模型」到底連到哪裡**：這句話本身沒錯——雲端供應商
+   固定只列前 5 筆當連線佐證（跟桌面 `testLLMConnection` 同一個量級），
+   拿去 OpenAI 官方 API 驗證 Key 有效而已，UI 補一句「雲端只列前 5 筆佐證
+   連線成功，實際可選的模型看下面的下拉清單」講清楚。
+   **但過程中發現一個真正的 bug**：`NutritionLlmSettings.endpoint`
+   原本是單一扁平欄位（不像 `apiKeys` 是 per-provider 的
+   `Record<string,string>`），切供應商時舊值會被錯誤沿用——例如切去
+   `local` 測完填了 `http://localhost:11434/v1`，切回 `openai` 那個
+   位址還在，下一次請求會送去錯的地方。這正是 CLAUDE.md §5「llm.endpoint
+   是遺留欄位」記載的同一類坑，只是這次出現在 nutrition 模組自己那份
+   獨立設定裡。改成 `endpoints?: Record<string, string>`，比照
+   `apiKeys` 做成 per-provider（`types.ts`／`storage.ts` 正規化／
+   `migrationPack.ts`／`photoEstimateLlm.ts` 的 `resolveBaseUrl`／
+   `main.tsx` 的兩個端點輸入框都一併改掉），新增回歸測試覆蓋「切供應商後
+   端點互不影響」與「endpoints 正規化後維持 per-provider」。
+
+新增 3 項測試（`max_completion_tokens` 行為 2 項、endpoint 隔離 1 項）
+＋ storage 正規化 1 項，共 4 項；瀏覽器預覽 + mock fetch 重新驗證
+`gpt-5.6-luna` 讀圖測試，body 正確帶 `max_completion_tokens: 300` ／
+`reasoning_effort: 'minimal'`、不帶 `max_tokens`，顯示「✅ 這個模型可以讀圖」。
+
+`npm run typecheck`、`npm test`（73 檔、916 項）全過；
+`npm run build:nutrition:mobile` 建置成功。
+
+---
+
+## 2026-08-19（續五）｜拍照估算加 Claude、修 local CORS 提示與 grok 端點 bug
+
+owner 三個新回報：本機模型連不上、OpenAI 選另一個型號還是 400、Claude 選項不見了。
+
+1. **加 Claude（Anthropic）供應商**。之前只支援 OpenAI 相容的 Chat
+   Completions（openai／local／grok），Claude 的 Messages API 形狀完全不同
+   （端點 `/v1/messages`、`x-api-key` 不是 `Authorization: Bearer`、
+   圖片是 `{type:'image', source:{type:'base64', media_type, data}}`
+   不是 `image_url`、回應是 `content[].text` 不是
+   `choices[0].message.content`）。`photoEstimateLlm.ts` 抽出
+   `buildContentParts()`／`buildRequestHeaders()`／`extractReplyText()`
+   三個依供應商分流的小函式，三個對外函式（估算／測連線／測讀圖）都改
+   吃這幾支，不必各自維護一份 if-else。**沒用 `@anthropic-ai/sdk`**——
+   跟先前不用 `openai` SDK 的理由一樣，維持 nutrition/mobile 這個獨立小
+   App 的依賴精簡，直接發 fetch＋手動組 header。Anthropic 官方 API
+   預設擋瀏覽器直連（CORS），要多帶一個 `anthropic-dangerous-direct-
+   browser-access: true`——這正是 `@anthropic-ai/sdk` 的
+   `dangerouslyAllowBrowser: true` 底下實際做的事（`core/llm/claude.ts`
+   用 SDK 蓋掉了這個細節，這裡沒用 SDK 所以要自己補上）。手機供應商下拉
+   新增「Anthropic Claude」選項，模型清單一樣吃 `@core/llm/modelCatalog`
+   的 `CLAUDE_MODELS`，不必另外維護。
+2. **OpenAI 換一個模型還是 400**：上一輪加的 `reasoning_effort: 'minimal'`
+   是沒有文件佐證的猜測，這次很可能是新的根因——不同 gpt-5 子型號支援的
+   `reasoning_effort` 取值不見得一樣，猜錯一樣會 400。**拿掉這個猜測**，
+   改成通用機制：`postJsonWithParamFallback()`——送出後若收到 400 且錯誤
+   訊息符合 OpenAI 文件的固定格式「`Unsupported parameter: 'X'`」，就把
+   該參數從 body 拔掉重送一次（僅一次，不無限重試）。這樣不管未來還踩到
+   哪個「這個模型不吃這個參數」的組合，都不必事先猜對，讓錯誤訊息自己講。
+   `max_completion_tokens`（有 OpenAI 文件佐證的必要修正）保留。
+3. **本機模型連不上**：`describeNetworkError()` 補一句可行動的提示——
+   瀏覽器 CORS 失敗時 JS 拿到的訊息一律是無意義的
+   `TypeError: Failed to fetch`（瀏覽器基於安全考量刻意不透露細節），
+   猜不出真正原因，所以改成「猜最常見的成因」直接講給使用者：
+   Ollama 預設不開放跨來源存取，要設 `OLLAMA_ORIGINS=*` 或確認位址/埠號、
+   同一區網。這不是修 bug（技術上沒有東西能修——`fetch` API 本身就是這樣
+   設計的），是把猜測的診斷步驟直接寫進錯誤訊息，省得使用者自己爬文。
+4. **順手修一個沒人抓到的 bug**：`resolveBaseUrl()` 原本沒填端點時**一律**
+   退回 `https://api.openai.com/v1`，包含 `grok`——代表 Grok 沒填端點時
+   會悄悄把請求（帶著 Grok 的 Key）送去 OpenAI，只會 401，且訊息不會
+   提到「端點錯了」。改成 `grok` 沒填端點時退回官方 `https://api.x.ai/v1`
+   （跟 `core/llm/index.ts` 的 `endpointForProvider()` 同一個預設值），
+   `claude` 同理退回 `https://api.anthropic.com/v1`。
+
+6 項新測試（Claude 估算／讀圖各 1、grok 預設端點 1、400 重試機制 2、
+不支援供應商改用真的不支援的 gemini 驗證）。瀏覽器預覽 + mock fetch
+驗證 Claude 端到端（讀圖測試顯示「✅ 可以讀圖」，headers/URL 正確）與
+local 的新錯誤訊息（顯示 OLLAMA_ORIGINS 提示）。
+
+Gemini 仍未支援（圖片格式又不同，且目前沒人要求），供應商清單裡就不
+列出來，避免使用者選了才發現不能用。
+
+`npm run typecheck`、`npm test`（73 檔、921 項）全過；
+`npm run build:nutrition:mobile` 建置成功。
+
+---
+
+## 2026-08-19（續六）｜拍照估算補上送出前補充說明頁（提前把 P2.6 的核心搬進 P2）
+
+owner 實測回報：拍好幾張都被 AI 猜回一堆「？」，浪費 token。根因是 P2
+範圍刻意先跳過規格 §2.7「送出前補充說明頁」，直接拍完就送出——但
+`docs/nutrition-photo-estimate-plan.md` §1 原則 5 早就講清楚「文字比讓
+模型從圖上猜準得多」，沒有這一步，AI 只能憑空猜測，猜錯基本欄位（連
+「這是三明治還是便當」都猜不到）自然全部問號。
+
+不等 P2.6 排到再做，直接把這個核心體驗補進 P2：選好照片後**不直接送**，
+先進一個可留白的補充說明頁（一個 `<textarea>`＋照片縮圖預覽），按「估算」
+才真的呼叫模型。`estimatePhase` 加一個 `noteInput` 中繼狀態；
+`requestPhotoEstimate` 的 `note` 參數其實在 P1／P2 就已經接好了
+（`photoEstimateLlm.ts` 的 prompt 組裝本來就有處理 `note`），這次只是
+**手機 UI 真的把這個欄位露出來**——之前 P2 為了衝三步流程直接跳過了。
+
+- `pickEstimatePhoto()`：選完照片先存 `File`＋建立預覽 blob URL，phase
+  切到 `noteInput`，不呼叫 `compressImageFile`／不打 API。
+- `submitEstimate()`：這時才真的壓縮＋呼叫模型，`estimateNote.trim()`
+  留白時傳 `undefined`（純依圖片判斷，跟原本行為一致）。
+- `resetEstimateState()` 一併清掉 note／file／預覽 URL（含
+  `URL.revokeObjectURL`，避免累積孤兒 blob）。
+- 「重試（重新選照片）」也改走 `pickEstimatePhoto`，讓使用者重試時能
+  補一句說明，而不是繼續盲猜。
+
+瀏覽器預覽驗證：選照片後正確停在補充說明頁（不會自動送出）；填入
+「燻雞三明治，7-11，吃了一整份」後攔截 `fetch` 讀出實際送出的 prompt，
+確認補充說明原文有出現在 `使用者補充說明：` 那一行；結果卡正確命中
+食物庫既有紀錄（示範了規格 §2.3「文字講到名稱→本機比對→沿用庫內數字」
+那條路徑）。
+
+這次沒做的（仍在 §7 分期表）：多份食物分槽、份量 stepper、秤重模式、
+營養標示 OCR——補充說明頁目前只有一個文字欄，不含這些。
+
+`npm run typecheck`、`npm test`（73 檔、921 項）全過；
+`npm run build:nutrition:mobile` 建置成功。
+
+---
+
+## 2026-08-19（續七）｜「一直回問號」的真正根因：prompt 從沒告訴模型輸出格式
+
+owner 加了補充說明之後**還是回一堆問號**，並問「我平常用自己的 AI 網頁介面
+都估得出來啊」。這句話就是關鍵線索——模型看得懂圖、也答得出來，**錯的是
+我們沒告訴它要怎麼回**。
+
+**根因**：`buildPhotoEstimatePrompt()` 從頭到尾只說「請以 JSON 回覆，每個
+元素為**規格所述**的單份食物估算結果」——但那份「規格」在 `docs/` 裡，
+**從來沒有被送進 prompt**。模型只能自己發明欄位名（`熱量`／`calories`／
+`protein`…），而 `parseEstimateResult()` 只認 `perServing.kcal`／
+`perServing.proteinG`，一律 parse 成 `null` → UI 顯示「？」。
+症狀極具迷惑性：模型其實運作正常、token 也真的花了，錯在我們這端的契約
+只寫在文件裡、沒寫進請求裡。**這類「兩邊各有一份格式定義」的漂移，
+CLAUDE.md §5 在 M4 `contentHash.ts` 那次已經記過一模一樣的教訓**，
+只是這次漂移的另一半不是另一個模組，而是「文件 vs. 實際送出的 prompt」。
+
+順帶一提，舊 prompt 還自相矛盾：`buildPhotoEstimatePrompt()` 結尾說
+「請以 JSON **陣列**回覆」，呼叫端又接了一句「請回傳一個 JSON **物件**，
+格式為 `{ "results": [...] }`」。已合併成單一份格式說明，只留在 prompt 組裝那支。
+
+修法三層（由內而外）：
+
+1. **prompt 逐欄寫出完整輸出格式**（含註解的 JSON 範例＋`label` 子物件格式）。
+   欄位名稱與大小寫必須完全一致這件事直接寫在 prompt 裡。
+2. **明講 `kcal`／`proteinG` 不得回 null**：謹慎的模型碰到看不清楚的照片會
+   傾向留空，但在這個 App 裡「誠實的 null」等同估算失敗——使用者要的是一個
+   可以先存、之後再改的數字。不確定時改用 `confidence: "low"` 表達。
+3. **解析器放寬當防禦層**：認 `calories`／`protein`／`carbohydrates` 等近義名，
+   營養數字攤在最外層（沒包進 `perServing`）也撈得到；只有熱量沒有蛋白質時
+   蛋白補 0 而不是整筆作廢（能存下熱量比顯示「？」有用），**只有連熱量都沒有
+   才回 null**（那才是真的失敗）。
+
+**同時做掉 owner 要的多張照片**（規格 §2.6 拍法 A：包裝正面＋營養成分表＋
+內容物，本來就是準確率最高的拍法，而且成分表那張才是數字準的關鍵）：
+
+- 補充說明頁改成照片格（上限 3 張＝`FoodItem.photoKeys` 上限），可多選、
+  可逐張移除，按鈕顯示「估算（N 張）」。
+- **多張一律當成同一份食物**（都送 `slot: 1`），新食物存入時依序寫進
+  `photoKeys`；命中既有食物時只把第一張留成該餐的紀錄照，不動食物庫。
+- 圖片前的標註從「（以下圖片屬於 slot 1）」改成「（第 N 張照片，與其他照片
+  **同屬一份食物**）」——只標 slot 的話模型會把 3 張照片當成 3 份食物回 3 筆。
+  多份食物時（未來 §2.6.1）則標「第 N 份食物」，兩種措辭都有測試守著。
+- 失敗頁多一顆「回上一步改說明再試一次」：估錯時最有效的動作是補一句話，
+  而不是重選同一批照片盲猜。
+
+**過程中抓到一個自己剛引入的 bug**：`addEstimatePhotos()` 原本把
+`URL.createObjectURL()` 這個副作用寫在 `setState` 的 updater 函式裡，
+而 updater 必須是純函式——React StrictMode 刻意雙呼叫來抓這種寫法，
+結果每張照片被建兩個 blob URL（畫面出現 6 張縮圖、而且洩漏 blob）。
+瀏覽器預覽一跑就看到縮圖數量不對。已改成在 updater 外面先算好；
+`removeEstimatePhoto()`／`resetEstimateState()` 的 `revokeObjectURL`
+同樣移出 updater，並改用 ref 追蹤目前活著的 URL——後者會在存檔完成的
+`.then()` 裡被呼叫，那時 closure 抓到的 state 可能已經過期，少 revoke
+一個就是一個永遠不會被回收的 blob。
+
+9 項新測試（prompt 必含各欄位名／必含「不得填 null」／必含「同一份食物可能
+有多張照片」、解析器 4 種寬鬆情境、多張同屬一份的標註、多份食物的 slot 標註）。
+瀏覽器預覽驗證：一次選 3 張正確顯示 3 格縮圖（不是 6 格）、移除一張後
+加號格回來且按鈕變「估算（2 張）」、送出的 request 確認 2 張圖都在、
+標註寫「同屬一份食物」、補充說明在 prompt 末端、結果卡顯示真實數字
+（210 kcal · 蛋白 24 g · 依營養標示）而不是問號。
+
+⚠️ 預覽 console 有 `createRoot() on a container that has already been
+passed` 警告，那是 dev server HMR 重跑模組造成的既有雜訊
+（`git diff` 確認 `createRoot` 那段本次完全沒動），APK 沒有 HMR 不受影響。
+
+`npm run typecheck`、`npm test`（73 檔、930 項）全過；
+`npm run build:nutrition:mobile` 建置成功。
+
+---
+
+## 2026-08-19（續八）｜**prompt 大幅瘦身**：規則堆太多反而把估算值推高
+
+修完問號後 owner 回報估出來的熱量「比之前用網頁估的多好多」，先猜是
+「我拍食物都用手當比例尺，但我的手比一般人小很多」。接著他提出更關鍵的
+一句話：**「我去網頁 LLM 只說『如果我拍食物照片，請幫我計算熱量、蛋白質、
+碳水化合物、脂肪、糖、鈉』，沒有給任何額外 prompt，你是不是自作主張加太多了」**。
+
+**是的，加太多了，而且其中一條正在主動製造這個偏差。** 檢討如下：
+
+`buildPhotoEstimatePrompt()` 一路長到八條規則，其中：
+
+- 規則 3 尾巴那句「用可見的份量線索推份量，**不要一律預設一份**」——
+  這等於叫模型別保守、從畫面往大推。配上偏小的比例尺（owner 用自己的手）
+  就是系統性高估。**體積是長度的三次方**，線性差 20% 就是體積差約 1.7 倍。
+- 更糟的是我當下的第一反應：再加一條規則 7「**寧可保守也不要高估**」去對沖。
+  **用偏見抵銷偏見**只會讓行為更難預測，兩條都該刪掉而不是留著互相拉扯。
+
+所以這次把規則砍到只剩**結構上非有不可**的三行（幾乎就是 owner 自己那句話）：
+
+```
+請看照片估算食物的熱量、蛋白質、碳水化合物、脂肪、糖、鈉。
+同一份食物可能有多張照片（包裝正面、營養成分表、內容物），請合併判讀成一筆結果。
+照片中有營養成分表時，數字以標示為準，不要用經驗值覆蓋。
+```
+
+保留 JSON schema 那一大段——**那是我們跟網頁介面唯一真正的結構性差異**
+（人可以用讀的，程式要 parse），拿掉就回到「一片問號」那個 bug。
+第二行是多張照片的功能需求，第三行是實質正確性（有標示卻用經驗值猜是錯，
+不是風格偏好）。函式檔頭寫下判準：**想加規則前先問「這是在補結構性缺口，
+還是在微調模型的判斷傾向」——後者不要加**，改用下面兩個機制。
+
+配套做了兩件讓使用者自己掌握、而不是我在 prompt 裡猜的事：
+
+1. **比例尺校正設定**（`NutritionAppSettings.photoEstimate.scaleReference`）：
+   設定頁一個 textarea，填一次、之後每次估算自動附進 prompt
+   （例如「照片裡的手是我的，手掌寬約 7 公分，比一般成人小」）。
+   校正資訊每次都一樣，不該逼使用者每張照片重打（違反 §1 原則 1「不打字」）。
+   留白時 prompt 完全不會出現這一段。
+2. **結果卡顯示份量與判斷依據**：模型多回 `estimatedWeightG` 與 `portionBasis`，
+   卡片顯示成「估計份量約 380 g — 依常見超商便當份量」。
+   數字偏高時這一行才看得出**是哪一步估錯**（通常是份量，不是熱量密度），
+   比信心分數有用得多——這也讓下次再有偏差時可以直接診斷，不必再靠猜。
+
+順手修掉 `updatePhotoEstimateEnabled()` 直接寫 `{ enabled: next }` 會把
+同一層 `scaleReference` 洗掉的問題（開關關掉再開啟就要重填），改成展開既有值。
+
+新增／改寫 12 項測試，含兩條「防止規則再度膨脹」的守門測試：
+prompt 不得出現「不要一律預設一份」「寧可保守」這類傾向性字眼、
+規則段落不得超過 4 行。瀏覽器預覽驗證校正資訊確實出現在送出的 prompt、
+結果卡正確顯示份量與依據。
+
+**仍待 owner 真機驗證**：這次砍 prompt 是否真的讓數字回到合理範圍。
+若還是偏高，下一步該查的是「有沒有比例尺參考物」對結果的影響，
+而不是再往 prompt 加規則。
+
+`npm run typecheck`、`npm test`（73 檔、939 項）全過；
+`npm run build:nutrition:mobile` 建置成功。
+
+---
+
+## 2026-08-19（續九）｜本機模型連不上：飲食 App 漏開 CapacitorHttp
+
+owner 回報「本機模型現在是 DeST 可以連，這邊連測試連線都顯示 Failed to fetch」。
+**「DeST 連得上、這個 App 連不上」就是最強的線索**——同一台電腦、同一個
+Ollama，差別只在兩個 App 的 HTTP 走哪條路。
+
+**根因**：`nutrition/mobile/capacitor.config.ts` 少了
+`plugins: { CapacitorHttp: { enabled: true } }`。DeST 的 config 一直有這段
+（註解還寫著「原生 HTTP 接管全域 fetch，讓 WebView 的跨網域請求不受 CORS 限制」），
+建立飲食 App 的 config 時漏抄。沒開的話 `fetch` 就是 WebView 原生的那個，
+要受 CORS 管；Ollama 預設不送 CORS 標頭 → 一律 `Failed to fetch`。
+CLAUDE.md §5 其實已經記過這條規則（「core 裡要打外部 API 就注入 HttpAdapter…
+手機那邊要 CapacitorHttp patch 過才繞得過 CORS」），我在 P2 建
+`nutrition/mobile/src/http.ts` 時還親手寫了「目前沒有裝 CapacitorHttp，
+直接用瀏覽器原生 fetch」的註解——等於把已知的坑寫成註解然後跳進去。
+
+⚠️ 改 `capacitor.config.ts` 之後**一定要 `npx cap sync android`**：原生層讀的是
+`android/app/src/main/assets/capacitor.config.json`，不是那份 .ts。
+只重建 www 不會生效（已在 config 檔頭寫下這句提醒）。
+
+同時把 `nutrition/mobile/src/http.ts` 改成跟 DeST 的
+`src/mobile/adapters/httpAdapter.ts` 同一套處理，這幾點都是 CLAUDE.md §5
+記載過、開了 CapacitorHttp 才會浮現的坑：
+
+- **呼叫當下才讀 `globalThis.fetch`**，不可在模組載入時 bind——CapacitorHttp
+  是 plugin 初始化時才 patch `window.fetch`，先 bind 會抓到未 patch 的版本，
+  CORS 繞道整個失效，而且**只在真機炸、瀏覽器預覽看不出來**。
+- **`withAbort()` 把 signal 翻成 reject**：CapacitorHttp 完全忽略
+  `init.signal`，`photoEstimateLlm.ts` 裡的 12 秒逾時在真機上形同虛設，
+  模型一慢就無限等、UI 永遠停在「估算中...」。用 `Promise.race` 讓等待中止。
+  有 signal 時就不疊保底天花板——本機模型冷啟動（載模型進記憶體）可能要
+  好幾十秒，疊上去會變成「第一次問一定失敗、之後才正常」。
+- **`supportsStreaming: false`**（原生 HTTP 對 ReadableStream 支援不佳）。
+
+順帶把 `postJsonWithParamFallback()` 的 `response.clone()` 拿掉：手機端的
+Response 是原生橋接重建的，clone 支援度不如瀏覽器原生。改成讀完 body 後
+在不重試時用同樣內容重建一個還給呼叫端，行為一樣但不依賴 clone
+（新增測試驗證重建後錯誤內容仍讀得到，不是空字串）。
+
+`describeNetworkError()` 的提示也改寫了：開了 CapacitorHttp 之後 APK 端
+不再是 CORS 問題，最可能的成因換成「Ollama 預設只聽 127.0.0.1，手機根本
+連不到」，依機率重排成四點，並註明「瀏覽器預覽才需要 OLLAMA_ORIGINS」。
+
+瀏覽器預覽驗證三條路徑：連線失敗顯示新的四點提示、底層 fetch 永遠不 settle
+時仍在 12 秒後中止等待（證明 `withAbort` 有效，否則真機會永久卡住）、
+正常回應仍能抓到模型清單填進下拉選單。
+
+**仍待 owner 真機驗證**：這次要重打 APK 才會生效（config 改動只靠重建 www
+不夠）。若裝上去還是連不上，最可能是 `OLLAMA_HOST=0.0.0.0` 沒設——
+那是 App 這端無法解決的，錯誤訊息現在會把它列在第一條。
+
+`npm run typecheck`、`npm test`（73 檔、939 項）全過；
+`npm run sync:nutrition:android` 已跑，`capacitor.config.json` 確認含 CapacitorHttp。
+
+---
+
+## 2026-08-19（續十）｜明文流量被擋、逾時砍太早，順手補等待動態／語音輸入／費用提示
+
+### 本機模型連不上（續九的下半場）
+
+續九開了 `CapacitorHttp` 修掉 CORS，owner 實測**還是連不上**。真正的第二個原因：
+`nutrition/mobile/android/app/src/main/AndroidManifest.xml` **少了
+`android:usesCleartextTraffic="true"`**。Mac Mini 上的 Ollama 是區網 `http://`，
+而 `targetSdkVersion` 是 36 —— Android 從 targetSdk 28 起預設禁止明文流量，
+**原生層**（CapacitorHttp 走的 OkHttp）的請求直接被系統擋掉。
+
+- `android.allowMixedContent` 蓋不到這個：那是 WebView 的政策，跟原生 HTTP 是兩層。
+- DeST 主 App 的 manifest 一直有這一行（`android/app/src/main/AndroidManifest.xml:5`），
+  這就是「同樣設定 DeST 連得上、飲食 App 連不上」的全部差別。
+- 兩件事要**一起**才會通：`CapacitorHttp`（繞 CORS）＋ `usesCleartextTraffic`（准明文）。
+  只做一個的症狀長得一模一樣，都是「送出去就失敗」，很容易以為前一個修法沒生效。
+
+順手修 `scripts/build-nutrition-apk.mjs`：`gradlew.bat` 沒帶絕對路徑，
+在停用 `NoDefaultCurrentDirectoryInExePath` 以外的環境下 cmd 不搜尋目前目錄，
+建置會停在 `'gradlew.bat' is not recognized`。
+
+### 測讀圖固定 `The operation was aborted`
+
+那是我們自己的逾時，不是網路問題。`DEFAULT_TIMEOUT_MS = 12_000` 是照雲端抓的，
+**本機視覺模型第一次要把模型載進記憶體**，動輒數十秒到數分鐘，12 秒必砍。
+
+- `photoEstimateLlm.ts` 新增 `resolveTimeoutMs()`：`local` → 300 秒，雲端維持 12 秒；
+  估算／測連線／測讀圖三個入口共用（呼叫端都沒指定逾時，改預設就全數生效）。
+- `describeNetworkError()` 把 `AbortError` 跟「連不上」分開講。原本逾時會套上
+  「檢查 OLLAMA_HOST／防火牆／同一個區網」那串清單，**方向完全錯**，
+  會讓人去查一個沒壞的東西。
+
+### 順手補的四個 UI（owner 當場回報）
+
+1. **「估算中」等待動態**（`EstimateLoading`）：三顆跳動的點＋已等秒數，
+   本機模型等超過 20 秒補一句「第一次要載模型，可能要好幾分鐘」。
+   純文字「估算中...」在本機模型那種等待長度下看起來就是當掉。
+   有 `prefers-reduced-motion` 的靜態版本。
+2. **補充說明的語音輸入**（`nutrition/mobile/src/voiceInput.ts`）：
+   ⚠️ **Web Speech API 在 Android WebView 不能用**——WebView 沒有綁系統語音服務，
+   `webkitSpeechRecognition` 不是不存在就是一啟動就 `network` 錯誤（Chrome 瀏覽器可以，
+   WebView 不行）。走 `@capacitor-community/speech-recognition`，它自己的
+   AndroidManifest 已帶 `RECORD_AUDIO` 與 `RecognitionService` 的 `<queries>`，
+   **這個外掛不必手動合併權限**（跟 geolocation 那次相反）。
+   `available()` 回 false 就不畫按鈕；離開頁面 unmount 時強制 `stop()`，否則麥克風一直開著。
+   照 CLAUDE.md §5 包一層 `{ plugin }` 回傳，不直接 return plugin proxy。
+3. **AI／模型／費用提示行**：拍照入口下方與估算鈕上方各一行。原本按鈕上
+   完全看不出會連網、用哪個模型、要花錢。單價**沿用 `core/llm/modelCatalog`
+   的 `MODEL_PRICES`**，不另編一組憑印象的數字；查無單價顯示「費用未知」不擋操作。
+   金額走既有的 `estimateRequestCost()`，新增 `capabilitiesFromPriceTable()`／
+   `formatEstimatedCost()` 兩支純函式（§2.9.3 的「不換算匯率、帶 ISO 幣別、
+   絕不顯示 $0.00」都在 formatter 裡）。
+4. **今日列表顯示份量**：名稱後面接小字 `2 份`。份量 span 放在 `<strong>` **外面**，
+   長名稱被 ellipsis 截斷時份量才不會跟著被吃掉。
+
+### 文件
+
+`docs/nutrition-photo-estimate-plan.md` 補了 **§6.5 實作對照表**（逐項對過 core／UI）。
+結論值得記住：**`core/` 幾乎全做完了，缺口幾乎都在「UI 沒有呼叫端」**——
+`estimateRequestCost`、`nutritionFromGrams`、`parsePastedNutrition`、
+`checkRequestCompatibility`、`hashPhoto`／`findDuplicateLog` 全是寫好沒人叫的死碼。
+挑下一項做時先看那張表，不要照 §7 分期表的順序推測進度。
+
+---
+
+## 2026-08-19（續十一）｜接上貼上自動填欄位（§2.10.3）與送出前相容性檢查
+
+兩支寫好沒人叫的 core 函式接上呼叫端，都是「接線」不是新功能。
+
+- **`parsePastedNutrition`**：食物表單多一個摺疊區「貼上營養資訊自動填欄位」，
+  貼上就即時填，回報填了哪幾欄；抓不到**不跳錯誤、不阻擋**（規格明文要求）。
+  **零網路請求**，跟 AI 開關無關、開關關閉時照樣可用。
+- 順手發現的缺口：`FoodItem.perServing` 有 `sugarG`／`sodiumMg`，拍照估算也會回存，
+  但**手打表單從來沒有這兩欄的入口**——貼上解析抓得到糖與鈉卻無處可放。
+  補進表單的「更多（糖、鈉）」摺疊區（§1 原則 7b：隨手記、不主打，所以摺疊不佔第一眼）。
+  五個地方要一起改：`FoodDraft` 型別、`blankFoodDraft()`、從既有食物開表單、
+  從估算結果開表單、兩支存檔（`saveFoodDraft`／`duplicateFoodConfirmed`）。
+- **`checkRequestCompatibility`**：估算送出前先擋「沒選模型」「非本機卻沒填 API Key」，
+  照片與說明保留。`vision: false` 這條**擋不了**——沒有 §2.9.1 的能力表就無從得知
+  哪些模型不能讀圖，寧可不擋也不要憑型號名猜（猜錯會擋掉能用的模型）。
+- 開表單時記得清掉貼上區的文字與訊息，否則會留著上一筆食物的內容。
+
+---
+
+## 2026-08-19（續十二）｜貼上自動填欄位實測全部抓不到：解析不能假設格式
+
+owner 貼了網頁 LLM 的實際回覆，**一欄都沒填到**：
+
+```
+蛋白質：約4克
+碳水化合物：約30克
+```
+
+根因：第一版的正則要求數字**緊接在**標籤與冒號後面（`蛋白質?\s*[:：]?\s*(\d+)`），
+中間多一個「約」就整條失效。
+
+**修法方向的取捨**（owner 也問到）：要不要改成「給使用者一段固定格式的 prompt
+去貼給網頁 LLM」？**不採用**——那是把問題丟回給使用者，而且他換一家 LLM
+（甚至同一家不同次回答）格式又不一樣，等於每次都要重來。
+**格式是不可控的輸入，該寬鬆的是解析器。**
+
+現在容許：`約`／`大約`／`~`／`≈` 這類模糊詞、全形數字與冒號、條列符號、
+換行、單位可省略、中英文標籤（`Protein`／`Carbs`／`Calories`）、千分位逗號。
+
+兩個實作上的坑，都有測試守著：
+
+- **`kcal` 不能當標籤去找「後面第一個數字」**：`320 kcal 蛋白 18g` 會把蛋白質的
+  18 抓成熱量。熱量要**先**試「數字在前」的寫法（`320 大卡`），標籤式擺後面。
+- **標籤與數字之間不准跨過逗號或句號**：`這份蛋白質很低，整份大約有 320 大卡`
+  原本會把 320 填進蛋白質。跨過標點就是換一句話了，寧可抓不到讓使用者手打，
+  **也不要填一個錯的數字——錯的數字他不會發現**。
+
+還沒做（owner 提的另一個選項）：把貼上的原文**存進資料裡**留底。
+需要給 `FoodItem` 加一個自由文字欄位，牽涉搬家包與桌面端，這輪先不動。

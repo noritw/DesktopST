@@ -1,12 +1,12 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useRef, useState } from 'react'
-import type { ReactElement } from 'react'
+import type { ReactElement, TextareaHTMLAttributes } from 'react'
 import type { Character } from '@core/types'
 import type { PresetListItem } from '@core/data'
 import MonoIcon from '@shared/MonoIcon'
-import { getData, useAppStore } from '../stores/appStore'
+import { getData, isAttached, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeCharacterError } from './characterErrors'
-import { prepareAvatar } from './avatarFile'
+import { extOf, prepareAvatar } from './avatarFile'
 import { invalidateAvatar, useAvatarUrl } from './useAvatarUrl'
 import { downloadBytes, mimeForFilename, pickFile } from '../shell/fileTransfer'
 
@@ -26,13 +26,17 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
   const confirm = useUiStore((s) => s.confirm)
   const pop = useUiStore((s) => s.pop)
   const setCloseGuard = useUiStore((s) => s.setCloseGuard)
+  const openAvatarCrop = useUiStore((s) => s.openAvatarCrop)
   const refresh = useAppStore((s) => s.refresh)
+  const attached = useAppStore((s) => s.attached)
 
   const [draft, setDraft] = useState<Character | null>(null)
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [lorebooks, setLorebooks] = useState<PresetListItem[]>([])
+  const [generatingLoreId, setGeneratingLoreId] = useState<string | null>(null)
+  const [loreMsg, setLoreMsg] = useState<string | null>(null)
 
   // guard 讀的是「當下」的狀態，所以走 ref —— 用 state 會被 closure 鎖在註冊當時那一刻。
   const dirtyRef = useRef(false)
@@ -53,13 +57,16 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
       setDraft(card)
       setLorebooks(books)
     } catch {
-      setFailed(true)
+      // B-4：切換模式的空窗期間 getData() 會 throw，不是真的失敗——見
+      // SettingsView.tsx 同一套修法的註解。保持 draft === null，下面
+      // `if (!draft) 載入中⋯⋯` 會自然接手，`attached` 變 true 後自動重試。
+      if (isAttached()) setFailed(true)
     }
   }, [characterId])
 
   useEffect(() => {
     void load()
-  }, [load])
+  }, [load, attached])
 
   const save = useCallback(async (): Promise<boolean> => {
     const current = draft
@@ -115,9 +122,17 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
     // 真正的格式把關在 `prepareAvatar`，不是在選圖器上。
     const file = await pickFile('image/*')
     if (!file || !draft) return
+
+    // GIF 不進裁切畫面：裁切一定要把圖畫到 canvas 上再輸出，只留得住第一格，
+    // 動圖就死了——`avatarFile.ts` 的 `prepareAvatar` 本來就會把 GIF 原檔保留，
+    // 裁切這步在這裡直接跳過，交給後面既有的邏輯處理。
+    const isGif = file.type === 'image/gif' || extOf(file.name) === '.gif'
+    const toPrepare = isGif ? file : await openAvatarCrop(file)
+    if (!toPrepare) return // 使用者在裁切畫面按了取消
+
     setBusy(true)
     try {
-      const prepared = await prepareAvatar(file)
+      const prepared = await prepareAvatar(toPrepare)
       // ⚠️ **圖檔先落地、角色卡後存**（與桌面版同語意）：`saveAvatar` 回來的是
       // 平台自己決定的位址，手機不可以自己編一個路徑塞進卡裡。
       const avatar = await getData().characters.saveAvatar(draft.id, prepared)
@@ -139,12 +154,29 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
     setBusy(true)
     try {
       const file = await getData().characters.exportCard(draft.id, kind)
-      downloadBytes(file.bytes, file.filename, mimeForFilename(file.filename))
+      await downloadBytes(file.bytes, file.filename, mimeForFilename(file.filename))
       toast(`已匯出 ${file.filename}`)
     } catch (e) {
       toast(describeCharacterError(e, '匯出'), 'error')
     } finally {
       setBusy(false)
+    }
+  }
+
+  /**
+   * 從這張角色卡生成一條「這個角色是誰」的用語條目（docs/future-lorebook.md §8）。
+   * 讀的是**電腦上已存的那份**（跟桌面版同一個限制），還沒儲存的改動不會被拿去生成。
+   */
+  const generateLoreEntry = async (lorebookId: string): Promise<void> => {
+    setLoreMsg(null)
+    setGeneratingLoreId(lorebookId)
+    try {
+      const r = await getData().lorebooks.generateEntry(characterId, lorebookId)
+      setLoreMsg(r.ok ? `已加入：${r.entry.content}` : r.error)
+    } catch (e) {
+      setLoreMsg(describeCharacterError(e, '生成用語條目'))
+    } finally {
+      setGeneratingLoreId(null)
     }
   }
 
@@ -213,19 +245,19 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
       />
 
       <Field label="簡介" hint="角色的基本資料，例如外觀、背景、身份。">
-        <textarea className="field min-h-[72px]" value={draft.description} onChange={(e) => set('description', e.target.value)} />
+        <AutoTextarea minHeight={72} value={draft.description} onChange={(e) => set('description', e.target.value)} />
       </Field>
 
       <Field label="個性">
-        <textarea className="field min-h-[88px]" placeholder="角色的性格特質、說話方式..." value={draft.personality} onChange={(e) => set('personality', e.target.value)} />
+        <AutoTextarea minHeight={88} placeholder="角色的性格特質、說話方式..." value={draft.personality} onChange={(e) => set('personality', e.target.value)} />
       </Field>
 
       <Field label="招呼語">
-        <textarea className="field min-h-[72px]" placeholder="開場白，角色第一句話會說什麼" value={draft.firstMessage} onChange={(e) => set('firstMessage', e.target.value)} />
+        <AutoTextarea minHeight={72} placeholder="開場白，角色第一句話會說什麼" value={draft.firstMessage} onChange={(e) => set('firstMessage', e.target.value)} />
       </Field>
 
       <Field label="對話範例" hint="可用標籤：{{user}}、{{char}}">
-        <textarea className="field min-h-[88px]" value={draft.exampleDialogue} onChange={(e) => set('exampleDialogue', e.target.value)} />
+        <AutoTextarea minHeight={88} value={draft.exampleDialogue} onChange={(e) => set('exampleDialogue', e.target.value)} />
       </Field>
 
       <button
@@ -240,11 +272,11 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
       {showAdvanced && (
         <div className="mt-2">
           <Field label="場景" hint="角色當下的處境、與使用者的關係。可用標籤：{{user}}、{{char}}">
-            <textarea className="field min-h-[72px]" value={draft.scenario ?? ''} onChange={(e) => set('scenario', e.target.value)} />
+            <AutoTextarea minHeight={72} value={draft.scenario ?? ''} onChange={(e) => set('scenario', e.target.value)} />
           </Field>
 
           <Field label="作者備註" hint="給模型的額外提示，例如「常忘記今天星期幾」。">
-            <textarea className="field min-h-[64px]" value={draft.creatorNotes ?? ''} onChange={(e) => set('creatorNotes', e.target.value)} />
+            <AutoTextarea minHeight={64} value={draft.creatorNotes ?? ''} onChange={(e) => set('creatorNotes', e.target.value)} />
           </Field>
 
           <ChipField
@@ -258,7 +290,8 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
           <div className="mb-4">
             <p className="text-xs font-semibold text-[var(--text)]">用語解說</p>
             <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-sub)]">
-              這個角色要額外帶上哪幾本（會疊加在世界觀那份之前）。內容目前只能在電腦上編輯。
+              這個角色要額外帶上哪幾本（會疊加在世界觀那份之前）。內容在「情境與設定組 → 用語解說」編輯；
+              「生成用語條目」會用輔助模型從這張角色卡（已儲存的那份）寫一句「這個角色是誰」，加進該本，之後可自行修改。
             </p>
             {lorebooks.length === 0 ? (
               <p className="mt-1 text-[11px] text-[var(--text-sub)]">還沒有任何用語解說。</p>
@@ -267,31 +300,42 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
                 {lorebooks.map((b) => {
                   const checked = (draft.lorebookIds ?? []).includes(b.id)
                   return (
-                    <label key={b.id} className="flex items-center gap-2 py-1">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        className="h-4 w-4 accent-[var(--mint2)]"
-                        onChange={(e) =>
-                          set(
-                            'lorebookIds',
-                            e.target.checked
-                              ? [...(draft.lorebookIds ?? []), b.id]
-                              : (draft.lorebookIds ?? []).filter((x) => x !== b.id)
-                          )
-                        }
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm text-[var(--text)]">{b.name}</span>
-                    </label>
+                    <div key={b.id} className="flex items-center gap-2 py-1">
+                      <label className="flex min-w-0 flex-1 items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          className="h-4 w-4 accent-[var(--mint2)]"
+                          onChange={(e) =>
+                            set(
+                              'lorebookIds',
+                              e.target.checked
+                                ? [...(draft.lorebookIds ?? []), b.id]
+                                : (draft.lorebookIds ?? []).filter((x) => x !== b.id)
+                            )
+                          }
+                        />
+                        <span className="min-w-0 flex-1 truncate text-sm text-[var(--text)]">{b.name}</span>
+                      </label>
+                      <button
+                        type="button"
+                        disabled={generatingLoreId !== null}
+                        onClick={() => void generateLoreEntry(b.id)}
+                        className="shrink-0 rounded-full border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--text)] disabled:opacity-50"
+                      >
+                        {generatingLoreId === b.id ? '生成中…' : '生成用語條目'}
+                      </button>
+                    </div>
                   )
                 })}
               </div>
             )}
+            {loreMsg && <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--text-sub)]">{loreMsg}</p>}
           </div>
 
           <Field label="額外系統指示" hint="一般不需填寫；主要留給 SillyTavern 卡片的 system_prompt 欄位。">
-            <textarea
-              className="field min-h-[72px]"
+            <AutoTextarea
+              minHeight={72}
               value={draft.systemPromptOverride ?? ''}
               onChange={(e) => set('systemPromptOverride', e.target.value)}
             />
@@ -343,6 +387,39 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       <span className="text-xs font-semibold text-[var(--text)]">{label}</span>
       <span className="mt-1 block">{field}</span>
     </label>
+  )
+}
+
+/**
+ * 自動撐高的 textarea：內容增加時高度跟著長，不需要使用者手動拖拉。
+ * 最低高度由 `minHeight` 決定（對齊原本 min-h-[Npx] 設計）。
+ */
+function AutoTextarea({
+  minHeight = 72,
+  className = '',
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & { minHeight?: number }): JSX.Element {
+  const ref = useRef<HTMLTextAreaElement>(null)
+
+  const grow = (): void => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.max(el.scrollHeight, minHeight)}px`
+  }
+
+  // value 改變時重算高度（受控模式）
+  useEffect(() => { grow() })
+
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      style={{ minHeight, resize: 'none', overflow: 'hidden' }}
+      className={`field ${className}`}
+      onInput={grow}
+      {...props}
+    />
   )
 }
 

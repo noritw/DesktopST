@@ -15,9 +15,11 @@ import { PersonaIdentity } from '../context/PersonaIdentity'
  *
  *   - **自動長高**：固定一行的話打長訊息看不到自己在寫什麼；
  *     但要設上限，否則鍵盤一彈出來畫面就只剩輸入框
- *   - **Enter 送出／Shift+Enter 換行**：實體鍵盤與外接鍵盤才有意義，
- *     手機軟體鍵盤的 Enter 一律是換行（`enterKeyHint` 也設成 enter），
- *     送出靠按鈕 —— 否則想換行的人會不小心送出半句話
+ *   - **Enter 一律換行，送出靠按鈕**：owner 2026-08-10 實機回報「打長訊息不知道
+ *     怎麼換行」——原本設計假設軟體鍵盤的 Enter 不會觸發 `keydown`，實機上
+ *     Gboard 等鍵盤其實會，導致打字打到一半被送出去。`enterKeyHint` 仍設成
+ *     enter（純粹是鍵盤上顯示的圖示提示，不影響行為）。外接鍵盤留
+ *     Ctrl/Cmd+Enter 當送出捷徑，純 Enter／Shift+Enter 都只換行
  */
 
 const MAX_HEIGHT_PX = 140
@@ -25,7 +27,9 @@ const DEFAULT_MAX_IMAGES = 5
 
 export function Composer(): JSX.Element {
   const send = useAppStore((s) => s.send)
+  const stop = useAppStore((s) => s.stop)
   const sending = useAppStore((s) => s.sending)
+  const restoreDraft = useAppStore((s) => s.restoreDraft)
   const maxImages = useAppStore((s) => s.snapshot?.maxImagesPerMessage ?? DEFAULT_MAX_IMAGES)
   // 清單 C6：設定關閉時整個入口消失，而不是 disabled ——
   // 灰掉的按鈕會讓使用者以為壞了（計畫書 §5 對 API Key 欄位的同一條判斷）。
@@ -72,6 +76,17 @@ export function Composer(): JSX.Element {
     if (el && caret != null) el.setSelectionRange(caret, caret)
     grow()
   }, [text, caret])
+
+  /** 停止生成後把草稿還回輸入框（對齊桌面 input:restore-draft）。 */
+  useEffect(() => {
+    if (!restoreDraft) return
+    const next = restoreDraft.content
+    typed.current = next
+    setText(next, next.length)
+    if (restoreDraft.images?.length) setImages(restoreDraft.images)
+    useAppStore.setState({ restoreDraft: null })
+    requestAnimationFrame(grow)
+  }, [restoreDraft, setText])
 
   /** 選圖（清單 B1）：多選、夾在上限內、逐張壓縮（B2）。 */
   const pickFiles = async (files: File[]): Promise<void> => {
@@ -151,6 +166,11 @@ export function Composer(): JSX.Element {
 
   const canSend = (text.trim().length > 0 || images.length > 0 || !!pendingNewsLink) && !sending
 
+  const onPrimary = (): void => {
+    if (sending) void stop()
+    else void submit()
+  }
+
   return (
     <div className="border-t border-[var(--border)] bg-[var(--surface)]">
       <PersonaIdentity />
@@ -184,8 +204,15 @@ export function Composer(): JSX.Element {
           className="fixed inset-0 z-[70] flex items-end bg-black/30"
           onClick={() => setNewsSheetOpen(false)}
         >
+          {/*
+            ⚠️ 底部要留手勢列安全區，不能只靠 `p-4`——Android 手勢列會吃掉畫面下緣，
+            「關閉」鈕原本擠在捲動內容最下面按不到（owner 2026-08-16 真機回報，
+            跟 `NewsContextSheet.tsx` 那次是同一個坑：見它檔頭的說明）。
+            高度也比照那邊改用 `dvh`：`vh` 不含網址列／手勢列的動態高度。
+          */}
           <div
-            className="max-h-[70vh] w-full overflow-y-auto rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+            className="max-h-[70dvh] w-full overflow-y-auto rounded-t-2xl border border-[var(--border)] bg-[var(--surface)] p-4"
+            style={{ paddingBottom: 'calc(var(--safe-bottom) + 16px)' }}
             onClick={(e) => e.stopPropagation()}
           >
             <p className="text-sm font-semibold text-[var(--text)]">{pendingNewsLink.title}</p>
@@ -271,23 +298,25 @@ export function Composer(): JSX.Element {
           onClick={(e) => setCaret(e.currentTarget.selectionStart)}
           onKeyUp={(e) => setCaret(e.currentTarget.selectionStart)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              // 只有實體鍵盤會走到這裡；軟體鍵盤送的是換行不是 Enter 鍵事件。
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing) {
+              // 純 Enter／Shift+Enter 都是換行；只有外接鍵盤的 Ctrl/Cmd+Enter 送出。
               // isComposing 檢查是注音／拼音選字中，不可攔截。
               e.preventDefault()
               void submit()
             }
           }}
-          className="scroll-y max-h-[140px] flex-1 resize-none rounded-[18px] border border-[var(--border)] bg-[var(--bg)] px-3.5 py-2.5 text-[15px] leading-relaxed text-[var(--text)] outline-none focus:border-[var(--mint2)]"
+          disabled={sending}
+          className="scroll-y max-h-[140px] flex-1 resize-none rounded-[18px] border border-[var(--border)] bg-[var(--bg)] px-3.5 py-2.5 text-[15px] leading-relaxed text-[var(--text)] outline-none focus:border-[var(--mint2)] disabled:opacity-70"
         />
         <button
           type="button"
-          onClick={() => void submit()}
-          disabled={!canSend}
-          aria-label="送出"
+          onClick={onPrimary}
+          disabled={!sending && !canSend}
+          aria-label={sending ? '停止' : '送出'}
+          title={sending ? '停止回應' : '送出訊息'}
           className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--mint)] text-[var(--text)] transition-opacity disabled:opacity-40"
         >
-          <MonoIcon name="send" className="h-[18px] w-[18px]" />
+          <MonoIcon name={sending ? 'stop' : 'send'} className="h-[18px] w-[18px]" />
         </button>
       </div>
     </div>

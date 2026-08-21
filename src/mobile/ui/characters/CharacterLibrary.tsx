@@ -133,7 +133,7 @@ export function CharacterLibrary(): JSX.Element {
         // 用語解說預設不外流（規格 §7.3：那是私人資料）。
         { includeGlobalSettings: false, includeLorebooks: false }
       )
-      downloadBytes(file.bytes, file.filename)
+      await downloadBytes(file.bytes, file.filename)
       toast('已匯出角色包')
     } catch (e) {
       toast(describeCharacterError(e, '匯出'), 'error')
@@ -188,40 +188,37 @@ export function CharacterLibrary(): JSX.Element {
           const isPresent = presentIds.has(item.id)
           // 只剩一位在場時不給移出按鈕（D5：至少保留一個）。留著會是一顆必定失敗的按鈕。
           const canToggleOff = !(isPresent && presentIds.size <= 1)
-          // 左邊大按鈕＝「加入／移出對話」這組動作，右邊固定 ✏️ 進編輯——
-          // 跟 PresetsView（情境／世界觀／使用者設定）、ConversationsView 同一個位置慣例，
-          // 之前是反過來（點名字進編輯、加入鍵縮在旁邊），四處操作邏輯對不起來
-          // （owner 2026-08-05 回報）。刪除已經在編輯器裡，這裡不重複放。
-          // 名稱與狀態上下疊，不要跟編輯按鈕擠在同一條水平線上——手指點不準
-          // （owner 2026-08-05 二次回報）；狀態用 `StatusChip` 而不是純文字，
-          // 兩行文字疊在一起才不會糊成一團。
+          // 點名稱／頭像編輯；小「編輯」在名稱下方，右側大標籤加入／移出
           return (
             <div
               key={item.id}
-              className={`mb-2 flex items-center gap-2 rounded-[14px] border px-3 py-2.5 ${
+              className={`mb-2 flex items-center gap-3 rounded-[14px] border px-3 py-2.5 ${
                 isPresent ? 'border-[var(--mint)] bg-[var(--mint)]/25' : 'border-[var(--border)] bg-[var(--bg)]'
               }`}
             >
               <button
                 type="button"
-                disabled={presenceBusyId === item.id || (isPresent && !canToggleOff)}
-                onClick={() => void togglePresence(item, isPresent)}
-                className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:opacity-50"
+                aria-label={`編輯${item.name}`}
+                onClick={() => push('character-editor', item.id)}
+                className="flex min-w-0 flex-1 items-center gap-3 text-left"
               >
                 <Avatar characterId={item.id} size={38} />
                 <span className="min-w-0 flex-1">
                   <p className="truncate text-[15px] text-[var(--text)]">{item.name}</p>
-                  <StatusChip active={isPresent}>{isPresent ? '在場' : '加入對話'}</StatusChip>
+                  <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] text-[var(--text-sub)]">
+                    <MonoIcon name="edit" className="h-3 w-3" />
+                    編輯
+                  </span>
                 </span>
               </button>
-              <button
-                type="button"
-                aria-label={`編輯${item.name}`}
-                onClick={() => push('character-editor', item.id)}
-                className="shrink-0 rounded-full p-2 text-[var(--text-sub)] active:bg-[var(--border)]"
+              <StatusChip
+                active={isPresent}
+                disabled={presenceBusyId === item.id || (isPresent && !canToggleOff)}
+                onClick={() => void togglePresence(item, isPresent)}
+                ariaLabel={isPresent ? `將${item.name}移出對話` : `將${item.name}加入對話`}
               >
-                <MonoIcon name="edit" className="h-4 w-4" />
-              </button>
+                {isPresent ? '在場' : '加入'}
+              </StatusChip>
             </div>
           )
         })

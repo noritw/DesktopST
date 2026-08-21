@@ -38,6 +38,16 @@ if (!fs.existsSync(htmlPath)) {
   process.exit(1)
 }
 
+// 獨立模式首啟種子：若本機有預設角色包就抄進 out/mobile（gitignore，不進 repo）
+const defaultPackSrc = path.resolve(process.cwd(), 'assets', 'DesktopST_DefaultChara.dstpack')
+const defaultPackDest = path.join(outDir, 'DesktopST_DefaultChara.dstpack')
+if (fs.existsSync(defaultPackSrc)) {
+  fs.copyFileSync(defaultPackSrc, defaultPackDest)
+  console.log('[inline] copied DesktopST_DefaultChara.dstpack for standalone seed')
+} else {
+  console.warn('[inline] DesktopST_DefaultChara.dstpack missing — standalone will seed a blank character')
+}
+
 let html = fs.readFileSync(htmlPath, 'utf-8')
 const inlined = []
 

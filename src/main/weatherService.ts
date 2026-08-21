@@ -1,243 +1,67 @@
+/**
+ * 桌面的天氣入口 —— **邏輯本體已搬到 `core/weather/`**，這裡只補上兩件平台的事：
+ *
+ * 1. 注入 Electron 的 HTTP adapter（core 不許碰平台 API）
+ * 2. 關鍵詞即時查詢（地震／颱風）仍是桌面限定，見 `cwaService.ts`
+ *
+ * 手機獨立版走同一份 core，所以 WMO 對照表、Open-Meteo 參數、
+ * `[Weather]` 的排版都只有一份。
+ */
+import {
+  detectLocationByIP as coreDetectLocationByIP,
+  fetchWeather as coreFetchWeather,
+  fetchWeatherOpenMeteo as coreFetchWeatherOpenMeteo,
+  fetchWeatherWttrIn as coreFetchWeatherWttrIn,
+  geocodeCity as coreGeocodeCity,
+  getWeatherContextString as coreGetWeatherContextString,
+  polishWeatherDescription as corePolishWeatherDescription,
+  type WeatherData
+} from '../core/weather'
+import { electronHttp } from './adapters/httpAdapter'
+import { detectQueryType, fetchCwaData } from './cwaService'
 import type { AppSettings } from './types'
-import { applyUtilitySettings } from './llm/index'
-import { chatWithLLM } from './llm/index'
-import { detectQueryType, fetchCwaData, fetchCwaBackgroundWeather } from './cwaService'
-import { decrypt } from './secureStore'
 
-// WMO weather interpretation codes → 中文描述
-const WMO_DESC: Record<number, string> = {
-  0: '晴天', 1: '大致晴天', 2: '局部多雲', 3: '陰天',
-  45: '起霧', 48: '霧凇',
-  51: '細毛毛雨', 53: '毛毛雨', 55: '大毛毛雨',
-  61: '小雨', 63: '中雨', 65: '大雨',
-  71: '小雪', 73: '中雪', 75: '大雪', 77: '雪粒',
-  80: '陣雨', 81: '中陣雨', 82: '強陣雨',
-  85: '陣雪', 86: '大陣雪',
-  95: '雷陣雨', 96: '雷陣雨夾冰雹', 99: '強雷陣雨夾冰雹'
-}
+const deps = { http: electronHttp }
 
-function wmoToDesc(code: number): string {
-  return WMO_DESC[code] ?? '未知'
-}
+export type { WeatherData }
+export {
+  buildWeatherTemplate,
+  getCachedWeatherData,
+  invalidateWeatherCache
+} from '../core/weather'
 
-export interface WeatherData {
-  description: string
-  temperatureC: number
-  humidity: number
-  windSpeed: number
-}
-
-// In-memory cache – resets on app restart
-let cache: {
-  locationName: string
-  data: WeatherData
-  template: string
-  polished?: string
-  fetchedAt: number
-  polishedAt?: number  // 獨立追蹤 polish 時間，跨天氣刷新週期延用
-} | null = null
-const CACHE_TTL = 30 * 60 * 1000  // 天氣資料：30 分鐘
-const POLISH_TTL = 5 * 60 * 1000  // 潤飾結果：5 分鐘
-
-export function invalidateWeatherCache(): void {
-  cache = null
-}
-
-export async function geocodeCity(name: string): Promise<{ name: string; lat: number; lon: number } | null> {
-  try {
-    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=zh`
-    const res = await fetch(url)
-    if (!res.ok) return null
-    const json = await res.json() as { results?: Array<{ name: string; latitude: number; longitude: number }> }
-    const r = json.results?.[0]
-    if (!r) return null
-    return { name: r.name, lat: r.latitude, lon: r.longitude }
-  } catch {
-    return null
-  }
+export function geocodeCity(name: string): Promise<{ name: string; lat: number; lon: number } | null> {
+  return coreGeocodeCity(deps, name)
 }
 
 export async function detectLocationByIP(): Promise<{ city: string; lat: number; lon: number } | null> {
-  try {
-    const res = await fetch('http://ip-api.com/json/?lang=zh-TW&fields=city,lat,lon,status')
-    if (!res.ok) return null
-    const json = await res.json() as { status: string; city: string; lat: number; lon: number }
-    if (json.status !== 'success') return null
-    return { city: json.city, lat: json.lat, lon: json.lon }
-  } catch {
-    return null
-  }
+  const hit = await coreDetectLocationByIP(deps)
+  return hit ? { city: hit.name, lat: hit.lat, lon: hit.lon } : null
 }
 
-export async function fetchWeatherOpenMeteo(lat: number, lon: number): Promise<WeatherData | null> {
-  try {
-    const url =
-      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
-      `&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m`
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 5000)
-    try {
-      const res = await fetch(url, { signal: controller.signal })
-      if (!res.ok) return null
-      const json = await res.json() as {
-        current?: {
-          temperature_2m: number
-          relative_humidity_2m: number
-          weather_code: number
-          wind_speed_10m: number
-        }
-      }
-      const c = json.current
-      if (!c) return null
-      return {
-        description: wmoToDesc(c.weather_code),
-        temperatureC: Math.round(c.temperature_2m),
-        humidity: Math.round(c.relative_humidity_2m),
-        windSpeed: Math.round(c.wind_speed_10m * 10) / 10
-      }
-    } finally {
-      clearTimeout(timeoutId)
-    }
-  } catch {
-    return null
-  }
+export function fetchWeatherOpenMeteo(lat: number, lon: number): Promise<WeatherData | null> {
+  return coreFetchWeatherOpenMeteo(deps, lat, lon)
 }
 
-export async function fetchWeatherWttrIn(locationName: string): Promise<WeatherData | null> {
-  try {
-    const url = `https://wttr.in/${encodeURIComponent(locationName)}?format=j1`
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 5000)
-    try {
-      const res = await fetch(url, { signal: controller.signal })
-      if (!res.ok) return null
-      const json = await res.json() as {
-        current_condition?: Array<{
-          temp_C: number
-          humidity: number
-          weatherDesc: Array<{ value: string }>
-          windspeedKmph: number
-        }>
-      }
-      const c = json.current_condition?.[0]
-      if (!c) return null
-      return {
-        description: c.weatherDesc?.[0]?.value || '未知',
-        temperatureC: Math.round(c.temp_C),
-        humidity: Math.round(c.humidity),
-        windSpeed: Math.round(c.windspeedKmph / 3.6 * 10) / 10
-      }
-    } finally {
-      clearTimeout(timeoutId)
-    }
-  } catch {
-    return null
-  }
+export function fetchWeatherWttrIn(locationName: string): Promise<WeatherData | null> {
+  return coreFetchWeatherWttrIn(deps, locationName)
 }
 
-export async function fetchWeather(lat: number, lon: number, locationName: string): Promise<WeatherData | null> {
-  const data = await fetchWeatherOpenMeteo(lat, lon)
-  if (data) return data
-  return fetchWeatherWttrIn(locationName)
+export function fetchWeather(lat: number, lon: number, locationName: string): Promise<WeatherData | null> {
+  return coreFetchWeather(deps, lat, lon, locationName)
 }
 
-export function buildWeatherTemplate(locationName: string, data: WeatherData): string {
-  return `[Weather]\n${locationName}：${data.description}，氣溫 ${data.temperatureC}°C，濕度 ${data.humidity}%，風速 ${data.windSpeed} m/s`
-}
-
-export async function polishWeatherDescription(locationName: string, data: WeatherData, settings: AppSettings): Promise<string> {
-  const utilitySettings: AppSettings = {
-    ...applyUtilitySettings(settings),
-    llm: {
-      ...applyUtilitySettings(settings).llm,
-      maxResponseTokens: 80
-    }
-  }
-  const userPrompt =
-    `請用一句口語化的中文描述以下天氣狀況，供 AI 角色作為背景資訊參考。` +
-    `不要列數字，不要寫成對話，不要加角色語氣，就一句自然的說明。\n` +
-    `位置：${locationName}，天氣：${data.description}，氣溫 ${data.temperatureC}°C，` +
-    `濕度 ${data.humidity}%，風速 ${data.windSpeed} m/s`
-  try {
-    const { content } = await chatWithLLM({
-      settings: utilitySettings,
-      character: { id: '__weather__', name: 'weather', emotions: {}, personality: '', description: '' },
-      messages: [{ id: '__w', role: 'user', content: userPrompt, timestamp: Date.now() }],
-      persona: null,
-      world: null,
-      desktopCharacterNames: [],
-      isReminder: true
-    })
-    const polished = content.trim()
-    if (!polished) throw new Error('empty')
-    return `[Weather]\n${polished}`
-  } catch {
-    return buildWeatherTemplate(locationName, data)
-  }
+export function polishWeatherDescription(
+  locationName: string,
+  data: WeatherData,
+  settings: AppSettings
+): Promise<string> {
+  return corePolishWeatherDescription(locationName, data, settings, deps)
 }
 
 /** 取得天氣注入字串（附快取）。settings 不符條件時回 null。 */
-export async function getWeatherContextString(settings: AppSettings): Promise<string | null> {
-  const w = settings.weather
-  if (!w?.enabled || !w.locationName || !w.latitude || !w.longitude) return null
-
-  const now = Date.now()
-
-  // 若 CWA Key 已設定且啟用即時查詢，改用中央氣象署預報資料取代 Open-Meteo
-  const rq = w.realtimeQuery
-  if (rq?.enabled && rq.cwaApiKey) {
-    const apiKey = decrypt(rq.cwaApiKey)
-    if (apiKey && !apiKey.startsWith('enc:v1:')) {
-      const county = rq.forecastCounty || w.locationName
-
-      // 沿用快取（30 分鐘）
-      if (cache && cache.locationName === county && now - cache.fetchedAt < CACHE_TTL) {
-        return cache.template
-      }
-
-      const cwaStr = await fetchCwaBackgroundWeather(apiKey, county)
-      if (cwaStr) {
-        cache = { locationName: county, data: cache?.data ?? { description: '', temperatureC: 0, humidity: 0, windSpeed: 0 }, template: cwaStr, fetchedAt: now }
-        return cwaStr
-      }
-      // CWA 失敗時 fallthrough 到 Open-Meteo
-    }
-  }
-
-  // 天氣資料快取仍有效 → 直接回傳（polish 也一起快取）
-  if (cache && cache.locationName === w.locationName && now - cache.fetchedAt < CACHE_TTL) {
-    if (w.polish && settings.llm.utilityEnabled && cache.polished) return cache.polished
-    return cache.template
-  }
-
-  // 天氣資料過期 → 重新抓氣象（優先 Open-Meteo，備用 wttr.in）
-  const data = await fetchWeather(w.latitude, w.longitude, w.locationName)
-  if (!data) return null
-
-  const template = buildWeatherTemplate(w.locationName, data)
-
-  // 嘗試延用舊 polish 結果（同地點 + 5 分鐘內）
-  const sameLocation = cache?.locationName === w.locationName
-  let polished: string | undefined = sameLocation ? cache?.polished : undefined
-  let polishedAt: number | undefined = sameLocation ? cache?.polishedAt : undefined
-
-  // 只在 polish 啟用且上次潤飾超過 5 分鐘（或從未潤飾）才重送輔助模型
-  if (w.polish && settings.llm.utilityEnabled) {
-    const stale = !polishedAt || now - polishedAt >= POLISH_TTL
-    if (stale) {
-      polished = await polishWeatherDescription(w.locationName, data, settings)
-      polishedAt = now
-    }
-  }
-
-  cache = { locationName: w.locationName, data, template, polished, polishedAt, fetchedAt: now }
-  return (w.polish && settings.llm.utilityEnabled && polished) ? polished : template
-}
-
-/** 回傳 cache 內的原始天氣資料（供 UI 顯示狀態用）。*/
-export function getCachedWeatherData(): { data: WeatherData; fetchedAt: number } | null {
-  if (!cache) return null
-  return { data: cache.data, fetchedAt: cache.fetchedAt }
+export function getWeatherContextString(settings: AppSettings): Promise<string | null> {
+  return coreGetWeatherContextString(settings, deps)
 }
 
 export interface RealtimeQueryContextResult {
@@ -249,6 +73,8 @@ export interface RealtimeQueryContextResult {
 /**
  * 即時氣象查詢：偵測使用者訊息中的氣象關鍵詞，命中時向中央氣象署查詢並回傳注入字串。
  * 功能未啟用、無 Key、或查詢失敗時靜默回傳 null。
+ *
+ * **桌面限定** —— 手機獨立版目前只有背景 `[Weather]`，沒有這條關鍵詞路徑。
  */
 export async function getRealtimeQueryContextString(
   userMessage: string,
@@ -260,8 +86,9 @@ export async function getRealtimeQueryContextString(
   const type = detectQueryType(userMessage)
   if (!type) return { injectionText: null }
 
-  const apiKey = decrypt(rq.cwaApiKey)
-  if (!apiKey || apiKey.startsWith('enc:v1:')) return { injectionText: null }
+  // 載入時已經解過密；解不開的值會原樣留著密文，那種情況當作沒金鑰
+  const apiKey = rq.cwaApiKey
+  if (apiKey.startsWith('enc:v1:')) return { injectionText: null }
 
   const county = rq.forecastCounty || settings.weather?.locationName || ''
 

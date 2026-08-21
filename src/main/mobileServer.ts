@@ -8,10 +8,15 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { app, desktopCapturer } from 'electron'
-import type { Message, RandomResult } from './types'
+import type { Message, RandomResult, WeatherLocationSource } from './types'
 import { computeRandomResult, sanitizePendingRandomTool } from '../core/random/dice'
 import { getAccessToken } from './relayService'
 import { getRemoteControlClientState, getRemoteControlClientStateForDevice } from './modules/remote-control'
+import { sha1Hex } from '../core/util/sha1'
+import { stableStringify } from '../core/util/stableJson'
+import { buildManifest } from '../core/sync/manifestBuild'
+import { settingsSnapshotHash, type SettingsSnapshot } from '../core/sync/settingsSnapshot'
+import { loadNewsModuleSettings } from './modules/news/settings'
 
 // ── 注入的 bridge（由 index.ts 啟動時注入）────────────────
 
@@ -29,14 +34,42 @@ export interface MobileBridge {
     sourceDeviceName?: string
     newsLink?: import('./types').NewsLinkInfo | null
   }) => Promise<void>
+  /** 中止進行中的生成；回草稿給手機還原輸入框，沒東西可停就回 null */
+  stopGenerating: () => { content: string; images?: string[] } | null
   addDesktopCharacter: (characterId: string) => Promise<boolean>
   removeDesktopCharacter: (characterId: string) => boolean
   captureScreenshot: (withChars: boolean, displayIndex?: number) => Promise<{ ok: boolean; dataUrl?: string; error?: string }>
   getConversationList: () => { id: string; title: string; updatedAt: number; active: boolean }[]
+  /** S1 對話匯入的勾選清單（多了訊息則數與參與角色，見 `/api/sync-conversations`）。 */
+  getConversationsForSync: () => {
+    id: string
+    title: string
+    updatedAt: number
+    messageCount: number
+    characterNames: string[]
+  }[]
+  /** 取一整則對話給手機匯入。**不切換電腦上正在看的那則。** */
+  getConversationForSync: (id: string) => import('./types').Conversation | null
+  /** S2 對話同步：`/api/sync-manifest` 用的清單，帶訊息 id 指紋。 */
+  getConversationsManifest: () => import('../core/sync/types').ManifestConversation[]
+  /** S2 對話同步：把手機送來的一批訊息聯集併入（見 `/api/sync-conversation-merge`）。 */
+  mergeConversationMessages: (input: {
+    targetId?: string
+    title?: string
+    participantIds?: string[]
+    messages?: import('./types').Message[]
+    summary?: string
+    summaryCoversTs?: number
+  }) => { id: string; written: number; skipped: number; messageCount: number } | { error: string }
   loadConversation: (id: string) => boolean
   createConversation: (title?: string) => { id: string; title: string; updatedAt: number; active: boolean }
   renameConversation: (id: string, title: string) => { ok: true; conversation: { id: string; title: string; updatedAt: number; active: boolean } } | { error: string }
   deleteConversation: (id: string) => { ok: true; activeConversationId: string } | { error: string }
+  /** 記憶摘要（清單 A11）：依 id 操作任一對話，不限「目前使用中」那個。 */
+  getConversationMemory: (id: string) => { ok: true; summary: string; coversTs: number; coveredCount: number } | { ok: false; error: string }
+  summarizeConversationNow: (id: string) => Promise<{ ok: boolean; noNew?: boolean; error?: string; summary?: string; coveredCount?: number }>
+  updateConversationSummary: (id: string, summary: string) => { ok: true } | { ok: false; error: string }
+  clearConversationSummary: (id: string) => { ok: true } | { ok: false; error: string }
   forceSpeak: (characterId: string) => Promise<{ ok: true } | { error: string }>
   toggleMute: (characterId: string) => boolean
   getScenes: () => import('./types').ScenePreset[]
@@ -65,6 +98,22 @@ export interface MobileBridge {
   removeScenePreset: (id: string) => { ok: true } | { error: string }
   getColorTheme: () => string
   getRandomToolsEnabled: () => boolean
+  /**
+   * S1 初始化匯入用的明文金鑰。
+   * **只能在 `isLanDirectRequest()` 為真的分支呼叫**（roadmap §4.7）。
+   */
+  getApiKeysForSync: () => Record<string, string>
+  /**
+   * 這台電腦在區網裡的位址（`http://192.168.x.x:3721`，不含權杖）。
+   * 掃 QR 拿到的多半是 relay 網址，手機靠這個把連線升級成區網直連（S1）。
+   */
+  getLanBaseUrl: () => string
+  getShowLlmBadge: () => boolean
+  setShowLlmBadge: (show: boolean) => boolean
+  getShowPersonaName: () => boolean
+  setShowPersonaName: (show: boolean) => boolean
+  /** 某則訊息保留的完整 prompt（除錯用）；太舊被剝掉就回 null。 */
+  getMessageDebug: (id: string) => unknown
   getMaxImagesPerMessage: () => number
   shouldIncludeDeviceNameInPrompt: () => boolean
   setColorTheme: (theme: import('./types').ColorTheme) => boolean
@@ -86,13 +135,20 @@ export interface MobileBridge {
   buildDstPack: (payload: { characterIds: string[]; includeGlobalSettings: boolean; includeLorebooks?: boolean }) => Promise<{ buffer: ArrayBuffer } | { error: string }>
   importDstPack: (
     buffer: ArrayBuffer,
-    opts: { onConflict: 'skip' | 'overwrite' | 'new'; applyGlobalSettings: boolean }
-  ) => Promise<{ ok: true; imported: number; skipped: number } | { error: string }>
+    opts: { onConflict: 'skip' | 'overwrite' | 'new'; applyGlobalSettings: boolean; targetId?: string }
+    /** `ids` ＝ 實際落地的角色 id，不保證等於送進來的 id（S2 M4，見 `importDstPackDirect`）。 */
+  ) => Promise<{ ok: true; imported: number; skipped: number; ids: string[] } | { error: string }>
   listLorebooks: () => { id: string; name: string }[]
+  /** S2 M2 差異預覽用的輕量清單（多帶 updatedAt）。不改 `listLorebooks()` 的既有形狀，因為 S1 匯入流程依賴它只有 `{id,name}`。 */
+  getLorebookManifest: () => { id: string; name: string; updatedAt: number }[]
   getLorebook: (id: string) => import('../core/lore').Lorebook | null
   createLorebook: (name?: string) => import('../core/lore').Lorebook
   saveLorebook: (book: import('../core/lore').Lorebook) => { ok: true; book: import('../core/lore').Lorebook } | { error: string }
   removeLorebook: (id: string) => { ok: true }
+  generateLoreEntry: (
+    characterId: string,
+    lorebookId: string
+  ) => Promise<{ ok: true; entry: import('../core/lore').LoreEntry } | { error: string }>
   getRemoteControlSettings: () => import('./types').RemoteControlSettings | undefined
   setRemoteControlEnabled: (enabled: boolean) => { ok: true } | { error: string }
   touchAllowedRemoteDevice?: (device: { id: string; nickname: string; label?: string }) => void
@@ -107,15 +163,27 @@ export interface MobileBridge {
     model: string
     models: Record<string, string | undefined>
     endpoint?: string
+    endpoints: Record<string, string | undefined>
+    extraInstruction: string
     hasApiKey: Record<string, boolean>
     maxResponseTokens: number
     maxGroupRounds: number
     maxImagesPerMessage: number
+    utilityEnabled: boolean
+    utilityProvider: string
+    utilityModel: string
+    utilityModels: Record<string, string | undefined>
   }
   setLlmProvider: (provider: string) => { ok: true } | { error: string }
   setLlmModel: (provider: string, model: string) => { ok: true } | { error: string }
-  setLlmEndpoint: (endpoint: string) => { ok: true } | { error: string }
+  setLlmEndpoint: (endpoint: string, provider?: string) => { ok: true } | { error: string }
+  setLlmExtraInstruction: (text: string) => { ok: true } | { error: string }
+  setLlmUtilityEnabled: (enabled: boolean) => { ok: true } | { error: string }
+  setLlmUtilityProvider: (provider: string) => { ok: true } | { error: string }
+  setLlmUtilityModel: (provider: string, model: string) => { ok: true } | { error: string }
   setLlmApiKey: (provider: string, apiKey: string) => { ok: true } | { error: string }
+  /** 「連線」按鈕：local 供應商會把探測到的型號清單一起帶回去。 */
+  testLlmConnection: (provider: string, endpoint?: string) => Promise<{ ok: true; models?: string[] } | { error: string }>
   setLlmChatLimits: (limits: {
     maxResponseTokens: number
     maxGroupRounds: number
@@ -131,7 +199,7 @@ export interface MobileBridge {
     locationName: string
     latitude: number
     longitude: number
-    locationSource: 'ip' | 'manual' | ''
+    locationSource: WeatherLocationSource
     utilityEnabled: boolean
   }
   setWeatherSettings: (patch: {
@@ -140,8 +208,25 @@ export interface MobileBridge {
     locationName?: string
     latitude?: number
     longitude?: number
-    locationSource?: 'ip' | 'manual' | ''
+    locationSource?: WeatherLocationSource
   }) => { ok: true; weather: ReturnType<MobileBridge['getWeatherSettings']> } | { error: string }
+  /**
+   * S1 要帶去手機的天氣設定。**不含地點**（手機自己定位）。
+   * `lanDirect` 為 false 時不附 `cwaApiKey`，規矩同 LLM 金鑰。
+   */
+  getWeatherSyncSettings: (lanDirect: boolean) => {
+    polish: boolean
+    realtimeQuery?: { enabled: boolean; forecastCounty: string; cwaApiKey?: string }
+  }
+  /**
+   * S1 要帶去手機的新聞設定（關鍵字／來源／分組／黑名單⋯）。
+   * 不含 `enabled`（走 `modules`）／`seenIds`／`feedback`／`reminder`，
+   * 理由見 `getNewsSyncSettingsDirect`。
+   */
+  getNewsSyncSettings: () => Omit<
+    import('../core/news/types').NewsModuleSettings,
+    'enabled' | 'seenIds' | 'feedback' | 'reminder'
+  >
   detectWeatherLocation: () => Promise<{ ok: true; weather: ReturnType<MobileBridge['getWeatherSettings']> } | { error: string }>
   geocodeWeatherLocation: (name: string) => Promise<{ ok: true; weather: ReturnType<MobileBridge['getWeatherSettings']> } | { error: string }>
   fetchWeatherNow: () => Promise<
@@ -413,6 +498,39 @@ const MOBILE_COLOR_THEMES: string[] = [
   'dark', 'sepia', 'cyber'
 ]
 
+/**
+ * 電腦端的設定比對子集（S2 M2 雜湊、S2 M5 逐欄位比對共用）。
+ *
+ * **唯一**的定義在 `core/sync/settingsSnapshot.ts`，這裡只是把 bridge 的取值套進
+ * 那個共用型別。只取跟 `/api/sync-init`（1445 行附近）同一批會被同步的設定，
+ * **排除 apiKeys**——這裡是輕量清單，不該夾帶金鑰。
+ */
+function buildSettingsSnapshot(bridge: MobileBridge): SettingsSnapshot {
+  const llm = bridge.getLlmSettings()
+  return {
+    llm: {
+      provider: llm.provider,
+      models: Object.fromEntries(Object.entries(llm.models).filter((e): e is [string, string] => !!e[1])),
+      endpoints: Object.fromEntries(Object.entries(llm.endpoints ?? {}).filter((e): e is [string, string] => !!e[1])),
+      extraInstruction: llm.extraInstruction ?? '',
+      maxResponseTokens: llm.maxResponseTokens,
+      maxGroupRounds: llm.maxGroupRounds,
+      maxImagesPerMessage: llm.maxImagesPerMessage,
+      utilityEnabled: llm.utilityEnabled,
+      utilityProvider: llm.utilityProvider,
+      utilityModels: Object.fromEntries(
+        Object.entries(llm.utilityModels).filter((e): e is [string, string] => !!e[1])
+      )
+    },
+    memory: bridge.getMemorySettings(),
+    colorTheme: bridge.getColorTheme(),
+    modules: bridge.listModuleToggles(),
+    weather: { polish: bridge.getWeatherSettings().polish },
+    news: { speakButton: loadNewsModuleSettings().speakButton },
+    appearance: { showLlmBadge: bridge.getShowLlmBadge(), showPersonaName: bridge.getShowPersonaName() }
+  }
+}
+
 // ── HTTP 路由 ─────────────────────────────────────────────
 
 async function handleRequest(
@@ -498,6 +616,8 @@ async function handleRequest(
         : null,
       colorTheme: bridge.getColorTheme(),
       randomToolsEnabled: bridge.getRandomToolsEnabled(),
+      showLlmBadge: bridge.getShowLlmBadge(),
+      showPersonaName: bridge.getShowPersonaName(),
       maxImages: bridge.getMaxImagesPerMessage(),
       activeSceneId: bridge.getActiveSceneId(),
       activePersonaId: bridge.getActivePersonaId(),
@@ -516,16 +636,46 @@ async function handleRequest(
     const char = bridge.getCharacters().find(c => c.id === charId)
     if (!char?.avatar) { jsonError(res, 404, 'Not found'); return }
 
+    /*
+     * ⚠️ **一定要送 `Cache-Control: no-cache`。**
+     *
+     * 這個網址（`/api/avatar/:id`）是**固定**的，但背後那張圖會換
+     * （電腦端換主圖）。完全不送快取標頭時，瀏覽器會套用「啟發式快取」
+     * 自己猜一段有效期，然後**連問都不問**就拿舊圖 —— 手機端於是永遠
+     * 停在換圖前那張。症狀非常容易誤判成同步壞掉：同一張角色卡的**文字
+     * 會即時更新**（那是 JSON，畫面一掛載就重抓），只有圖不動
+     * （owner 2026-08-13 實機回報）。
+     *
+     * `no-cache` 不是「不要快取」，是「用之前先來問我一次」。配上 ETag
+     * 之後，沒換過就回 304（不傳任何位元組，跟快取一樣快），真的換過
+     * 才傳新圖 —— 既不會顯示舊圖，也不會每次都白傳一張圖。
+     *
+     * ⚠️ 別照抄下面 `/api/message-image/` 那支的 `max-age=86400`：
+     * 訊息圖片的內容**永遠不會變**（綁在某一則訊息的某一張），可以放心
+     * 長快取；頭像剛好相反，是「網址不變、內容會變」，兩者要反過來處理。
+     */
     const avatar = char.avatar
     if (avatar.startsWith('data:image/')) {
       const [header, b64] = avatar.split(',')
       const mime = header.replace('data:', '').replace(';base64', '')
-      res.writeHead(200, { 'Content-Type': mime })
+      // data: 這條沒有檔案 mtime 可以當驗證碼，就不給 ETag：每次都重送。
+      // 頭像很小，而且這條路徑只有少數角色（圖直接內嵌在卡裡）會走到。
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache' })
       res.end(Buffer.from(b64, 'base64'))
     } else if (fs.existsSync(avatar)) {
       const ext = path.extname(avatar).toLowerCase()
       const mime = ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png'
-      res.writeHead(200, { 'Content-Type': mime })
+      // 檔名本身就帶時間戳（`avatar-${Date.now()}${ext}`，見 ipcHandlers
+      // 的 saveCharacterAvatarDirect），換圖必換檔名；再加上 mtime 與大小，
+      // 就算之後改成固定檔名也還是驗得出來。
+      const stat = fs.statSync(avatar)
+      const etag = `W/"${stat.mtimeMs.toString(36)}-${stat.size.toString(36)}"`
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, { 'Cache-Control': 'no-cache', ETag: etag })
+        res.end()
+        return
+      }
+      res.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-cache', ETag: etag })
       res.end(fs.readFileSync(avatar))
     } else {
       jsonError(res, 404, 'Avatar not found')
@@ -567,7 +717,14 @@ async function handleRequest(
     try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
     const content = String(payload.content ?? '').trim()
     const images = sanitizeIncomingImages(payload.images, bridge.getMaxImagesPerMessage())
-    if (!content && !images.length && !payload.randomResult && !(payload.randomResults && payload.randomResults.length)) { jsonError(res, 400, 'Empty message'); return }
+    /*
+     * 只掛新聞標題泡泡、不打字也不附圖也算「有東西可送」——手機端 Composer.tsx
+     * 的 `submit()` 本來就允許這種送法（`!raw && !images.length && !pendingNewsLink`
+     * 才擋），這裡原本漏了 `newsLink`，導致「聊這個」不打字直接送出時被這關
+     * 誤判成空訊息，回 400，手機顯示「送不出去：內容或圖片不符合限制」——
+     * 但其實根本沒有圖片，訊息也很清楚是誤導（owner 2026-08-16 真機回報）。
+     */
+    if (!content && !images.length && !payload.randomResult && !(payload.randomResults && payload.randomResults.length) && !payload.newsLink) { jsonError(res, 400, 'Empty message'); return }
     try {
       const sourceDeviceName = bridge.shouldIncludeDeviceNameInPrompt()
         ? getDeviceDisplayNameFromRequest(req)
@@ -585,6 +742,18 @@ async function handleRequest(
     } catch (e) {
       jsonError(res, 500, String(e))
     }
+    return
+  }
+
+  // ── POST /api/stop ──（對齊桌面 message:stop；回草稿讓手機還原輸入框）
+  if (method === 'POST' && url === '/api/stop') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const draft = bridge.stopGenerating()
+    if (!draft) {
+      jsonOk(res, { ok: true, stopped: false })
+      return
+    }
+    jsonOk(res, { ok: true, stopped: true, content: draft.content, images: draft.images ?? [] })
     return
   }
 
@@ -696,6 +865,57 @@ async function handleRequest(
     return
   }
 
+  // ── POST /api/conversations/summary/get ──
+  if (method === 'POST' && url === '/api/conversations/summary/get') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { id?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const result = bridge.getConversationMemory(payload.id)
+    if (!result.ok) { jsonError(res, 400, result.error); return }
+    jsonOk(res, result)
+    return
+  }
+
+  // ── POST /api/conversations/summary/generate ──
+  if (method === 'POST' && url === '/api/conversations/summary/generate') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { id?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const result = await bridge.summarizeConversationNow(payload.id)
+    jsonOk(res, result)
+    return
+  }
+
+  // ── POST /api/conversations/summary/update ──
+  if (method === 'POST' && url === '/api/conversations/summary/update') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { id?: string; summary?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const result = bridge.updateConversationSummary(payload.id, String(payload.summary ?? ''))
+    if (!result.ok) { jsonError(res, 400, result.error); return }
+    jsonOk(res, result)
+    return
+  }
+
+  // ── POST /api/conversations/summary/clear ──
+  if (method === 'POST' && url === '/api/conversations/summary/clear') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { id?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const result = bridge.clearConversationSummary(payload.id)
+    if (!result.ok) { jsonError(res, 400, result.error); return }
+    jsonOk(res, result)
+    return
+  }
+
   // ── POST /api/characters/speak ──
   if (method === 'POST' && url === '/api/characters/speak') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
@@ -746,16 +966,22 @@ async function handleRequest(
   }
 
   // ── POST /api/scenes/capture ──
-  // 對應桌面「覆寫為目前狀態」：把目前配色／Persona／世界觀／對話／在場角色寫回情境。
+  // id 有值：對應桌面「覆寫為目前狀態」，把目前配色／Persona／世界觀／對話／在場角色寫回情境。
+  // id 為 null：新增情境（手機版「新增情境」＝把當下狀態存成新情境並直接套用）。
   if (method === 'POST' && url === '/api/scenes/capture') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-    const payload = await readJson<{ id?: string; name?: string }>(req, res)
+    const payload = await readJson<{ id?: string | null; name?: string }>(req, res)
     if (!payload) return
-    if (!payload.id) { jsonError(res, 400, 'id required'); return }
-    const existing = bridge.getScenePreset(payload.id)
-    if (!existing) { jsonError(res, 404, 'Scene not found'); return }
-    const name = (payload.name?.trim() || existing.name)
-    const scene = bridge.captureScene(payload.id, name)
+    const isNew = !payload.id
+    const existing = payload.id ? bridge.getScenePreset(payload.id) : null
+    if (payload.id && !existing) { jsonError(res, 404, 'Scene not found'); return }
+    const name = payload.name?.trim() || existing?.name || ''
+    if (isNew && !name) { jsonError(res, 400, 'name required'); return }
+    const scene = bridge.captureScene(payload.id ?? null, name)
+    if (isNew) {
+      const applied = bridge.applyScene(scene.id)
+      if ('error' in applied) { jsonError(res, 400, applied.error); return }
+    }
     pushDesktopUpdate(bridge.getDesktopCharacterIds())
     jsonOk(res, { scene })
     return
@@ -818,6 +1044,43 @@ async function handleRequest(
     return
   }
 
+  // ── POST /api/characters/import-pack ── S2 M3 角色推送（手機 → 電腦）
+  // 手機上傳 .dstpack 格式的角色，電腦負責解包並落地。
+  //
+  // 衝突策略由手機端用 ?onConflict= 決定，不是固定寫死：
+  // - 'new'：第一次推這個角色，電腦上還沒有——新增。
+  // - 'overwrite'：手機端的基準已經記過這個角色（先前推送成功過），這次
+  //   是同一個角色被改過、重新推——蓋掉電腦上那份，不要每次修改重推
+  //   都在電腦上生一個新角色（2026-08-13 owner 實機回報「電腦上多了一堆
+  //   重複角色」，根因就是每次重推同一隻角色都被當成新角色處理）。
+  // 手機端在 `syncPush.ts` 依基準有沒有這筆記錄來決定傳哪個值。
+  if (method === 'POST' && url === '/api/characters/import-pack') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const buffer = await readBinary(req)
+    if (!buffer) { jsonError(res, 413, '檔案太大或讀取失敗'); return }
+    const onConflictParam = requestUrl.searchParams.get('onConflict')
+    const onConflict = onConflictParam === 'overwrite' ? 'overwrite' : 'new'
+    // S2 M4：手機在比對畫面上已經確定要蓋哪一隻，直接指定，不要再靠名字猜
+    const targetId = requestUrl.searchParams.get('targetId') || undefined
+    try {
+      // 轉換 Buffer 為 ArrayBuffer（Node.js Buffer 和瀏覽器 ArrayBuffer 型別不同）
+      const arrayBuffer = new Uint8Array(buffer).buffer
+      const result = await bridge.importDstPack(arrayBuffer, {
+        onConflict,
+        applyGlobalSettings: false,  // 設定走 `/api/settings/*`，不在這裡帶
+        targetId
+      })
+      if ('error' in result) { jsonError(res, 400, result.error); return }
+      pushDesktopUpdate(bridge.getDesktopCharacterIds())
+      // `ids` ＝ 實際落地的角色 id（S2 M4）。手機要拿它記對應表——送出去的 id
+      // 不保證就是存下來的那個，見 `importDstPackDirect` 裡 `ids` 的註解。
+      jsonOk(res, { ok: true, imported: result.imported, skipped: result.skipped, ids: result.ids })
+    } catch (err) {
+      jsonError(res, 400, err instanceof Error ? err.message : 'Import failed')
+    }
+    return
+  }
+
   const presetSave = url.match(/^\/api\/presets\/(persona|world|scene)\/save$/)
   if (method === 'POST' && presetSave) {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
@@ -849,6 +1112,34 @@ async function handleRequest(
     if ('error' in result) { jsonError(res, result.error === 'not-found' ? 404 : 409, result.error); return }
     pushDesktopUpdate(bridge.getDesktopCharacterIds())
     jsonOk(res, result)
+    return
+  }
+
+  // ── POST /api/settings/show-llm-badge ──
+  // 訊息旁的模型小圖示開關。與配色同樣是電腦端設定的一部分，要寫回去。
+  if (method === 'POST' && url === '/api/settings/show-llm-badge') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { show?: unknown }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (typeof payload.show !== 'boolean') { jsonError(res, 400, 'show must be boolean'); return }
+    bridge.setShowLlmBadge(payload.show)
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  // ── POST /api/settings/show-persona-name ──
+  // 使用者訊息旁的發話身分名字開關。同上，是電腦端設定的一部分。
+  if (method === 'POST' && url === '/api/settings/show-persona-name') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { show?: unknown }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (typeof payload.show !== 'boolean') { jsonError(res, 400, 'show must be boolean'); return }
+    bridge.setShowPersonaName(payload.show)
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, { ok: true })
     return
   }
 
@@ -1049,6 +1340,19 @@ async function handleRequest(
     return
   }
 
+  // ── POST /api/messages/debug ──
+  // 除錯用：取這則訊息保留的完整 prompt。太舊的訊息 prompt 已被 prune 剝掉，
+  // 那不是錯誤 —— 回 `{ debug: null }` 讓手機顯示「已經沒有保留」。
+  if (method === 'POST' && url === '/api/messages/debug') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { id?: string }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    jsonOk(res, { debug: bridge.getMessageDebug(payload.id) ?? null })
+    return
+  }
+
   // ── POST /api/random ──
   if (method === 'POST' && url === '/api/random') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
@@ -1242,6 +1546,245 @@ async function handleRequest(
     return
   }
 
+  /*
+   * ── POST /api/lorebooks/generate-entry ── 從角色卡自動生成一條用語（規格 §8）
+   *
+   * 生成失敗（無 API Key／逾時／模型吐空）用 HTTP 200 ＋ `{ error }` 表示——
+   * 這是常見的預期情況，不是連線層級的錯誤，比照新聞模組既有慣例。
+   */
+  if (method === 'POST' && url === '/api/lorebooks/generate-entry') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ characterId?: string; lorebookId?: string }>(req, res)
+    if (!payload) return
+    if (!payload.characterId || !payload.lorebookId) { jsonError(res, 400, 'characterId and lorebookId required'); return }
+    const result = await bridge.generateLoreEntry(payload.characterId, payload.lorebookId)
+    if ('error' in result) { jsonOk(res, { ok: false, error: result.error }); return }
+    pushDesktopUpdate(bridge.getDesktopCharacterIds())
+    jsonOk(res, result)
+    return
+  }
+
+  /*
+   * ── GET /api/sync-init ── S1 初始化匯入：設定與預設組（roadmap §4.7）
+   *
+   * 角色不走這裡 —— 角色帶圖檔，改用 `/api/sync-pack` 的 .dstpack（見下）。
+   *
+   * ⚠️ **API Key 的判定必須在這一端做，不可信任手機端自稱。**
+   * 私有位址直連才給金鑰；經 relay／tunnel 一律剝除並標明原因，
+   * 手機端只負責顯示狀態、不提供「我知道風險仍要傳」的覆寫（§2 目標④）。
+   */
+  if (method === 'GET' && url === '/api/sync-init') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const lanDirect = isLanDirectRequest(req)
+    const llm = bridge.getLlmSettings()
+    jsonOk(res, {
+      lanDirect,
+      /*
+       * 掃 QR 拿到的網址優先是 relay（`QRCodeWindow` 的選址順序），所以
+       * **即使兩台就在同一個區網，第一次請求也是從外面繞回來的** —— 判定會是
+       * 非直連、金鑰被剝掉。這裡附上區網位址讓手機自己改走那條再問一次，
+       * 使用者不必知道 relay 是什麼、也不必手動選（§2 目標④）。
+       *
+       * 附位址不等於放寬判定：手機改連之後，這支仍會用該連線的 remoteAddress
+       * 重新判斷一次，權威還是在電腦端。
+       */
+      lanUrl: lanDirect ? '' : bridge.getLanBaseUrl(),
+      colorTheme: bridge.getColorTheme(),
+      showLlmBadge: bridge.getShowLlmBadge(),
+      showPersonaName: bridge.getShowPersonaName(),
+      randomToolsEnabled: bridge.getRandomToolsEnabled(),
+      maxImagesPerMessage: bridge.getMaxImagesPerMessage(),
+      llm: {
+        provider: llm.provider,
+        model: llm.model,
+        models: llm.models,
+        endpoint: llm.endpoint,
+        maxResponseTokens: llm.maxResponseTokens,
+        maxGroupRounds: llm.maxGroupRounds,
+        maxImagesPerMessage: llm.maxImagesPerMessage,
+        // 只有區網直連才附金鑰；否則連欄位都不出現（不是空字串，避免手機誤判成「已清空」）
+        ...(lanDirect ? { apiKeys: bridge.getApiKeysForSync() } : {})
+      },
+      memory: bridge.getMemorySettings(),
+      // 地點不帶：手機會移動、也有 GPS，帶座標只會讓它出門顯示家裡的天氣
+      weather: bridge.getWeatherSyncSettings(lanDirect),
+      // 新聞的關鍵字／來源設起來很費工，不讓使用者在手機上重設一次（owner 2026-08-12）
+      news: bridge.getNewsSyncSettings(),
+      modules: bridge.listModuleToggles(),
+      personas: bridge.getPersonaPresets(),
+      worlds: bridge.getWorldPresets(),
+      scenes: bridge.getScenes(),
+      activePersonaId: bridge.getActivePersonaId(),
+      activeWorldId: bridge.getActiveWorldId(),
+      characters: bridge.getCharacters().map((c) => ({ id: c.id, name: c.name }))
+    })
+    return
+  }
+
+  /*
+   * ── GET /api/sync-pack ── S1 的角色本體（.dstpack）
+   *
+   * 沿用桌面匯出的同一份打包程式，手機端也已經有解包邏輯 ——
+   * 不要為了同步另發明一種傳輸格式，圖檔與 Lorebook 都在裡面。
+   * `includeGlobalSettings` 固定 false：設定走 `/api/sync-init`，那邊才有金鑰判定。
+   */
+  if (method === 'GET' && url === '/api/sync-pack') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    /*
+     * **一隻角色一包，不要整庫一次送。**
+     * owner 的資料庫有 10 隻角色、含表情圖，整包是 54 MB；手機端是
+     * `await res.arrayBuffer()` 一次吃下，而 CapacitorHttp 會把二進位
+     * 用 base64 穿過 JS bridge（再脹 1/3），實測直接失敗。
+     * 分開拿還讓 UI 有進度、單隻失敗不會整批白做。
+     */
+    // ⚠️ 要用 `requestUrl`，不是 `url` —— `url` 是已經去掉 query 的 pathname（見檔頭
+    // handleRequest），在它上面再解析一次 query 永遠拿不到 id，會退化成整庫一起送。
+    const wanted = requestUrl.searchParams.get('id')?.trim()
+    const all = bridge.getCharacters().map((c) => c.id)
+    const ids = wanted ? all.filter((id) => id === wanted) : all
+    if (ids.length === 0) { jsonError(res, 404, 'No characters'); return }
+    const r = await bridge.buildDstPack({
+      characterIds: ids,
+      includeGlobalSettings: false,
+      includeLorebooks: true
+    })
+    if ('error' in r) { jsonError(res, 500, r.error); return }
+    const buf = Buffer.from(r.buffer)
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': String(buf.length)
+    })
+    res.end(buf)
+    return
+  }
+
+  /*
+   * ── GET /api/sync-conversations ── S1 對話匯入：勾選用的清單
+   *
+   * 只給後設資料（標題、則數、參與角色），**不含訊息內容** ——
+   * 十幾則對話的內容一次送出去可以是好幾十 MB，而使用者這一步只是在挑要哪些。
+   */
+  if (method === 'GET' && url === '/api/sync-conversations') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, { conversations: bridge.getConversationsForSync() })
+    return
+  }
+
+  /*
+   * ── GET /api/sync-conversation?id=… ── S1 對話匯入：一則的完整內容
+   *
+   * 一次一則，理由與 `/api/sync-pack` 相同：訊息帶著圖片的 data URI，
+   * 整批一起送會在 CapacitorHttp 的 base64 bridge 上爆掉，而且沒有進度可顯示。
+   */
+  if (method === 'GET' && url === '/api/sync-conversation') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    // ⚠️ 用 `requestUrl`，不是已經去掉 query 的 `url`（同 `/api/sync-pack` 那個坑）
+    const wanted = requestUrl.searchParams.get('id')?.trim()
+    if (!wanted) { jsonError(res, 400, 'id required'); return }
+    const conv = bridge.getConversationForSync(wanted)
+    if (!conv) { jsonError(res, 404, 'Conversation not found'); return }
+    /*
+     * S2 對話同步：`?idsOnly=1` 只回訊息 id 與時間戳，不回內容。
+     *
+     * 推送方向要先算「電腦缺哪幾則」才知道要送什麼，但為了這個把整則對話
+     * （含所有圖片 data URI）拉下來，等於為了問一個問題先付整份的傳輸成本，
+     * 而且大對話會直接在 CapacitorHttp 的 base64 bridge 上爆掉。
+     * 拉取方向仍然要完整內容，走原本那條路。
+     */
+    if (requestUrl.searchParams.get('idsOnly') === '1') {
+      jsonOk(res, {
+        conversation: {
+          id: conv.id,
+          title: conv.title,
+          updatedAt: conv.updatedAt,
+          summary: conv.summary,
+          summaryCoversTs: conv.summaryCoversTs,
+          participantIds: conv.participantIds ?? [],
+          messageIds: (conv.messages ?? []).map((m) => m.id)
+        }
+      })
+      return
+    }
+    jsonOk(res, { conversation: conv })
+    return
+  }
+
+  /*
+   * ── GET /api/sync-manifest ── S2 M2 差異預覽用的輕量清單
+   *
+   * 只回 `{id, name, updatedAt}`，不含任何內容——手機拿它跟手機上存的
+   * 基準對一次就知道電腦側改了什麼，不必先把幾十 MB 拉下來。
+   * 詳見 `docs/mobile-mode-switch-sync.md` §6.2。
+   */
+  if (method === 'GET' && url === '/api/sync-manifest') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const b = bridge
+    /*
+     * S2 M4：每筆多帶一個 `contentHash`，手機端才判得出「兩邊都有的這一筆
+     * 內容一不一樣」。算法在 `core/sync/manifestBuild.ts`，**桌面與手機共用
+     * 同一支**——各自抄一份的話只要漂移一個欄位，手機上每一列都會變成假衝突
+     * 而且不會有任何錯誤訊息。
+     */
+    const books = b.getLorebookManifest()
+      .map((l) => b.getLorebook(l.id))
+      .filter((x): x is NonNullable<typeof x> => !!x)
+    jsonOk(res, buildManifest({
+      characters: b.getCharacters(),
+      personas: b.getPersonaPresets(),
+      worlds: b.getWorldPresets(),
+      scenes: b.getScenes(),
+      lorebooks: books,
+      // S2 對話同步：多帶訊息 id 指紋，手機才判得出「這則兩邊完全一樣」。
+      // 算法在 `core/sync/manifestBuild.ts`，跟手機共用同一支。
+      conversations: b.getConversationsManifest(),
+      settingsHash: settingsSnapshotHash(buildSettingsSnapshot(b))
+    }))
+    return
+  }
+
+  /*
+   * ── POST /api/sync-conversation-merge ── S2 對話同步：手機 → 電腦的訊息追加
+   *
+   * 規格與合併規則見 `docs/mobile-mode-switch-sync.md` §6.2 ②，實作在
+   * `core/sync/convHash.ts`（手機端合併走同一支，兩邊不可能漂移）。
+   *
+   * ⚠️ **body 上限要放寬到 MEDIA_MAX_BODY**：訊息帶圖片 data URI，而 base64
+   * 又比原檔大 1/3。手機端已經依累計位元組切塊，但單則帶三張圖就可能自己
+   * 超過預設上限——被 413 擋掉的話症狀是「大部分對話同步得好好的，唯獨帶圖
+   * 那幾則永遠過不去」，而且錯誤訊息只說檔案太大，看不出是哪一則。
+   *
+   * 回應的 `id` 是合約的一部分：新建時電腦自己發 uuid，手機要記回去，
+   * 否則下一趟配不起來、每次切換都多一份（S2 M3 的死因）。
+   */
+  if (method === 'POST' && url === '/api/sync-conversation-merge') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{
+      targetId?: string
+      title?: string
+      participantIds?: string[]
+      messages?: import('./types').Message[]
+      summary?: string
+      summaryCoversTs?: number
+    }>(req, res, MEDIA_MAX_BODY)
+    if (!payload) return
+    const out = bridge.mergeConversationMessages(payload)
+    if ('error' in out) { jsonError(res, 404, out.error); return }
+    jsonOk(res, out)
+    return
+  }
+
+  /*
+   * ── GET /api/settings/sync-snapshot ── S2 M5 逐欄位比對用
+   *
+   * 回傳跟手機 `buildLocalSettingsSnapshot()` 同形狀的物件（不只雜湊），
+   * 手機才能把兩邊的值並排顯示，不只是知道「有沒有差異」。
+   */
+  if (method === 'GET' && url === '/api/settings/sync-snapshot') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, buildSettingsSnapshot(bridge))
+    return
+  }
+
   // ── GET /api/connection-info ──
   // 手機端在建立 `RemoteDataSource` 前先問一次，決定 `Capabilities.apiKeyAccess`
   // （roadmap §4.7）。不需要 `bridge` ready，純粹是傳輸層的判斷。
@@ -1279,9 +1822,54 @@ async function handleRequest(
 
   if (method === 'POST' && url === '/api/settings/llm-endpoint') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
-    const payload = await readJson<{ endpoint?: string }>(req, res)
+    // provider 可省略（舊版手機只送 endpoint）→ 由桌面端沿用目前生效的供應商
+    const payload = await readJson<{ endpoint?: string; provider?: string }>(req, res)
     if (!payload) return
-    const r = bridge.setLlmEndpoint(String(payload.endpoint ?? ''))
+    const r = bridge.setLlmEndpoint(
+      String(payload.endpoint ?? ''),
+      payload.provider === undefined ? undefined : String(payload.provider)
+    )
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-test-connection') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ provider?: string; endpoint?: string }>(req, res)
+    if (!payload) return
+    const r = await bridge.testLlmConnection(String(payload.provider ?? ''), payload.endpoint?.trim() || undefined)
+    // 200 一律回，成功／失敗都靠 body 的 `ok` 分辨 —— 失敗是連線測試常見的預期結果
+    // （沒開機、模型跑很慢），不是傳輸層錯誤，不用 jsonError／DataError 那條路。
+    jsonOk(res, 'error' in r ? { ok: false, error: r.error } : r)
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-utility-enabled') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ enabled?: boolean }>(req, res)
+    if (!payload) return
+    const r = bridge.setLlmUtilityEnabled(!!payload.enabled)
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-utility-provider') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ provider?: string }>(req, res)
+    if (!payload) return
+    const r = bridge.setLlmUtilityProvider(String(payload.provider ?? ''))
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-utility-model') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ provider?: string; model?: string }>(req, res)
+    if (!payload) return
+    const r = bridge.setLlmUtilityModel(String(payload.provider ?? ''), String(payload.model ?? ''))
     if ('error' in r) { jsonError(res, 400, r.error); return }
     jsonOk(res, { ok: true })
     return
@@ -1315,6 +1903,16 @@ async function handleRequest(
       maxGroupRounds: Number(payload.maxGroupRounds),
       maxImagesPerMessage: Number(payload.maxImagesPerMessage)
     })
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/llm-extra-instruction') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ text?: string }>(req, res)
+    if (!payload) return
+    const r = bridge.setLlmExtraInstruction(String(payload.text ?? ''))
     if ('error' in r) { jsonError(res, 400, r.error); return }
     jsonOk(res, { ok: true })
     return
@@ -1371,7 +1969,7 @@ async function handleRequest(
       locationName?: string
       latitude?: number
       longitude?: number
-      locationSource?: 'ip' | 'manual' | ''
+      locationSource?: WeatherLocationSource
     }>(req, res)
     if (!payload) return
     const r = bridge.setWeatherSettings(payload)
@@ -1595,6 +2193,28 @@ function readBody(req: http.IncomingMessage, maxBytes: number = DEFAULT_MAX_BODY
     })
     req.on('end', () => { if (!aborted) resolve(body) })
     req.on('error', () => { if (!aborted) resolve('') })
+  })
+}
+
+function readBinary(req: http.IncomingMessage, maxBytes: number = MEDIA_MAX_BODY): Promise<Buffer | null> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    let aborted = false
+    req.on('data', chunk => {
+      if (aborted) return
+      if (!(chunk instanceof Buffer)) chunk = Buffer.from(chunk)
+      size += chunk.length
+      if (size > maxBytes) {
+        aborted = true
+        resolve(null)
+        req.destroy()
+        return
+      }
+      chunks.push(chunk)
+    })
+    req.on('end', () => { if (!aborted) resolve(Buffer.concat(chunks)) })
+    req.on('error', () => { if (!aborted) resolve(null) })
   })
 }
 

@@ -80,6 +80,25 @@ export function DialogHost(): JSX.Element | null {
             />
           ))}
 
+        {/* 額外動作單獨一排：跟「取消／確定」擠在一起會讓人以為按了就會關掉 */}
+        {dialog.extraActions && dialog.extraActions.length > 0 && (
+          <div className="mt-3 flex gap-2">
+            {dialog.extraActions.map((a) => (
+              <button
+                key={a.label}
+                type="button"
+                onClick={() => {
+                  a.onClick()
+                  if (a.closeAfter) close(null)
+                }}
+                className="flex-1 rounded-full border border-[var(--border)] py-2 text-[13px] text-[var(--text-sub)] active:bg-[var(--border)]"
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="mt-4 flex gap-2">
           <button
             type="button"

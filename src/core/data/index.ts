@@ -5,6 +5,7 @@ export type {
   CharacterListItem,
   CharactersApi,
   LorebooksApi,
+  LoreGenerateResult,
   LlmProvider,
   LlmSettingsSnapshot,
   MemorySettingsSnapshot,
@@ -16,6 +17,7 @@ export type {
   DataErrorCode,
   DataSource,
   FullConversation,
+  MessageDebug,
   MessageSnapshot,
   MessagesApi,
   NewsApi,
@@ -40,6 +42,7 @@ export type {
   RemoteSystemAction,
   RemoteWindow,
   SendMessageInput,
+  StopGeneratingResult,
   SettingsApi,
   WeatherNowSnapshot,
   WeatherSettingsSnapshot

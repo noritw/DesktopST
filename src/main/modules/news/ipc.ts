@@ -359,4 +359,10 @@ export function registerNewsIpcHandlers(registry: ModuleIpcRegistry = ipcMain): 
     }
     return { ok: true as const }
   })
+
+  // 發話視窗上的「附加新聞」標籤被使用者手動移除時：取消暫存，避免掛到不相干的下一則訊息
+  registry.handle('news:clear-pending-link', () => {
+    setPendingUserNewsLink(null)
+    return { ok: true as const }
+  })
 }

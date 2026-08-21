@@ -11,14 +11,12 @@
 > - 懷疑踩已知坑 → Grep §4.10–§4.16；資訊架構 → §4.19
 > - 新對話預設讀 [`CLAUDE.md`](../CLAUDE.md)，本檔屬選讀（見 [`docs/README.md`](README.md)）
 >
-> **狀態：階段 0–6、8、9 程式與契約測試完成（0-③／1／2a–2d／3a／3b／4／5／6／8／9）；
-> 另含資訊架構重整（§4.19）與 relay 硬約束（§4.20）。**
-> 階段 5／6／8／9 與 §4.19 畫面尚待 owner 真機確認。
+> **狀態：階段 0–9、資訊架構重整（§4.19）與 relay 硬約束（§4.20）已落地；
+> B6 遙控 UI 已完成，且手機獨立版 W1–W3（含同步切換／設定同步／新聞）也已補上實作與驗證。**
+> 當前 P1 是 **B3 階段 7（正式 APK／散布）**，不是重新回到舊的 M3 同步方向。
 >
-> **下一步：** 階段 7（正式 APK 打包／散布）。Spotify／日曆授權仍只在桌面。
-> 新聞進 prompt 上下文補強已實作（見 [`news-article-context-design.md`](news-article-context-design.md)）。
-> `mobile.html` 與舊版 QR 已於 2026-08-07（B6 真機驗證通過後）依 §4.23 移除；
-> 手機遠端為**單一入口 `/`**。
+> **目前進度：** 手機 UI 以單一入口 `/` 運作，`mobile.html` 已移除；新聞進 prompt 上下文補強已實作（見 [`news-article-context-design.md`](news-article-context-design.md)）。
+> 真機驗證已涵蓋模式切換、M4/M5 設定比對、個人新聞報、提醒與匯出流程；
 > 沒開 DeST 時的驗證方式見 §4.9 與 `scripts/README-mobile-stub.md`。
 >
 > **B6（遙控 UI 搬新版）已完成**：程式／stub／真機驗證均通過 —— 落地筆記見 §4.22。
@@ -295,7 +293,7 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 - **驗收**：桌面切換對話後，手機不用重新整理就換成同一份訊息串（靠 `state-invalidated`
   推播 + `refresh()`）；手機清單新增/改名/刪除對話後，桌面端 log 視窗與桌寵泡泡跟著更新
   （沿用既有的 `broadcastConversationUpdate`）。**尚待 owner 真機驗證**，跟階段 5 一樣走
-  `MobileST-real-test.bat`，核對終點是桌面的對話清單/log 視窗，不是 HTTP 200。
+  `MobileST.bat`（`[3]` → 真資料），核對終點是桌面的對話清單/log 視窗，不是 HTTP 200。
 
 ### 階段 9 ── 用語解說（Lorebook）內容編輯（2026-08-05 owner 加入排程）
 
@@ -353,7 +351,7 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 | **4 設定**（API Key／供應商／模型／進階：endpoint／記憶／模組開關／提醒 CRUD） | ✅ 行為已驗（假伺服器 ＋ 瀏覽器），**待 owner 實機看畫面** | 落地筆記見 §4.15 |
 | **5 預設組編輯**（Scene／Persona／World 新增、編輯、刪除） | ✅ 程式與契約測試完成（假伺服器）；**待 owner 真機驗證** | 本次未提交變更 |
 | **6 個人新聞報**（F1–F13 ＋ 新聞設定） | ✅ 程式與 stub＋瀏覽器操作驗證完成；**待 owner 真機驗證** | 落地筆記見 §4.21 |
-| 7 收尾／APK | ⬜ | |
+| 7 收尾／APK | 🟡 debug APK 已建置並在 Pixel 10a 驗證；「匯出全部角色」的大包分享修正後須重新真機驗收，正式簽章／散布與 release 驗收尚未收尾 | 見 `src/mobile/README.md`、`release.bat` |
 | **8 對話清單與切換**（E1–E2） | ✅ 程式與手動端點驗證完成（stub）；**待 owner 真機驗證** | 見 §4「階段 8」 |
 | **9 用語解說內容編輯** | ✅ 程式與 stub 端點驗證完成；**待 owner 真機驗證** | 見 §4.18「階段 9 落地筆記」 |
 | **資訊架構重整 ＋ 單色圖示**（owner 2026-08-06 回報） | ✅ 程式與瀏覽器 DOM 驗證完成；**畫面外觀待 owner 實機確認** | 見 §4.19 |
@@ -364,7 +362,7 @@ UI 文案全部在這裡，core 一個字都不加（roadmap §3.3）。
 http://<電腦區網IP>:<Vite 埠>/?server=http://<電腦區網IP>:<mobileServer 埠>&token=<存取權杖>
 ```
 
-`MobileST-real-test.bat` 會在 DeST 已啟動且 mobileServer 可用時，自動尋找區網 IP、權杖、mobileServer 埠，並選擇可用的 Vite 埠後產生 QR；不必手動輸入 IP。`MobileST-test.bat` 則啟動假伺服器與假資料。
+`MobileST.bat`（`[3]` → 真資料） 會在 DeST 已啟動且 mobileServer 可用時，自動尋找區網 IP、權杖、mobileServer 埠，並選擇可用的 Vite 埠後產生 QR；不必手動輸入 IP。`MobileST.bat`（`[3]` → 假資料） 則啟動假伺服器與假資料。
 正式版是同源、不需要參數（階段 7）。
 
 ⚠️ **dev server 會無聲停掉**（工具重啟、機器休眠）。手機出現「載入失敗」時，
@@ -393,7 +391,7 @@ node scripts/mobile-stub-server.mjs
 - 手機 UI 已有 Scene／Persona／World 的新增、編輯、刪除；資料寫入沿用 `ipcHandlers.ts` 的 `*Direct`，桌面 IPC 與 `mobileServer` 都是薄轉呼叫，不在手機端複製邏輯。
 - UI 顯示名稱而非內部 ID：Scene／World 以角色列上方的緊湊 chip 顯示目前使用中項目；Persona 移到輸入框上方，顯示「目前以誰發言」，點名稱可切換。
 - Scene 套用後會 refresh；桌面既有的「每個情境記住最後對話」邏輯仍由共用 handler 負責。這部分尚未由 owner 完成真機端到端確認。
-- `MobileST-test.bat` 只驗 React UI 與拒絕條件 stub，資料不會持久化；`MobileST-real-test.bat` 才是接真 DeST 的入口，DeST 必須先啟動並開啟 mobileServer。
+- `MobileST.bat`（`[3]` → 假資料） 只驗 React UI 與拒絕條件 stub，資料不會持久化；`MobileST.bat`（`[3]` → 真資料） 才是接真 DeST 的入口，DeST 必須先啟動並開啟 mobileServer。
 - ~~DeST 內建 QR 在階段 7 前仍指向舊的 `assets/mobile.html`~~ →
   ~~**已過時（2026-08-06）**：QR 視窗出兩組碼~~ →
   **已收尾（2026-08-07）**：B6 真機驗證通過後依 §4.23 移除 `mobile.html` 與舊版 QR，
@@ -402,7 +400,7 @@ node scripts/mobile-stub-server.mjs
 
 #### 真機檢查清單
 
-準備：DeST 先啟動並開啟 mobileServer → 跑 `MobileST-real-test.bat` → 手機掃碼連線。
+準備：DeST 先啟動並開啟 mobileServer → 跑 `MobileST.bat`（`[3]` → 真資料） → 手機掃碼連線。
 資料根目錄預設在 `%APPDATA%\desktop-st\Data\`；preset 各自一個檔案存在 `personas\<id>.json`／`worlds\<id>.json`／`scenes\<id>.json`（見 [keys.ts](../src/core/store/keys.ts)），啟用中的 id 記在 `settings.json` 的 `activePersonaId`／`activeWorldId`（Scene 目前無 active 概念，套用即切換對話，不落地成 settings 欄位——若手機端顯示的 chip 與桌面實際使用中的情境不一致，這是要抓的重點）。每一步都是「操作 → 看畫面回饋 → 開檔案／桌面視窗核對實際內容」，不是看 HTTP 200 就算過。
 
 1. **新增**
@@ -891,7 +889,7 @@ D5「至少留一位」的判斷兩處一致（只剩一位時不顯示這一項
 list／get／create／save（含缺 id 的 400）／delete，回應與檔案內狀態符合預期。
 **沒有** 用瀏覽器實際操作過 UI（`npm run dev:mobile` 未啟動驗證），也沒有驗證
 「存檔後角色下一則回覆看得出生效」這條端到端路徑——那需要真的 LLM 呼叫，
-比照階段 5／8 的慣例交給 owner 用 `MobileST-real-test.bat` 驗。
+比照階段 5／8 的慣例交給 owner 用 `MobileST.bat`（`[3]` → 真資料） 驗。
 
 ---
 
@@ -1140,7 +1138,7 @@ React 版不同：index.html 會再去要 `./assets/*.js`，那些請求是**瀏
 所以 QR 的新版永遠是最新程式碼，**不必再另外開 `MobileST-*.bat`**。
 
 ⚠️ **代價：新版走的是建置產物，沒有 HMR。** 改完手機 UI 要重跑一次 bat（或手動
-`npm run build:mobile`）才會生效。要邊改邊看仍然用 `MobileST-test.bat`（vite dev server）。
+`npm run build:mobile`）才會生效。要邊改邊看仍然用 `MobileST.bat` 的 `[3] 手機 UI 即時預覽`（vite dev server）。
 
 ### 驗證方式
 
@@ -1207,8 +1205,11 @@ React 版不同：index.html 會再去要 `./assets/*.js`，那些請求是**瀏
   這裡是「釘選一律保留、分欄時各自歸位、排在該欄最前」。行為好預測，
   也不必維護第二份配額演算法（沿用舊版手機的既有決定）。
 - **手機的新聞設定只有四樣**（關鍵字／黑名單／訂閱來源／排程）。語言處理、破圈、
-  地方新聞、學習權重留在桌面設定面板 —— 目標 4 的分層，進階的不擠第一層。
+  學習權重留在桌面設定面板 —— 目標 4 的分層，進階的不擠第一層。
   模組總開關在「設定 → 模組開關」，新聞設定畫面只顯示狀態，不重複放一顆。
+  ⚠️ **地方新聞已於 2026-08-12 併回一般關鍵字組**（`docs/news-local-merge-plan.md`），
+  不再是獨立設定項——縣市就是「地方」組底下的興趣關鍵字，手機的「管理關鍵字」
+  現在可以直接編輯（原本編不到）。
 - **顯示模式與目前分頁存手機自己的 localStorage**（沿用舊版的 key，換介面不會忘記
   使用者的偏好）；釘選／不看了走電腦端共用那份。
 

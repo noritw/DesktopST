@@ -33,11 +33,14 @@ export type MonoIconName =
   | 'prompt'
   | 'log'
   | 'image'
+  | 'camera'
+  | 'chart'
   | 'send'
   | 'stop'
   | 'resend'
   | 'save'
   | 'download'
+  | 'qr'
   | 'folder'
   | 'settings'
   | 'user'
@@ -70,6 +73,7 @@ export type MonoIconName =
   | 'mute'
   | 'exit'
   | 'plug'
+  | 'at'
   // ── B3 階段 6（個人新聞報）新增 ──
   | 'refresh'
   | 'external-link'
@@ -164,6 +168,21 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <path {...common} d="M20 16l-5-5-4 4-2-2-5 5" />
         </>
       )}
+      {name === 'camera' && (
+        <>
+          <path {...common} d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" />
+          <circle {...common} cx="12" cy="13.5" r="3.5" />
+        </>
+      )}
+      {name === 'chart' && (
+        <>
+          <path {...common} d="M4 20V4" />
+          <path {...common} d="M4 20h16" />
+          <path {...common} d="M8 17v-5" />
+          <path {...common} d="M13 17V7" />
+          <path {...common} d="M18 17v-8" />
+        </>
+      )}
       {name === 'send' && (
         <>
           <path {...common} d="M4 12l16-8-5 16-3-7-8-1Z" />
@@ -193,6 +212,17 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <path {...common} d="M12 3v11" />
           <path {...common} d="M7 10l5 5 5-5" />
           <path {...common} d="M5 18v2h14v-2" />
+        </>
+      )}
+      {name === 'qr' && (
+        <>
+          <path {...common} d="M4 4h6v6H4z" />
+          <path {...common} d="M14 4h6v6h-6z" />
+          <path {...common} d="M4 14h6v6H4z" />
+          <path {...common} d="M14 14h2v2h-2z" />
+          <path {...common} d="M18 14h2v2h-2z" />
+          <path {...common} d="M14 18h2v2h-2z" />
+          <path {...common} d="M18 18h2v2h-2z" />
         </>
       )}
       {name === 'folder' && (
@@ -399,6 +429,12 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <path {...common} d="M14.5 6V3" />
           <path {...common} d="M7 8h10v3a5 5 0 0 1-5 5" />
           <path {...common} d="M12 16v5" />
+        </>
+      )}
+      {name === 'at' && (
+        <>
+          <circle {...common} cx="12" cy="12" r="3.6" />
+          <path {...common} d="M15.6 8.4v4.8a2.6 2.6 0 0 0 5.2 0V12a8.8 8.8 0 1 0-3.4 6.95" />
         </>
       )}
       {name === 'refresh' && (

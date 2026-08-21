@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Character } from '../../types'
+import AutoTextarea from '../AutoTextarea'
 
 interface Props {
   draft: Character
@@ -74,8 +75,9 @@ export default function AdvancedTab({ draft, setDraft }: Props) {
           角色當下的處境、和使用者或其他角色之間的關係。例：「和{'{{user}}'}是青梅竹馬」「正坐在書房裡讀書」。
           可用標籤：<code>{'{{user}}'}</code>、<code>{'{{char}}'}</code>。
         </p>
-        <textarea
-          className="input-field mt-1 min-h-[88px] resize-y"
+        <AutoTextarea
+          className="mt-1"
+          minHeight={88}
           value={draft.scenario ?? ''}
           onChange={e => setDraft(prev => ({ ...prev, scenario: e.target.value }))}
         />
@@ -86,8 +88,9 @@ export default function AdvancedTab({ draft, setDraft }: Props) {
         <p className="text-[11px] text-secondary mt-0.5">
           給模型的額外提示，例如「常忘記今天星期幾」「不擅長拒絕別人」之類的小細節。會以 [Author Notes] 區塊注入 prompt。
         </p>
-        <textarea
-          className="input-field mt-1 min-h-[72px] resize-y"
+        <AutoTextarea
+          className="mt-1"
+          minHeight={72}
           value={draft.creatorNotes ?? ''}
           onChange={e => setDraft(prev => ({ ...prev, creatorNotes: e.target.value }))}
         />
@@ -174,8 +177,8 @@ export default function AdvancedTab({ draft, setDraft }: Props) {
             <p className="text-[11px] text-secondary mb-1.5">
               進階用途：直接附加到 system prompt 的角色定義區塊，位置在角色名稱之後、個性描述之前。一般不需填寫；主要保留給 SillyTavern 卡片匯入時的 <code>system_prompt</code> 欄位。
             </p>
-            <textarea
-              className="input-field min-h-[88px] resize-y"
+            <AutoTextarea
+              minHeight={88}
               placeholder="留空即可"
               value={draft.systemPromptOverride ?? ''}
               onChange={e => setDraft(prev => ({ ...prev, systemPromptOverride: e.target.value }))}

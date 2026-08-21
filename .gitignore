@@ -28,8 +28,23 @@ assets/*.dstpack
 .sh*.cjs
 .sh*.json
 
-# Capacitor 產生的原生樹（試打階段先不進 repo，B3 再決定是否納管）
-/android/
+# Capacitor 產生的原生樹（`npx cap add android` 可重建，所以整包不進 repo）
+#
+# ⚠️ **例外：手寫的 Java 與 AndroidManifest 一定要進版控。**
+# 2026-08-11 起 android/app/src/main/java/tw/nori/dest/ 底下有提醒鬧鐘的原生實作
+# （AlarmManager、開機重註冊、通知），那是真的原始碼，不是產生物——
+# 整包忽略的話重建專案就沒了。
+#
+# git 不會走進被忽略的目錄，所以必須逐層 un-ignore 才能讓底下的例外生效。
+/android/*
+!/android/app
+/android/app/*
+!/android/app/src
+/android/app/src/*
+!/android/app/src/main
+/android/app/src/main/*
+!/android/app/src/main/java
+!/android/app/src/main/AndroidManifest.xml
 /out/mobile/
 
 # 測試用 QR 圖（MobileST-*-test.bat 產生）

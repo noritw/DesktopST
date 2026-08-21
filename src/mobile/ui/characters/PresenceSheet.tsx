@@ -98,30 +98,33 @@ export function PresenceSheet(): JSX.Element {
         return (
           <div
             key={item.id}
-            className={`mb-2 flex items-center gap-2 rounded-[14px] border px-3 py-2.5 ${
+            className={`mb-2 flex items-center gap-3 rounded-[14px] border px-3 py-2.5 ${
               isPresent ? 'border-[var(--mint)] bg-[var(--mint)]/25' : 'border-[var(--border)] bg-[var(--bg)]'
             }`}
           >
             <button
               type="button"
-              disabled={busyId === item.id || !canRemove}
-              onClick={() => void toggle(item)}
-              className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:opacity-50"
+              aria-label={`編輯${item.name}`}
+              onClick={() => useUiStore.getState().push('character-editor', item.id)}
+              className="flex min-w-0 flex-1 items-center gap-3 text-left"
             >
               <Avatar characterId={item.id} size={38} />
               <span className="min-w-0 flex-1">
                 <p className="truncate text-[15px] text-[var(--text)]">{item.name}</p>
-                <StatusChip active={isPresent}>{isPresent ? '在場' : '加入對話'}</StatusChip>
+                <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] text-[var(--text-sub)]">
+                  <MonoIcon name="edit" className="h-3 w-3" />
+                  編輯
+                </span>
               </span>
             </button>
-            <button
-              type="button"
-              aria-label={`編輯${item.name}`}
-              onClick={() => useUiStore.getState().push('character-editor', item.id)}
-              className="shrink-0 rounded-full p-2 text-[var(--text-sub)] active:bg-[var(--border)]"
+            <StatusChip
+              active={isPresent}
+              disabled={busyId === item.id || !canRemove}
+              onClick={() => void toggle(item)}
+              ariaLabel={isPresent ? `將${item.name}移出對話` : `將${item.name}加入對話`}
             >
-              <MonoIcon name="edit" className="h-4 w-4" />
-            </button>
+              {isPresent ? '在場' : '加入'}
+            </StatusChip>
           </div>
         )
       })}

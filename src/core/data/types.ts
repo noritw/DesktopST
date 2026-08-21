@@ -8,11 +8,13 @@ import type {
   PersonaPreset,
   RandomResult,
   Reminder,
+  ReminderHistoryItem,
   ReminderSchedule,
   ScenePreset,
+  WeatherLocationSource,
   WorldPreset
 } from '../types'
-import type { Lorebook } from '../lore'
+import type { Lorebook, LoreEntry } from '../lore'
 import type { NewsItem, NewsKeywordGroup, NewsSource, SpeakMode } from '../news/types'
 
 /**
@@ -139,6 +141,10 @@ export interface AppStateSnapshot {
   conversation: ConversationSnapshot | null
   colorTheme: ColorTheme
   randomToolsEnabled: boolean
+  /** 訊息旁顯示生成模型的小圖示（`settings.ui.showLlmBadge`，未設定＝開） */
+  showLlmBadge: boolean
+  /** 使用者訊息旁顯示發話身分名字（`settings.ui.showPersonaName`，未設定＝開） */
+  showPersonaName: boolean
   maxImagesPerMessage: number
   activeSceneId?: string
   activePersonaId?: string
@@ -170,6 +176,14 @@ export interface ConversationsApi {
   create(title?: string): Promise<ConversationListItem>
   rename(id: string, title: string): Promise<ConversationListItem>
   remove(id: string): Promise<{ activeConversationId: string }>
+  /** 記憶摘要：目前存的內容、涵蓋到哪個時間點、已涵蓋幾則舊訊息。 */
+  getMemory(id: string): Promise<{ summary: string; coversTs: number; coveredCount: number }>
+  /** 手動觸發：忽略自動閾值，立即把視窗外未涵蓋的舊訊息濃縮進摘要。 */
+  summarizeMemoryNow(id: string): Promise<{ ok: boolean; noNew?: boolean; error?: string; summary?: string; coveredCount?: number }>
+  /** 使用者手動編輯／改寫摘要內容（不動涵蓋點，下次增量摘要以此為基礎）。 */
+  updateMemory(id: string, summary: string): Promise<void>
+  /** 清除摘要（連涵蓋點一起重設，之後重新摘要會從頭讀舊訊息）。 */
+  clearMemory(id: string): Promise<void>
 }
 
 export interface MessagesApi {
@@ -177,6 +191,26 @@ export interface MessagesApi {
   edit(messageId: string, content: string): Promise<void>
   /** 重送：刪掉該則之後的內容並重新產生回覆。 */
   resend(messageId: string): Promise<void>
+  /**
+   * 取這則訊息保留的完整 prompt（除錯用，對應桌面 Log 視窗的「查看完整 Prompt」）。
+   *
+   * ⚠️ **只有最近幾則留著** —— `core/store/prune.ts` 會把更舊的剝掉，
+   * 不然對話檔會被 prompt 撐爆。所以要先看 `hasDebugPrompt` / `hasNewsDebug`
+   * 再決定要不要顯示入口，找不到就回 `null`，不要當成錯誤。
+   */
+  getDebug(messageId: string): Promise<MessageDebug | null>
+}
+
+/** 一則訊息保留的除錯資料（各欄位可能都是空的）。 */
+export interface MessageDebug {
+  /** 主要回覆那次 LLM 呼叫的完整 request。 */
+  debugPrompt?: string | null
+  /** 輔助模型（情緒判定等）那次呼叫。 */
+  utilityDebugPrompt?: string | null
+  /** 對話新聞搜尋的意圖萃取呼叫。 */
+  convSearchDebugPrompt?: string | null
+  /** 新聞陪聊的抽選記錄（結構化，非 prompt 字串）。 */
+  newsDebug?: unknown
 }
 
 /**
@@ -280,10 +314,11 @@ export interface PresetsApi {
   activateWorld(id: string): Promise<void>
   applyScene(id: string): Promise<void>
   /**
-   * 把目前桌面／設定狀態覆寫進既有情境（含配色）。
-   * 對應桌面「覆寫為目前狀態」；名稱沿用情境既有名稱。
+   * 把目前桌面／設定狀態存成情境（含配色）。
+   * `id` 給既有情境 id＝覆寫（對應桌面「覆寫為目前狀態」），不自動套用。
+   * `id` 給 `null`＝新增一個情境並直接套用（手機版「新增情境」＝當下狀態就是這個情境）。
    */
-  captureScene(id: string): Promise<void>
+  captureScene(id: string | null, name: string): Promise<ScenePreset>
 
   savePersona(preset: PersonaPreset): Promise<void>
   saveWorld(preset: WorldPreset): Promise<void>
@@ -293,8 +328,14 @@ export interface PresetsApi {
   removeScene(id: string): Promise<void>
 }
 
-/** 四家供應商，與桌面 `AppSettings['llm']['provider']` 同一組值。 */
-export type LlmProvider = 'openai' | 'claude' | 'gemini' | 'grok'
+/**
+ * 供應商，與桌面 `AppSettings['llm']['provider']` 同一組值。
+ *
+ * `local` = 使用者自架的 OpenAI 相容端點（Ollama、LM Studio、llama.cpp server…）。
+ * 刻意不叫 `ollama`：協定才是重點，Ollama 只是其中一種伺服器，
+ * 而且這個字串會寫進設定檔，之後很難改名。細節見 `docs/local-llm-provider-plan.md`。
+ */
+export type LlmProvider = 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
 
 /**
  * LLM 設定的手機端快照。
@@ -309,7 +350,19 @@ export interface LlmSettingsSnapshot {
   /** 目前供應商生效的那個模型（等同 `models[provider]`，先攤平方便顯示）。 */
   model: string
   models: Partial<Record<LlmProvider, string>>
+  /**
+   * 目前供應商生效的端點（等同 `endpoints[provider]`，攤平方便顯示）。
+   * @deprecated 顯示用；要改值請走 `endpoints`。
+   */
   endpoint?: string
+  /**
+   * 各供應商各自的端點。**主模型與輔助模型共用這張表**——
+   * 兩者 provider 不同時自然拿到不同端點，這就是
+   * 「主＝Claude 雲端／輔助＝本機 Ollama」得以成立的機制。
+   */
+  endpoints: Partial<Record<LlmProvider, string>>
+  /** 附加在 system prompt 尾端的自訂指示，對所有供應商生效（不限本機模型）。 */
+  extraInstruction: string
   hasApiKey: Record<LlmProvider, boolean>
   /** 最大回應字數（token 上限，與桌面「最大回應字數」同一欄）。 */
   maxResponseTokens: number
@@ -317,6 +370,17 @@ export interface LlmSettingsSnapshot {
   maxGroupRounds: number
   /** 單則訊息圖片上限。 */
   maxImagesPerMessage: number
+  /**
+   * 提醒發話、情緒分類是否改用獨立的輔助模型（群組對話一律用扮演主模型，不受此影響）。
+   * 關閉時 `utilityProvider`／`utilityModel` 仍可能有值（記得上次選過什麼），
+   * 只是不生效——與桌面 `llm.utilityEnabled` 同一顆開關。
+   */
+  utilityEnabled: boolean
+  /** 輔助模型的供應商；未曾設定時預設跟隨 `provider`。 */
+  utilityProvider: LlmProvider
+  /** 目前輔助供應商生效的那個模型（等同 `utilityModels[utilityProvider]`，攤平方便顯示）。 */
+  utilityModel: string
+  utilityModels: Partial<Record<LlmProvider, string>>
 }
 
 export interface MemorySettingsSnapshot {
@@ -339,7 +403,7 @@ export interface WeatherSettingsSnapshot {
   locationName: string
   latitude: number
   longitude: number
-  locationSource: 'ip' | 'manual' | ''
+  locationSource: WeatherLocationSource
   /** 輔助模型是否啟用；潤飾勾選要靠它，只讀。 */
   utilityEnabled: boolean
 }
@@ -363,11 +427,23 @@ export interface WeatherNowSnapshot {
  */
 export interface SettingsApi {
   setColorTheme(theme: ColorTheme): Promise<void>
+  /** 訊息旁的模型小圖示要不要顯示。 */
+  setShowLlmBadge(show: boolean): Promise<void>
+  /** 使用者訊息旁的發話身分名字要不要顯示。 */
+  setShowPersonaName(show: boolean): Promise<void>
 
   getLlm(): Promise<LlmSettingsSnapshot>
   setLlmProvider(provider: LlmProvider): Promise<void>
   setLlmModel(provider: LlmProvider, model: string): Promise<void>
-  setLlmEndpoint(endpoint: string): Promise<void>
+  /** 設定端點。`provider` 省略＝目前生效的供應商（各家端點各自獨立）。 */
+  setLlmEndpoint(endpoint: string, provider?: LlmProvider): Promise<void>
+  /** 附加在 system prompt 尾端的自訂指示；套用於所有供應商，不分主／輔助模型。 */
+  setLlmExtraInstruction(text: string): Promise<void>
+  /** 開關輔助模型（提醒發話、情緒分類；群組對話不受影響）。 */
+  setLlmUtilityEnabled(enabled: boolean): Promise<void>
+  /** 切輔助供應商；沒選過型號時比照 `setLlmProvider` 補一個目錄預設值。 */
+  setLlmUtilityProvider(provider: LlmProvider): Promise<void>
+  setLlmUtilityModel(provider: LlmProvider, model: string): Promise<void>
   /**
    * 覆寫金鑰。**只能寫、讀不到舊值**（見 `LlmSettingsSnapshot` 的說明）。
    * 遙控模式下電腦端會依來源 IP 拒絕非區網直連的請求
@@ -375,6 +451,12 @@ export interface SettingsApi {
    * `Capabilities.apiKeyAccess` 隱藏欄位，不應該讓使用者走到這步。
    */
   setLlmApiKey(provider: LlmProvider, apiKey: string): Promise<void>
+  /**
+   * 「連線」按鈕：驗證金鑰／端點可用。local 供應商沒有寫死的型號目錄，
+   * 這是手機唯一能拿到型號清單的管道（`GET /v1/models`），成功時會帶回 `models`。
+   * `endpoint` 省略時沿用目前存檔的值。
+   */
+  testLlmConnection(provider: LlmProvider, endpoint?: string): Promise<{ ok: true; models?: string[] } | { ok: false; error: string }>
   /** 回應字數／群組回應數／圖片上限（與桌面 LLM 設定同一欄）。 */
   setLlmChatLimits(limits: {
     maxResponseTokens: number
@@ -413,6 +495,16 @@ export interface RemindersApi {
   save(reminder: Reminder): Promise<Reminder>
   remove(id: string): Promise<void>
   toggle(id: string, enabled: boolean): Promise<void>
+  /**
+   * 觸發歷史（新到舊）。
+   *
+   * 提醒是「背景發生的事」——沒響、響了沒看到、被手錶轉走，
+   * 使用者都只會得到同一個結論「它壞了」。歷史是唯一查得出差別的地方。
+   * 遙控模式桌面端還沒記錄，回空陣列即可（不是錯誤）。
+   */
+  history(): Promise<ReminderHistoryItem[]>
+  removeHistoryItem(id: string): Promise<void>
+  clearHistory(): Promise<void>
 }
 
 /**
@@ -429,7 +521,16 @@ export interface LorebooksApi {
   save(book: Lorebook): Promise<Lorebook>
   remove(id: string): Promise<void>
   create(name?: string): Promise<Lorebook>
+  /**
+   * 從角色卡自動生成一條用語（規格 §8）：輔助模型只寫 `content` 一句話，
+   * `keys` 由呼叫端用角色名字＋暱稱填。**沒 API Key／模型吐空這類是常見的預期失敗**，
+   * 不是連線層級的錯誤，所以跟 `NewsFetchResult` 同一個理由走 `{ ok: false, error }`
+   * 而不是丟 `DataError`——`error` 是電腦端／獨立版產生的字串，UI 直接顯示。
+   */
+  generateEntry(characterId: string, lorebookId: string): Promise<LoreGenerateResult>
 }
+
+export type LoreGenerateResult = { ok: true; entry: LoreEntry } | { ok: false; error: string }
 
 /**
  * 個人新聞報（清單 F1–F13，B3 階段 6）。
@@ -670,6 +771,12 @@ export interface RemoteControlApi {
   restoreWindows(): Promise<void>
 }
 
+/** 停止生成後還給輸入框的草稿；`null`＝當下沒有可停的請求。 */
+export type StopGeneratingResult = {
+  content: string
+  images?: string[]
+} | null
+
 export interface DataSource {
   readonly capabilities: Capabilities
 
@@ -677,6 +784,12 @@ export interface DataSource {
   getState(): Promise<AppStateSnapshot>
 
   sendMessage(input: SendMessageInput): Promise<void>
+
+  /**
+   * 中止進行中的生成（對齊桌面「停止」）。
+   * 成功中止時回草稿，讓 UI 把字／圖還回輸入框；沒東西可停就回 `null`。
+   */
+  stopGenerating(): Promise<StopGeneratingResult>
 
   /** 第 `index` 張圖的可顯示位址；同 `avatarUrl` 的理由，不可讓 UI 直接讀 `message.images`。 */
   getMessageImageUrl(messageId: string, index: number): Promise<string | null>

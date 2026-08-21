@@ -65,7 +65,6 @@ function writeDismissedIds(ids: string[]): void {
 
 function itemBucketKey(item: NewsItem): string {
   if (item.breakout) return '__breakout__'
-  if (item.sourceId?.startsWith('loc-')) return '__local__'
   if (item.sourceType === 'keyword' || item.keyword) return `kw:${item.sourceId}`
   return `feed:${item.sourceId || item.id}`
 }

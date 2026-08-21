@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core'
 import type { AppMode } from '../data'
 
 /**
@@ -9,10 +10,12 @@ import type { AppMode } from '../data'
  * |---|---|---|
  * | mobileServer 提供的網頁（掃 QR） | 遙控 | 同源 ＋ `?token=` 或 relay 注入 |
  * | 開發時的 `npm run dev:mobile` | 遙控 | `?server=` ＋ `?token=` 明確指定 |
- * | APK | 獨立（或遙控） | 本機設定（B3 後段） |
+ * | APK（原生殼） | **獨立**（預設） | 本機 Capacitor adapters |
  *
  * 網頁版**永遠是遙控模式** —— 網頁由電腦提供，電腦沒開就連不上，
  * 這是拓樸限制不是取捨（roadmap §4.5）。
+ *
+ * 原生殼可用 `?server=` 或 `?mode=remote` 強制遙控（除錯用）。
  */
 
 export interface Connection {
@@ -22,15 +25,19 @@ export interface Connection {
   token: string
 }
 
+/**
+ * 記住的「上次用哪個模式」（S2 M1）。只有原生殼會用到。
+ *
+ * `remote` 只在使用者曾經**成功切到遙控**時才有值——單純掃 QR 匯入（S1）
+ * 不會寫這裡，那是完全不同的動作（一次性拉資料，不是「接下來都連這台」）。
+ */
+export interface ModePref {
+  mode: AppMode
+  remote?: { baseUrl: string; token: string }
+}
+
 declare global {
   interface Window {
-    /**
-     * relay 的 Cloudflare Worker 注入的四個值。
-     *
-     * relay 是**反向代理**（不是轉址），且每個請求都要「`/<deviceId>` 路徑 ＋ token」。
-     * Worker 會在它代理的 HTML 裡注入這些，並 patch `window.fetch` 幫忙補上前綴與 header。
-     * ⚠️ 但**只有 `fetch` 被 patch** —— `<img src>` 與 WebSocket 都得自己處理，見下。
-     */
     __mobileToken?: string
     __relayDeviceId?: string
     __relayPageUrl?: string
@@ -39,38 +46,19 @@ declare global {
 }
 
 /**
- * 從當前網址與注入值推導連線設定。
- *
- * ⚠️ **`?server=` 只是開發用的逃生口**：正式情況下網頁是由 mobileServer
- * 自己提供的，同源即可，不需要也不該讓網址決定要連去哪台電腦。
- * 保留它是因為 `npm run dev:mobile` 跑在 5180、而 mobileServer 在別的埠，
- * 少了它就沒辦法一邊改 UI 一邊對著真的資料驗。
+ * @param pref 記住的「上次用哪個模式」（S2 M1）。**只在原生殼、且沒有任何
+ *   URL／relay 訊號時**才會參考——那些訊號代表明確的外部意圖（掃 QR 開的頁面、
+ *   `dev:mobile --server=` 除錯），永遠比「上次記住的」優先。
  */
-export function resolveConnection(loc: Location = location): Connection {
+export function resolveConnection(loc: Location = location, pref?: ModePref | null): Connection {
   const params = new URLSearchParams(loc.search)
 
   const token = window.__mobileToken || params.get('token') || ''
   const serverOverride = params.get('server')
+  const modeParam = params.get('mode')
+  const forceStandalone = modeParam === 'standalone'
+  const forceRemote = modeParam === 'remote'
 
-  /*
-   * ⚠️ **同源時 `baseUrl` 必須是「相對路徑」而不是 `loc.origin`**
-   * （2026-08-06 實機打臉後改）。
-   *
-   * 舊寫法組出 `https://relay.nori.tw/api/state` 這種**完整網址**，
-   * 而 relay Worker 的 fetch patch 只改寫「`/` 開頭的字串」：
-   *
-   *     input.startsWith('/') && !input.startsWith('/' + deviceId)
-   *
-   * 完整網址不符合條件 → 不補 deviceId → relay 不知道要轉給哪台電腦 → 503。
-   *
-   * 改成相對路徑後：
-   *   - relay：`baseUrl = '/<deviceId>'`，組出 `/<deviceId>/api/state`。
-   *     已經帶前綴，Worker 的 `!startsWith` 判斷會跳過（不會變成兩層），
-   *     而 `<img src>` 這類**不經 fetch** 的請求也因此自帶前綴 —— 這是關鍵，
-   *     Worker 幫不了圖片，只能我們自己組對。
-   *   - 區網直連：`baseUrl = ''`，組出 `/api/state`，同源本來就對。
-   *   - 開發（`?server=`）：維持完整網址，那條路沒有 Worker。
-   */
   const relayDeviceId = window.__relayDeviceId
   const baseUrl = serverOverride
     ? serverOverride.replace(/\/$/, '')
@@ -78,23 +66,33 @@ export function resolveConnection(loc: Location = location): Connection {
       ? `/${relayDeviceId}`
       : ''
 
+  /*
+   * 原生殼預設獨立；掃 QR／網頁預設遙控。
+   * - `?mode=standalone`：瀏覽器也可強制獨立（用 Capacitor web 後備測本機庫）
+   * - 原生若帶 `?server=`／`?mode=remote`／relay 注入 → 遙控（對桌面除錯）
+   */
+  if (forceStandalone) {
+    return { mode: 'standalone', baseUrl: '', token: '' }
+  }
+
+  const hasExplicitSignal = forceRemote || !!serverOverride || !!window.__mobileToken || !!relayDeviceId
+  const wantRemote = !Capacitor.isNativePlatform() || hasExplicitSignal
+
+  if (!wantRemote) {
+    // 原生殼、沒有任何外部訊號 → 這才是記住的偏好該發揮作用的時候。
+    if (pref?.mode === 'remote' && pref.remote) {
+      return { mode: 'remote', baseUrl: pref.remote.baseUrl, token: pref.remote.token }
+    }
+    return { mode: 'standalone', baseUrl: '', token: '' }
+  }
+
   return { mode: 'remote', baseUrl, token }
 }
 
-/**
- * WebSocket 位址。`http(s)` → `ws(s)`，權杖走 query（WS 不能加 header）。
- *
- * ⚠️ **經 relay 時一定要用 Worker 注入的 `__tunnelWsUrl`。**
- * relay 只代理 HTTP，WebSocket 得直接連 cloudflared tunnel；
- * 自己從 `location` 推會得到 `wss://relay.nori.tw/...`，那是連不上的
- * （`mobile.html` 1220 行本來就是這樣處理，這裡照抄同一個優先順序）。
- */
 export function wsUrlFor(conn: Connection): string {
   if (window.__tunnelWsUrl) return window.__tunnelWsUrl
 
   const token = encodeURIComponent(conn.token)
-  // baseUrl 現在可能是相對路徑（''／'/<deviceId>'），沒有 protocol 可以換，
-  // 這種情況要拿當前頁面的 origin 來組。
   if (/^https?:/i.test(conn.baseUrl)) {
     return `${conn.baseUrl.replace(/^http/, 'ws')}/?token=${token}`
   }
@@ -103,22 +101,160 @@ export function wsUrlFor(conn: Connection): string {
 }
 
 /**
- * 是不是區網直連（`Capabilities.apiKeyAccess` 的依據，roadmap §4.7）。
+ * 探測一組 `{baseUrl, token}` 現在連不連得上（S2 M1 切換模式用）。
  *
- * 判定**由電腦端做**（檢查來源 IP，見 `mobileServer.ts` 的 `isLanDirectRequest`）——
- * 手機端只是把答案問回來，不可以自己猜。查不到（電腦還沒開、逾時⋯⋯）保守回 false，
- * 這與 `RemoteDataSource` 建構時的預設值一致（不確定就不給 API Key 存取）。
+ * 跟 `detectLanDirect` 故意分開：那支只在**已經確定要用**遙控時，
+ * 拿來判斷「是不是區網直連」；這支是**切換前的守門**，關心的是「連不連得上、
+ * 權杖還有沒有效」，401（權杖過期，`DesktopPullSection.tsx` 已有先例）也要算失敗。
  */
-export async function detectLanDirect(conn: Connection): Promise<boolean> {
+export async function checkRemoteReachable(baseUrl: string, token: string): Promise<boolean> {
   try {
-    const base = conn.baseUrl.replace(/\/$/, '')
+    const base = baseUrl.replace(/\/$/, '')
     const res = await fetch(`${base}/api/connection-info`, {
-      headers: { 'X-DesktopST-Token': conn.token }
+      headers: { 'X-DesktopST-Token': token }
     })
-    if (!res.ok) return false
-    const data = (await res.json()) as { lanDirect?: boolean }
-    return data.lanDirect === true
+    return res.ok
   } catch {
     return false
   }
+}
+
+export interface LiveRemoteResolution {
+  ok: boolean
+  /** `ok:true` 時才有意義：最後真的要用來連線的位址（可能已升級成區網直連）。 */
+  baseUrl?: string
+  token?: string
+  /** 走的是中繼、而且升級不了區網直連——這個 App 版本沒辦法在這條連線上建立即時遙控。 */
+  relayOnly?: boolean
+}
+
+/**
+ * 幫「App 內切換到遙控」（S2 M1 `ModeSwitcher.tsx`）決定實際要連的位址。
+ *
+ * ⚠️ **中繼網址不能直接拿來開 WebSocket。** `wsUrlFor()` 對一般伺服器位址是拿
+ * `baseUrl` 字串代換 `http→ws`，這對中繼完全是錯的路由——中繼的即時通道只有
+ * **中繼自己託管的網頁**載入時才會被注入正確位址（`window.__tunnelWsUrl`，
+ * 見 `main/cloudflare-worker.js`）。原生殼是自己組網址連過去，繞過了那層注入，
+ * 症狀是 HTTP（送訊息）正常、WebSocket（即時狀態／推播）永遠連不上、
+ * 畫面卡在「連線中斷，正在重新連線」（2026-08-12 owner 實機回報）。
+ *
+ * 因此**掃到中繼網址時，一律嘗試比照 S1（`syncImport.ts` 的 `upgradeToLan`）
+ * 升級成區網直連**；升級不了就老實回報 `relayOnly`，讓呼叫端明講「這條連線
+ * 這個版本還不支援即時遙控」，不要讓使用者切過去卻卡在一個永遠連不上的假連線。
+ */
+export async function resolveLiveRemote(baseUrl: string, token: string): Promise<LiveRemoteResolution> {
+  const base = baseUrl.replace(/\/$/, '')
+  const info = await fetchSyncInitInfo(base, token)
+  if (!info) return { ok: false }
+  if (info.lanDirect) return { ok: true, baseUrl: base, token }
+
+  const lanUrl = info.lanUrl?.trim()
+  if (lanUrl) {
+    const upgraded = await fetchSyncInitInfo(lanUrl.replace(/\/$/, ''), token)
+    if (upgraded?.lanDirect) return { ok: true, baseUrl: lanUrl.replace(/\/$/, ''), token }
+  }
+  return { ok: true, relayOnly: true }
+}
+
+async function fetchSyncInitInfo(
+  base: string,
+  token: string
+): Promise<{ lanDirect: boolean; lanUrl?: string } | null> {
+  // 同樣要自己算逾時：這支是「切換到遙控」按下去之後第一個等待點，
+  // 電腦關機時沒有逾時就會一直停在「連線中⋯⋯」（owner 2026-08-13 回報）。
+  const work = (async (): Promise<{ lanDirect: boolean; lanUrl?: string } | null> => {
+    try {
+      const res = await fetch(`${base}/api/sync-init`, { headers: { 'X-DesktopST-Token': token } })
+      if (!res.ok) return null
+      const data = (await res.json()) as { lanDirect?: boolean; lanUrl?: string }
+      return { lanDirect: !!data.lanDirect, lanUrl: data.lanUrl }
+    } catch {
+      return null
+    }
+  })()
+  return withTimeout(work, PROBE_TIMEOUT_MS, null)
+}
+
+/**
+ * 探測電腦還在不在的逾時。
+ *
+ * ⚠️ **一定要自己算時間，不能靠 `AbortSignal`。** CapacitorHttp 完全忽略
+ * `init.signal`（CLAUDE.md §5），APK 上唯一能中止「等待」的方法是 `Promise.race`。
+ * 電腦整台關機時封包沒有任何人回應，作業系統的 TCP 逾時可能要等上一分鐘以上——
+ * 開 App 停在「載入中⋯⋯」不動就是這樣來的（owner 2026-08-13 回報）。
+ *
+ * 六秒對區網綽綽有餘；中繼再慢也不該讓使用者盯著轉圈等更久，真的慢了
+ * 使用者仍可在詢問視窗選「繼續嘗試連線」。
+ */
+export const PROBE_TIMEOUT_MS = 6000
+
+/** 逾時就當作沒連上。原生請求仍會自己跑完，我們只是不再等它。 */
+function withTimeout<T>(work: Promise<T>, ms: number, onTimeout: T): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<T>((resolve) => setTimeout(() => resolve(onTimeout), ms))
+  ])
+}
+
+/**
+ * 電腦還在不在 ＋ 是不是區網直連，一次問完。
+ *
+ * 兩件事共用同一支 `/api/connection-info`：開機流程需要「連得上嗎」來決定要不要
+ * 詢問使用者切回本機，而 header 的小標籤需要 `lanDirect`。分兩次問等於在電腦
+ * 關機時要等兩次逾時。
+ */
+export async function probeRemote(
+  conn: Connection,
+  timeoutMs = PROBE_TIMEOUT_MS
+): Promise<{ alive: boolean; lanDirect: boolean }> {
+  if (conn.mode === 'standalone') return { alive: true, lanDirect: false }
+  const work = (async (): Promise<{ alive: boolean; lanDirect: boolean }> => {
+    try {
+      const base = conn.baseUrl.replace(/\/$/, '')
+      const res = await fetch(`${base}/api/connection-info`, {
+        headers: { 'X-DesktopST-Token': conn.token }
+      })
+      // 權杖過期（401／403）也算「電腦在」——那要走重新配對，不是叫使用者切回本機。
+      if (!res.ok) return { alive: res.status === 401 || res.status === 403, lanDirect: false }
+      const data = (await res.json()) as { lanDirect?: boolean }
+      return { alive: true, lanDirect: data.lanDirect === true }
+    } catch {
+      return { alive: false, lanDirect: false }
+    }
+  })()
+  return withTimeout(work, timeoutMs, { alive: false, lanDirect: false })
+}
+
+export async function detectLanDirect(conn: Connection): Promise<boolean> {
+  return (await probeRemote(conn)).lanDirect
+}
+
+/** Header 小標籤用：最多兩個字，點進去「關於」才看完整說明。 */
+export function modeBadgeLabel(conn: Connection, lanDirect: boolean | null): string {
+  if (conn.mode === 'standalone') return '本機'
+  if (window.__relayDeviceId || window.__tunnelWsUrl) return '中繼'
+  if (lanDirect === true) return '區網'
+  return '電腦'
+}
+
+/** 關於視窗用的完整連線說明。 */
+export function modeDescription(conn: Connection, lanDirect: boolean | null): string {
+  if (conn.mode === 'standalone') {
+    return '獨立模式：角色、對話與設定都存在這台手機上，不必開著電腦也能聊。'
+  }
+  if (window.__relayDeviceId || window.__tunnelWsUrl) {
+    return '遙控模式（中繼）：畫面與操作經過中繼伺服器連到你的電腦。金鑰等敏感資料不會經中繼傳送。'
+  }
+  if (lanDirect === true) {
+    return '遙控模式（區網）：手機與電腦在同一個區域網路，直接連到電腦上的 DeST。'
+  }
+  if (lanDirect === false) {
+    return '遙控模式：正在連線到電腦上的 DeST。若兩台在同一個 Wi-Fi，通常可以升級成區網直連。'
+  }
+  return '遙控模式：正在確認與電腦的連線方式……'
+}
+
+/** @deprecated 改用 modeBadgeLabel／modeDescription */
+export function modeLabel(conn: Connection, lanDirect: boolean | null): string {
+  return modeBadgeLabel(conn, lanDirect)
 }

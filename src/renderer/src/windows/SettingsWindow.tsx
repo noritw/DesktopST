@@ -88,29 +88,40 @@ const PROVIDER_MODELS: Record<string, string[]> = {
   openai: MODELS,
   claude: CLAUDE_MODELS,
   gemini: GEMINI_MODELS,
-  grok: GROK_MODELS
+  grok: GROK_MODELS,
+  // 本機沒有固定目錄；「測試連線」會把 GET /v1/models 的結果塞進 localModels state
+  local: []
 }
 
 const PROVIDER_DEFAULT_MODEL: Record<string, string> = {
   openai: 'gpt-5.4-mini',
   claude: 'claude-sonnet-5',
   gemini: 'gemini-3.1-flash-lite',
-  grok: 'grok-4.3'
+  grok: 'grok-4.3',
+  local: ''
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   claude: 'Anthropic Claude',
   gemini: 'Google Gemini',
-  grok: 'xAI Grok'
+  grok: 'xAI Grok',
+  local: '本機／自訂端點'
 }
 
 const PROVIDER_KEY_PLACEHOLDER: Record<string, string> = {
   openai: 'sk-...',
   claude: 'sk-ant-...',
   gemini: 'AIza...',
-  grok: 'xai-...'
+  grok: 'xai-...',
+  local: '通常留空'
 }
+
+/** 本機端點常見預設值，給快速填入按鈕用。 */
+const LOCAL_ENDPOINT_PRESETS: Array<{ label: string; url: string }> = [
+  { label: 'Ollama', url: 'http://localhost:11434/v1' },
+  { label: 'LM Studio', url: 'http://localhost:1234/v1' }
+]
 
 /** 情境模組開關的固定項目（外部模組另外動態附加）；id 需與主程序一致 */
 const SCENE_MODULE_ROWS_BASE: Array<{ id: string; label: string }> = [
@@ -259,6 +270,13 @@ export default function SettingsWindow() {
   const [msgResult, setMsgResult] = useState<{ ok: boolean; msg: string } | null>(null)
   const [utilityConnTesting, setUtilityConnTesting] = useState(false)
   const [utilityConnResult, setUtilityConnResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  /**
+   * 本機端點回報的可用模型（`GET /v1/models`）。
+   * 本機供應商沒有寫死的模型目錄——使用者自己 pull 什麼就有什麼，
+   * 所以「測試連線」成功後把清單記下來餵給 datalist。不進 draft、不存檔：
+   * 這是當下探測到的狀態，不是設定。
+   */
+  const [localModels, setLocalModels] = useState<string[]>([])
   const [dataDir, setDataDir] = useState('')
   const [changingDataDir, setChangingDataDir] = useState(false)
   const [appVersion, setAppVersion] = useState('')
@@ -643,6 +661,44 @@ export default function SettingsWindow() {
   // Helper: get current provider's model (from per-provider storage or fallback to global)
   const getCurrentModel = (): string => {
     return draft?.llm.models?.[draft.llm.provider] ?? draft?.llm.model ?? ''
+  }
+
+  /** 某供應商的端點。各家各自獨立，所以主模型與輔助模型可以一個雲端一個本機。 */
+  const getEndpoint = (provider?: string): string => {
+    const p = provider ?? draft?.llm.provider ?? 'openai'
+    return draft?.llm.endpoints?.[p] ?? (p === draft?.llm.provider ? draft?.llm.endpoint ?? '' : '')
+  }
+
+  const setEndpoint = (value: string, provider?: string) => {
+    if (!draft) return
+    setDirty(true)
+    const next = JSON.parse(JSON.stringify(draft)) as AppSettings
+    const p = provider ?? next.llm.provider
+    if (!next.llm.endpoints) next.llm.endpoints = {}
+    if (value.trim()) next.llm.endpoints[p] = value
+    else delete next.llm.endpoints[p]
+    // 攤平的舊欄位跟著目前 provider 走（還有呼叫端在讀它）
+    if (p === next.llm.provider) next.llm.endpoint = value
+    setDraft(next)
+  }
+
+  /**
+   * 某供應商的模型建議清單。
+   * local 沒有寫死目錄，用「測試連線」抓回來的那份；沒測過就是空的
+   * （輸入框仍可手打，datalist 只是建議）。
+   */
+  const modelOptionsFor = (provider?: string): string[] => {
+    const p = provider ?? draft?.llm.provider ?? 'openai'
+    if (p === 'local') return localModels
+    if (p === 'openai') return openaiModelOptionsFor(openaiModelListMode)
+    return PROVIDER_MODELS[p] ?? MODELS
+  }
+
+  /** local 不強制金鑰（自架端點多半沒有 auth）；其他家沒金鑰等於不能測。 */
+  const hasKeyOrNotNeeded = (provider?: string): boolean => {
+    const p = provider ?? draft?.llm.provider ?? 'openai'
+    if (p === 'local') return true
+    return !!(draft?.llm.apiKeys?.[p] ?? '').trim()
   }
 
   // Helper: set current provider's model to per-provider storage
@@ -1038,11 +1094,12 @@ export default function SettingsWindow() {
                     const nextModel = savedModel || fallbackModel
                     next.llm.models[p] = nextModel
                     next.llm.model = nextModel
-                    if (p === 'grok' && !next.llm.endpoint?.trim()) {
-                      next.llm.endpoint = 'https://api.x.ai/v1'
-                    } else if (p === 'openai' && next.llm.endpoint?.includes('api.x.ai')) {
-                      next.llm.endpoint = ''
+                    if (!next.llm.endpoints) next.llm.endpoints = {}
+                    if (p === 'grok' && !next.llm.endpoints.grok?.trim()) {
+                      next.llm.endpoints.grok = 'https://api.x.ai/v1'
                     }
+                    // 攤平的舊欄位跟著換家，否則切過去還帶著上一家的端點
+                    next.llm.endpoint = next.llm.endpoints[p] ?? ''
                     return next
                   })
                   // Clear test results when switching provider
@@ -1110,20 +1167,22 @@ export default function SettingsWindow() {
                     e.currentTarget.value = ''
                   }}
                 >
-                  <option value="">快速挑選（顯示完整清單）</option>
-                  <ModelPickerOptions
-                    models={draft?.llm.provider === 'openai'
-                      ? openaiModelOptionsFor(openaiModelListMode)
-                      : PROVIDER_MODELS[draft?.llm.provider ?? 'openai'] ?? MODELS}
-                  />
+                  <option value="">
+                    {draft?.llm.provider === 'local' && localModels.length === 0
+                      ? '（先按「連線」取得本機模型清單）'
+                      : '快速挑選（顯示完整清單）'}
+                  </option>
+                  <ModelPickerOptions models={modelOptionsFor()} />
                 </select>
               </div>
               <datalist id="model-list">
-                {(draft?.llm.provider === 'openai'
-                  ? openaiModelOptionsFor(openaiModelListMode)
-                  : PROVIDER_MODELS[draft?.llm.provider ?? 'openai'] ?? MODELS
-                ).map(m => <option key={m} value={m} label={modelPriceText(m) ?? undefined} />)}
+                {modelOptionsFor().map(m => <option key={m} value={m} label={modelPriceText(m) ?? undefined} />)}
               </datalist>
+              {draft?.llm.provider === 'local' && (
+                <p className="text-[11px] text-secondary leading-snug mt-1.5">
+                  本機模型不計費。清單來自端點回報的已安裝模型，按「連線」後更新。
+                </p>
+              )}
               {isHighPriceModel(getCurrentModel()) && (
                 <p className="text-[11px] leading-snug mt-1.5 text-[#E85D3F]">
                   ⚠ {getCurrentModel()} 屬高單價模型（{modelPriceText(getCurrentModel())} / 每百萬 tokens）。
@@ -1148,7 +1207,7 @@ export default function SettingsWindow() {
               <div className="flex gap-2 mt-2 items-center flex-wrap">
                 <button
                   type="button"
-                  disabled={connTesting || !(draft.llm.apiKeys?.[draft.llm.provider] ?? '').trim()}
+                  disabled={connTesting || !hasKeyOrNotNeeded()}
                   className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal transition-all"
                   onClick={async () => {
                     setConnTesting(true)
@@ -1157,10 +1216,12 @@ export default function SettingsWindow() {
                       const r = await window.api.invoke('llm:test-connection', {
                         provider: draft.llm.provider,
                         apiKeys: draft.llm.apiKeys,
-                        endpoint: draft.llm.endpoint
+                        endpoint: getEndpoint()
                       }) as { ok: boolean; error?: string; models?: string[] }
+                      // 本機的模型清單只能從這裡拿（沒有寫死目錄），成功就記下來
+                      if (r.ok && draft.llm.provider === 'local') setLocalModels(r.models ?? [])
                       setConnResult(r.ok
-                        ? { ok: true, msg: '已驗證' }
+                        ? { ok: true, msg: draft.llm.provider === 'local' ? `已連線，找到 ${r.models?.length ?? 0} 個模型` : '已驗證' }
                         : { ok: false, msg: r.error || '連線失敗' })
                     } catch (e: any) {
                       setConnResult({ ok: false, msg: e?.message || '未知錯誤' })
@@ -1173,7 +1234,7 @@ export default function SettingsWindow() {
                 </button>
                 <button
                   type="button"
-                  disabled={msgTesting || !(draft?.llm.apiKeys?.[draft?.llm.provider ?? 'openai'] ?? '').trim() || !getCurrentModel().trim()}
+                  disabled={msgTesting || !hasKeyOrNotNeeded() || !getCurrentModel().trim()}
                   className="text-xs px-3 py-1.5 rounded-full border border-border text-primary disabled:opacity-40 disabled:cursor-not-allowed hover:bg-mint-40 transition-all"
                   onClick={async () => {
                     setMsgTesting(true)
@@ -1182,7 +1243,7 @@ export default function SettingsWindow() {
                       const r = await window.api.invoke('llm:test-message', {
                         provider: draft?.llm.provider,
                         apiKeys: draft?.llm.apiKeys,
-                        endpoint: draft?.llm.endpoint,
+                        endpoint: getEndpoint(),
                         model: getCurrentModel()
                       }) as { ok: boolean; error?: string; reply?: string }
                       setMsgResult(r.ok
@@ -1209,19 +1270,49 @@ export default function SettingsWindow() {
                 )}
               </div>
             </Field>
-            {(draft.llm.provider === 'openai' || draft.llm.provider === 'grok') && (
-              <Field label={draft.llm.provider === 'grok' ? 'Grok API 端點' : '自訂端點（選填）'}>
+            {(draft.llm.provider === 'openai' || draft.llm.provider === 'grok' || draft.llm.provider === 'local') && (
+              <Field label={
+                draft.llm.provider === 'grok' ? 'Grok API 端點'
+                  : draft.llm.provider === 'local' ? '端點網址（必填）'
+                    : '自訂端點（選填）'
+              }>
                 <input
                   type="text"
                   className="input-field"
-                  value={draft.llm.endpoint ?? ''}
-                  onChange={e => set('llm.endpoint', e.target.value)}
-                  placeholder={draft.llm.provider === 'grok' ? 'https://api.x.ai/v1' : 'https://api.example.com/v1'}
+                  value={getEndpoint()}
+                  onChange={e => setEndpoint(e.target.value)}
+                  placeholder={
+                    draft.llm.provider === 'grok' ? 'https://api.x.ai/v1'
+                      : draft.llm.provider === 'local' ? 'http://localhost:11434/v1'
+                        : 'https://api.example.com/v1'
+                  }
                 />
                 {draft.llm.provider === 'grok' && (
                   <p className="text-[11px] text-secondary leading-snug mt-1.5">
                     Grok 使用 OpenAI 相容 API，預設端點為 https://api.x.ai/v1。
                   </p>
+                )}
+                {draft.llm.provider === 'local' && (
+                  <>
+                    <div className="flex gap-2 mt-2 items-center flex-wrap">
+                      <span className="text-[11px] text-secondary">快速填入：</span>
+                      {LOCAL_ENDPOINT_PRESETS.map(p => (
+                        <button
+                          key={p.label}
+                          type="button"
+                          className="text-[11px] px-2 py-1 rounded-full border border-border text-primary hover:bg-mint-40 transition-all"
+                          onClick={() => setEndpoint(p.url)}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-secondary leading-snug mt-1.5">
+                      支援任何 OpenAI 相容的伺服器（Ollama、LM Studio、llama.cpp…）。
+                      連別台電腦請把 localhost 換成該機 IP，並確認伺服器已開放區網連線
+                      （Ollama 需設定 OLLAMA_HOST=0.0.0.0）。填好後按下方「連線」取得可用模型清單。
+                    </p>
+                  </>
                 )}
               </Field>
             )}
@@ -1275,19 +1366,23 @@ export default function SettingsWindow() {
                     <div className="flex gap-2 mt-2 items-center flex-wrap">
                       <button
                         type="button"
-                        disabled={utilityConnTesting || !(draft.llm.apiKeys?.[draft.llm.utilityProvider ?? draft.llm.provider] ?? '').trim()}
+                        disabled={utilityConnTesting || !hasKeyOrNotNeeded(draft.llm.utilityProvider ?? draft.llm.provider)}
                         className="text-xs px-3 py-1.5 rounded-full bg-mint font-semibold text-primary disabled:opacity-40 disabled:cursor-not-allowed hover:bg-teal transition-all"
                         onClick={async () => {
+                          const up = draft.llm.utilityProvider ?? draft.llm.provider
                           setUtilityConnTesting(true)
                           setUtilityConnResult(null)
                           try {
                             const r = await window.api.invoke('llm:test-connection', {
-                              provider: draft.llm.utilityProvider ?? draft.llm.provider,
+                              provider: up,
                               apiKeys: draft.llm.apiKeys,
-                              endpoint: draft.llm.endpoint
+                              // ⚠️ 要用輔助供應商自己的端點。原本寫死主模型的 endpoint，
+                              // 在「主＝雲端／輔助＝本機」時會拿雲端 URL 去測本機，永遠失敗。
+                              endpoint: getEndpoint(up)
                             }) as { ok: boolean; error?: string; models?: string[] }
+                            if (r.ok && up === 'local') setLocalModels(r.models ?? [])
                             setUtilityConnResult(r.ok
-                              ? { ok: true, msg: '已驗證' }
+                              ? { ok: true, msg: up === 'local' ? `已連線，找到 ${r.models?.length ?? 0} 個模型` : '已驗證' }
                               : { ok: false, msg: r.error || '連線失敗' })
                           } catch (e: any) {
                             setUtilityConnResult({ ok: false, msg: e?.message || '未知錯誤' })
@@ -1305,6 +1400,33 @@ export default function SettingsWindow() {
                       )}
                     </div>
                   </Field>
+                  {(draft.llm.utilityProvider ?? draft.llm.provider) === 'local' && (
+                    <Field label="輔助端點網址">
+                      <input
+                        type="text"
+                        className="input-field"
+                        value={getEndpoint(draft.llm.utilityProvider ?? draft.llm.provider)}
+                        onChange={e => setEndpoint(e.target.value, draft.llm.utilityProvider ?? draft.llm.provider)}
+                        placeholder="http://localhost:11434/v1"
+                      />
+                      <div className="flex gap-2 mt-2 items-center flex-wrap">
+                        <span className="text-[11px] text-secondary">快速填入：</span>
+                        {LOCAL_ENDPOINT_PRESETS.map(p => (
+                          <button
+                            key={p.label}
+                            type="button"
+                            className="text-[11px] px-2 py-1 rounded-full border border-border text-primary hover:bg-mint-40 transition-all"
+                            onClick={() => setEndpoint(p.url, draft.llm.utilityProvider ?? draft.llm.provider)}
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[11px] text-secondary leading-snug mt-1.5">
+                        本機模型很適合做情緒分類、提醒發話這類雜活——不計費，扮演主模型仍可用雲端。
+                      </p>
+                    </Field>
+                  )}
                   {(draft.llm.utilityProvider ?? draft.llm.provider) === 'openai' && (
                     <Field label="模型建議清單">
                       <select
@@ -1346,18 +1468,22 @@ export default function SettingsWindow() {
                           e.currentTarget.value = ''
                         }}
                       >
-                        <option value="">快速挑選</option>
+                        <option value="">
+                          {(draft.llm.utilityProvider ?? draft.llm.provider) === 'local' && localModels.length === 0
+                            ? '（先按上方「連線」取得本機模型清單）'
+                            : '快速挑選'}
+                        </option>
                         <ModelPickerOptions
                           models={(draft.llm.utilityProvider ?? draft.llm.provider) === 'openai'
                             ? openaiModelOptionsFor(utilityOpenaiModelListMode)
-                            : PROVIDER_MODELS[draft.llm.utilityProvider ?? draft.llm.provider] ?? MODELS}
+                            : modelOptionsFor(draft.llm.utilityProvider ?? draft.llm.provider)}
                         />
                       </select>
                     </div>
                     <datalist id="utility-model-list">
                       {((draft.llm.utilityProvider ?? draft.llm.provider) === 'openai'
                         ? openaiModelOptionsFor(utilityOpenaiModelListMode)
-                        : PROVIDER_MODELS[draft.llm.utilityProvider ?? draft.llm.provider] ?? MODELS
+                        : modelOptionsFor(draft.llm.utilityProvider ?? draft.llm.provider)
                       ).map(m => (
                         <option key={m} value={m} label={modelPriceText(m) ?? undefined} />
                       ))}
@@ -1368,6 +1494,19 @@ export default function SettingsWindow() {
                   </Field>
                 </div>
               )}
+            </Field>
+            <Field label="自訂補充指示（選填）">
+              <textarea
+                className="field w-full resize-none"
+                rows={3}
+                maxLength={2000}
+                placeholder="例：請一律使用繁體中文（台灣用語），避免簡體或中國大陸慣用語。"
+                value={draft.llm.extraInstruction ?? ''}
+                onChange={e => set('llm.extraInstruction', e.target.value)}
+              />
+              <p className="text-[11px] text-secondary leading-snug mt-1">
+                附加在角色設定尾端，對目前選用的供應商生效。用來加強本機模型不容易遵守的規則、或任何你想額外強調的指示。
+              </p>
             </Field>
             <Field label={`最大回應字數（${draft.llm.maxResponseTokens}）`}>
               <input type="range" min={100} max={1000} step={10}

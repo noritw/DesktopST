@@ -45,7 +45,7 @@ export async function chatWithGemini(params: ChatLLMParams, _deps: LLMDeps): Pro
   const modelName = resolveModel(settings)
 
   const genAI = new GoogleGenerativeAI(resolveApiKey(settings))
-  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion, minimal: params.minimal, omitSystemTime: !params.isReminder, loreBlock: params.loreBlock })
+  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion || params.omitEmotionTag, minimal: params.minimal, omitSystemTime: !params.isReminder, loreBlock: params.loreBlock })
 
   const model = genAI.getGenerativeModel({
     model: modelName,

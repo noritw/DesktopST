@@ -68,8 +68,33 @@ export interface Message {
   id: string
   role: 'user' | 'character' | 'system'
   characterId?: string
+  /**
+   * 發話角色**當下的名字**，只做為 `characterId` 查不到人時的備援。
+   *
+   * ⚠️ **這不是顯示來源**：`characterId` 查得到角色時一律顯示角色現在的名字，
+   * 改名後舊訊息也要跟著更新（那是同一隻角色，不是兩個人）。與隔壁的
+   * `personaName` 剛好相反 —— 身分是「當時用哪個身分講話」的歷史事實，
+   * 角色則是一個至今仍存在的實體。
+   *
+   * 為什麼要存：角色 id 會斷。2026-08-13 owner 的電腦上，七隻角色因為手機
+   * 同步重複推送而被重建成新 id，舊複本清掉之後，五月到八月的所有對話瞬間
+   * 全部查不到人、名字整片消失 —— 而訊息裡只有 id、沒有任何線索，最後是靠
+   * 逐則讀台詞反推誰是誰才修回來。存一份名字，那種情況就只是「名字還在、
+   * 頭像沒了」，而且能照名字自動接回去。
+   *
+   * 舊訊息沒有這個欄位是正常的（`stampCharacterNames` 只在存檔時補寫）。
+   */
+  characterName?: string
+  /**
+   * 這則使用者訊息是用哪個「使用者身分」發的（發話當下的顯示名，快照式保存）。
+   *
+   * 存名字而不是 id：身分可以被改名或刪除，但當時的對話記錄應該保持原樣 ——
+   * 玩角色扮演切了好幾個身分之後，回頭看要知道「這句是誰說的」。
+   * 舊訊息沒有這個欄位，UI 就不顯示（不要拿目前使用中的身分去補，那會是錯的）。
+   */
+  personaName?: string
   content: string
-  llmProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
+  llmProvider?: 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
   llmModel?: string
   debugPrompt?: string
   emotion?: string
@@ -112,8 +137,28 @@ export interface Conversation {
   summary: string
   /** 摘要已涵蓋到哪個時間點（最後一則被濃縮訊息的 timestamp）；訊息被刪除也不受影響 */
   summaryCoversTs?: number
+  /**
+   * 這則對話是 S1 從電腦匯入來的（roadmap §4.7）。
+   *
+   * 存來源 id 而不是沿用它當本地 id：手機上可能已經有同 id 的對話，
+   * 而且同一則從兩台電腦匯入時要分得開。S2 雙向同步靠這個找到對應的那一則；
+   * 匯入畫面也用它標出「已經帶過來了」，避免重複拉一份。
+   */
+  importedFrom?: ConversationImportSource
   createdAt: number
   updatedAt: number
+}
+
+export interface ConversationImportSource {
+  /** 電腦端的 conversation id */
+  sourceId: string
+  /**
+   * 匯入當下**電腦那份**的 `updatedAt`。
+   * S2 判斷「電腦端有沒有變動過」要比對這個，不是本地的 `updatedAt`
+   * —— 本地那個一被使用者接著聊天就會往前跑。
+   */
+  sourceUpdatedAt: number
+  importedAt: number
 }
 
 export interface DesktopCharacterState {
@@ -196,13 +241,22 @@ export interface ScenePreset {
   updatedAt: number
 }
 
+/**
+ * 天氣地點是怎麼來的。
+ *
+ * `gps` **只有手機會出現** —— 桌面沒有定位硬體，只能靠對外 IP 猜。
+ * 兩者精度差很多（IP 常落在電信商的機房而不是你家），所以要分得開，
+ * 使用者才知道畫面上那個地名可不可信。
+ */
+export type WeatherLocationSource = 'ip' | 'gps' | 'manual' | ''
+
 export interface WeatherSettings {
   enabled: boolean
   polish: boolean
   locationName: string
   latitude: number
   longitude: number
-  locationSource: 'ip' | 'manual' | ''
+  locationSource: WeatherLocationSource
   realtimeQuery?: {
     enabled: boolean
     cwaApiKey: string
@@ -317,14 +371,27 @@ export interface AppSettings {
   mobile?: MobileSettings
   remoteControl?: RemoteControlSettings
   llm: {
-    provider: 'openai' | 'claude' | 'gemini' | 'grok'
+    provider: 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
     /** @deprecated use apiKeys[provider] instead; kept for migration */
     apiKey: string
     apiKeys: Record<string, string>
     model: string
     /** Per-provider model selection; takes precedence over single `model` field */
     models?: Record<string, string>
+    /** @deprecated use endpoints[provider] instead; kept for migration（見 core/store/settings.ts） */
     endpoint?: string
+    /**
+     * 各供應商各自的端點。主模型與輔助模型共用這張表，
+     * 所以「主＝Claude 雲端／輔助＝本機 Ollama」不需要額外欄位就成立
+     * （`applyUtilitySettings()` 換 provider，端點查表自然跟著換）。
+     */
+    endpoints?: Record<string, string>
+    /**
+     * 使用者自訂、附加在 system prompt 尾端的一段指示，對所有供應商生效。
+     * 不綁定特定 provider——本機模型指令遵從度較弱時常會用到，
+     * 但雲端模型想加任何客製規則一樣能填，程式不對內容做任何假設。
+     */
+    extraInstruction?: string
     maxResponseTokens: number
     maxGroupRounds: number
     maxImagesPerMessage: number
@@ -332,7 +399,7 @@ export interface AppSettings {
     /** 提醒發話、情緒分類是否使用獨立輔助模型（群組對話一律用扮演主模型） */
     utilityEnabled?: boolean
     /** 輔助模型的供應商（未設定時跟隨 provider） */
-    utilityProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
+    utilityProvider?: 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
     /** 各供應商的輔助模型名稱 */
     utilityModels?: Record<string, string>
   }
@@ -397,6 +464,10 @@ export interface AppSettings {
     /** 截圖時是否保留對話輸入框 */
     screenshotIncludeInputWindow?: boolean
     randomToolsEnabled?: boolean
+    /** 每則角色回覆旁顯示生成它的模型小圖示（點一下看型號）。未設定＝開啟 */
+    showLlmBadge?: boolean
+    /** 使用者訊息旁顯示發話身分的名字（切換身分玩角色扮演時才分得出誰是誰）。未設定＝開啟 */
+    showPersonaName?: boolean
     /** 低效能模式：保留角色透明，簡化對話泡泡並限制泡泡視窗數量 */
     lowPerformanceMode?: boolean
     /** 低效能模式下 Log 視窗初始顯示最近幾則訊息 */
@@ -432,8 +503,72 @@ export interface Reminder {
   injectNews?: boolean
   /** 觸發時附入接下來的行程（需先連結 Google 日曆） */
   injectCalendar?: boolean
+  /** 哪台裝置響：desktop（桌面）、mobile（手機）、both（兩者）。預設只在建立時所在的裝置。 */
+  notificationDevice?: 'desktop' | 'mobile' | 'both'
+  /**
+   * 喚醒模式（手機限定）：'always'=待機依然背景喚醒；'screen_on_only'=僅手機使用中才提醒。
+   * 預設 'always'。
+   */
+  wakeMode?: 'always' | 'screen_on_only'
+  /**
+   * 當 wakeMode 為 screen_on_only 而觸發時螢幕是暗的：
+   * 'skip'=直接略過（預設）；'notify_on_unlock'=下次亮屏時補發。
+   */
+  inactiveBehavior?: 'skip' | 'notify_on_unlock'
+  /**
+   * 連線失敗或離線時，是否允許改發「最近一次生成的快取台詞」。
+   * false＝安靜略過，維持角色扮演沉浸感。預設 true。
+   */
+  allowOfflineFallback?: boolean
+  /** 綁定特定情境 id（可選）；未設定則跟隨當前使用中情境 */
+  sceneId?: string
+  /**
+   * 情境限制（需先設 sceneId）：
+   * 'any_scene'=不論當前情境為何，都用綁定情境的人設發話（預設）；
+   * 'match_scene_only'=只有當前作用中情境就是 sceneId 時才響（避免日常提醒打斷 TRPG）。
+   */
+  sceneConstraint?: 'any_scene' | 'match_scene_only'
+  /** 綁定特定對話 id（可選）；指定要讀哪一則對話的歷史當脈絡 */
+  conversationId?: string
   lastTriggeredAt?: number
   createdAt: number
+}
+
+/** 提醒觸發後的處置結果 */
+export type ReminderHistoryStatus =
+  /** LLM 現場生成成功 */
+  | 'success'
+  /** 現場生成失敗，改發快取台詞 */
+  | 'offline_fallback'
+  /**
+   * 現場生成失敗、也沒有可用的快取台詞，改發樸素的提醒事項。
+   *
+   * 只在 `allowOfflineFallback !== false` 時發生。那個開關的標籤是
+   * 「連不上網時仍要提醒」——勾了卻完全沉默是騙人的，
+   * 而且連「有件事該做」都丟了，比一則樸素通知更糟（owner 2026-08-11 實機）。
+   */
+  | 'offline_plain'
+  /** 現場生成失敗且 allowOfflineFallback=false，安靜略過 */
+  | 'skipped_offline'
+  /** screen_on_only 且觸發時螢幕是暗的 */
+  | 'skipped_idle'
+  /** match_scene_only 但當前情境不符 */
+  | 'skipped_scene_mismatch'
+
+/** 提醒通知歷史紀錄的單筆（存 files/reminder_history.json） */
+export interface ReminderHistoryItem {
+  id: string
+  reminderId: string
+  /** 觸發當下的快照——提醒之後被改名或刪除，歷史仍讀得懂 */
+  reminderLabel: string
+  characterId?: string
+  characterName?: string
+  characterAvatar?: string
+  /** 實際發出去的台詞；略過類的狀態為空字串 */
+  text: string
+  status: ReminderHistoryStatus
+  timestamp: number
+  errorMessage?: string
 }
 
 /** Legacy shape — used only for migration detection */
@@ -456,8 +591,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   llm: {
     provider: 'openai',
     apiKey: '',
-    apiKeys: { openai: '', claude: '', gemini: '', grok: '' },
+    apiKeys: { openai: '', claude: '', gemini: '', grok: '', local: '' },
     model: 'gpt-5.4-nano-2026-03-17',
+    endpoints: {},
+    extraInstruction: '',
     maxResponseTokens: 360,
     maxGroupRounds: 3,
     maxImagesPerMessage: 5,
@@ -509,6 +646,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
     },
     screenshotIncludeInputWindow: false,
     randomToolsEnabled: true,
+    showLlmBadge: true,
+    showPersonaName: true,
     lowPerformanceMode: false,
     lowPerformanceLogMessageLimit: 50,
     eventDrivenHitTest: false

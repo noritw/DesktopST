@@ -1,29 +1,61 @@
 import MonoIcon from '@shared/MonoIcon'
 
 /**
- * 清單列的狀態標籤（使用中／在場／點此套用……）。
+ * 清單列右側的動作／狀態標籤（使用中／在場／套用／加入……）。
  *
- * 統一用一個有框線／底色的小圓角標籤，不要用純文字——名稱跟狀態疊在一起
- * 兩行純文字會糊成一團看不清楚（owner 2026-08-05 實機回報）。四個清單畫面
- * （對話／情境世界觀使用者設定／角色庫／在場角色）共用同一顆，樣式才不會各自漂移。
+ * owner 2026-08-08：套用／加入比編輯常用，所以這顆放**右邊**、做得稍大一點好按；
+ * 左邊留給名稱（點進去編輯）。四個清單畫面共用，樣式才不會各自漂移。
  *
- * ⚠️ **打勾用 `MonoIcon` 不是 `✓` 字元**（2026-08-06 全面單色化）：
- * 呼叫端只要傳文字，勾勾由這裡依 `active` 自己加。
+ * ⚠️ **打勾用 `MonoIcon` 不是 `✓` 字元**（2026-08-06 全面單色化）。
  *
- * ⚠️ **只有一種動作可做時不要用這顆。** 例如用語解說清單左右兩邊都是「進編輯」，
+ * ⚠️ **只有一種動作可做時不要用這顆。** 例如用語解說清單整列都是「進編輯」，
  * 再加一句「點此編輯內容」等於廢話（owner 2026-08-06 回報）。
  */
-export function StatusChip({ active, children }: { active: boolean; children: React.ReactNode }): JSX.Element {
-  return (
-    <span
-      className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] ${
-        active
-          ? 'bg-[var(--mint2)] font-semibold text-[var(--text)]'
-          : 'border border-[var(--border)] text-[var(--text-sub)]'
-      }`}
-    >
-      {active && <MonoIcon name="check" className="h-3 w-3" />}
+export function StatusChip({
+  active,
+  children,
+  onClick,
+  disabled,
+  ariaLabel
+}: {
+  active: boolean
+  children: React.ReactNode
+  /** 有 onClick 時是右邊的動作按鈕；沒有就只是狀態展示。 */
+  onClick?: () => void
+  disabled?: boolean
+  ariaLabel?: string
+}): JSX.Element {
+  const className = [
+    'inline-flex shrink-0 items-center justify-center gap-1 self-center rounded-full px-3 py-1.5 text-[12px]',
+    active
+      ? 'bg-[var(--mint2)] font-semibold text-[var(--text)]'
+      : 'border border-[var(--border)] bg-[var(--bg)] font-medium text-[var(--text)]',
+    onClick ? 'active:opacity-80' : '',
+    disabled ? 'opacity-40' : ''
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const body = (
+    <>
+      {active && <MonoIcon name="check" className="h-3.5 w-3.5" />}
       {children}
-    </span>
+    </>
   )
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        className={className}
+      >
+        {body}
+      </button>
+    )
+  }
+
+  return <span className={className}>{body}</span>
 }

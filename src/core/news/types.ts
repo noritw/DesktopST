@@ -62,11 +62,17 @@ export interface NewsSelectionContext {
   readerKeywordGroupIds?: string[]
 }
 
-/** 地方新聞的單一縣市 */
+/**
+ * 地方新聞的單一縣市。
+ *
+ * ⚠️ **已退場**（2026-08-12）：地方新聞併回一般關鍵字組，見
+ * `docs/news-local-merge-plan.md`。這個型別只留給遷移讀舊檔用，
+ * **不要再寫新的程式碼去產生它**。
+ */
 export interface NewsLocation {
   name: string
   weight: NewsWeight
-  /** 由天氣定位自動帶入 */
+  /** 由「偵測我的縣市」按鈕帶入（只影響清單上的 📍 標記） */
   fromDetection?: boolean
 }
 
@@ -103,10 +109,21 @@ export interface NewsModuleSettings {
      */
     zhOnly?: boolean
   }
-  /** 地方新聞（沿用天氣定位，多縣市） */
+  /**
+   * 地方新聞 —— **已退場，只剩遷移用的殘骸**（2026-08-12，
+   * `docs/news-local-merge-plan.md`）。縣市已經變成「地方」關鍵字組底下的一般關鍵字。
+   *
+   * `migratedAt` 是**冪等旗標**：設了就永遠不再遷移。
+   * 不可以改用「locations 是不是空的」判斷 —— 使用者把縣市關鍵字刪光之後，
+   * 下次開 App 會被整批建回來。
+   */
   localNews: {
     enabled: boolean
     locations: NewsLocation[]
+    /** 遷移完成的時間戳；有值＝已遷移，不再處理。 */
+    migratedAt?: number
+    /** 遷移前的原始清單，只為了萬一要人工回復。程式不讀它。 */
+    migratedFrom?: NewsLocation[]
   }
   /** 學習到的微調（key = sourceId / 關鍵字 / 分類），可一鍵重置 */
   feedback: {

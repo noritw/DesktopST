@@ -4,6 +4,7 @@ import MonoIcon from '@shared/MonoIcon'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from '../settings/settingsErrors'
+import { ToggleRow } from '../settings/SettingsView'
 import { StatusChip } from '../shell/StatusChip'
 
 /**
@@ -19,6 +20,14 @@ import { StatusChip } from '../shell/StatusChip'
  *
  * `openParam` 由 header 的狀態標籤帶進來（點「情境」就直接展開情境那組），
  * 沒帶就展開第一組。
+ *
+ * ## 2026-08-09 展開狀態要撐過重新掛載
+ *
+ * 點某一列的「編輯」會 push 一層 `preset-editor` 蓋上來，`ViewStack` 只畫最上層，
+ * 所以這個元件會整個卸載；存檔／取消返回時再重新掛載，component-local 的 `open`
+ * state 早就沒了，畫面就會跳回展開「情境」（第一組）。
+ * 修法：`open` 改變時同步寫回 uiStore 堆疊裡自己這層 entry 的 `param`，
+ * 重新掛載時用它取代預設值，就能回到離開前展開的那一組。
  */
 
 type Kind = 'scene' | 'persona' | 'world' | 'lore'
@@ -39,11 +48,23 @@ const HINTS: Record<Kind, string> = {
 
 const KINDS: Kind[] = ['scene', 'persona', 'world', 'lore']
 
-export function PresetsView({ openParam }: { openParam?: string }): JSX.Element {
+export function PresetsView({ id, openParam }: { id: number; openParam?: string }): JSX.Element {
   const push = useUiStore((s) => s.push)
   const toast = useUiStore((s) => s.toast)
+  const setEntryParam = useUiStore((s) => s.setEntryParam)
   const refresh = useAppStore((s) => s.refresh)
   const activeSceneDirty = useAppStore((s) => s.snapshot?.activeSceneDirty === true)
+  // 未設定＝開啟，與 `showLlmBadge` 同一個慣例。
+  const showPersonaName = useAppStore((s) => s.snapshot?.showPersonaName !== false)
+
+  const toggleShowPersonaName = async (): Promise<void> => {
+    try {
+      await getData().settings.setShowPersonaName(!showPersonaName)
+      await refresh()
+    } catch (e) {
+      toast(describeSettingsError(e, '切換發話身分標示'), 'error')
+    }
+  }
 
   const [lists, setLists] = useState<Record<Kind, PresetListItem[]> | null>(null)
   const [active, setActive] = useState({ persona: '', world: '' })
@@ -51,6 +72,9 @@ export function PresetsView({ openParam }: { openParam?: string }): JSX.Element 
   const [open, setOpen] = useState<Kind>(
     KINDS.includes(openParam as Kind) ? (openParam as Kind) : 'scene'
   )
+  useEffect(() => {
+    setEntryParam(id, open || undefined)
+  }, [id, open, setEntryParam])
 
   const load = useCallback(async () => {
     try {
@@ -93,7 +117,8 @@ export function PresetsView({ openParam }: { openParam?: string }): JSX.Element 
   /** 把目前配色／Persona／世界觀等覆寫回使用中的情境（對應桌面「覆寫為目前狀態」）。 */
   const captureActive = async (id: string): Promise<void> => {
     try {
-      await getData().presets.captureScene(id)
+      const name = lists?.scene.find((s) => s.id === id)?.name ?? ''
+      await getData().presets.captureScene(id, name)
       await refresh()
       await load()
       toast('已把目前狀態存回情境')
@@ -102,8 +127,30 @@ export function PresetsView({ openParam }: { openParam?: string }): JSX.Element 
     }
   }
 
-  /** 用語解說沒有「套用」，新增後直接進編輯器；其餘三種是新增空白預設組。 */
+  /**
+   * 情境的「新增」＝把目前狀態直接存成一個新情境並套用 ——
+   * 情境本來就是「當下這組設定」的快照，不像使用者設定／世界觀是要另外手打內容，
+   * 存完還要使用者自己再按套用一次是多餘的一步（owner 2026-08-10 回報）。
+   */
+  const addScene = async (): Promise<void> => {
+    try {
+      const name = `情境 ${(lists?.scene.length ?? 0) + 1}`
+      const scene = await getData().presets.captureScene(null, name)
+      setActiveScene(scene.id)
+      await refresh()
+      await load()
+      toast('已新增並套用情境')
+    } catch (e) {
+      toast(describeSettingsError(e, '新增情境'), 'error')
+    }
+  }
+
+  /** 用語解說沒有「套用」，新增後直接進編輯器；使用者設定／世界觀是新增空白預設組。 */
   const add = async (kind: Kind): Promise<void> => {
+    if (kind === 'scene') {
+      await addScene()
+      return
+    }
     if (kind !== 'lore') {
       push('preset-editor', `${kind}:new`)
       return
@@ -142,6 +189,21 @@ export function PresetsView({ openParam }: { openParam?: string }): JSX.Element 
             {expanded && (
               <div className="space-y-2 border-t border-[var(--border)] bg-[var(--surface)]/30 px-3 py-3">
                 <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">{HINTS[kind]}</p>
+
+                {/* 顯示開關放這裡而不是設定頁：會想關掉它的人，正是在這頁切身分的人。
+                    真值住在快照（與電腦端共用 `ui.showPersonaName`），不另存本地 state。 */}
+                {kind === 'persona' && (
+                  <>
+                    <ToggleRow
+                      label="在對話裡標示發話身分"
+                      checked={showPersonaName}
+                      onChange={() => void toggleShowPersonaName()}
+                    />
+                    <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
+                      你的訊息上方會顯示當時是用哪個身分說的。切著好幾個身分玩角色扮演時才分得出誰是誰。
+                    </p>
+                  </>
+                )}
                 {kind === 'scene' && activeSceneDirty && (
                   <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
                     ＊ 目前狀態與使用中的情境不一致（例如改過配色）。可按「存回目前狀態」寫進情境。
@@ -198,13 +260,10 @@ export function PresetsView({ openParam }: { openParam?: string }): JSX.Element 
 }
 
 /**
- * 清單列版型與其餘四個清單畫面統一：左邊大按鈕做主要動作、右邊固定一顆編輯鍵、
- * 刪除收在編輯器裡不放清單列。
+ * 清單列：左邊點名稱編輯、右邊大標籤套用（owner 2026-08-08）。
  *
- * 用語解說沒有「套用」這個動作（一本書是否生效由角色卡／情境的勾選決定），
- * 所以它的左右兩邊都是進編輯 —— 這種情況下 `StatusChip` 只會寫一句廢話
- * （owner 2026-08-06：「只有編輯選項的話，那個『點此編輯內容』的標籤就顯得很多餘」），
- * 因此**不顯示 chip**。
+ * 套用／加入比編輯常用，所以動作標籤放右邊、做得稍大；編輯只留名稱可點＋小鉛筆。
+ * 用語解說沒有「套用」，整列都是進編輯，不顯示右側 chip（避免「點此編輯」廢話）。
  */
 function Row({
   kind,
@@ -223,32 +282,42 @@ function Row({
   onEdit: () => void
   onCapture?: () => void
 }): JSX.Element {
+  const applyLabel = isActive
+    ? dirty
+      ? '使用中 *'
+      : '使用中'
+    : '套用'
+
   return (
     <div
       className={`rounded-[14px] border px-3 py-2.5 ${
         isActive ? 'border-[var(--mint)] bg-[var(--mint)]/25' : 'border-[var(--border)] bg-[var(--bg)]'
       }`}
     >
-      <div className="flex items-center gap-2">
-        <button type="button" className="min-w-0 flex-1 text-left" onClick={onPrimary}>
+      <div className="flex items-center gap-3">
+        {/*
+          名稱一整塊可點進編輯；小鉛筆放名稱*下方*，與右側套用拉開距離
+          （owner 2026-08-09：鉛筆貼在套用旁邊太近）。
+        */}
+        <button type="button" className="min-w-0 flex-1 text-left" onClick={onEdit}>
           <p className="truncate text-sm text-[var(--text)]">
             {item.name}
             {dirty ? ' *' : ''}
           </p>
-          {kind !== 'lore' && (
-            <StatusChip active={isActive}>
-              {isActive ? (dirty ? '目前使用中（有未存回的變更）' : '目前使用中') : '點此套用'}
-            </StatusChip>
-          )}
+          <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] text-[var(--text-sub)]">
+            <MonoIcon name="edit" className="h-3 w-3" />
+            編輯
+          </span>
         </button>
-        <button
-          type="button"
-          aria-label={`編輯${item.name}`}
-          onClick={onEdit}
-          className="rounded-full p-2 text-[var(--text-sub)] active:bg-[var(--border)]"
-        >
-          <MonoIcon name="edit" className="h-4 w-4" />
-        </button>
+        {kind !== 'lore' && (
+          <StatusChip
+            active={isActive}
+            onClick={onPrimary}
+            ariaLabel={isActive ? `${item.name}目前使用中` : `套用${item.name}`}
+          >
+            {applyLabel}
+          </StatusChip>
+        )}
       </div>
       {onCapture && (
         <button

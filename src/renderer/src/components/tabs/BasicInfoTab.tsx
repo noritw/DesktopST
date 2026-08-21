@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Character } from '../../types'
 import { extFromFilename, isAllowedImageExt } from '../../utils/fileValidation'
+import AutoTextarea from '../AutoTextarea'
 
 const MAX_BYTES = 10 * 1024 * 1024
 
@@ -142,8 +143,9 @@ export default function BasicInfoTab({ draft, setDraft, onError }: Props) {
         <p className="text-[11px] text-secondary mt-0.5">
           角色的基本資料,例如外觀、背景、身份。會以 [Description] 區塊注入 prompt。
         </p>
-        <textarea
-          className="input-field mt-1 min-h-[72px] resize-y"
+        <AutoTextarea
+          className="mt-1"
+          minHeight={72}
           value={draft.description}
           onChange={e => setDraft(prev => ({ ...prev, description: e.target.value }))}
         />
@@ -151,8 +153,9 @@ export default function BasicInfoTab({ draft, setDraft, onError }: Props) {
 
       <label className="block">
         <span className="text-xs font-semibold text-primary">個性</span>
-        <textarea
-          className="input-field mt-1 min-h-[88px] resize-y"
+        <AutoTextarea
+          className="mt-1"
+          minHeight={88}
           value={draft.personality}
           onChange={e => setDraft(prev => ({ ...prev, personality: e.target.value }))}
         />
@@ -160,8 +163,9 @@ export default function BasicInfoTab({ draft, setDraft, onError }: Props) {
 
       <label className="block">
         <span className="text-xs font-semibold text-primary">招呼語</span>
-        <textarea
-          className="input-field mt-1 min-h-[72px] resize-y"
+        <AutoTextarea
+          className="mt-1"
+          minHeight={72}
           value={draft.firstMessage}
           onChange={e => setDraft(prev => ({ ...prev, firstMessage: e.target.value }))}
         />
@@ -172,8 +176,9 @@ export default function BasicInfoTab({ draft, setDraft, onError }: Props) {
         <p className="text-[11px] text-secondary mt-0.5">
           可用標籤：<code>{'{{user}}'}</code>、<code>{'{{char}}'}</code>
         </p>
-        <textarea
-          className="input-field mt-1 min-h-[88px] resize-y"
+        <AutoTextarea
+          className="mt-1"
+          minHeight={88}
           value={draft.exampleDialogue}
           onChange={e => setDraft(prev => ({ ...prev, exampleDialogue: e.target.value }))}
         />

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { PendingRandomTool } from '@core/types'
 import { makeTokenString } from '@core/prompt/randomTokens'
 import { useComposerStore } from '../stores/composerStore'
@@ -15,15 +15,49 @@ import { useUiStore } from '../stores/uiStore'
 
 const QUICK_DICE = [4, 6, 8, 10, 12, 20, 100]
 
+/** localStorage key 前綴 */
+const STORAGE_KEY = 'dest-dice-custom'
+
+/** 讀取上次保存的進階骰子設定 */
+function loadDicePreset(): { count: string; faces: string; modifier: string } {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      if (typeof parsed.count === 'string' && typeof parsed.faces === 'string' && typeof parsed.modifier === 'string') {
+        return parsed
+      }
+    }
+  } catch {
+    // localStorage 讀取失敗，使用預設值
+  }
+  return { count: '1', faces: '6', modifier: '0' }
+}
+
+/** 保存進階骰子設定 */
+function saveDicePreset(count: string, faces: string, modifier: string): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ count, faces, modifier }))
+  } catch {
+    // localStorage 寫入失敗，無聲吞掉
+  }
+}
+
 export function RandomToolsSheet(): JSX.Element {
   const insert = useComposerStore((s) => s.insert)
   const respond = useComposerStore((s) => s.respond)
   const setRespond = useComposerStore((s) => s.setRespond)
   const pop = useUiStore((s) => s.pop)
 
-  const [count, setCount] = useState('1')
-  const [faces, setFaces] = useState('6')
-  const [modifier, setModifier] = useState('0')
+  const preset = loadDicePreset()
+  const [count, setCount] = useState(preset.count)
+  const [faces, setFaces] = useState(preset.faces)
+  const [modifier, setModifier] = useState(preset.modifier)
+
+  // 監聽值的變化，即時存到 localStorage
+  useEffect(() => {
+    saveDicePreset(count, faces, modifier)
+  }, [count, faces, modifier])
 
   const put = (pending: PendingRandomTool): void => {
     insert(makeTokenString(pending))

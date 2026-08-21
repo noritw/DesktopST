@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import MessageText from '../components/MessageText'
+import MessageText from '@shared/MessageText'
 import MonoIcon from '../components/MonoIcon'
 import { useAppStore } from '../stores/useAppStore'
 import { MESSAGE_REACTION_EMOJIS } from '../types'

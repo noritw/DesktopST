@@ -21,6 +21,11 @@ export interface NewsContextPanelProps {
   onSave: (promptContext: string) => void | Promise<void>
   onRefresh?: () => void | Promise<void>
   onOpenOriginal?: () => void
+  /**
+   * 清除摘要：之後每一輪都不再把這整段帶進 prompt，標題仍留著。
+   * 只有已送出的訊息（`mode='edit'`）需要——「聊這個」還沒送出，直接取消就好。
+   */
+  onClear?: () => void | Promise<void>
 }
 
 export default function NewsContextPanel({
@@ -36,7 +41,8 @@ export default function NewsContextPanel({
   onClose,
   onSave,
   onRefresh,
-  onOpenOriginal
+  onOpenOriginal,
+  onClear
 }: NewsContextPanelProps): JSX.Element | null {
   const [draft, setDraft] = useState(promptContext)
   const [saving, setSaving] = useState(false)
@@ -138,6 +144,17 @@ export default function NewsContextPanel({
               onClick={() => void handleRefresh()}
             >
               {refreshing ? '重抓中…' : '重新整理'}
+            </button>
+          )}
+          {onClear && (
+            <button
+              type="button"
+              disabled={loading || saving}
+              title="之後不再把這段帶進 Prompt；標題仍留在聊天紀錄"
+              className="rounded-full border border-border px-3 py-1.5 text-xs text-secondary hover:bg-mint-20 disabled:opacity-50"
+              onClick={() => void onClear()}
+            >
+              清除摘要
             </button>
           )}
           <div className="flex-1" />

@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev:mobile"],
       "port": 5180
+    },
+    {
+      "name": "nutrition-mobile-ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:nutrition:mobile"],
+      "port": 5181
     }
   ]
 }

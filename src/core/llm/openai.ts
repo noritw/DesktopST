@@ -58,10 +58,12 @@ export async function chatWithOpenAI(params: ChatLLMParams, deps: LLMDeps): Prom
   const client = new OpenAI({
     apiKey: resolveApiKey(settings),
     baseURL: settings.llm.endpoint || undefined,
-    fetch: deps.http.fetch
+    fetch: deps.http.fetch,
+    // Capacitor WebView／瀏覽器煙測都會被 SDK 判成 browser；金鑰只在使用者本機 App，不是公開網站。
+    dangerouslyAllowBrowser: true
   })
 
-  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion, minimal: params.minimal, omitSystemTime: !params.isReminder, loreBlock: params.loreBlock })
+  const systemPrompt = buildSystemPrompt(settings, character, persona, world, params.desktopCharacterNames, params.extraSystemContext, { splitEmotion: params.splitEmotion || params.omitEmotionTag, minimal: params.minimal, omitSystemTime: !params.isReminder, loreBlock: params.loreBlock })
 
   const input: Array<{
     role: 'system' | 'user' | 'assistant'
@@ -105,6 +107,11 @@ export async function chatWithOpenAI(params: ChatLLMParams, deps: LLMDeps): Prom
   if (!shouldOmitTemperature(model)) {
     body.temperature = settings.llm.temperature
   }
+  if (settings.llm.provider === 'local') {
+    // 思考模型會把 max_output_tokens 全花在 reasoning 上、正文回空字串，
+    // 下面的空回應檢查就會丟出根因不明的錯誤。見 index.ts 的 localReasoningParams()。
+    body.reasoning = { effort: 'none' }
+  }
 
   const resp = await client.responses.create(body as any, { signal: params.signal })
   const raw = extractResponseText(resp)
@@ -115,7 +122,8 @@ export async function chatWithOpenAI(params: ChatLLMParams, deps: LLMDeps): Prom
   const outputTokens = (resp as any).usage?.output_tokens as number | undefined
 
   const debugPrompt = JSON.stringify({
-    provider: 'openai',
+    // Grok 借用這支（OpenAI 相容），寫死 'openai' 會讓 Grok 的回覆被標成 OpenAI
+    provider: settings.llm.provider === 'grok' ? 'grok' : 'openai',
     model,
     endpoint: settings.llm.endpoint || 'default',
     max_output_tokens: body.max_output_tokens,

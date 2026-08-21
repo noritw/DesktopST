@@ -1,40 +1,21 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Reminder, ReminderSchedule } from '@core/types'
+import type { Reminder } from '@core/types'
 import MonoIcon from '@shared/MonoIcon'
 import { getData } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from './settingsErrors'
+import { scheduleLabel } from './reminderFormat'
+import { exactAlarmPermission, openExactAlarmSettings } from '../../adapters/nativeAlarms'
 
-const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const
-
-/** 對齊桌面版 `RemindersManagerWindow.tsx` 的措辭，同一個排程在兩邊看到的敘述要一樣。 */
-function scheduleLabel(s: ReminderSchedule): string {
-  if (s.type === 'startup') return '每次啟動'
-  if (s.type === 'daily') return `每天 ${pad(s.hour)}:${pad(s.minute)}`
-  if (s.type === 'weekly') {
-    const names = [...s.days].sort((a, b) => a - b).map((d) => WEEKDAY_LABELS[d] ?? '?').join('、')
-    return `每週 ${names} ${pad(s.hour)}:${pad(s.minute)}`
-  }
-  if (s.type === 'interval') {
-    const mins = Math.round(s.intervalMs / 60_000)
-    if (mins >= 60 && mins % 60 === 0) return `每 ${mins / 60} 小時`
-    return `每 ${mins} 分鐘`
-  }
-  const d = new Date(s.at)
-  return `一次性 ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function pad(n: number): string {
-  return String(n).padStart(2, '0')
-}
-
-/** 提醒清單（B3 階段 4，資料面；排程本身是 B5）。 */
+/** 提醒清單。時間格式與編輯器的原生選擇器共用 `reminderFormat`，見那支的說明。 */
 export function RemindersView(): JSX.Element {
   const push = useUiStore((s) => s.push)
   const toast = useUiStore((s) => s.toast)
   const [reminders, setReminders] = useState<Reminder[] | null>(null)
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
+  /** Android 12+ 的「鬧鐘與提醒」授權；null＝這台裝置沒有這個開關或還沒查到 */
+  const [exactAlarm, setExactAlarm] = useState<{ granted: boolean; applicable: boolean } | null>(null)
 
   const load = useCallback(async (): Promise<void> => {
     setFailed(false)
@@ -49,10 +30,21 @@ export function RemindersView(): JSX.Element {
     void load()
   }, [load])
 
+  /*
+   * 精準鬧鐘權限：**不能靜默失敗**。
+   * 沒授權的話鬧鐘會退回不精準模式（誤差可能數分鐘），
+   * 使用者只會覺得「提醒不準」而完全查不出原因。
+   * 每次進這一頁都重查——使用者可能剛從系統設定回來。
+   */
+  useEffect(() => {
+    void exactAlarmPermission().then(setExactAlarm)
+  }, [])
+
   const create = async (): Promise<void> => {
     setBusy(true)
     try {
       const reminder = await getData().reminders.create()
+      await getData().reminders.save(reminder)
       push('reminder-editor', reminder.id)
     } catch (e) {
       toast(describeSettingsError(e, '建立提醒'), 'error')
@@ -88,6 +80,22 @@ export function RemindersView(): JSX.Element {
 
   return (
     <div className="pb-2">
+      {exactAlarm?.applicable && !exactAlarm.granted && (
+        <div className="mb-3 rounded-[14px] border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
+          <p className="text-sm text-[var(--text)]">提醒可能會晚幾分鐘</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-[var(--text-sub)]">
+            系統還沒允許這個 App 設定精準鬧鐘。開啟之後提醒才會準時響。
+          </p>
+          <button
+            type="button"
+            onClick={() => void openExactAlarmSettings()}
+            className="mt-2 w-full rounded-full bg-[var(--mint)] py-2 text-sm text-[var(--text)]"
+          >
+            前往系統設定開啟
+          </button>
+        </div>
+      )}
+
       {reminders.length === 0 ? (
         <p className="py-6 text-center text-sm text-[var(--text-sub)]">還沒有任何提醒。</p>
       ) : (
@@ -123,6 +131,18 @@ export function RemindersView(): JSX.Element {
       >
         <MonoIcon name="plus" className="h-3.5 w-3.5" />
         新增提醒
+      </button>
+
+      {/*
+        紀錄入口放在清單底下：平常不會用到，但「它到底有沒有響」發生時
+        使用者第一個會來的就是提醒這一頁。
+      */}
+      <button
+        type="button"
+        onClick={() => push('reminder-history')}
+        className="mt-2 w-full rounded-full border border-[var(--border)] py-2.5 text-sm text-[var(--text-sub)]"
+      >
+        查看提醒紀錄
       </button>
     </div>
   )

@@ -7,7 +7,11 @@ import {
   decideArticleHandling,
   clipPromptContext,
   ARTICLE_DIRECT_MAX_LEN,
-  SUMMARY_ADEQUATE_MIN_LEN
+  SUMMARY_ADEQUATE_MIN_LEN,
+  extractGarturlres,
+  cacheManualPromptContext,
+  clearNewsEnrichCache,
+  enrichNewsForChat
 } from '@core/news/enrich'
 import { buildNewsContextString, buildNewsDirective, buildTopicContextString } from '@core/news/trigger'
 import type { NewsItem, NewsModuleSettings } from '@core/news/types'
@@ -130,5 +134,72 @@ describe('decideArticleHandling', () => {
 
   it('clips hard max', () => {
     expect(clipPromptContext('あ'.repeat(2000)).length).toBeLessThanOrEqual(1200)
+  })
+})
+
+describe('extractGarturlres — batchexecute 回應解析', () => {
+  const URL = 'https://today.line.me/tw/v2/article/AbCdE'
+  const envelope = (u: string) =>
+    JSON.stringify([['wrb.fr', 'Fbv4je', JSON.stringify(['garturlres', u]), null, null, null, 'generic']])
+
+  it('多段回應（實際格式）：跳過長度數字行，挖得到原文網址', () => {
+    // 2026-08-12 真機診斷的實際形狀：)]}' 之後每段前面都有一行長度數字，
+    // 而且後面還跟著一段 af.httprm。舊寫法在這裡整包 JSON.parse 必炸。
+    const body = `)]}'\n\n${envelope(URL).length}\n${envelope(URL)}\n26\n${JSON.stringify([['di', 25], ['af.httprm', 25, '123', 5]])}\n`
+    expect(extractGarturlres(body)).toBe(URL)
+  })
+
+  it('單段、沒有長度數字行也要能解', () => {
+    expect(extractGarturlres(`)]}'\n\n${envelope(URL)}`)).toBe(URL)
+  })
+
+  it('外層包裝整個變了，regex 保底仍撈得到', () => {
+    expect(extractGarturlres(`)]}'\n\n<<<不是 JSON>>> [\\"garturlres\\",\\"${URL}\\"] 後面亂七八糟`)).toBe(URL)
+  })
+
+  it('真的沒有 garturlres 就回 null，不要瞎猜一個網址', () => {
+    const other = JSON.stringify([['wrb.fr', 'Other', JSON.stringify(['nope']), null, null, null, 'generic']])
+    expect(extractGarturlres(`)]}'\n\n${other.length}\n${other}\n`)).toBeNull()
+  })
+})
+
+describe('extractGarturlres — CapacitorHttp 的雙重編碼（手機專屬）', () => {
+  const URL = 'https://www.cw.com.tw/article/12345'
+  const envelope = (u: string) =>
+    JSON.stringify([['wrb.fr', 'Fbv4je', JSON.stringify(['garturlres', u]), null, null, null, 'generic']])
+  const realBody = `)]}'\n\n${envelope(URL).length}\n${envelope(URL)}\n26\n[["di",25]]\n`
+
+  /** 手機收到的樣子：整包再被 JSON 編碼一次（外層引號會被剝掉） */
+  const doubleEncoded = JSON.stringify(realBody).slice(1, -1)
+
+  it('雙重編碼的回應要還原得回來', () => {
+    // 這正是 2026-08-12 真機 log 看到的字串：換行是字面的 \n、garturlres 前有三個反斜線
+    expect(doubleEncoded).toContain('\\\\"garturlres')
+    expect(doubleEncoded).not.toContain('\n')
+    expect(extractGarturlres(doubleEncoded)).toBe(URL)
+  })
+
+  it('沒被多包一層時完全不動它（桌面那條路徑要逐字等價）', () => {
+    expect(extractGarturlres(realBody)).toBe(URL)
+  })
+})
+
+describe('cacheManualPromptContext — 清除摘要', () => {
+  it('清成空字串是「不要摘要了」，不可以把空的存進快取', async () => {
+    // 存進去的話，同一則之後再按「聊這個」會拿到空的 manual 快取，
+    // 看起來像整理壞掉（而且 forceRefresh 之前都救不回來）。
+    clearNewsEnrichCache()
+    const item = { id: 'news-1', title: '標題', summary: '短摘要', url: '', sourceId: 's', source: '來源', keyword: 'k' }
+    const deps = { http: { fetch: async () => { throw new Error('不該連網') } }, storage: {} }
+
+    cacheManualPromptContext('news-1', '手動寫的一段摘要')
+    const cached = await enrichNewsForChat(deps as never, item as never, { settings: makeSettings() })
+    expect(cached.promptContext).toBe('手動寫的一段摘要')
+
+    cacheManualPromptContext('news-1', '   ')
+    const after = await enrichNewsForChat(deps as never, item as never, { settings: makeSettings() })
+    // 快取被清掉 → 重新整理（這裡沒有 url，落回 RSS 退回），而不是回一個空字串
+    expect(after.promptContext).not.toBe('')
+    expect(after.source).not.toBe('manual')
   })
 })

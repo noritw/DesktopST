@@ -2,7 +2,10 @@ import { create } from 'zustand'
 import type { AppStateSnapshot, DataSource, MessageSnapshot, SendMessageInput } from '@core/data'
 import { DataError } from '@core/data'
 import type { AppEvent, ConnectionStatus, EventSource } from '@core/events'
+import type { Message } from '@core/types'
 import { useUiStore } from './uiStore'
+import { useNewsStore } from '../news/newsStore'
+import { invalidateAllAvatars } from '../characters/useAvatarUrl'
 
 /**
  * 應用資料狀態。**聊天元件唯一的資料入口。**
@@ -19,6 +22,16 @@ import { useUiStore } from './uiStore'
 interface AppState {
   status: ConnectionStatus
   ready: boolean
+  /**
+   * 現在有沒有掛著 `DataSource`／`EventSource`（B-4，2026-08-16）。
+   *
+   * 切換模式時 `App.tsx` 的 attach effect 會先同步 `detach()` 舊的、再非同步
+   * `attach()` 新的，中間有一段 `deps === null` 的空窗。這段時間呼叫
+   * `getData()` 會 throw，設定／角色編輯畫面原本把這個 throw 當成「真的失敗」
+   * 顯示「載入失敗」——其實只是還沒接上，不是壞掉。這個欄位讓那些畫面能
+   * 分辨「還沒接上，等一下自動重試」跟「真的連不上，該顯示失敗＋重試鍵」。
+   */
+  attached: boolean
   /** 首次載入失敗（例如電腦沒開）。UI 顯示重試，不是空白畫面。 */
   loadError: DataError | null
 
@@ -28,6 +41,12 @@ interface AppState {
   thinkingIds: string[]
   /** 送出中（樂觀渲染那則還沒被伺服器回音取代）。 */
   sending: boolean
+
+  /**
+   * 停止生成後還給輸入框的草稿。`Composer` 讀到就套用並清掉。
+   * 放這裡是因為停止指令在 store，圖片附件卻在 Composer 本地 state。
+   */
+  restoreDraft: { content: string; images?: string[] } | null
 
   /**
    * 訊息 id → 手上已有的圖片 data URI（清單 B3／B4）。
@@ -45,6 +64,13 @@ interface AppState {
   attach: (deps: { data: DataSource; events: EventSource }) => () => void
   refresh: () => Promise<void>
   send: (input: SendMessageInput) => Promise<void>
+  /**
+   * 「說點什麼」：強制角色主動發話。跟 `send` 共用 `sending` 鎖與同一顆
+   * 停止按鈕 —— 沒有使用者訊息可撤回，但生成中途一樣該能按停止。
+   */
+  speak: (characterId: string) => Promise<void>
+  /** 中止進行中的生成，並把草稿還給輸入框。 */
+  stop: () => Promise<void>
 }
 
 /**
@@ -65,18 +91,37 @@ export function getData(): DataSource {
   return deps.data
 }
 
+/**
+ * 還沒 `attach()` 完成時安全地問「有沒有連上」，不會 throw。
+ *
+ * 選單一類的元件理論上只在 `ready` 之後才會被打開，但保險起見還是提供
+ * 一支不會炸掉整個 render 的版本 —— 少一個「哪天多一條路徑在 `ready`
+ * 之前就摸到這裡」就把全畫面弄白的坑。
+ */
+export function isAttached(): boolean {
+  return deps !== null
+}
+
+/** 回前景時補一次對帳／視情況立刻重連（遙控模式才有作用，獨立模式是 no-op）。 */
+export function notifyForeground(): void {
+  deps?.events.notifyForeground()
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   status: 'idle',
   ready: false,
+  attached: false,
   loadError: null,
   snapshot: null,
   messages: [],
+  restoreDraft: null,
   thinkingIds: [],
   sending: false,
   localImages: {},
 
   attach: (d) => {
     deps = d
+    set({ attached: true })
     const offEvent = d.events.subscribe((e) => handleEvent(e, set, get))
     const offStatus = d.events.onStatusChange((status) => set({ status }))
     d.events.start()
@@ -87,6 +132,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       offStatus()
       d.events.stop()
       deps = null
+      /*
+       * `ready` 也要跟著歸零（B-4）：不歸零的話，切換模式的空窗期間
+       * `ready` 還停在上一輪的 `true`，`App.tsx` 頂層的選單按鈕／載入畫面
+       * 判斷不出「現在其實接不上」，使用者照樣點得進設定／角色編輯，
+       * 才會撞上 `attached` 這個欄位原本要擋的那個空窗。
+       */
+      set({ attached: false, ready: false })
     }
   },
 
@@ -135,6 +187,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       await deps.data.sendMessage(input)
     } catch (e) {
+      // `unreachable`：送出當下手機切到背景，系統把連線砍斷讓這個 fetch
+      // 失敗 —— 但 LLM 是在電腦那邊獨立跑的，不會因為手機這頭的連線斷了
+      // 就停。對帳一次：`refresh()` 拿到的是伺服器權威的訊息列表，
+      // 如果這則已經不在裡面（換成真的了，或至少使用者的話已經送達），
+      // 代表其實有送到，不該在使用者回來時給一則假的「網路錯誤」。
+      // 真的沒送到（電腦真的關機／離線）才會落回下面的錯誤泡泡。
+      if (e instanceof DataError && e.code === 'unreachable') {
+        await get().refresh().catch(() => {})
+        if (!get().messages.some((m) => m.id === optimistic.id)) {
+          if (get().sending) set({ sending: false })
+          return
+        }
+      }
       // 失敗：把樂觀那則換成系統錯誤訊息（清單 A8）。
       // 錯誤代碼在這裡就翻成中文 —— core 只給代碼（roadmap §3.3）。
       set((s) => ({
@@ -154,7 +219,53 @@ export const useAppStore = create<AppState>((set, get) => ({
       }))
       throw e
     }
-    set({ sending: false })
+    // 若使用者中途按了停止，sending 已被 stop() 清掉；勿再蓋掉 restoreDraft。
+    if (get().sending) set({ sending: false })
+  },
+
+  speak: async (characterId) => {
+    if (!deps) return
+    set({ sending: true })
+    try {
+      await deps.data.characters.speak(characterId)
+    } catch (e) {
+      if (get().sending) set({ sending: false })
+      throw e
+    }
+    // 若使用者中途按了停止，sending 已被 stop() 清掉；勿再蓋掉 restoreDraft。
+    if (get().sending) set({ sending: false })
+  },
+
+  stop: async () => {
+    if (!deps || !get().sending) return
+    const draft = await deps.data.stopGenerating()
+    set((s) => {
+      // 樂觀那則＋已寫入的同內容使用者訊息都先拿掉（對齊桌面撤回未回覆訊息）。
+      // 遙控端 abort 清理是非同步的，若不先清，字已還回輸入框時泡泡還會留一瞬。
+      let messages = s.messages.filter((m) => !isOptimistic(m))
+      if (draft) {
+        for (let i = messages.length - 1; i >= 0; i--) {
+          const m = messages[i]!
+          if (m.role === 'user' && m.content === draft.content) {
+            messages = [...messages.slice(0, i), ...messages.slice(i + 1)]
+            break
+          }
+        }
+      }
+      return {
+        sending: false,
+        thinkingIds: [],
+        messages,
+        localImages: Object.fromEntries(
+          Object.entries(s.localImages).filter(([id]) => !id.startsWith(OPTIMISTIC_PREFIX))
+        ),
+        restoreDraft: draft
+          ? { content: draft.content, images: draft.images }
+          : s.restoreDraft
+      }
+    })
+    // 獨立模式會 push state-invalidated；遙控則靠訊息數減少觸發 desktop-updated。
+    await get().refresh()
   }
 }))
 
@@ -185,12 +296,40 @@ export function describeError(e: unknown, context: 'send' | 'load'): string {
   }
 }
 
+/**
+ * `'message'` 事件的 `message` 欄位型別上寫的是 `Message`，但兩種模式塞進去的
+ * 實際形狀不一樣（B-5，2026-08-16）：
+ *
+ * - 獨立模式（`chat.ts`）塞的是真的完整 `Message`，帶 `images: string[]`，
+ *   沒有 `imageCount`。
+ * - 遙控模式（`remoteEventSource.ts`）收到的是電腦端 WS 廣播，早就被
+ *   `mobileServer.ts` 的 `sanitizeMessage()` 拿掉 `images`、換算成
+ *   `imageCount` 送過來——型別標成 `Message`是騙的，運行時其實沒有 `images`。
+ *
+ * 兩種都要接得住：有 `imageCount` 就直接信，沒有才用 `images.length` 現算。
+ * 原本直接 `as MessageSnapshot` 硬轉型，兩條路徑都吃得下去看似沒事，但
+ * 獨立模式送出去的使用者訊息回音（`chat.ts` 的 `sendStandaloneMessage`）
+ * 完全沒有 `imageCount` 欄位，取代樂觀訊息時把原本正確的 `imageCount`
+ * 蓋成 `undefined`，畫面上的縮圖元件因此判定「這則沒有圖」直接不渲染——
+ * 圖確實送出去了、角色也正確看得到，只是手機自己的訊息泡泡沒有縮圖，
+ * 要等下一次 `state-invalidated` 重抓（`refresh()` 走的是
+ * `toMessageSnapshot()`，那支沒有這個問題）才會冒出來。
+ */
+export function toEventMessageSnapshot(m: Message): MessageSnapshot {
+  const raw = m as Message & { imageCount?: number }
+  const { images, debugPrompt: _d, utilityDebugPrompt: _u, ...rest } = raw
+  return {
+    ...rest,
+    imageCount: typeof raw.imageCount === 'number' ? raw.imageCount : (images?.length ?? 0)
+  }
+}
+
 type Setter = (partial: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void
 
 function handleEvent(e: AppEvent, set: Setter, get: () => AppState): void {
   switch (e.kind) {
     case 'message': {
-      const incoming = e.message as MessageSnapshot
+      const incoming = toEventMessageSnapshot(e.message)
       set((s) => {
         const replacedId = findOptimisticMatch(s.messages, incoming)
         return {
@@ -223,6 +362,15 @@ function handleEvent(e: AppEvent, set: Setter, get: () => AppState): void {
 
     case 'state-invalidated':
       void get().refresh()
+      // 新聞報有自己的快取（`newsStore`），不會因為這個事件自動重抓——
+      // 見 `newsStore.invalidate` 的說明（同步關鍵字組進來卻沒反映在畫面上
+      // 的那個 bug）。這裡是全站唯一的 `state-invalidated` 訂閱點，
+      // 其他 store 要跟著失效也在這裡加，不要各自另開一條訂閱。
+      useNewsStore.getState().invalidate()
+      // 頭像同理：電腦端換了主圖也是靠這個通用事件通知手機，事件本身不會
+      // 講是哪一隻角色，乾脆全部清快取重問一次（owner 2026-08-13 實機回報：
+      // 遙控模式下電腦端換的主圖沒有反映到手機畫面，成因就是這裡漏掉）。
+      invalidateAllAvatars()
       return
   }
 }

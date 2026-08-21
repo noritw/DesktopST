@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   BREAKOUT_SECTION_ID,
-  LOCAL_SECTION_ID,
   OTHER_SECTION_ID,
   MAX_DISMISSED,
   addDismissed,
@@ -56,7 +55,8 @@ const SOURCES: NewsSource[] = [
   src({ id: 'kw-b', label: 'AI', groupId: 'g2' }),
   src({ id: 'feed-1', label: 'iThome', type: 'rss', url: 'https://x/rss' }),
   src({ id: 'kw-off', label: '停用的', enabled: false }),
-  src({ id: 'loc-台北市', label: '台北市', origin: 'location' })
+  // 遷移後的縣市：id 仍是 `loc-*`（保住 feedback 權重），但已經是**一般關鍵字**
+  src({ id: 'loc-台北市', label: '台北市', groupId: 'g-local' })
 ]
 
 describe('分欄（F1：原本桌面與 mobile.html 各一份）', () => {
@@ -76,7 +76,8 @@ describe('分欄（F1：原本桌面與 mobile.html 各一份）', () => {
       BREAKOUT_SECTION_ID,
       'kw:kw-a',
       'kw:kw-b',
-      LOCAL_SECTION_ID,
+      // 地方新聞併回一般關鍵字後，縣市就是普通的 kw: 欄，沒有獨立的 __local__
+      'kw:loc-台北市',
       'feed:feed-1',
       OTHER_SECTION_ID
     ])
@@ -118,14 +119,22 @@ describe('配額（F4）', () => {
     expect(sectionQuota(BREAKOUT_SECTION_ID, sources, quota)).toBe(5)
     expect(sectionQuota('kw:kw-q', sources, quota)).toBe(7)
     expect(sectionQuota('kw:kw-a', sources, quota)).toBe(3)
-    expect(sectionQuota(LOCAL_SECTION_ID, sources, quota)).toBe(3)
+    expect(sectionQuota('kw:loc-台北市', sources, quota)).toBe(3)
     expect(sectionQuota('feed:feed-1', sources, quota)).toBe(3)
   })
 })
 
 describe('關鍵字組與欄位順序（F5／F6）', () => {
-  it('沒選組＝全部組；地方帶入的與停用的都不列', () => {
-    expect(visibleKeywordSources(SOURCES, []).map((s) => s.id)).toEqual(['kw-a', 'kw-b'])
+  it('沒選組＝全部組；只有停用的不列', () => {
+    // 縣市現在是一般關鍵字，會出現在排序清單裡（原本被 origin==='location' 濾掉、
+    // 使用者根本移不動它）——這正是這次合併要解決的事。
+    expect(visibleKeywordSources(SOURCES, []).map((s) => s.id)).toEqual(['kw-a', 'kw-b', 'loc-台北市'])
+  })
+
+  it('`loc-` 前綴只是歷史 id，不可以再有任何行為', () => {
+    const locItem = item({ id: 'x', sourceId: 'loc-台北市' })
+    expect(sectionIdOf(locItem, SOURCES)).toBe('kw:loc-台北市')
+    expect(visibleKeywordSources(SOURCES, ['g-local']).map((s) => s.id)).toEqual(['loc-台北市'])
   })
 
   it('選了組就只列那幾組', () => {
@@ -142,7 +151,7 @@ describe('關鍵字組與欄位順序（F5／F6）', () => {
 
   it('已在頭／尾時原樣回傳（同一個參照，呼叫端才知道不必送出）', () => {
     expect(moveKeywordSource(SOURCES, 'kw-a', -1, [])).toBe(SOURCES)
-    expect(moveKeywordSource(SOURCES, 'kw-b', 1, [])).toBe(SOURCES)
+    expect(moveKeywordSource(SOURCES, 'loc-台北市', 1, [])).toBe(SOURCES)
     expect(moveKeywordSource(SOURCES, '不存在', -1, [])).toBe(SOURCES)
   })
 })
@@ -212,11 +221,12 @@ describe('關鍵字管理（owner 2026-08-06：新增／刪除／排序／分組
     { id: 'g2', name: '生活' }
   ]
 
-  it('分桶依組排列，組內維持 sources 原順序；地方新聞與非關鍵字來源不列', () => {
-    const buckets = groupSourcesByKeywordGroup(SOURCES, GROUPS)
-    expect(buckets.map((b) => b.group.id)).toEqual(['default', 'g2'])
+  it('分桶依組排列，組內維持 sources 原順序；非關鍵字來源不列', () => {
+    const buckets = groupSourcesByKeywordGroup(SOURCES, [...GROUPS, { id: 'g-local', name: '地方' }])
+    expect(buckets.map((b) => b.group.id)).toEqual(['default', 'g2', 'g-local'])
     expect(buckets[0].sources.map((s) => s.id)).toEqual(['kw-a', 'kw-off'])
     expect(buckets[1].sources.map((s) => s.id)).toEqual(['kw-b'])
+    expect(buckets[2].sources.map((s) => s.id)).toEqual(['loc-台北市'])
   })
 
   it('空組也回傳（管理畫面要能對著剛新增、還沒放關鍵字的組操作）', () => {

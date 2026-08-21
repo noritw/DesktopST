@@ -241,7 +241,6 @@ export function isForeignLanguage(item: NewsItem): boolean {
 // ---------------------------------------------------------------------------
 
 const READER_BREAKOUT_BUCKET = '__breakout__'
-const READER_LOCAL_BUCKET = '__local__'
 const READER_OTHER_BUCKET = '__other__'
 
 function readerBucketKey(
@@ -249,7 +248,6 @@ function readerBucketKey(
   sourceById: Map<string, NewsModuleSettings['sources'][number]>
 ): string {
   if (item.breakout) return READER_BREAKOUT_BUCKET
-  if (item.sourceId.startsWith('loc-')) return READER_LOCAL_BUCKET
 
   const src = sourceById.get(item.sourceId)
   // 每個關鍵字各自一桶，避免同組內第一個標籤獨佔名額
@@ -257,6 +255,15 @@ function readerBucketKey(
   if (item.sourceType === 'keyword') return `kw:${item.sourceId}`
   if (src) return `feed:${src.id}`
   return READER_OTHER_BUCKET
+}
+
+/**
+ * 每一欄「配額 vs 實際拿到幾則」的診斷 log（與 `enrich.ts` 的 `[news-diag]` 同一族）。
+ * 真機用 `adb logcat -s Capacitor/Console | grep news-diag` 看。
+ */
+function diagPick(key: string, d: Record<string, unknown>): void {
+  const parts = Object.entries(d).map(([k, v]) => `${k}=${String(v)}`)
+  console.info(`[news-diag] pick ${key} ${parts.join(' ')}`)
 }
 
 /**
@@ -378,7 +385,6 @@ export function filterForReader(
     READER_BREAKOUT_BUCKET,
     ...keywordKeys,
     ...extraKeywordKeys,
-    READER_LOCAL_BUCKET,
     ...feedKeys,
     READER_OTHER_BUCKET
   ].filter((k, i, arr) => {
@@ -408,7 +414,10 @@ export function filterForReader(
   const used = new Set<string>()
 
   const takeFrom = (key: string, limit: number) => {
-    if (limit <= 0) return
+    if (limit <= 0) {
+      diagPick(key, { limit, pool: buckets.get(key)?.length ?? 0, taken: 0 })
+      return
+    }
     const list = buckets.get(key) ?? []
     // 換一批：優先還沒出現在畫面上的；strict 時不回填已排除的
     const preferred = list.filter(i => !used.has(i.id) && !exclude.has(i.id))
@@ -424,6 +433,15 @@ export function filterForReader(
       result.push(item)
       taken++
     }
+    // 「配額設 5 卻只拿到 3」要分得出是**池子本來就只有 3 則**，
+    // 還是被 exclude／maxItems 卡住（owner 2026-08-12 回報）。
+    diagPick(key, {
+      limit,
+      pool: list.length,
+      excluded: list.length - preferred.length,
+      taken,
+      hitMaxItems: result.length >= maxItems
+    })
   }
 
   for (const key of orderedKeys) takeFrom(key, quotaForKey(key))

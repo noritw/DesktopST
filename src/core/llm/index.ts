@@ -30,6 +30,53 @@ function endpointForProvider(provider: string, endpoint?: string): string | unde
   return trimmed || undefined
 }
 
+/**
+ * 取某供應商生效的端點：以 `endpoints[provider]` 為準。
+ *
+ * ⚠️ **舊的單一 `endpoint` 欄位只在「整張表還是空的」時才可信**，不能因為
+ * 「這一家在表裡沒有值」就退回去讀它。
+ *
+ * 「表裡沒有這一家」是雲端供應商的**正常狀態**（用官方端點就不填），
+ * 而舊欄位是個會跟著目前 provider 更新的鏡像。兩者湊在一起的話：
+ * 切到本機模型 → 鏡像變成 `http://…:11434/v1`，切回 OpenAI → `endpoints.openai`
+ * 本來就沒有值 → 退回鏡像 → **雲端請求被送去本機那台**，症狀是切回雲端後
+ * 突然連不上（owner 2026-08-15 在手機獨立版實測回報）。
+ *
+ * 只有「設定檔還沒被遷移寫回磁碟」那個空窗才需要退回舊欄位，而那時整張表是空的
+ * （遷移在 `core/store/settings.ts`，一定會建出至少一個項目）。
+ */
+export function resolveEndpoint(settings: AppSettings, provider?: string): string | undefined {
+  const p = provider ?? settings.llm.provider
+  const map = settings.llm.endpoints
+  const fromMap = map?.[p]
+  if (fromMap) return endpointForProvider(p, fromMap)
+  const unmigrated = !map || Object.keys(map).length === 0
+  return endpointForProvider(p, unmigrated && p === settings.llm.provider ? settings.llm.endpoint : undefined)
+}
+
+/**
+ * 本機模型要關掉思考。
+ *
+ * Qwen3 這類思考模型預設會把 token 預算全花在 reasoning 上、`output_text` 回空字串，
+ * 而情緒分類的預算只有 20 tokens、新聞主觀度 40 —— 在那個預算下 100% 回空，
+ * `openai.ts` 接著就丟 `Empty response from model`（根因完全看不出來）。
+ * 帶 `effort: 'none'` 實測回覆乾淨；非思考模型帶了也不會報錯，原樣忽略，
+ * 所以不做模型能力偵測。細節：`docs/local-llm-provider-plan.md` §2.3。
+ */
+export function localReasoningParams(provider: string): { reasoning?: { effort: 'none' } } {
+  return provider === 'local' ? { reasoning: { effort: 'none' } } : {}
+}
+
+/** 本機端點通常不設金鑰；SDK 需要非空字串，塞個 placeholder（伺服器一律忽略）。 */
+const LOCAL_API_KEY_PLACEHOLDER = 'local'
+
+/** 取生效金鑰。local 沒填時回 placeholder，讓「沒有金鑰」不再是錯誤。 */
+export function resolveApiKeyForProvider(provider: string, apiKey: string, apiKeys?: Record<string, string>): string {
+  const key = apiKeys?.[provider] || apiKey
+  if (key) return key
+  return provider === 'local' ? LOCAL_API_KEY_PLACEHOLDER : ''
+}
+
 export async function chatWithLLM(rawParams: ChatLLMParams, deps: LLMDeps): Promise<ChatLLMResult> {
   // 展開訊息 reaction 標註、插入時間斷層標註（單一入口處理，adapter 不需各自支援）
   // 斷層標註跟隨 injectSystemTime：關閉時 prompt 完全不含現實時間（TRPG／故事接龍場合）
@@ -55,17 +102,20 @@ export async function chatWithLLM(rawParams: ChatLLMParams, deps: LLMDeps): Prom
         ...params.settings,
         llm: {
           ...params.settings.llm,
-          endpoint: endpointForProvider('grok', params.settings.llm.endpoint)
+          endpoint: resolveEndpoint(params.settings, 'grok')
         }
       }
       return chatWithOpenAI({ ...params, settings: grokSettings }, deps)
     }
-    case 'openai': {
+    case 'openai':
+    case 'local': {
+      // local 走的協定與 OpenAI 完全相同（Ollama 支援 Responses API，實測見規劃文件 §2.3），
+      // 差別只在端點來自 endpoints 表、以及 openai.ts 會依 provider 補上關思考參數。
       const openAISettings = {
         ...params.settings,
         llm: {
           ...params.settings.llm,
-          endpoint: endpointForProvider('openai', params.settings.llm.endpoint)
+          endpoint: resolveEndpoint(params.settings, provider)
         }
       }
       return chatWithOpenAI({ ...params, settings: openAISettings }, deps)
@@ -147,10 +197,10 @@ export async function classifyEmotionWithLLM(params: {
       return { emotion: resolveId(raw), inputTokens, outputTokens, debugPrompt: makeDebug(provider, model, inputTokens, outputTokens, raw) }
     }
 
-    // OpenAI / Grok
+    // OpenAI / Grok / local
     const { default: OpenAI } = await import('openai')
-    const baseURL = endpointForProvider(provider, utilitySettings.llm.endpoint)
-    const client = new OpenAI({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey, baseURL, fetch: deps.http.fetch })
+    const baseURL = resolveEndpoint(utilitySettings, provider)
+    const client = new OpenAI({ apiKey: resolveApiKeyForProvider(provider, utilitySettings.llm.apiKey, utilitySettings.llm.apiKeys), baseURL, fetch: deps.http.fetch, dangerouslyAllowBrowser: true })
     const model = utilitySettings.llm.models?.[provider] || utilitySettings.llm.model
     const resp = await client.responses.create({
       model,
@@ -158,7 +208,8 @@ export async function classifyEmotionWithLLM(params: {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: reply }
       ],
-      max_output_tokens: 20
+      max_output_tokens: 20,
+      ...localReasoningParams(provider)
     } as any, { signal })
     const raw = (typeof (resp as any)?.output_text === 'string' ? (resp as any).output_text : '').trim()
     const inputTokens = (resp as any).usage?.input_tokens as number | undefined
@@ -254,10 +305,10 @@ export async function classifyNewsSubjectivityWithLLM(params: {
       return { ...parsed, inputTokens, outputTokens, debugPrompt: makeDebug(provider, model, inputTokens, outputTokens, raw) }
     }
 
-    // OpenAI / Grok
+    // OpenAI / Grok / local
     const { default: OpenAI } = await import('openai')
-    const baseURL = endpointForProvider(provider, utilitySettings.llm.endpoint)
-    const client = new OpenAI({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey, baseURL, fetch: deps.http.fetch })
+    const baseURL = resolveEndpoint(utilitySettings, provider)
+    const client = new OpenAI({ apiKey: resolveApiKeyForProvider(provider, utilitySettings.llm.apiKey, utilitySettings.llm.apiKeys), baseURL, fetch: deps.http.fetch, dangerouslyAllowBrowser: true })
     const model = utilitySettings.llm.models?.[provider] || utilitySettings.llm.model
     const resp = await client.responses.create({
       model,
@@ -265,7 +316,8 @@ export async function classifyNewsSubjectivityWithLLM(params: {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userContent }
       ],
-      max_output_tokens: 40
+      max_output_tokens: 40,
+      ...localReasoningParams(provider)
     } as any)
     const raw = (typeof (resp as any)?.output_text === 'string' ? (resp as any).output_text : '').trim()
     const parsed = parse(raw)
@@ -292,7 +344,8 @@ export async function testLLMConnection(params: {
   endpoint?: string
 }, deps: LLMDeps): Promise<{ ok: boolean; models?: string[]; errorCode?: LLMTestErrorCode; error?: string }> {
   const { provider, endpoint } = params
-  const apiKey = params.apiKeys?.[provider] || params.apiKey
+  // local 的自架端點通常沒有金鑰，不能因為沒填就擋下（見規劃文件 §3.4）
+  const apiKey = resolveApiKeyForProvider(provider, params.apiKey, params.apiKeys)
   if (!apiKey) return { ok: false, errorCode: 'no-api-key' }
 
   try {
@@ -317,15 +370,18 @@ export async function testLLMConnection(params: {
       return { ok: true, models: ['(Gemini API OK)'] }
     }
 
-    // OpenAI / Grok: list models
+    // OpenAI / Grok / local: list models
     const { default: OpenAI } = await import('openai')
     const baseURL = endpointForProvider(provider, endpoint)
-    const client = new OpenAI({ apiKey, baseURL, fetch: deps.http.fetch })
+    const client = new OpenAI({ apiKey, baseURL, fetch: deps.http.fetch, dangerouslyAllowBrowser: true })
     const resp = await client.models.list()
+    // 雲端那幾家清單很長，取前 5 筆只是「連得上」的佐證。
+    // local 相反：這份清單就是使用者唯一能挑模型的來源（沒有寫死的目錄），要全拿。
+    const limit = provider === 'local' ? 200 : 5
     const models: string[] = []
     for await (const m of resp) {
       models.push(m.id)
-      if (models.length >= 5) break
+      if (models.length >= limit) break
     }
     return { ok: true, models }
   } catch (e: unknown) {
@@ -342,7 +398,7 @@ export async function testLLMMessage(params: {
   endpoint?: string
 }, deps: LLMDeps): Promise<{ ok: boolean; reply?: string; errorCode?: LLMTestErrorCode; error?: string }> {
   const { provider, model, endpoint } = params
-  const apiKey = params.apiKeys?.[provider] || params.apiKey
+  const apiKey = resolveApiKeyForProvider(provider, params.apiKey, params.apiKeys)
   if (!apiKey) return { ok: false, errorCode: 'no-api-key' }
   if (!model) return { ok: false, errorCode: 'no-model' }
 
@@ -368,14 +424,15 @@ export async function testLLMMessage(params: {
       return { ok: true, reply: text || '(empty)' }
     }
 
-    // OpenAI / Grok: use Responses API
+    // OpenAI / Grok / local: use Responses API
     const { default: OpenAI } = await import('openai')
     const baseURL = endpointForProvider(provider, endpoint)
-    const client = new OpenAI({ apiKey, baseURL, fetch: deps.http.fetch })
+    const client = new OpenAI({ apiKey, baseURL, fetch: deps.http.fetch, dangerouslyAllowBrowser: true })
     const resp = await client.responses.create({
       model,
       input: 'Say "Hello!" in one word.',
-      max_output_tokens: 20
+      max_output_tokens: 20,
+      ...localReasoningParams(provider)
     } as any)
     const text = typeof (resp as any)?.output_text === 'string'
       ? (resp as any).output_text

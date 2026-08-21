@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Lorebook, LoreEntry } from '../types'
+import AutoTextarea from './AutoTextarea'
 
 /**
  * 用語解說（Lorebook）編輯器 —— 設定 → 世界觀分頁底下的區塊（docs/future-lorebook.md §7.2）。
@@ -265,8 +266,9 @@ function LoreEntryCard({
         同一件事的不同叫法都填進來，任一個被提到就生效。
       </p>
 
-      <textarea
-        className="input-field min-h-[60px] resize-none text-xs"
+      <AutoTextarea
+        className="text-xs"
+        minHeight={60}
         value={entry.content}
         onChange={e => onChange(prev => ({ ...prev, content: e.target.value }))}
         placeholder="這個詞是什麼？寫給角色看的解說。"

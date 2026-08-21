@@ -3,14 +3,19 @@ import { checkForUpdates } from './updateChecker'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
-import type { AppSettings, Character, ColorTheme, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo, NewsLinkInfo } from './types'
+import type { AppSettings, Character, ColorTheme, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo, NewsLinkInfo, WeatherLocationSource } from './types'
 import { MESSAGE_REACTION_EMOJIS } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM, generateLoreEntryForCharacter } from './llm/index'
+import { DEFAULT_MODEL_BY_PROVIDER } from '../core/llm/modelCatalog'
 import { summarizeConversation, countUncoveredMessages, listSummarizableMessages } from './llm/summarizer'
-import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta } from './llm/promptUtils'
+import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta, hasUsableApiKey } from './llm/promptUtils'
 import { formatSystemTimeStamp } from '../core/prompt/systemTime'
 import { isActiveSceneDirty } from '../core/scene/dirty'
+import { buildConversationManifestEntry } from '../core/sync/manifestBuild'
+import { mergeMessages, pickSummary } from '../core/sync/convHash'
+import type { ManifestConversation } from '../core/sync/types'
+import { applySceneSettings } from '../core/scene/apply'
 import { normalizeForCompare, escapeRegExp } from '../core/util/text'
 import { safeJsonParse } from '../core/util/json'
 import { characterAliases } from '../core/character'
@@ -32,7 +37,8 @@ import {
   extractCharacterBook,
   LoreError,
   DEFAULT_SCAN_DEPTH,
-  DEFAULT_TOKEN_BUDGET
+  DEFAULT_TOKEN_BUDGET,
+  type LoreEntry
 } from '../core/lore'
 import { extractCharaJson, embedCharaJson, getExportPngBaseBuffer } from './pngUtils'
 import { importStJson, exportToStJson } from './stCardMapper'
@@ -155,6 +161,8 @@ let activeConversationId: string | null = null
 let conversations: Map<string, Conversation> = new Map()
 // 目前進行中的 message:send 流程的中止控制器；按下「停止」時 abort 並中斷該流程
 let activeSendAbort: AbortController | null = null
+/** 供停止時把內容還給輸入框（桌面 IPC／手機 `/api/stop` 共用） */
+let activeSendDraft: { content: string; images?: string[] } | null = null
 
 function centerWindowInPrimary(winSize: { width: number; height: number }): { x: number; y: number } {
   const wa = screen.getPrimaryDisplay().workArea
@@ -467,6 +475,151 @@ export function getConversationListDirect(): { id: string; title: string; update
     .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
 }
 
+/**
+ * S1 對話匯入的清單（roadmap §4.7）。
+ *
+ * 與 `getConversationListDirect` 分開是因為勾選畫面要多知道兩件事：
+ * 有幾則訊息、參與的角色是誰 —— 沒有這兩個，使用者只看得到一排標題與時間，
+ * 沒辦法判斷哪些值得帶過去。
+ */
+export function getConversationsForSyncDirect(): {
+  id: string
+  title: string
+  updatedAt: number
+  messageCount: number
+  characterNames: string[]
+}[] {
+  return fileStore.listConversationIds()
+    .map(id => getOrLoadConversation(id))
+    .filter((c): c is NonNullable<typeof c> => !!c)
+    .map(conv => {
+      const ids = new Set(conv.messages.map(m => m.characterId).filter(Boolean) as string[])
+      return {
+        id: conv.id,
+        title: conv.title,
+        updatedAt: conv.updatedAt,
+        messageCount: conv.messages.length,
+        characterNames: [...ids].map(cid => getCharacter(cid)?.name).filter(Boolean) as string[]
+      }
+    })
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+}
+
+/**
+ * 取一整則對話給手機匯入。**不切換電腦上正在看的那則**
+ * （`loadConversationDirect` 會切，那是遙控用的）。
+ *
+ * 除錯用的 prompt 一律剝掉：一則 prompt 動輒數十 KB，而手機那邊只是要保存
+ * 聊天記錄，帶過去純粹是把傳輸與儲存撐大。圖片保留 —— 那是內容。
+ */
+export function getConversationForSyncDirect(id: string): Conversation | null {
+  const conv = getOrLoadConversation(id)
+  if (!conv) return null
+  return {
+    ...conv,
+    messages: conv.messages.map(m => {
+      const { debugPrompt, utilityDebugPrompt, convSearchDebugPrompt, newsDebug, ...rest } = m
+      void debugPrompt; void utilityDebugPrompt; void convSearchDebugPrompt; void newsDebug
+      return { ...rest, hasDebugPrompt: false, hasNewsDebug: false }
+    })
+  }
+}
+
+/**
+ * S2 對話同步：`/api/sync-manifest` 用的對話清單，**帶指紋**。
+ *
+ * 跟 `getConversationsForSyncDirect` 分開的理由：那支是 S1 勾選畫面用的
+ * （要角色名字給人看），這支是機器比對用的（要訊息 id 指紋）。兩個用途
+ * 硬併成一支的話，S1 那個畫面每開一次都要多算一輪雜湊。
+ *
+ * 組欄位一律走 `buildConversationManifestEntry`，不要在這裡手打物件——
+ * 手機端算的是同一支，兩邊漂移的話比對畫面會把每一則都判成不一樣。
+ */
+export function getConversationsManifestDirect(): ManifestConversation[] {
+  return fileStore.listConversationIds()
+    .map(id => getOrLoadConversation(id))
+    .filter((c): c is NonNullable<typeof c> => !!c)
+    .map(conv => buildConversationManifestEntry(conv))
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+}
+
+/**
+ * S2 對話同步：把手機送來的一批訊息併進電腦端的某則對話。
+ *
+ * 合併規則的唯一定義處是 `docs/mobile-mode-switch-sync.md` §6.2 ②，
+ * 實作在 `core/sync/convHash.ts` 的 `mergeMessages()`／`pickSummary()`——
+ * 這裡只負責讀寫檔與廣播，不自己重寫一套合併邏輯。
+ *
+ * ## 為什麼要能分批
+ *
+ * 訊息帶圖片 data URI，整則送會在 CapacitorHttp 的 base64 bridge 上爆掉
+ * （`/api/sync-pack` 與 `/api/message-image` 都為了同一個理由拆過）。
+ * 所以手機會依累計位元組把一則對話切成好幾塊送進來：
+ *
+ * - `targetId` 沒有值 ＝ 電腦上還沒有這則，**第一塊**負責建立並回傳真實 id
+ * - 後續塊帶著那顆 id 回來（手機一定要讀回應，見下）
+ *
+ * ## 回傳的 `id` 是合約的一部分
+ *
+ * 新建時電腦會自己發 uuid。手機**必須**把它記回本地那則的 `importedFrom`，
+ * 否則下一次切換配不起來、每趟都多推一份 —— S2 M3 就是死在「推完不讀回應」
+ * （`docs/mobile-sync-m4-compare.md` §1.1）。
+ *
+ * 同一塊重送兩次是安全的：聯集合併以 id 判重，重複的計進 `skipped`。
+ */
+export function mergeConversationMessagesDirect(input: {
+  targetId?: string
+  title?: string
+  participantIds?: string[]
+  messages?: Message[]
+  summary?: string
+  summaryCoversTs?: number
+}): { id: string; written: number; skipped: number; messageCount: number } | { error: string } {
+  const incoming = input.messages ?? []
+
+  let conv: Conversation | null = null
+  if (input.targetId) {
+    conv = getOrLoadConversation(input.targetId)
+    if (!conv) return { error: 'Conversation not found' }
+  } else {
+    conv = createNewConversation()
+    // 新建的那則沿用手機的標題；沒給就留 createNewConversation 的預設
+    const title = String(input.title ?? '').trim()
+    if (title) conv.title = title
+  }
+
+  const { merged, written, skipped } = mergeMessages(conv.messages ?? [], incoming)
+  conv.messages = merged
+
+  /*
+   * 參與角色取聯集。少了這一步，從手機帶過來的訊息作者不在 participantIds 裡，
+   * 之後在電腦上接著聊時那隻角色不會被算進上下文。
+   * 手機送來的已經是電腦端的角色 id（翻譯在手機端做，見 syncConversations.ts）。
+   */
+  conv.participantIds = [...new Set([...(conv.participantIds ?? []), ...(input.participantIds ?? [])])]
+
+  /*
+   * 摘要二選一：涵蓋範圍較大的那份贏。
+   * ⚠️ 不能拿 `updatedAt` 判斷誰比較新——推送本身就會把這裡設成現在。
+   */
+  if (pickSummary(conv, { summary: input.summary, summaryCoversTs: input.summaryCoversTs }) === 'incoming') {
+    conv.summary = input.summary ?? ''
+    conv.summaryCoversTs = input.summaryCoversTs
+  }
+
+  conv.updatedAt = Date.now()
+  conversations.set(conv.id, conv)
+  fileStore.saveConversation(conv)
+
+  // 併進正在看的那則時畫面要跟著更新，否則電腦上停在舊訊息直到切換對話
+  if (conv.id === activeConversationId) {
+    broadcastConversationUpdate(conv)
+    syncCharacterContextsFromConversation(conv)
+  }
+
+  return { id: conv.id, written, skipped, messageCount: conv.messages.length }
+}
+
 export function loadConversationDirect(id: string): boolean {
   const conv = getOrLoadConversation(id)
   if (!conv) return false
@@ -576,6 +729,44 @@ export function setColorThemeDirect(theme: ColorTheme): boolean {
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return true
+}
+
+export function setShowLlmBadgeDirect(show: boolean): boolean {
+  if ((settings.ui.showLlmBadge !== false) === show) return true
+  settings.ui.showLlmBadge = show
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return true
+}
+
+export function setShowPersonaNameDirect(show: boolean): boolean {
+  if ((settings.ui.showPersonaName !== false) === show) return true
+  settings.ui.showPersonaName = show
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return true
+}
+
+/**
+ * 手機用：取某則訊息保留的完整 prompt（與 `conversation:get-message-debug` 同一份資料）。
+ *
+ * 找不到就回 `null` —— 超過保留則數的舊訊息會被 `prune` 剝掉 prompt，那是正常結果。
+ */
+export function getMessageDebugDirect(messageId: string): {
+  debugPrompt: string | null
+  utilityDebugPrompt: string | null
+  convSearchDebugPrompt: string | null
+  newsDebug: unknown
+} | null {
+  const conv = getActiveConversation()
+  const msg = conv?.messages.find(m => m.id === messageId)
+  if (!msg) return null
+  return {
+    debugPrompt: msg.debugPrompt ?? null,
+    utilityDebugPrompt: msg.utilityDebugPrompt ?? null,
+    convSearchDebugPrompt: msg.convSearchDebugPrompt ?? null,
+    newsDebug: msg.newsDebug ?? null
+  }
 }
 
 export function activateWorldDirect(id: string): boolean {
@@ -789,13 +980,39 @@ export function removeLorebookDirect(id: string): { ok: true } {
   return { ok: true }
 }
 
+/**
+ * 從角色卡生成一條用語解說並加進指定的書（規格 §8）。
+ * 桌面 IPC（`lorebook:generate-entry`）與手機 `mobileServer` 都薄轉呼叫這支，邏輯只有一份。
+ */
+export async function generateLoreEntryDirect(
+  characterId: string,
+  lorebookId: string
+): Promise<{ ok: true; entry: LoreEntry } | { error: string }> {
+  const char = getCharacter(characterId)
+  if (!char) return { error: '找不到角色' }
+  const book = fileStore.loadLorebook(lorebookId)
+  if (!book) return { error: '找不到這本用語解說' }
+  const generated = await generateLoreEntryForCharacterSafe(char)
+  if (!generated) return { error: '生成失敗，請確認 API Key 與模型設定' }
+  const entry: LoreEntry = {
+    id: uuidv4(),
+    insertion_order: book.entries.length,
+    ...generated
+  }
+  book.entries.push(entry)
+  book.updatedAt = Date.now()
+  fileStore.saveLorebook(book)
+  broadcastToAll('lorebooks:updated', null)
+  return { ok: true, entry }
+}
+
 // ── 手機端設定（B3 階段 4）──────────────────────────────
 //
 // 桌面設定視窗的 LLM 分頁涵蓋供應商目錄、價格提示等桌面專屬的呈現邏輯；
 // 手機第一層只需要「填 API Key ＋ 供應商／模型」，這裡只做資料面的讀寫，
 // 供應商清單／模型建議清單等 UI 文案留在 `src/mobile/ui/`（roadmap §3.3）。
 
-const MOBILE_LLM_PROVIDERS: AppSettings['llm']['provider'][] = ['openai', 'claude', 'gemini', 'grok']
+const MOBILE_LLM_PROVIDERS: AppSettings['llm']['provider'][] = ['openai', 'claude', 'gemini', 'grok', 'local']
 
 function isMobileLlmProvider(v: unknown): v is AppSettings['llm']['provider'] {
   return typeof v === 'string' && (MOBILE_LLM_PROVIDERS as string[]).includes(v)
@@ -806,29 +1023,60 @@ function isMobileLlmProvider(v: unknown): v is AppSettings['llm']['provider'] {
  * 送到手機顯示——換一把新的不需要先看到舊的。`hasApiKey` 只回答「有沒有設定」，
  * 涵蓋解密失敗時留在 `encryptedApiKeyFallbacks` 的情況（此時 `apiKeys[p]` 是空字串）。
  */
+/**
+ * S1 初始化匯入用：明文 API Key。
+ *
+ * ⚠️ **呼叫端必須先確認是區網直連**（`mobileServer` 的 `isLanDirectRequest`）。
+ * 這是唯一會把金鑰送出電腦的路徑，且僅限 S1、僅限私有位址；
+ * S2 雙向同步永不同步金鑰，DST Pack 匯出也一律排除（roadmap §4.7）。
+ * 解密失敗而落在 `encryptedApiKeyFallbacks` 的供應商會被跳過（送密文過去沒有意義）。
+ */
+export function getApiKeysForSyncDirect(): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const p of MOBILE_LLM_PROVIDERS) {
+    const key = (settings.llm.apiKeys?.[p] ?? '').trim()
+    if (key) out[p] = key
+  }
+  return out
+}
+
 export function getLlmSettingsSummaryDirect(): {
   provider: AppSettings['llm']['provider']
   model: string
   models: Partial<Record<AppSettings['llm']['provider'], string>>
+  /** 目前 provider 生效的端點（攤平顯示用） */
   endpoint?: string
+  endpoints: Partial<Record<AppSettings['llm']['provider'], string>>
+  extraInstruction: string
   hasApiKey: Record<AppSettings['llm']['provider'], boolean>
   maxResponseTokens: number
   maxGroupRounds: number
   maxImagesPerMessage: number
+  utilityEnabled: boolean
+  utilityProvider: AppSettings['llm']['provider']
+  utilityModel: string
+  utilityModels: Partial<Record<AppSettings['llm']['provider'], string>>
 } {
   const hasApiKey = {} as Record<AppSettings['llm']['provider'], boolean>
   for (const p of MOBILE_LLM_PROVIDERS) {
     hasApiKey[p] = !!(settings.llm.apiKeys?.[p] ?? '').trim() || fileStore.encryptedApiKeyFallbacks.has(p)
   }
+  const utilityProvider = settings.llm.utilityProvider ?? settings.llm.provider
   return {
     provider: settings.llm.provider,
     model: settings.llm.models?.[settings.llm.provider] ?? settings.llm.model,
     models: { ...settings.llm.models },
-    endpoint: settings.llm.endpoint,
+    endpoint: settings.llm.endpoints?.[settings.llm.provider] ?? settings.llm.endpoint,
+    endpoints: { ...settings.llm.endpoints },
+    extraInstruction: settings.llm.extraInstruction ?? '',
     hasApiKey,
     maxResponseTokens: Math.max(100, Math.floor(Number(settings.llm.maxResponseTokens) || 400)),
     maxGroupRounds: Math.max(1, Math.floor(Number(settings.llm.maxGroupRounds) || 1)),
-    maxImagesPerMessage: Math.max(1, Math.floor(Number(settings.llm.maxImagesPerMessage) || 5))
+    maxImagesPerMessage: Math.max(1, Math.floor(Number(settings.llm.maxImagesPerMessage) || 5)),
+    utilityEnabled: !!settings.llm.utilityEnabled,
+    utilityProvider,
+    utilityModel: settings.llm.utilityModels?.[utilityProvider] ?? '',
+    utilityModels: { ...settings.llm.utilityModels }
   }
 }
 
@@ -837,6 +1085,8 @@ export function setLlmProviderDirect(provider: string): { ok: true } | { error: 
   settings.llm.provider = provider
   const savedModel = settings.llm.models?.[provider]
   if (savedModel) settings.llm.model = savedModel
+  // 攤平的舊欄位要跟著換家，否則切到本機後仍帶著上一家的端點
+  settings.llm.endpoint = settings.llm.endpoints?.[provider]
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return { ok: true }
@@ -854,11 +1104,75 @@ export function setLlmModelDirect(provider: string, model: string): { ok: true }
   return { ok: true }
 }
 
-export function setLlmEndpointDirect(endpoint: string): { ok: true } | { error: string } {
-  settings.llm.endpoint = endpoint.trim() || undefined
+export function setLlmUtilityEnabledDirect(enabled: boolean): { ok: true } | { error: string } {
+  settings.llm.utilityEnabled = enabled
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return { ok: true }
+}
+
+// 同 `setLlmProviderDirect`：換供應商時沒選過型號就補目錄預設值，避免存出空模型。
+export function setLlmUtilityProviderDirect(provider: string): { ok: true } | { error: string } {
+  if (!isMobileLlmProvider(provider)) return { error: '不支援的供應商' }
+  settings.llm.utilityProvider = provider
+  const model = settings.llm.utilityModels?.[provider] || DEFAULT_MODEL_BY_PROVIDER[provider] || ''
+  if (model) {
+    if (!settings.llm.utilityModels) settings.llm.utilityModels = {}
+    settings.llm.utilityModels[provider] = model
+  }
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+export function setLlmUtilityModelDirect(provider: string, model: string): { ok: true } | { error: string } {
+  if (!isMobileLlmProvider(provider)) return { error: '不支援的供應商' }
+  const trimmed = model.trim()
+  if (!trimmed) return { error: '模型名稱不可空白' }
+  if (!settings.llm.utilityModels) settings.llm.utilityModels = {}
+  settings.llm.utilityModels[provider] = trimmed
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+/**
+ * 設定某供應商的端點。`provider` 省略時沿用目前生效的供應商
+ * （舊版手機／遙控只送 `endpoint` 一個欄位，不能因此改到別家的設定）。
+ */
+export function setLlmEndpointDirect(endpoint: string, provider?: string): { ok: true } | { error: string } {
+  const target = provider ?? settings.llm.provider
+  if (!isMobileLlmProvider(target)) return { error: '不支援的供應商' }
+  const trimmed = endpoint.trim()
+  if (!settings.llm.endpoints) settings.llm.endpoints = {}
+  if (trimmed) settings.llm.endpoints[target] = trimmed
+  else delete settings.llm.endpoints[target]
+  // 舊的單一欄位跟著目前 provider 走，讓還沒改讀 endpoints 的呼叫端不會拿到過期值
+  if (target === settings.llm.provider) settings.llm.endpoint = trimmed || undefined
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+/**
+ * 手機「連線」按鈕：驗證金鑰／端點可用，local 供應商順便把 `GET /v1/models`
+ * 抓到的型號清單帶回去（那是手機唯一能拿到本機型號清單的管道，見
+ * `docs/local-llm-provider-plan.md` §3.5）。`endpoint` 省略時沿用目前存檔的值。
+ */
+export async function testLlmConnectionDirect(
+  provider: string,
+  endpoint?: string
+): Promise<{ ok: true; models?: string[] } | { error: string }> {
+  if (!isMobileLlmProvider(provider)) return { error: '不支援的供應商' }
+  const apiKey = settings.llm.apiKeys?.[provider]?.trim() || ''
+  const r = await testLLMConnection({
+    provider,
+    apiKey,
+    apiKeys: settings.llm.apiKeys,
+    endpoint: endpoint?.trim() || settings.llm.endpoints?.[provider] || (provider === settings.llm.provider ? settings.llm.endpoint : undefined)
+  })
+  if (!r.ok) return { error: r.error || '連線失敗' }
+  return { ok: true, models: r.models }
 }
 
 /**
@@ -870,6 +1184,13 @@ export function setLlmApiKeyDirect(provider: string, apiKey: string): { ok: true
   if (!settings.llm.apiKeys) settings.llm.apiKeys = {}
   settings.llm.apiKeys[provider] = apiKey
   fileStore.encryptedApiKeyFallbacks.delete(provider)
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
+}
+
+export function setLlmExtraInstructionDirect(text: string): { ok: true } | { error: string } {
+  settings.llm.extraInstruction = String(text ?? '').slice(0, 2000)
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return { ok: true }
@@ -991,7 +1312,7 @@ export function getWeatherSettingsDirect(): {
   locationName: string
   latitude: number
   longitude: number
-  locationSource: 'ip' | 'manual' | ''
+  locationSource: WeatherLocationSource
   utilityEnabled: boolean
 } {
   const w = settings.weather
@@ -1030,7 +1351,7 @@ export function setWeatherSettingsDirect(patch: {
   locationName?: string
   latitude?: number
   longitude?: number
-  locationSource?: 'ip' | 'manual' | ''
+  locationSource?: WeatherLocationSource
 }): { ok: true; weather: ReturnType<typeof getWeatherSettingsDirect> } | { error: string } {
   const w = ensureWeatherSettings()
   if (typeof patch.enabled === 'boolean') {
@@ -1043,7 +1364,12 @@ export function setWeatherSettingsDirect(patch: {
   if (typeof patch.locationName === 'string') w.locationName = patch.locationName.trim().slice(0, 120)
   if (typeof patch.latitude === 'number' && Number.isFinite(patch.latitude)) w.latitude = patch.latitude
   if (typeof patch.longitude === 'number' && Number.isFinite(patch.longitude)) w.longitude = patch.longitude
-  if (patch.locationSource === 'ip' || patch.locationSource === 'manual' || patch.locationSource === '') {
+  if (
+    patch.locationSource === 'ip' ||
+    patch.locationSource === 'gps' ||
+    patch.locationSource === 'manual' ||
+    patch.locationSource === ''
+  ) {
     w.locationSource = patch.locationSource
   }
   settings.weather = w
@@ -1051,6 +1377,64 @@ export function setWeatherSettingsDirect(patch: {
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return { ok: true, weather: getWeatherSettingsDirect() }
+}
+
+/**
+ * S1 要送去手機的天氣設定。
+ *
+ * **不含地點** —— 手機自己有 GPS，帶座標過去只會讓它出門在外顯示家裡的天氣
+ * （owner 2026-08-08 決定）。帶的是「設定兩次很煩」的那幾項：潤飾開關、
+ * CWA 縣市與金鑰。
+ *
+ * `cwaApiKey` 只在區網直連時附上，規矩與 LLM 金鑰完全相同：
+ * 判定在這一端做，非直連時**連欄位都不出現**（不是空字串，
+ * 否則手機會誤判成「電腦上清空了」而把自己填的那把洗掉）。
+ */
+export function getWeatherSyncSettingsDirect(lanDirect: boolean): {
+  polish: boolean
+  realtimeQuery?: { enabled: boolean; forecastCounty: string; cwaApiKey?: string }
+} {
+  const w = settings.weather
+  const rq = w?.realtimeQuery
+  return {
+    polish: !!w?.polish,
+    ...(rq
+      ? {
+          realtimeQuery: {
+            enabled: !!rq.enabled,
+            forecastCounty: rq.forecastCounty ?? '',
+            // 解不開的金鑰長得像密文，那種情況當作沒有，不要送過去汙染手機
+            ...(lanDirect && rq.cwaApiKey && !rq.cwaApiKey.startsWith('enc:v1:')
+              ? { cwaApiKey: rq.cwaApiKey }
+              : {})
+          }
+        }
+      : {})
+  }
+}
+
+/**
+ * S1 要送去手機的新聞設定（owner 2026-08-12：「不然我要手動重設關鍵字很麻煩」）。
+ *
+ * 帶的是**使用者自己設定過的那些**——關鍵字／訂閱來源、分組、黑名單、
+ * 語言與陪聊偏好、新聞報版面配額。手機端的新聞設定畫面能改的欄位全在裡面。
+ *
+ * **刻意不帶的四項**：
+ * - `enabled`：模組開關走 `modules`，那條路徑兩邊都已經有了，不要兩處各送一次
+ *   （送兩份而值不同時，後套用的會贏，行為變得看順序）。
+ * - `seenIds`：「這則聊過了」是每台裝置各自的去重歷史，不是設定。
+ * - `feedback.adjustments`：學習來的權重是衍生資料，跟著各自的使用習慣長。
+ * - `reminder`（定時陪聊排程）：手機的提醒是原生精準鬧鐘、有自己的一套
+ *   （`docs/mobile-standalone-reminder-plan.md`），把電腦的排程灌過去會憑空
+ *   多出一則手機沒答應過的鬧鐘。要排程請在手機上自己設。
+ */
+export function getNewsSyncSettingsDirect(): Omit<
+  NewsModuleSettings,
+  'enabled' | 'seenIds' | 'feedback' | 'reminder'
+> {
+  const { enabled: _enabled, seenIds: _seenIds, feedback: _feedback, reminder: _reminder, ...rest } =
+    loadNewsModuleSettings()
+  return rest
 }
 
 export async function detectWeatherLocationDirect(): Promise<
@@ -1202,6 +1586,14 @@ export function handleSendMessageFromMobile(payload: {
 }): Promise<{ ok: boolean } | { error: string }> {
   if (!_mobileSendImpl) return Promise.resolve({ error: 'IPC handlers not registered yet' })
   return _mobileSendImpl(payload)
+}
+
+/** 中止進行中的送出；回草稿給呼叫端還原輸入框。沒有進行中的請求就回 null。 */
+export function stopSendDirect(): { content: string; images?: string[] } | null {
+  if (!activeSendAbort) return null
+  const draft = activeSendDraft
+  activeSendAbort.abort()
+  return draft ? { content: draft.content, images: draft.images } : { content: '' }
 }
 
 export function deleteMessageDirect(id: string): boolean {
@@ -1483,6 +1875,11 @@ export function listLorebooksDirect(): { id: string; name: string }[] {
   return fileStore.loadLorebooks().map(b => ({ id: b.id, name: b.name }))
 }
 
+/** 用語解說的輕量清單，多帶 `updatedAt`。給 `/api/sync-manifest`（S2 M2 差異預覽）用。 */
+export function getLorebookManifestDirect(): { id: string; name: string; updatedAt: number }[] {
+  return fileStore.loadLorebooks().map(b => ({ id: b.id, name: b.name, updatedAt: b.updatedAt }))
+}
+
 /** 匯入 DST Pack 遇到同 id ／同名角色時的處置。 */
 export type DstPackConflictChoice = 'overwrite' | 'new' | 'skip'
 
@@ -1496,12 +1893,24 @@ export type DstPackConflictChoice = 'overwrite' | 'new' | 'skip'
 export interface DstPackImportResolvers {
   onConflict: (info: { name: string; reason: 'same-id' | 'same-name' }) => Promise<DstPackConflictChoice>
   confirmGlobalSettings: () => Promise<boolean>
+  /**
+   * 指定這一趟要蓋到哪個既有角色上（S2 M4 的逐項比對用）。
+   *
+   * 手機端在比對畫面上已經明確判定「手機這隻＝電腦那隻」，可能是靠 id、
+   * 也可能是靠名稱——**名稱那條路 `onConflict` 判不出來**：包裡的 id 在電腦上
+   * 不存在（`same-id` 不成立），而如果使用者又在電腦上把它改過名，`same-name`
+   * 也不成立，結果就是「當成全新角色建一隻」，正是重複資料的來源。
+   *
+   * 有這個值時直接蓋在它上面，跳過所有猜測。只在單隻角色的包上使用；
+   * 桌面 UI 的匯入不傳這個，行為完全不變。
+   */
+  targetId?: string
 }
 
 export async function importDstPackDirect(
   buffer: ArrayBuffer,
   resolvers: DstPackImportResolvers
-): Promise<{ ok: true; imported: number; skipped: number } | { error: string }> {
+): Promise<{ ok: true; imported: number; skipped: number; ids: string[] } | { error: string }> {
   try {
     const buf = Buffer.from(buffer ?? new ArrayBuffer(0))
     if (buf.length < 32) return { error: '檔案過小或已損毀' }
@@ -1514,6 +1923,16 @@ export async function importDstPackDirect(
     const charsRoot = path.join(fileStore.getDataDir(), 'characters')
     let imported = 0
     let skipped = 0
+    /**
+     * 這一趟實際落地的角色 id（S2 M4）。
+     *
+     * 手機推送過來時**必須**知道結果的 id 是哪個：這支會依 id／名稱衝突決定
+     * 沿用既有 id 還是發新的（下面的 `targetDirId`），手機送來的 id 常常不是
+     * 最後存下來的那個。M3 的手機端就是誤以為「送什麼 id 就存成什麼 id」，
+     * 把對應表記成自己的 id，於是每次同步都判成「電腦上沒有」而重推一份——
+     * owner 的電腦因此長出 23 個情境、各 10 份的世界觀與使用者設定。
+     */
+    const ids: string[] = []
 
     for (const prefix of parsed.characterZipPrefixes) {
       const segs = prefix.split('/').filter(Boolean)
@@ -1528,7 +1947,11 @@ export async function importDstPackDirect(
 
       let targetDirId = charPreview.id
 
-      if (idHit) {
+      if (resolvers.targetId) {
+        // 呼叫端已經確定要蓋哪一隻（S2 M4 逐項比對），不必再猜
+        targetDirId = resolvers.targetId
+        fs.rmSync(path.join(charsRoot, targetDirId), { recursive: true, force: true })
+      } else if (idHit) {
         const choice = await resolvers.onConflict({ name: charPreview.name, reason: 'same-id' })
         if (choice === 'skip') {
           skipped++
@@ -1571,6 +1994,7 @@ export async function importDstPackDirect(
       const idx = characters.findIndex(c => c.id === fixed.id)
       if (idx >= 0) characters[idx] = fixed
       else characters.push(fixed)
+      ids.push(fixed.id)
       imported++
     }
 
@@ -1633,7 +2057,7 @@ export async function importDstPackDirect(
       }
     }
 
-    return { ok: true as const, imported, skipped }
+    return { ok: true as const, imported, skipped, ids }
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) }
   }
@@ -1652,6 +2076,13 @@ export function initState(
   setLowPerformanceMode(settings.ui.lowPerformanceMode ?? false, settings.ui.lowPerformanceLogMessageLimit ?? 50)
   setEventDrivenHitTest(settings.ui.eventDrivenHitTest ?? false)
   characters = chars
+  /*
+   * 讓 `fileStore.saveConversation` 存檔時能把角色名字快照補進訊息裡
+   * （`Message.characterName`）。用 getter 而不是傳陣列本身：`characters`
+   * 這個變數會被整個換掉（上面這行、刪角色時的 filter⋯），傳當下那份的話
+   * fileStore 會一直抓著舊陣列。
+   */
+  fileStore.setCharacterNameSource(() => characters)
   configureAuxWindowPersistence(
     (kind) => kind === 'input' ? settings.ui.inputWindowBounds : settings.ui.logWindowBounds,
     (kind, bounds) => {
@@ -2286,7 +2717,7 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
   const extraSystemContext = ctxParts.join('\n\n') || undefined
 
   // 檢查是否有 API Key
-  const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+  const hasApiKey = hasUsableApiKey(settings)
 
   setThinking(charId, true)
   deferRaiseCharacterAbovePinnedNotes(charId)
@@ -2411,14 +2842,20 @@ export function applySceneById(id: string): { ok: true } | { error: string } {
     }
   }
 
-  // Apply persona / world / theme
-  settings.activePersonaId = scene.activePersonaId
-  settings.activeWorldId = scene.activeWorldId
-  settings.activeSceneId = scene.id
-  if (scene.colorTheme !== undefined) settings.ui.colorTheme = scene.colorTheme
-  if (scene.lastActiveConversationId !== undefined) {
-    settings.ui.lastActiveConversationId = scene.lastActiveConversationId
+  // Apply persona / world / theme（設定層那段與手機獨立版共用 `core/scene/apply`）
+  const sceneTarget = {
+    activePersonaId: settings.activePersonaId,
+    activeWorldId: settings.activeWorldId,
+    activeSceneId: settings.activeSceneId,
+    colorTheme: settings.ui.colorTheme,
+    lastActiveConversationId: settings.ui.lastActiveConversationId
   }
+  applySceneSettings(scene, sceneTarget)
+  settings.activePersonaId = sceneTarget.activePersonaId
+  settings.activeWorldId = sceneTarget.activeWorldId
+  settings.activeSceneId = sceneTarget.activeSceneId
+  settings.ui.colorTheme = sceneTarget.colorTheme
+  settings.ui.lastActiveConversationId = sceneTarget.lastActiveConversationId
 
   // Apply window bounds
   if (scene.inputWindowBounds) {
@@ -2722,7 +3159,7 @@ export async function forceSpeakDirect(
     if (!conv || !char) return { error: 'Not found' }
 
     // 沒有 API Key 時直接說提示訊息，不進 LLM
-    const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+    const hasApiKey = hasUsableApiKey(settings)
     if (!hasApiKey) {
       const noKeyText = '（系統提示：尚未設定 API Key，我沒辦法回應你喔。請點右上角的設定圖示，前往「LLM」分頁填入 API Key，就可以開始聊天囉！）'
       const msg: Message = {
@@ -3009,12 +3446,56 @@ async function runConversationSummarize(conv: Conversation): Promise<{ ok: boole
 /** 自動摘要：未涵蓋訊息達閾值時在背景執行（fire-and-forget，失敗只留 console 警告） */
 function maybeAutoSummarize(conv: Conversation): void {
   if (!settings.memory.autoSummarizeEnabled) return
-  if (!settings.llm.apiKeys[settings.llm.provider]?.trim()) return
+  if (!hasUsableApiKey(settings)) return
   const threshold = Math.max(1, Number(settings.memory.autoSummarizeAfter) || 50)
   if (countUncoveredMessages(conv) < threshold) return
   void runConversationSummarize(conv).then(r => {
     if (!r.ok && r.error !== '摘要進行中') console.warn('[summary] auto summarize failed:', r.error)
   })
+}
+
+/** 手機（獨立／遙控）用：依 id 操作任一對話的記憶摘要，不限「目前使用中」那個。 */
+export function getConversationMemoryDirect(id: string): { ok: true; summary: string; coversTs: number; coveredCount: number } | { ok: false; error: string } {
+  const conv = getOrLoadConversation(id)
+  if (!conv) return { ok: false, error: '找不到這個對話' }
+  const coversTs = conv.summaryCoversTs ?? 0
+  return {
+    ok: true,
+    summary: conv.summary ?? '',
+    coversTs,
+    coveredCount: coversTs ? conv.messages.filter(m => m.timestamp <= coversTs).length : 0
+  }
+}
+
+export async function summarizeConversationNowDirect(id: string): Promise<{ ok: boolean; noNew?: boolean; error?: string; summary?: string; coveredCount?: number }> {
+  const conv = getOrLoadConversation(id)
+  if (!conv) return { ok: false, error: '找不到這個對話' }
+  if (!hasUsableApiKey(settings)) return { ok: false, error: '尚未設定 API Key' }
+  const r = await runConversationSummarize(conv)
+  if (!r.ok || r.noNew) return r
+  const coversTs = conv.summaryCoversTs ?? 0
+  return { ok: true, summary: conv.summary, coveredCount: coversTs ? conv.messages.filter(m => m.timestamp <= coversTs).length : 0 }
+}
+
+export function updateConversationSummaryDirect(id: string, summary: string): { ok: true } | { ok: false; error: string } {
+  const conv = getOrLoadConversation(id)
+  if (!conv) return { ok: false, error: '找不到這個對話' }
+  conv.summary = String(summary ?? '').trim()
+  conv.updatedAt = Date.now()
+  fileStore.saveConversation(conv)
+  broadcastConversationUpdate(conv)
+  return { ok: true }
+}
+
+export function clearConversationSummaryDirect(id: string): { ok: true } | { ok: false; error: string } {
+  const conv = getOrLoadConversation(id)
+  if (!conv) return { ok: false, error: '找不到這個對話' }
+  conv.summary = ''
+  conv.summaryCoversTs = undefined
+  conv.updatedAt = Date.now()
+  fileStore.saveConversation(conv)
+  broadcastConversationUpdate(conv)
+  return { ok: true }
 }
 
 export function registerIpcHandlers() {
@@ -3933,7 +4414,7 @@ export function registerIpcHandlers() {
   ipcMain.handle('conversation:summarize-now', async () => {
     const conv = getActiveConversation()
     if (!conv) return { ok: false, error: '沒有進行中的對話' }
-    if (!settings.llm.apiKeys[settings.llm.provider]?.trim()) return { ok: false, error: '尚未設定 API Key' }
+    if (!hasUsableApiKey(settings)) return { ok: false, error: '尚未設定 API Key' }
     return runConversationSummarize(conv)
   })
 
@@ -4077,9 +4558,17 @@ export function registerIpcHandlers() {
         : consumePendingUserNewsLink() ?? undefined) || undefined
 
     // Add user message
+    // 發話當下的身分名字跟訊息一起存：身分之後改名或刪掉，舊記錄仍要看得出是誰說的。
+    // 取名規則與手機輸入框上方的身分列一致（顯示名 → 暱稱 → 設定組名稱）。
+    const sendPersona = getActivePersona()
+    const sendPersonaName = sendPersona
+      ? sendPersona.displayName.trim() || sendPersona.nickname.trim() || sendPersona.name
+      : ''
+
     const userMsg: Message = {
       id: uuidv4(),
       role: 'user',
+      personaName: sendPersonaName || undefined,
       content: payload.content,
       images: payload.images,
       randomResult: payload.randomResult,
@@ -4153,7 +4642,7 @@ export function registerIpcHandlers() {
     if (!primaryChar) return { ok: true }
 
     // 檢查是否有 API Key
-    const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+    const hasApiKey = hasUsableApiKey(settings)
     if (!hasApiKey) {
       const noKeyText = '（系統提示：尚未設定 API Key，我沒辦法回應你喔。請點右上角的設定圖示，前往「LLM」分頁填入 API Key，就可以開始聊天囉！）'
       const noApiKeyMsg: Message = {
@@ -4175,6 +4664,7 @@ export function registerIpcHandlers() {
 
     const abortController = new AbortController()
     activeSendAbort = abortController
+    activeSendDraft = { content: payload.content, images: payload.images }
 
     setThinking(primaryId, true)
     deferRaiseCharacterAbovePinnedNotes(primaryId)
@@ -4299,6 +4789,7 @@ export function registerIpcHandlers() {
       setThinking(primaryId, false)
       if (abortController.signal.aborted) {
         activeSendAbort = null
+        activeSendDraft = null
         // 使用者按下停止：移除尚未獲得回覆的訊息，關閉使用者泡泡，並把內容還給輸入框讓使用者修改重發
         conv.messages = conv.messages.filter(m => m.id !== userMsg.id)
         conv.updatedAt = Date.now()
@@ -4325,6 +4816,7 @@ export function registerIpcHandlers() {
       scheduleConversationBroadcast(conv)
       flushConversationBroadcast()
       activeSendAbort = null
+      activeSendDraft = null
       fileStore.saveConversation(conv)
       return { ok: true }
     }
@@ -4461,6 +4953,7 @@ export function registerIpcHandlers() {
     }
 
     activeSendAbort = null
+    activeSendDraft = null
     flushConversationBroadcast()
     fileStore.saveConversation(conv)
     maybeAutoSummarize(conv)
@@ -4471,7 +4964,7 @@ export function registerIpcHandlers() {
 
   // Stop the in-flight message:send LLM call(s), if any
   ipcMain.handle('message:stop', () => {
-    activeSendAbort?.abort()
+    stopSendDirect()
     return { ok: true }
   })
 
@@ -4496,7 +4989,7 @@ export function registerIpcHandlers() {
     const conv = getActiveConversation()
     if (!conv) return { error: 'No active conversation' }
 
-    const hasApiKey = !!settings.llm.apiKeys[settings.llm.provider]?.trim()
+    const hasApiKey = hasUsableApiKey(settings)
     if (!hasApiKey) return { error: 'No API key' }
 
     const nonMuted = settings.ui.desktopCharacters
@@ -4869,25 +5362,10 @@ export function registerIpcHandlers() {
   /**
    * 從角色卡生成一條用語解說並加進指定的書（規格 §8）。
    * 失敗一律回錯誤字串讓 UI 顯示；匯入流程另有靜默略過的呼叫點。
+   * 邏輯在 `generateLoreEntryDirect`，手機 `mobileServer` 共用同一份。
    */
-  ipcMain.handle('lorebook:generate-entry', async (_, payload: { characterId: string; lorebookId: string }) => {
-    const char = getCharacter(payload?.characterId)
-    if (!char) return { error: '找不到角色' }
-    const book = fileStore.loadLorebook(payload?.lorebookId)
-    if (!book) return { error: '找不到這本用語解說' }
-    const generated = await generateLoreEntryForCharacterSafe(char)
-    if (!generated) return { error: '生成失敗，請確認 API Key 與模型設定' }
-    const entry = {
-      id: uuidv4(),
-      insertion_order: book.entries.length,
-      ...generated
-    }
-    book.entries.push(entry)
-    book.updatedAt = Date.now()
-    fileStore.saveLorebook(book)
-    broadcastToAll('lorebooks:updated', null)
-    return { ok: true as const, entry }
-  })
+  ipcMain.handle('lorebook:generate-entry', async (_, payload: { characterId: string; lorebookId: string }) =>
+    generateLoreEntryDirect(payload?.characterId, payload?.lorebookId))
 
   // 已註冊模組清單（情境模組開關 UI 用；排除遠端遙控等基礎設施由 renderer 決定）
   ipcMain.handle('modules:list', () => listRegisteredModules())

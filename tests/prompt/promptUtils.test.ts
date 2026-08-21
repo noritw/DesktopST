@@ -8,7 +8,8 @@ import {
   sanitizePromptText,
   applyStStyleTags,
   normalizeEmotion,
-  parseEmotion
+  parseEmotion,
+  expandNewsLinkForPrompt
 } from '@core/prompt/promptUtils'
 import { makeSettings, CHAR, PERSONA, WORLD, baseMessages, T0 } from '../fixtures'
 import type { Message } from '@core/types'
@@ -108,6 +109,35 @@ describe('buildSystemPrompt', () => {
     )
     expect(empty).toBe(base)
     expect(empty).not.toContain('Glossary')
+  })
+})
+
+describe('buildSystemPrompt：llm.extraInstruction', () => {
+  it('沒填時 prompt 完全不受影響（不多一個空段落）', () => {
+    const withEmpty = buildSystemPrompt(makeSettings({ llm: { ...makeSettings().llm, extraInstruction: '' } }), CHAR, PERSONA, WORLD, ['小綠'])
+    const without = buildSystemPrompt(makeSettings(), CHAR, PERSONA, WORLD, ['小綠'])
+    expect(withEmpty).toBe(without)
+  })
+
+  it('填了會附加在最尾端，蓋過前面的通用規則而不是被稀釋', () => {
+    const settings = makeSettings({
+      llm: { ...makeSettings().llm, extraInstruction: '請一律使用繁體中文（台灣用語）。' }
+    })
+    const out = buildSystemPrompt(settings, CHAR, PERSONA, WORLD, ['小綠'])
+    expect(out.trim().endsWith('請一律使用繁體中文（台灣用語）。')).toBe(true)
+  })
+
+  it('不綁定 provider——對任何供應商都一樣附加', () => {
+    const local = buildSystemPrompt(
+      makeSettings({ llm: { ...makeSettings().llm, provider: 'local', extraInstruction: '測試指示' } }),
+      CHAR, PERSONA, WORLD, ['小綠']
+    )
+    const claude = buildSystemPrompt(
+      makeSettings({ llm: { ...makeSettings().llm, provider: 'claude', extraInstruction: '測試指示' } }),
+      CHAR, PERSONA, WORLD, ['小綠']
+    )
+    expect(local.endsWith('測試指示')).toBe(true)
+    expect(claude.endsWith('測試指示')).toBe(true)
   })
 })
 
@@ -231,6 +261,15 @@ describe('normalizeEmotion / parseEmotion', () => {
     expect(r.content).toBe('今天天氣真好')
   })
 
+  it('帶數字的自訂 sprite id（檔名 stem）也要從內容剝掉', () => {
+    const r = parseEmotion(
+      '[1779213835889_KT_rpg_default]\n隨便妳。',
+      ['1779213835889_KT_rpg_default', '1780897146106_YT_rpg_surprise']
+    )
+    expect(r.emotion).toBe('1779213835889_KT_rpg_default')
+    expect(r.content).toBe('隨便妳。')
+  })
+
   it('emotion: xxx 格式也吃', () => {
     expect(parseEmotion('emotion: amused\n哈哈')).toEqual({ emotion: 'amusement', content: '哈哈' })
   })
@@ -245,5 +284,42 @@ describe('normalizeEmotion / parseEmotion', () => {
     const r = parseEmotion('就只是一句話')
     expect(r.content).toBe('就只是一句話')
     expect(typeof r.emotion).toBe('string')
+  })
+})
+
+describe('expandNewsLinkForPrompt — 清除摘要之後不再進 Prompt', () => {
+  const base = { id: 'm1', role: 'user' as const, content: '你們覺得呢', timestamp: 0 }
+  const link = { id: 'n1', sourceId: 's', title: 'IGN 評論任天堂', url: 'https://x', summary: 'RSS 摘要', source: 'IGN' }
+
+  it('有摘要：照常展開成 [Sharing a news item with you]', () => {
+    const [m] = expandNewsLinkForPrompt([{ ...base, newsLink: { ...link, promptContext: '整理過的內容' } }])
+    expect(m.content).toContain('[Sharing a news item with you]')
+    expect(m.content).toContain('Details: 整理過的內容')
+    expect(m.content).toContain('你們覺得呢')
+  })
+
+  it('從未整理過（undefined）：退回 RSS summary，行為不變', () => {
+    const [m] = expandNewsLinkForPrompt([{ ...base, newsLink: { ...link } }])
+    expect(m.content).toContain('Details: RSS 摘要')
+  })
+
+  it('摘要被清空（空字串）：只留一行 [Shared News] 標題，其他全不要', () => {
+    // 空字串與 undefined 意義不同——前者是使用者按了「清除摘要」，
+    // 寫成 falsy 判斷的話會把 summary 補回去，等於清除按鈕沒作用。
+    const [m] = expandNewsLinkForPrompt([{ ...base, newsLink: { ...link, promptContext: '' } }])
+    expect(m.content).toBe('[Shared News] IGN 評論任天堂\n\n你們覺得呢')
+    expect(m.content).not.toContain('Details:')
+    expect(m.content).not.toContain('Source:')
+    expect(m.content).not.toContain('RSS 摘要')
+    // 指著不存在的 Details 會讓模型自己編一段
+    expect(m.content).not.toContain('use the Details above')
+  })
+
+  it('清除後再「重新摘要」：完整格式要整套回來', () => {
+    const [m] = expandNewsLinkForPrompt([{ ...base, newsLink: { ...link, promptContext: '重新整理過的內容' } }])
+    expect(m.content).toContain('[Sharing a news item with you]')
+    expect(m.content).toContain('Details: 重新整理過的內容')
+    expect(m.content).toContain('Source: IGN')
+    expect(m.content).not.toContain('[Shared News]')
   })
 })

@@ -54,8 +54,17 @@ export interface Message {
   id: string
   role: 'user' | 'character' | 'system'
   characterId?: string
+  /**
+   * 發話角色當下的名字，**只在 `characterId` 查不到人時當備援**
+   * （完整說明見 `core/types.ts` 的同名欄位）。
+   *
+   * ⚠️ 這份 `Message` 是 renderer 自己維護的平行定義，不是 `core/types.ts`
+   * 那份的 re-export（`src/main/types.ts` 才是）。core 加欄位時這裡要一起加，
+   * 否則 renderer 讀得到值卻過不了型別檢查。
+   */
+  characterName?: string
   content: string
-  llmProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
+  llmProvider?: 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
   llmModel?: string
   debugPrompt?: string
   emotion?: string
@@ -210,13 +219,16 @@ export interface RemoteControlSettings {
   registeredPrograms: RegisteredProgram[]
 }
 
+/** 見 `core/types.ts` 的同名型別；`gps` 只有手機端會寫入。 */
+export type WeatherLocationSource = 'ip' | 'gps' | 'manual' | ''
+
 export interface WeatherSettings {
   enabled: boolean
   polish: boolean
   locationName: string
   latitude: number
   longitude: number
-  locationSource: 'ip' | 'manual' | ''
+  locationSource: WeatherLocationSource
   realtimeQuery?: {
     enabled: boolean
     cwaApiKey: string
@@ -316,14 +328,19 @@ export interface AppSettings {
   mobile?: MobileSettings
   remoteControl?: RemoteControlSettings
   llm: {
-    provider: 'openai' | 'claude' | 'gemini' | 'grok'
+    provider: 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
     /** @deprecated use apiKeys[provider] instead */
     apiKey: string
     apiKeys: Record<string, string>
     model: string
     /** Per-provider model selection; takes precedence over single `model` field */
     models?: Record<string, string>
+    /** @deprecated use endpoints[provider] instead */
     endpoint?: string
+    /** 各供應商各自的端點（主模型與輔助模型共用這張表） */
+    endpoints?: Record<string, string>
+    /** 附加在 system prompt 尾端的自訂指示，對所有供應商生效。 */
+    extraInstruction?: string
     maxResponseTokens: number
     maxGroupRounds: number
     maxImagesPerMessage: number
@@ -331,7 +348,7 @@ export interface AppSettings {
     /** 提醒發話、情緒分類是否使用獨立輔助模型（群組對話一律用扮演主模型） */
     utilityEnabled?: boolean
     /** 輔助模型的供應商（未設定時跟隨 provider） */
-    utilityProvider?: 'openai' | 'claude' | 'gemini' | 'grok'
+    utilityProvider?: 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
     /** 各供應商的輔助模型名稱 */
     utilityModels?: Record<string, string>
   }
@@ -392,6 +409,8 @@ export interface AppSettings {
     /** Include the input window when capturing screenshots with DesktopST windows visible. */
     screenshotIncludeInputWindow?: boolean
     randomToolsEnabled?: boolean
+    /** 每則角色回覆旁顯示生成它的模型小圖示（點一下看型號）。未設定＝開啟 */
+    showLlmBadge?: boolean
     /** Low performance mode: keeps character transparency, simplifies bubbles, and limits bubble windows. */
     lowPerformanceMode?: boolean
     /** Initial message count shown in the log window while low performance mode is enabled. */

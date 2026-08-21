@@ -51,6 +51,21 @@ export interface WebSocketLike {
 const MAX_BACKOFF_MS = 8000
 const RELOAD_AFTER_FAILURES = 4
 
+/**
+ * 連續失敗這麼多次之後，退避上限放寬到 `LONG_BACKOFF_MS`。
+ *
+ * owner 2026-08-13 問「反覆重連會有不好影響嗎」——原本不論斷多久都固定每 8 秒
+ * 試一次，而且**永遠不會停**（原生殼沒有 `onNeedsReload`，不會走重載那條路）。
+ * 電腦關機一整晚就是整晚每 8 秒一次 TCP 連線嘗試：單次成本很小，但會週期性
+ * 喚醒網路介面，對電池不是零。
+ *
+ * 前 10 次維持原本的快節奏（約一分鐘內），讓「電腦重開機」「Wi-Fi 換頻段」
+ * 這類短暫中斷能立刻接回來；超過之後才降頻到 30 秒 —— 那時多半是電腦真的關了，
+ * 使用者也已經看過詢問視窗，晚幾秒接上完全無感。
+ */
+const LONG_BACKOFF_AFTER_RETRIES = 10
+const LONG_BACKOFF_MS = 30_000
+
 export class RemoteEventSource implements EventSource {
   private hub = new EventHub()
   private socket: WebSocketLike | null = null
@@ -118,16 +133,22 @@ export class RemoteEventSource implements EventSource {
     this.hub.setStatus('connecting')
     const create = this.opts.createSocket ?? ((url: string) => new WebSocket(url) as unknown as WebSocketLike)
 
+    const url = this.opts.wsUrl()
+    // eslint-disable-next-line no-console -- 暫時診斷（S2 M1「連線中斷」追查用，見 CLAUDE.md §5）
+    console.info('[RemoteEventSource] connecting', url)
+
     let socket: WebSocketLike
     try {
-      socket = create(this.opts.wsUrl())
-    } catch {
+      socket = create(url)
+    } catch (e) {
+      console.info('[RemoteEventSource] create() threw', e)
       this.handleClose()
       return
     }
     this.socket = socket
 
     socket.addEventListener('open', () => {
+      console.info('[RemoteEventSource] open')
       this.retryCount = 0
       this.failCount = 0
       this.hub.setStatus('online')
@@ -137,8 +158,15 @@ export class RemoteEventSource implements EventSource {
     })
 
     socket.addEventListener('message', (e) => this.handleMessage(e.data))
-    socket.addEventListener('close', () => this.handleClose())
-    socket.addEventListener('error', () => socket.close())
+    socket.addEventListener('close', (e) => {
+      const ce = e as unknown as { code?: number; reason?: string; wasClean?: boolean }
+      console.info('[RemoteEventSource] close', { code: ce.code, reason: ce.reason, wasClean: ce.wasClean })
+      this.handleClose()
+    })
+    socket.addEventListener('error', (e) => {
+      console.info('[RemoteEventSource] error', e)
+      socket.close()
+    })
   }
 
   private handleClose(): void {
@@ -152,7 +180,8 @@ export class RemoteEventSource implements EventSource {
       this.opts.onNeedsReload()
       return
     }
-    const delay = Math.min(500 * Math.pow(2, this.retryCount), MAX_BACKOFF_MS)
+    const ceiling = this.retryCount >= LONG_BACKOFF_AFTER_RETRIES ? LONG_BACKOFF_MS : MAX_BACKOFF_MS
+    const delay = Math.min(500 * Math.pow(2, this.retryCount), ceiling)
     this.retryCount++
     this.reconnectTimer = this.setTimer(() => {
       this.reconnectTimer = null

@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore, selectMessages } from '../stores/useAppStore'
 import type { Message, NewsDebugInfo, NewsLinkInfo } from '../types'
+// 排版與圖片剝除跟手機版共用同一份（`core/prompt/debugPromptView`），不要在這裡另抄。
+import { renderDebugPrompt, stripImageData } from '@core/prompt/debugPromptView'
+import { resolveCharacterName } from '@core/chat/characterName'
 import { MESSAGE_REACTION_EMOJIS } from '../types'
-import MessageText from '../components/MessageText'
+import MessageText from '@shared/MessageText'
 import NewsContextPanel from '../components/NewsContextPanel'
 import MonoIcon, { type MonoIconName } from '../components/MonoIcon'
 import { buildSpriteEntries, EMOTION_OPTIONS, stemFromFilename } from '../utils/emotionUtils'
@@ -27,80 +30,6 @@ function stripInjectedTime(content: string): string {
   return String(content ?? '')
     .replace(/\n{0,2}【目前時間】[^\n\r]*(?:\r?\n)?/g, '')
     .trim()
-}
-
-function stripImageData(prompt: string): string {
-  try {
-    const obj = JSON.parse(prompt)
-    const walk = (node: unknown): unknown => {
-      if (Array.isArray(node)) return node.map(walk)
-      if (node && typeof node === 'object') {
-        const o = node as Record<string, unknown>
-        // OpenAI: { type: "image_url", image_url: { url: "data:..." } }
-        if (o.type === 'image_url' && o.image_url && typeof (o.image_url as Record<string, unknown>).url === 'string') {
-          const url = (o.image_url as Record<string, unknown>).url as string
-          if (url.startsWith('data:')) {
-            return { ...o, image_url: { ...(o.image_url as object), url: '[IMAGE DATA REMOVED]' } }
-          }
-        }
-        // OpenAI Responses API: { type: "input_image", image_url: "data:..." }
-        if (typeof o.image_url === 'string' && (o.image_url as string).startsWith('data:')) {
-          return { ...o, image_url: '[IMAGE DATA REMOVED]' }
-        }
-        // Anthropic: { type: "image", source: { type: "base64", data: "..." } }
-        if (o.type === 'image' && o.source && typeof (o.source as Record<string, unknown>).data === 'string') {
-          return { ...o, source: { ...(o.source as object), data: '[IMAGE DATA REMOVED]' } }
-        }
-        return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, walk(v)]))
-      }
-      return node
-    }
-    return JSON.stringify(walk(obj), null, 2)
-  } catch {
-    // fallback: regex strip for data URLs
-    return prompt.replace(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/g, '[IMAGE DATA REMOVED]')
-  }
-}
-
-function renderDebugPrompt(raw: string): string {
-  try {
-    const obj = JSON.parse(raw) as Record<string, unknown>
-    const lines: string[] = []
-
-    for (const key of ['provider', 'model', 'endpoint', 'max_output_tokens', 'temperature']) {
-      if (obj[key] !== undefined) lines.push(`${key}: ${obj[key]}`)
-    }
-
-    const renderContent = (content: unknown): string => {
-      if (typeof content === 'string') return content
-      if (Array.isArray(content)) {
-        return (content as Array<Record<string, unknown>>)
-          .map(p => p.type === 'text' ? String(p.text ?? '') : '[image]')
-          .join('')
-      }
-      return String(content)
-    }
-
-    const msgs = (obj.input ?? obj.messages) as Array<{ role: string; content: unknown }> | undefined
-    if (msgs) {
-      for (const msg of msgs) {
-        lines.push(`\n── [${msg.role}] ${'─'.repeat(Math.max(0, 44 - msg.role.length))}`)
-        lines.push(renderContent(msg.content))
-      }
-    } else {
-      // Claude / Gemini truncated format
-      const systemText = (obj.system ?? obj.systemInstruction) as string | undefined
-      if (systemText) {
-        lines.push(`\n── [system] ───────────────────────────────`)
-        lines.push(systemText)
-      }
-      if (obj.historyLength !== undefined) lines.push(`\nhistory: ${obj.historyLength} turns, current: ${obj.currentParts} parts`)
-    }
-
-    return lines.join('\n').trimEnd()
-  } catch {
-    return raw
-  }
 }
 
 function stripLeadingEmotionTag(content: string): string {
@@ -369,9 +298,13 @@ export default function LogWindow() {
     || '你'
   ), [activePersona])
 
-  const getCharName = (id?: string) => {
+  /**
+   * 角色名字：以現存角色為準，查不到才用訊息裡的名字快照
+   * （`Message.characterName`，同步把 id 換掉時的備援）。
+   */
+  const getCharName = (id?: string, snapshotName?: string) => {
     if (!id) return '系統'
-    return characters.find(c => c.id === id)?.name ?? '角色'
+    return resolveCharacterName(id, characters, snapshotName, '角色')
   }
 
   const lastCharacterMessageId = useMemo(() => {
@@ -464,6 +397,8 @@ export default function LogWindow() {
 
   const LlmBadge = ({ msg }: { msg: Message }) => {
     const { provider, model } = messageLlmMeta(msg)
+    // 手機設定頁的「顯示生成模型小圖示」是同一個開關，桌面也要跟著關
+    if (settings?.ui.showLlmBadge === false) return null
     if (!provider && !model) return null
     return (
       <span
@@ -574,7 +509,7 @@ export default function LogWindow() {
           ) : (
             <>
               <span className={`text-xs font-semibold ${isCharacter ? 'text-primary' : 'text-secondary'}`}>
-                {isCharacter ? `【${getCharName(msg.characterId)}】` : '【系統】'}
+                {isCharacter ? `【${getCharName(msg.characterId, msg.characterName)}】` : '【系統】'}
                 <LlmBadge msg={msg} />
               </span>
               {msg.excludeFromContext && (
@@ -668,7 +603,7 @@ export default function LogWindow() {
             if (isCharacter && msg.characterId) {
               window.api.invoke('bubble:debug-show', {
                 characterId: msg.characterId,
-                speakerName: getCharName(msg.characterId),
+                speakerName: getCharName(msg.characterId, msg.characterName),
                 text: String(msg.content ?? ''),
                 emotion: msg.emotion ?? 'neutral',
                 newsLink: msg.newsLink ?? null,
@@ -750,7 +685,8 @@ export default function LogWindow() {
                     event.stopPropagation()
                     const link = msg.newsLink as NewsLinkInfo
                     setNewsCtxMsg(msg)
-                    setNewsCtxDraft(link.promptContext || link.summary || '')
+                    // `??` 不是 `||`：清成空字串是使用者的決定，重開面板不該把 summary 補回來
+                    setNewsCtxDraft(link.promptContext ?? link.summary ?? '')
                   }}
                 >
                   📰 {msg.newsLink.title}
@@ -967,7 +903,7 @@ export default function LogWindow() {
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-primary">完整 Prompt</div>
                 <div className="text-xs text-secondary truncate">
-                  {promptMessage.role === 'character' ? getCharName(promptMessage.characterId) : userName} · {formatTime(promptMessage.timestamp)}
+                  {promptMessage.role === 'character' ? getCharName(promptMessage.characterId, promptMessage.characterName) : userName} · {formatTime(promptMessage.timestamp)}
                 </div>
                 {(promptMessage.inputTokens != null || promptMessage.outputTokens != null) && (
                   <div className="text-[11px] text-secondary mt-0.5 flex flex-wrap gap-x-2">
@@ -1104,6 +1040,13 @@ export default function LogWindow() {
             await window.api.invoke('news:update-prompt-context', {
               messageId: newsCtxMsg.id,
               promptContext: pc
+            })
+            setNewsCtxMsg(null)
+          }}
+          onClear={async () => {
+            await window.api.invoke('news:update-prompt-context', {
+              messageId: newsCtxMsg.id,
+              promptContext: ''
             })
             setNewsCtxMsg(null)
           }}
