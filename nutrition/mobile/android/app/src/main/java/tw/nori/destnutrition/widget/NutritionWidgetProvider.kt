@@ -333,8 +333,10 @@ class NutritionWidgetProvider : AppWidgetProvider() {
                 views.setTextColor(R.id.widget_kcal_value, kcalColor)
                 views.setTextColor(R.id.widget_protein_value, proteinColor)
 
-                // 進度條只有完整版才有（矮版塞不下，見 widget_nutrition_wide.xml 檔頭）。
-                if (layoutRes == R.layout.widget_nutrition_wide) {
+                // 只有夠高的兩種版面有進度條；矮版（narrow／medium）一格高塞不下，
+                // 那兩個版面根本沒有這兩個 id，setProgressBar 會安靜略過——
+                // 但還是明確判斷，免得之後有人以為矮版也該有。
+                if (layoutRes == R.layout.widget_nutrition_wide || layoutRes == R.layout.widget_nutrition_square) {
                     views.setProgressBar(R.id.widget_kcal_progress, 100, progressPercent(snapshot.totalKcal, snapshot.kcalLimit), false)
                     views.setProgressBar(R.id.widget_protein_progress, 100, progressPercent(snapshot.totalProteinG, snapshot.proteinGoalG), false)
                 }

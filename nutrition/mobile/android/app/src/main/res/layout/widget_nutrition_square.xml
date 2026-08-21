@@ -8,7 +8,10 @@
   大數字就沒意義了。
 
   這一版把**按鈕移到最下面一列**，數字區因此吃到整個寬度（約 135dp），
-  同樣的資料可以用 23sp 以上顯示。代價是**沒有進度條**——垂直空間要留給按鈕列。
+  同樣的資料可以用 23sp 以上顯示。
+
+  進度條有，但**是塞在標籤那一行的右邊、不是自己獨立一列**（見下方註解）——
+  這樣垂直方向零成本，不會回頭把數字擠小。
 
   重新整理放在底列最左邊，跟右邊的相機／鉛筆分開（§4 的硬規則：次要動作不要
   跟常按的主要動作相鄰）。
@@ -29,15 +32,40 @@
         android:gravity="center_vertical"
         android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/widget_kcal_label"
+        <!--
+          進度條**放在標籤那一行的右邊**，不是自己獨立一列。
+          2x2 的垂直預算很緊：獨立一列的進度條（含間距約 11dp × 2 組）會把數字從
+          23sp 壓到 13sp，大數字就沒意義了。而標籤列本來就有約 13dp 高，
+          塞一條 5dp 的進度條進去垂直方向是**零成本**——橫向才是這個尺寸寬鬆的資源。
+        -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="@color/widget_text_sub"
-            android:textSize="10sp"
-            android:includeFontPadding="false"
-            android:singleLine="true"
-            android:text="@string/widget_label_kcal" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_kcal_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_text_sub"
+                android:textSize="10sp"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:text="@string/widget_label_kcal" />
+
+            <ProgressBar
+                android:id="@+id/widget_kcal_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="0dp"
+                android:layout_height="5dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:max="100"
+                android:progress="0"
+                android:progressTint="@color/widget_mint2"
+                android:progressBackgroundTint="@color/widget_track" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -72,16 +100,35 @@
                 android:ellipsize="end" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/widget_protein_label"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:textColor="@color/widget_text_sub"
-            android:textSize="10sp"
-            android:includeFontPadding="false"
-            android:singleLine="true"
-            android:text="@string/widget_label_protein" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widget_protein_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="@color/widget_text_sub"
+                android:textSize="10sp"
+                android:includeFontPadding="false"
+                android:singleLine="true"
+                android:text="@string/widget_label_protein" />
+
+            <ProgressBar
+                android:id="@+id/widget_protein_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="0dp"
+                android:layout_height="5dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:max="100"
+                android:progress="0"
+                android:progressTint="@color/widget_mint2"
+                android:progressBackgroundTint="@color/widget_track" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
