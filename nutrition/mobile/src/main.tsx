@@ -198,6 +198,9 @@ function collectTags(foodItems: FoodItem[]): string[] {
   return [...set].sort()
 }
 
+/** 快速入帳分頁「未分類」篩選用的假 tag id，不會真的寫進 FoodItem.tags。 */
+const UNTAGGED_TAG_ID = '__untagged__'
+
 /** 讀取儲存的照片二進位並轉成可供 <img> 使用的 blob URL；photoKey 換掉時自動釋放舊的。 */
 function useStoredPhotoUrl(photoKey: string | undefined): string | null {
   const [url, setUrl] = React.useState<string | null>(null)
@@ -642,7 +645,16 @@ function App(): React.JSX.Element {
    * `photo` 額外自動打開系統相機——小工具的「拍照記錄」按鈕要直接進相機，
    * 不是進一個還要再按一次拍照鈕的中繼頁。
    */
+  const lastWidgetActionRef = React.useRef<{ url: string; at: number } | null>(null)
+
   function handleWidgetAction(url: string): void {
+    // 冷啟動時 `getLaunchUrl()` 與緊接著註冊的 `appUrlOpen` 監聽器會對同一個
+    // deep link 各觸發一次（Capacitor App 8 在 Android 冷啟動路徑上的已知行為），
+    // 不去重的話「拍照」會被連續呼叫兩次，使用者要多拍一張、關兩次相機才能往下走。
+    const last = lastWidgetActionRef.current
+    const now = Date.now()
+    if (last && last.url === url && now - last.at < 3000) return
+    lastWidgetActionRef.current = { url, at: now }
     let path: string
     try {
       path = new URL(url).pathname.replace(/^\/+/, '')
@@ -652,14 +664,23 @@ function App(): React.JSX.Element {
     const today = toIsoDateString(Date.now())
     if (path === 'photo') {
       setSelectedDate(today)
-      if (photoEstimateEnabled) {
-        openPhotoEstimate()
-        void captureCameraPhoto().then((file) => { if (file) addEstimatePhotos([file]) })
-      } else {
-        // AI 拍照估算關著時，拍完照直接進新增食物表單並帶入照片，
-        // 讓使用者接續用「複製提示詞」的流程手動建檔（§2.10.4）。
-        void captureCameraPhoto().then((file) => { if (file) void openFoodFormWithPhoto(file) })
-      }
+      // 冷啟動時 photoEstimateEnabled 這個 state 可能還沒被 session 載入覆蓋
+      // （見 App() 內兩個 useEffect 的競速說明），一律現讀 sessionRef／
+      // sessionReadyRef 拿當下真正的設定值，不要信任這個 state。
+      void (async () => {
+        const session = sessionRef.current ?? (await sessionReadyRef.current)
+        const enabled = session?.settings.photoEstimate?.enabled ?? false
+        if (enabled) {
+          openPhotoEstimate()
+          const file = await captureCameraPhoto()
+          if (file) addEstimatePhotos([file])
+        } else {
+          // AI 拍照估算關著時，拍完照直接進新增食物表單並帶入照片，
+          // 讓使用者接續用「複製提示詞」的流程手動建檔（§2.10.4）。
+          const file = await captureCameraPhoto()
+          if (file) void openFoodFormWithPhoto(file)
+        }
+      })()
     } else if (path === 'quick-entry') {
       setSelectedDate(today)
       setView('daily')
@@ -698,10 +719,13 @@ function App(): React.JSX.Element {
   }, [])
 
   const sessionRef = React.useRef<NutritionSession | null>(null)
+  const sessionReadyRef = React.useRef<Promise<NutritionSession> | null>(null)
 
   React.useEffect(() => {
     let unsubscribe: (() => void) | null = null
-    void NutritionSession.boot(nutritionMobileStorage).then((session) => {
+    const bootPromise = NutritionSession.boot(nutritionMobileStorage)
+    sessionReadyRef.current = bootPromise
+    void bootPromise.then((session) => {
       sessionRef.current = session
       unsubscribe = session.subscribe(() => applySnapshot(session))
       if (session.bodyProfile) {
@@ -1814,10 +1838,19 @@ function App(): React.JSX.Element {
     setSelectedDate(toIsoDateString(date.getTime()))
   }
   const tags = collectTags(snapshot.foodItems)
-  const quickEntryTagFiltered = quickEntryTag === 'all' ? snapshot.foodItems : snapshot.foodItems.filter((item) => (item.tags ?? []).includes(quickEntryTag))
+  const untaggedFoodCount = snapshot.foodItems.filter((item) => (item.tags ?? []).length === 0).length
+  const quickEntryTagFiltered = quickEntryTag === 'all'
+    ? snapshot.foodItems
+    : quickEntryTag === UNTAGGED_TAG_ID
+      ? snapshot.foodItems.filter((item) => (item.tags ?? []).length === 0)
+      : snapshot.foodItems.filter((item) => (item.tags ?? []).includes(quickEntryTag))
   const quickFoods = foodQuery.trim() ? matchFoodKeyword(foodQuery, quickEntryTagFiltered).map((match) => match.foodItem) : quickEntryTagFiltered
   const libraryFoods = snapshot.foodItems.filter((foodItem) => {
-    if (libraryTag !== 'all' && !(foodItem.tags ?? []).includes(libraryTag)) return false
+    if (libraryTag === UNTAGGED_TAG_ID) {
+      if ((foodItem.tags ?? []).length > 0) return false
+    } else if (libraryTag !== 'all' && !(foodItem.tags ?? []).includes(libraryTag)) {
+      return false
+    }
     if (!libraryQuery.trim()) return true
     return matchFoodKeyword(libraryQuery, [foodItem]).length > 0
   })
@@ -1830,6 +1863,7 @@ function App(): React.JSX.Element {
           <input value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="搜尋名稱或別名" />
           <select value={libraryTag} onChange={(event) => setLibraryTag(event.target.value)}>
             <option value="all">全部分類</option>
+            {untaggedFoodCount > 0 && <option value={UNTAGGED_TAG_ID}>未分類（{untaggedFoodCount}）</option>}
             {tags.map((tag) => <option key={tag} value={tag}>{tag}</option>)}
           </select>
         </section>
@@ -2715,9 +2749,18 @@ function App(): React.JSX.Element {
                 <MonoIcon name="plus" className="icon-sm" /> 新增食物
               </button>
             </div>
-            {tags.length > 0 && (
+            {(tags.length > 0 || untaggedFoodCount > 0) && (
               <div className="tag-options">
                 <button type="button" className={`tag-choice${quickEntryTag === 'all' ? ' selected' : ''}`} onClick={() => setQuickEntryTag('all')}>全部</button>
+                {untaggedFoodCount > 0 && (
+                  <button
+                    type="button"
+                    className={`tag-choice tag-choice-untagged${quickEntryTag === UNTAGGED_TAG_ID ? ' selected' : ''}`}
+                    onClick={() => setQuickEntryTag(UNTAGGED_TAG_ID)}
+                  >
+                    未分類（{untaggedFoodCount}）
+                  </button>
+                )}
                 {tags.map((tag) => (
                   <button type="button" key={tag} className={`tag-choice${quickEntryTag === tag ? ' selected' : ''}`} onClick={() => setQuickEntryTag(tag)}>{tag}</button>
                 ))}

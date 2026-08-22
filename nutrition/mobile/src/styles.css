@@ -170,6 +170,8 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 .tag-options { display: flex; flex-wrap: wrap; gap: 6px; }
 .tag-choice { background: white; border: 1px solid #c9e3da; border-radius: 999px; padding: 6px 12px; font-size: 13px; }
 .tag-choice.selected { background: #65bda6; border-color: #65bda6; color: white; font-weight: 700; }
+.tag-choice-untagged { border-style: dashed; border-color: #d8a86a; color: #a06f2c; }
+.tag-choice-untagged.selected { background: #d8a86a; border-color: #d8a86a; border-style: solid; color: white; }
 .tag-new { display: flex; gap: 8px; }
 .tag-new input { flex: 1; }
 
