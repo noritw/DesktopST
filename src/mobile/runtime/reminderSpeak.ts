@@ -294,8 +294,7 @@ export async function speakStandaloneReminder(opts: {
           opts.loadLorebook,
           new Map()
         ),
-        isReminder: true,
-        omitEmotionTag: true
+        isReminder: true
       },
       { http: opts.adapters.http }
     )

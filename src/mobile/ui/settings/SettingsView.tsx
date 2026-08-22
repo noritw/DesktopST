@@ -373,13 +373,15 @@ export function SettingsView(): JSX.Element {
     maxResponseTokens: number
     maxGroupRounds: number
     maxImagesPerMessage: number
+    temperature: number
   }>): Promise<void> => {
     if (!llm) return
     const previous = llm
     const next = {
       maxResponseTokens: patch.maxResponseTokens ?? llm.maxResponseTokens,
       maxGroupRounds: patch.maxGroupRounds ?? llm.maxGroupRounds,
-      maxImagesPerMessage: patch.maxImagesPerMessage ?? llm.maxImagesPerMessage
+      maxImagesPerMessage: patch.maxImagesPerMessage ?? llm.maxImagesPerMessage,
+      temperature: patch.temperature ?? llm.temperature
     }
     setLlm({ ...llm, ...next })
     try {
@@ -727,6 +729,19 @@ export function SettingsView(): JSX.Element {
           max={10}
           onCommit={(v) => void saveChatLimits({ maxImagesPerMessage: v })}
         />
+        <DecimalNumberRow
+          label="溫度"
+          value={llm.temperature}
+          min={0}
+          max={2}
+          step={0.05}
+          onCommit={(v) => void saveChatLimits({ temperature: v })}
+        />
+        <p className="mb-2 text-[11px] leading-relaxed text-[var(--text-sub)]">
+          控制回應的隨機程度：越低越穩定保守（同樣的話容易回得差不多），越高越發散多變，
+          但太高可能開始語無倫次。預設 0.8，大多情況不用調。
+          部分較新的 Claude 模型不支援自訂溫度，這格對它們不會生效（不會出錯，只是沒作用）。
+        </p>
         <ToggleRow
           label="顯示生成模型小圖示"
           checked={showLlmBadge}
@@ -1201,6 +1216,51 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       {hint && <span className="mt-0.5 block text-[11px] leading-relaxed text-[var(--text-sub)]">{hint}</span>}
       <span className="mt-1 block">{children}</span>
     </label>
+  )
+}
+
+function DecimalNumberRow({
+  label,
+  value,
+  min,
+  max,
+  step,
+  onCommit
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step: number
+  onCommit: (v: number) => void
+}): JSX.Element {
+  const [draft, setDraft] = useState(String(value))
+  useEffect(() => setDraft(String(value)), [value])
+
+  const commit = (): void => {
+    const n = Number(draft)
+    if (!Number.isFinite(n) || n < min || n > max) {
+      setDraft(String(value))
+      return
+    }
+    if (n !== value) onCommit(n)
+    else setDraft(String(value))
+  }
+
+  return (
+    <div className="mb-2 flex items-center justify-between gap-3">
+      <span className="text-sm text-[var(--text)]">{label}</span>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        className="field w-20 text-right"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+      />
+    </div>
   )
 }
 

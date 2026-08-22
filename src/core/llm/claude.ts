@@ -138,13 +138,31 @@ export async function chatWithClaude(params: ChatLLMParams, deps: LLMDeps): Prom
     }
   }
 
-  const response = await client.messages.create({
+  const baseRequest = {
     model,
     max_tokens: settings.llm.maxResponseTokens * 3,
-    temperature: settings.llm.temperature,
     system: systemPrompt,
     messages: claudeMessages as Anthropic.MessageParam[]
-  }, { signal: params.signal })
+  }
+
+  let response: Anthropic.Message
+  try {
+    response = await client.messages.create(
+      { ...baseRequest, temperature: settings.llm.temperature },
+      { signal: params.signal }
+    )
+  } catch (e) {
+    // 部分較新的 Claude 模型（如 Claude 5 系列）已不接受自訂 temperature，
+    // 送這個參數會直接 400（訊息形如「`temperature` is deprecated for this model.」），
+    // 不是使用者設定錯誤。退回不帶 temperature 重打一次，而不是把這個參數
+    // 從設定裡整個拔掉——舊模型仍然吃這個參數且行為受它影響。
+    const message = e instanceof Error ? e.message : String(e)
+    if (e instanceof Anthropic.APIError && e.status === 400 && /temperature/i.test(message) && /deprecated/i.test(message)) {
+      response = await client.messages.create(baseRequest, { signal: params.signal })
+    } else {
+      throw e
+    }
+  }
 
   const raw = response.content
     .filter(b => b.type === 'text')

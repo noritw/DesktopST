@@ -1,4 +1,5 @@
 import type { AppSettings, Message, PersonaPreset, WorldPreset } from '../types'
+import { stemFromFilename, buildSpriteIdMap } from '../character/emotionCatalog'
 
 /** Returns the API key for the active provider, falling back to legacy apiKey field */
 /**
@@ -294,10 +295,6 @@ export function applyStStyleTags(
     .replace(/\{\{\s*char\s*\}\}/gi, vars.charName)
 }
 
-function stemFromFilename(filename: string): string {
-  return filename.replace(/\.[^.]+$/, '')
-}
-
 /**
  * Builds the emotion ID list for the Output Contract.
  * If the character has sprites with assigned emotions, returns custom IDs with descriptions.
@@ -330,6 +327,35 @@ export function buildEmotionContract(char: PromptCharacter): { ids: string; desc
   const ids = entries.map(e => e.id).join(', ')
   const descriptions = entries.map(e => `  - ${e.id}: use for ${e.emotions.join(', ')}`)
   return { ids, descriptions }
+}
+
+/**
+ * 把模型回傳的情緒 id（可能是 `buildEmotionContract()` 給的自訂 id／檔名主幹，
+ * 也可能剛好就是 canonical 的 28 個情緒 key）換算回 canonical key，再存進
+ * `message.emotion`。
+ *
+ * ⚠️ **這是手機獨立版／遙控版聊天記錄同步之後才會踩到的坑**（2026-08-23
+ * owner 實機回報：遙控版剛發的訊息表情正常，同步到本機版之後同一則卻變
+ * 沒有表情，要在本機版再發一則新的才又正常）。成因：自訂 id／檔名主幹是
+ * **裝置本地的**——同一個情緒圖片在兩台裝置上各自存檔案，檔名／自訂 id
+ * 不保證一樣（獨立版存檔用 `<key>-<timestamp>.ext`，桌面版可能是另一個
+ * 時間戳或另一個自訂 id）。如果 `message.emotion` 直接存這個裝置本地 id，
+ * 同一則訊息換一台裝置檢視、用**那一台自己的** `character.emotions`／
+ * `spriteIds` 反查，字串對不上，永遠會判定「沒對到表情」退回主圖——即使
+ * 那台裝置的角色卡明明也有同一個情緒的圖。
+ *
+ * 修法：**訊息一落地就把 id 換成 canonical key 存**（canonical key 是
+ * `EMOTION_OPTIONS` 那 28 個固定英文字，兩邊永遠一致，不依賴檔名／自訂 id），
+ * 換裝置檢視時 `resolveDisplayImagePath()` 的第一層（`emotions[emotion]`）
+ * 就能直接命中該裝置自己指派的圖，不需要靠會漂移的自訂 id 去反查。
+ */
+export function canonicalizeEmotionId(char: PromptCharacter, id: string): string {
+  const emotions = char.emotions ?? {}
+  if (emotions[id]?.trim()) return id
+  const imagePath = buildSpriteIdMap(emotions, char.spriteIds).get(id)
+  if (!imagePath) return id
+  const canonicalKey = Object.entries(emotions).find(([, p]) => p === imagePath)?.[0]
+  return canonicalKey ?? id
 }
 
 export function buildTimeMoodGuideline(hours: number): string {

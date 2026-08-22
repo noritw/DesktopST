@@ -20,6 +20,35 @@ import { Avatar } from './Avatar'
  */
 export function CharacterMenu({ characterId }: { characterId: string }): JSX.Element {
   const character = useAppStore((s) => s.snapshot?.presentCharacters.find((c) => c.id === characterId))
+
+  // 角色被移出（在別台裝置上）時選單會空掉。給一句話比留一片空白好。
+  if (!character) {
+    return <div className="py-8 text-center text-sm text-[var(--text-sub)]">這個角色已經不在對話裡了</div>
+  }
+
+  return (
+    <div className="pb-2">
+      <div className="mb-3 flex items-center gap-3">
+        <Avatar characterId={characterId} muted={character.muted} size={52} />
+        <div className="min-w-0">
+          <div className="truncate text-[16px] font-medium text-[var(--text)]">{character.name}</div>
+          {character.muted && <div className="text-xs text-[var(--text-sub)]">目前禁言中</div>}
+        </div>
+      </div>
+      <CharacterMenuActions characterId={characterId} />
+    </div>
+  )
+}
+
+/**
+ * 選單動作列表（提及／說點什麼／禁言／編輯角色／移出對話）。
+ *
+ * 從 `CharacterMenu` 抽出來，是因為 `MessageAvatarPanel.tsx`（訊息頭像的大圖預覽）
+ * 要重用同一組動作，但自己的頭像/名字那段版面不一樣（要放這則訊息用的表情大圖，
+ * 不是角色目前的一般頭像）——動作邏輯只寫一份，不要複製。
+ */
+export function CharacterMenuActions({ characterId }: { characterId: string }): JSX.Element | null {
+  const character = useAppStore((s) => s.snapshot?.presentCharacters.find((c) => c.id === characterId))
   const presentCount = useAppStore((s) => s.snapshot?.presentCharacters.length ?? 0)
   const refresh = useAppStore((s) => s.refresh)
   const speakAction = useAppStore((s) => s.speak)
@@ -27,10 +56,7 @@ export function CharacterMenu({ characterId }: { characterId: string }): JSX.Ele
   const push = useUiStore((s) => s.push)
   const toast = useUiStore((s) => s.toast)
 
-  // 角色被移出（在別台裝置上）時選單會空掉。給一句話比留一片空白好。
-  if (!character) {
-    return <div className="py-8 text-center text-sm text-[var(--text-sub)]">這個角色已經不在對話裡了</div>
-  }
+  if (!character) return null
 
   const speak = async (): Promise<void> => {
     pop()
@@ -89,15 +115,7 @@ export function CharacterMenu({ characterId }: { characterId: string }): JSX.Ele
   }
 
   return (
-    <div className="pb-2">
-      <div className="mb-3 flex items-center gap-3">
-        <Avatar characterId={characterId} muted={character.muted} size={52} />
-        <div className="min-w-0">
-          <div className="truncate text-[16px] font-medium text-[var(--text)]">{character.name}</div>
-          {character.muted && <div className="text-xs text-[var(--text-sub)]">目前禁言中</div>}
-        </div>
-      </div>
-
+    <>
       <MenuItem icon="at" label="提及" hint="把名字插進輸入框，這則就會點名到他" onClick={mention} />
       <MenuItem icon="chat" label="說點什麼" hint="讓這個角色主動開口" onClick={() => void speak()} />
       <MenuItem
@@ -128,7 +146,7 @@ export function CharacterMenu({ characterId }: { characterId: string }): JSX.Ele
           至少要留一個角色在對話裡，所以最後一位不能移出。
         </p>
       )}
-    </div>
+    </>
   )
 }
 

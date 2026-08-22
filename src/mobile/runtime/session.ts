@@ -36,6 +36,8 @@ import { DEFAULT_SETTINGS } from '@core/types'
 import { DEFAULT_MODEL_BY_PROVIDER, MODELS_BY_PROVIDER } from '@core/llm/modelCatalog'
 import { testLLMConnection } from '@core/llm'
 import { DataError } from '@core/data'
+import { resolveDisplayImagePath, type FaceCropRect } from '@core/character/displayImage'
+import { getFaceCrop as getFaceCropConfig, setFaceCrop as setFaceCropConfig, cropImageToFace } from './faceCropConfig'
 import type {
   AppStateSnapshot,
   LlmProvider,
@@ -724,6 +726,7 @@ export class StandaloneSession {
       maxResponseTokens: this.settings.llm.maxResponseTokens ?? 360,
       maxGroupRounds: this.settings.llm.maxGroupRounds ?? 3,
       maxImagesPerMessage: this.settings.llm.maxImagesPerMessage ?? 5,
+      temperature: this.settings.llm.temperature ?? 0.8,
       utilityEnabled: !!this.settings.llm.utilityEnabled,
       utilityProvider,
       utilityModel: this.settings.llm.utilityModels?.[utilityProvider] || '',
@@ -1163,6 +1166,19 @@ export class StandaloneSession {
     this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
   }
 
+  /** 手動指定／清除訊息的顯示表情（§3.2／§6.2）。`emotion` 為 `null`＝跟隨 AI 判斷。 */
+  async setMessageEmotionOverride(messageId: string, emotion: string | null): Promise<void> {
+    const conv = this.activeConversation
+    if (!conv) throw new DataError('not-found', 'no conversation')
+    const msg = conv.messages.find((m) => m.id === messageId)
+    if (!msg) throw new DataError('not-found', messageId)
+    if (emotion) msg.emotionOverride = emotion
+    else delete msg.emotionOverride
+    conv.updatedAt = Date.now()
+    await this.saveConversation(conv)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
   async resendMessage(messageId: string): Promise<void> {
     const conv = this.activeConversation
     if (!conv) throw new DataError('not-found', 'no conversation')
@@ -1561,6 +1577,67 @@ export class StandaloneSession {
     await this.adapters.storage.writeJson(keys.characterCardKey(id), char)
     this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     return path
+  }
+
+  /** 新增／替換一張表情圖片，指定給某個情緒 key（見 docs/mobile-character-expression-plan.md §3.3）。 */
+  async saveEmotionSprite(id: string, emotionKey: string, image: { bytes: Uint8Array; ext: string }): Promise<string> {
+    const char = this.characters.find((c) => c.id === id)
+    if (!char) throw new DataError('not-found', id)
+    const raw = (image.ext.startsWith('.') ? image.ext : `.${image.ext}`).toLowerCase()
+    const ext = ALLOWED_AVATAR_EXT.includes(raw) ? raw : '.png'
+    const safeKey = emotionKey.replace(/[^\w-]/g, '_') || 'sprite'
+    const path = `${keys.characterDirKey(id)}/emotions/${safeKey}-${Date.now()}${ext}`
+    await this.adapters.storage.writeBinary(path, image.bytes)
+    char.emotions = { ...(char.emotions ?? {}), [emotionKey]: path }
+    // 順手記一個乾淨的自訂 id（＝情緒 key 本身），LLM 合約與除錯畫面上
+    // 才會看到 `joy` 而不是檔名主幹（`buildEmotionContract()` 沒有自訂 id
+    // 時會退回檔名，見 `core/character/emotionCatalog.ts` 的說明）。
+    char.spriteIds = { ...(char.spriteIds ?? {}), [path]: emotionKey }
+    char.updatedAt = Date.now()
+    await this.adapters.storage.writeJson(keys.characterCardKey(id), char)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    return path
+  }
+
+  // ── 顯示設定（框選臉部範圍，mobile-only，§3.1）────────────
+  // 這是裝置偏好，不是模式資料——邏輯共用 `faceCropConfig.ts`
+  // （`RemoteDataSource` 也直接呼叫同一份，不透過 session／伺服器）。
+
+  async getFaceCrop(id: string): Promise<FaceCropRect | null> {
+    return getFaceCropConfig(id)
+  }
+
+  async setFaceCrop(id: string, rect: FaceCropRect | null): Promise<void> {
+    await setFaceCropConfig(id, rect)
+    this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+  }
+
+  /**
+   * 依訊息 emotion 決定顯示圖（§4／§5）。裁切永遠在這裡（手機端）做——
+   * 桌面端／遙控端的伺服器不需要知道這支手機框選了什麼。
+   */
+  async characterDisplayImageUrl(characterId: string, emotion: string | undefined): Promise<string | null> {
+    const char = this.characters.find((c) => c.id === characterId)
+    if (!char) return null
+    const { path } = resolveDisplayImagePath(char, emotion)
+    if (!path) return null
+    let dataUrl: string
+    if (path.startsWith('data:')) {
+      dataUrl = path
+    } else {
+      const bytes = await this.adapters.storage.readBinary(path)
+      if (!bytes) return null
+      const ext = path.split('.').pop()?.toLowerCase() ?? 'png'
+      const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png'
+      dataUrl = `data:${mime};base64,${bytesToBase64(bytes)}`
+    }
+    const rect = await getFaceCropConfig(characterId)
+    if (!rect) return dataUrl
+    try {
+      return await cropImageToFace(dataUrl, rect)
+    } catch {
+      return dataUrl
+    }
   }
 
   // ── 用語解說（Lorebook，缺口 #2）────────────────────────

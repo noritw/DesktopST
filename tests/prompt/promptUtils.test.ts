@@ -9,7 +9,8 @@ import {
   applyStStyleTags,
   normalizeEmotion,
   parseEmotion,
-  expandNewsLinkForPrompt
+  expandNewsLinkForPrompt,
+  canonicalizeEmotionId
 } from '@core/prompt/promptUtils'
 import { makeSettings, CHAR, PERSONA, WORLD, baseMessages, T0 } from '../fixtures'
 import type { Message } from '@core/types'
@@ -321,5 +322,38 @@ describe('expandNewsLinkForPrompt — 清除摘要之後不再進 Prompt', () =>
     expect(m.content).toContain('Details: 重新整理過的內容')
     expect(m.content).toContain('Source: IGN')
     expect(m.content).not.toContain('[Shared News]')
+  })
+})
+
+describe('canonicalizeEmotionId', () => {
+  /**
+   * `buildEmotionContract()` 給模型的 id 可能是自訂 id／檔名主幹（裝置本地，
+   * 換一台裝置不保證一樣），`chatWithLLM()`／`classifyEmotionWithLLM()` 存
+   * `message.emotion` 前都要換算回 canonical key——不然 S2 對話同步後同一則
+   * 訊息換裝置檢視會判定「沒對到表情」（2026-08-23 owner 實機回報）。
+   */
+  it('本來就是 canonical key：原樣回傳', () => {
+    const char = { name: 'A', personality: '', emotions: { joy: 'characters/a/emotions/joy.png' } }
+    expect(canonicalizeEmotionId(char, 'joy')).toBe('joy')
+  })
+
+  it('自訂 id（spriteIds）要換算回 canonical key', () => {
+    const char = {
+      name: 'A',
+      personality: '',
+      emotions: { joy: 'characters/a/emotions/joy.png' },
+      spriteIds: { 'characters/a/emotions/joy.png': 'happy_face' }
+    }
+    expect(canonicalizeEmotionId(char, 'happy_face')).toBe('joy')
+  })
+
+  it('沒有自訂 id 時的檔名主幹也要換算回 canonical key', () => {
+    const char = { name: 'A', personality: '', emotions: { joy: 'characters/a/emotions/joy-1755900000000.png' } }
+    expect(canonicalizeEmotionId(char, 'joy-1755900000000')).toBe('joy')
+  })
+
+  it('查無對應（未知 id）：原樣回傳，不擲錯也不亂猜', () => {
+    const char = { name: 'A', personality: '', emotions: { joy: 'characters/a/emotions/joy.png' } }
+    expect(canonicalizeEmotionId(char, 'unknown_id')).toBe('unknown_id')
   })
 })

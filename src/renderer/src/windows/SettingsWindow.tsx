@@ -1521,6 +1521,10 @@ export default function SettingsWindow() {
                 onChange={e => set('llm.temperature', Number(e.target.value))}
                 className="w-full accent-teal"
               />
+              <p className="text-[11px] text-secondary leading-snug mt-1">
+                控制回應的隨機程度：越低越穩定保守，越高越發散多變（太高可能開始語無倫次）。預設 0.8，大多情況不用調。
+                部分較新的 Claude 模型不支援自訂溫度，這格對它們不會生效（不會出錯，只是沒作用）。
+              </p>
             </Field>
             <Field label={`群組對話最多角色回應數（${draft.llm.maxGroupRounds} 則）`}>
               <input type="range" min={1} max={10} step={1}
@@ -2921,6 +2925,14 @@ export default function SettingsWindow() {
               >
                 {changingDataDir ? '搬移中...' : '修改資料夾位置'}
               </button>
+            </div>
+            <div className="rounded-xl bg-mint-20 border border-border px-4 py-3 space-y-1">
+              <p className="text-xs font-medium text-primary">⚠️ 免責聲明：資料沒有雲端備份</p>
+              <p className="text-xs text-secondary leading-relaxed">
+                本機資料只存在這台電腦上，沒有任何雲端副本。硬碟損毀、解除安裝、清除資料都會造成
+                資料永久遺失。請自行用角色庫的「匯出 DesktopST 搬家包」或角色卡匯出功能定期備份——
+                這是免費、資料不上雲換來的代價，作者不對資料遺失負責。
+              </p>
             </div>
           </div>
         )}

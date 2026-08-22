@@ -254,7 +254,6 @@ export async function forceSpeakStandalone(opts: {
           new Map()
         ),
         triggerDirective: newsInjection?.directive,
-        omitEmotionTag: true,
         signal: opts.signal
       },
       { http: opts.adapters.http }
@@ -492,9 +491,10 @@ export async function sendStandaloneMessage(opts: {
   }
   const extraContext = [weatherContext, realtimeQueryContext.injectionText, newsSearchResult.context].filter(Boolean).join('\n\n') || undefined
 
-  // `omitEmotionTag`：獨立版是單張主圖、不做表情差分，沒有東西會用到情緒標籤。
-  // 角色卡若帶著表情圖，情緒合約會把每張圖的 id 與用途逐條寫進 system prompt
-  // （id 取自圖檔檔名），每則對話都白付這筆 token。
+  // 2026-08-22 起手機獨立版也要換表情（見 `docs/mobile-character-expression-plan.md`），
+  // 所以不再傳 `omitEmotionTag: true`——`buildSystemPrompt()` 本來就只在角色卡
+  // 有表情圖時才附上情緒合約（`hasCustomSprites`，見 `promptUtils.ts`），沒有表情圖
+  // 的角色不受影響，不會白花 token。
   try {
     const { content, emotion, debugPrompt, inputTokens, outputTokens } = await chatWithLLM(
       {
@@ -516,7 +516,6 @@ export async function sendStandaloneMessage(opts: {
           opts.loadLorebook,
           loreCache
         ),
-        omitEmotionTag: true,
         signal: opts.signal
       },
       { http: opts.adapters.http }
@@ -585,8 +584,7 @@ export async function sendStandaloneMessage(opts: {
               opts.loadLorebook,
               loreCache
             ),
-            omitEmotionTag: true,
-            signal: opts.signal
+                signal: opts.signal
           },
           { http: opts.adapters.http }
         )

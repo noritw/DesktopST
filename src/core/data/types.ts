@@ -16,6 +16,7 @@ import type {
 } from '../types'
 import type { Lorebook, LoreEntry } from '../lore'
 import type { NewsItem, NewsKeywordGroup, NewsSource, SpeakMode } from '../news/types'
+import type { FaceCropRect } from '../character/displayImage'
 
 /**
  * 資料來源（B3 階段 0-③）。
@@ -199,6 +200,12 @@ export interface MessagesApi {
    * 再決定要不要顯示入口，找不到就回 `null`，不要當成錯誤。
    */
   getDebug(messageId: string): Promise<MessageDebug | null>
+  /**
+   * 使用者手動指定這則訊息要顯示的表情，覆蓋 AI 判斷的 `emotion`
+   * （`docs/mobile-character-expression-plan.md` §3.2／§6.2）。
+   * `emotion` 傳 `null`＝清掉覆蓋，回到「跟隨 AI 判斷」。
+   */
+  setEmotionOverride(messageId: string, emotion: string | null): Promise<void>
 }
 
 /** 一則訊息保留的除錯資料（各欄位可能都是空的）。 */
@@ -282,6 +289,22 @@ export interface CharactersApi {
    * 找不到回 `null`，UI 顯示 🐾 placeholder（清單 D6）。
    */
   avatarUrl(id: string): Promise<string | null>
+
+  /**
+   * 框選的臉部顯示範圍（`docs/mobile-character-expression-plan.md` §3.1）。
+   * 對話記錄與小工具共用同一份設定；`null`＝沒框選過，顯示時不裁切。
+   */
+  getFaceCrop(id: string): Promise<FaceCropRect | null>
+  /** 存框選範圍；傳 `null` 清掉（回到不裁切）。 */
+  setFaceCrop(id: string, rect: FaceCropRect | null): Promise<void>
+
+  /**
+   * 新增／替換一張表情圖片，指定給某個情緒 key（`EMOTION_OPTIONS` 之一，見
+   * `core/character/emotionCatalog.ts`）。**這是真正的角色卡內容變更**——
+   * 跟 `saveAvatar` 同語意：**圖檔先落地、角色卡後存**，回傳新的圖片位址，
+   * 呼叫端要自己把 `character.emotions[emotionKey] = 位址` 寫回草稿再 `save()`。
+   */
+  saveEmotionSprite(id: string, emotionKey: string, image: { bytes: Uint8Array; ext: string }): Promise<string>
 }
 
 /**
@@ -370,6 +393,13 @@ export interface LlmSettingsSnapshot {
   maxGroupRounds: number
   /** 單則訊息圖片上限。 */
   maxImagesPerMessage: number
+  /**
+   * 取樣溫度，越高回應越發散、越低越保守收斂。與桌面同一顆設定共用，
+   * 兩邊供應商都吃這個值——**但部分較新的 Claude 模型已不接受自訂溫度**，
+   * 送出後由 `core/llm/claude.ts` 偵測「temperature is deprecated」自動退回不帶這個參數重打，
+   * 不會讓對話失敗，只是那些模型底下這顆設定不生效。
+   */
+  temperature: number
   /**
    * 提醒發話、情緒分類是否改用獨立的輔助模型（群組對話一律用扮演主模型，不受此影響）。
    * 關閉時 `utilityProvider`／`utilityModel` 仍可能有值（記得上次選過什麼），
@@ -471,11 +501,12 @@ export interface SettingsApi {
    * `endpoint` 省略時沿用目前存檔的值。
    */
   testLlmConnection(provider: LlmProvider, endpoint?: string): Promise<{ ok: true; models?: string[] } | { ok: false; error: string }>
-  /** 回應字數／群組回應數／圖片上限（與桌面 LLM 設定同一欄）。 */
+  /** 回應字數／群組回應數／圖片上限／溫度（與桌面 LLM 設定同一欄）。 */
   setLlmChatLimits(limits: {
     maxResponseTokens: number
     maxGroupRounds: number
     maxImagesPerMessage: number
+    temperature: number
   }): Promise<void>
 
   getMemory(): Promise<MemorySettingsSnapshot>
@@ -817,6 +848,13 @@ export interface DataSource {
 
   /** 第 `index` 張圖的可顯示位址；同 `avatarUrl` 的理由，不可讓 UI 直接讀 `message.images`。 */
   getMessageImageUrl(messageId: string, index: number): Promise<string | null>
+
+  /**
+   * 依訊息決定要顯示的表情圖（已套用 §3.1 框選，找不到對應表情圖時回傳主圖）。
+   * `emotion` 通常是 `message.emotionOverride ?? message.emotion`。
+   * 見 `docs/mobile-character-expression-plan.md` §5。
+   */
+  characterDisplayImageUrl(characterId: string, emotion: string | undefined): Promise<string | null>
 
   readonly conversations: ConversationsApi
   readonly messages: MessagesApi

@@ -287,9 +287,11 @@ Spotify／日曆授權仍只在桌面。
 | 動天氣（兩邊共用，含地震／颱風／預報即時查詢） | `core/weather/`（五個小檔，直接讀原始碼；`realtimeQuery.ts` 是即時查詢）＋ `progress-log.md` 搜「獨立版天氣」 | 舊的 `weather-realtime-query-spec.md`（那是搬過去之前的桌面 CWA 規格，即時查詢邏輯現在兩邊共用） |
 | 問「獨立版還缺什麼」／挑下一項做 | `mobile-standalone-gap-inventory.md`（整份，不長） | 舊的 `mobile-html-feature-inventory.md` |
 | 實作手機獨立版精準鬧鐘／提醒 | `mobile-standalone-reminder-plan.md`（整份） | 一切長文 |
+| **實作提醒跨裝置同步（S2 新分類）** | `reminder-sync-kickoff.md`（整份，開工指令） | 一切長文 |
 | **實作獨立版個人新聞報（缺口 #6）** | `news-standalone-kickoff.md`（整份，開工指令） | 一切長文 |
 | 地方新聞為什麼不是獨立欄了 | `news-local-merge-plan.md`（已完成，看 §9） | 一切長文 |
-| 實作 Android 桌面小工具 (Widget，DeST 主 App) | `mobile-android-widget-plan.md`（整份） | 一切長文 |
+| 實作 Android 桌面小工具 (Widget，DeST 主 App) | `mobile-android-widget-plan.md`（整份，前置依賴下一行） | 一切長文 |
+| 手機對話記錄換表情／框選臉部範圍／手動指定表情 | `mobile-character-expression-plan.md`（整份，開工指令） | 一切長文 |
 | 查／改飲食記錄 App 的桌面小工具 | `nutrition-widget-plan.md`（已實作，§7「已知風險」＋ `TODO.md` 的落地筆記） | `mobile-android-widget-plan.md`（不同專案，DeST 主 App 尚未動工） |
 | 接本地 LLM（Ollama／LM Studio）當輔助模型 | `local-llm-provider-plan.md`（整份，規劃中未動工） | 一切長文 |
 | 查「以前為什麼這樣做／已知坑」 | `progress-log.md` **Grep 關鍵字** | 整份 log |

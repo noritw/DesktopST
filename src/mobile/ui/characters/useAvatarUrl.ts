@@ -35,6 +35,9 @@ const listeners = new Set<() => void>()
 /** 換過主圖之後呼叫。清掉快取並通知所有正在顯示頭像的元件重取。 */
 export function invalidateAvatar(id: string): void {
   cache.delete(id)
+  for (const key of [...displayCache.keys()]) {
+    if (key.startsWith(`${id}|`)) displayCache.delete(key)
+  }
   version++
   for (const fn of listeners) fn()
 }
@@ -45,6 +48,7 @@ export function invalidateAvatar(id: string): void {
  */
 export function invalidateAllAvatars(): void {
   cache.clear()
+  displayCache.clear()
   version++
   for (const fn of listeners) fn()
 }
@@ -94,6 +98,57 @@ export function useAvatarUrl(id: string): string | null {
       listeners.delete(load)
     }
   }, [id])
+
+  return url
+}
+
+/**
+ * 依 emotion 換表情的顯示圖（聊天泡泡用，`docs/mobile-character-expression-plan.md` §5）。
+ *
+ * ⚠️ **快取 key 一定要帶 emotion。** 沒帶的話同一支手機同時顯示兩則不同
+ * 表情的訊息會互相蓋掉彼此的快取（同一份文件 §5 最後一點的教訓）。
+ * 這支回傳的通常已經是 `data:` URI（獨立模式）或裁切後的結果（遙控模式，
+ * 見 `RemoteDataSource.characterDisplayImageUrl`），一律不加 cache buster。
+ */
+const displayCache = new Map<string, Promise<string | null>>()
+
+function lookupDisplayImage(characterId: string, emotion: string | undefined): Promise<string | null> {
+  const cacheKey = `${characterId}|${emotion ?? ''}`
+  let p = displayCache.get(cacheKey)
+  if (!p) {
+    p = getData()
+      .characterDisplayImageUrl(characterId, emotion)
+      .catch(() => null)
+    displayCache.set(cacheKey, p)
+  }
+  return p
+}
+
+/** 換過表情圖片、框選範圍改變時呼叫——沒有事件會告訴我們是哪個 emotion，乾脆整包清掉。 */
+export function invalidateAllCharacterDisplayImages(): void {
+  displayCache.clear()
+  version++
+  for (const fn of listeners) fn()
+}
+
+export function useCharacterDisplayImage(characterId: string, emotion: string | undefined): string | null {
+  const [url, setUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    const load = (): void => {
+      void lookupDisplayImage(characterId, emotion).then((u) => {
+        if (!alive) return
+        setUrl(u)
+      })
+    }
+    load()
+    listeners.add(load)
+    return () => {
+      alive = false
+      listeners.delete(load)
+    }
+  }, [characterId, emotion])
 
   return url
 }

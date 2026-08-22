@@ -5,8 +5,9 @@ import { renderInline } from '@shared/MessageText'
 import { isOptimistic, useAppStore, getData } from '../stores/appStore'
 import { MessageImages } from './MessageImages'
 import { formatRandomBadge } from './randomLabels'
-import { Avatar } from '../characters/Avatar'
+import { useCharacterDisplayImage } from '../characters/useAvatarUrl'
 import { useUiStore } from '../stores/uiStore'
+import MonoIcon from '@shared/MonoIcon'
 import { resolveCharacterName } from '@core/chat/characterName'
 import { NewsContextSheet } from '../news/NewsContextSheet'
 
@@ -158,6 +159,37 @@ function LlmBadge({ message }: { message: MessageSnapshot }): JSX.Element | null
   )
 }
 
+/**
+ * 聊天泡泡的頭像：依訊息的 `emotionOverride ?? emotion` 換表情圖
+ * （`docs/mobile-character-expression-plan.md` §4／§6.1）。
+ *
+ * 沒有 emotion（訊息沒留下情緒、或角色沒設定表情圖）時，`characterDisplayImageUrl()`
+ * 本來就會退回主圖——這裡不用另外判斷要不要切換成 `useAvatarUrl`。
+ */
+function MessageAvatar({ characterId, emotion }: { characterId: string; emotion?: string }): JSX.Element {
+  const url = useCharacterDisplayImage(characterId, emotion)
+  const [broken, setBroken] = useState(false)
+  useEffect(() => setBroken(false), [url])
+  const showImage = !!url && !broken
+
+  return (
+    <div className="relative h-[30px] w-[30px] shrink-0">
+      {showImage ? (
+        <img
+          src={url}
+          alt=""
+          onError={() => setBroken(true)}
+          className="h-full w-full rounded-full border border-[var(--border)] object-cover"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center rounded-full border border-[var(--border)] bg-[var(--mint2)] text-[var(--text)]">
+          <MonoIcon name="paw" className="h-1/2 w-1/2" />
+        </div>
+      )}
+    </div>
+  )
+}
+
 function MessageRow({ message, characterName, onEditNews }: {
   message: MessageSnapshot
   characterName: string
@@ -178,17 +210,17 @@ function MessageRow({ message, characterName, onEditNews }: {
   return (
     <div className={`mb-2.5 flex items-start gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser && message.characterId && (
-        /* 頭像＝這個角色的操作選單（提及／說點什麼／禁言／編輯角色）。
-           原本是直接跳角色卡，但實機用下來最常想做的其實是「點名他」——
-           群組聊天要一直手打名字。與頂部 `AvatarBar` 共用同一個選單，
-           免得同一顆頭像在兩個地方點出不同東西。 */
+        /* 頭像＝放大預覽這則訊息用的表情圖＋角色操作（提及／說點什麼／禁言／編輯角色）。
+           泡泡上的頭像很小，點進去才看得清楚選了哪張表情圖
+           （owner 2026-08-23 實機回報）；動作項目跟頂部 `AvatarBar` 共用
+           `CharacterMenuActions`，只是外面包的預覽版面不一樣。 */
         <button
           type="button"
-          aria-label={`${characterName || '角色'}的選單`}
-          onClick={() => useUiStore.getState().push('character-menu', message.characterId)}
+          aria-label={`${characterName || '角色'}的頭像`}
+          onClick={() => useUiStore.getState().push('message-avatar-panel', message.id)}
           className="mt-4 shrink-0"
         >
-          <Avatar characterId={message.characterId} size={30} />
+          <MessageAvatar characterId={message.characterId} emotion={message.emotionOverride ?? message.emotion} />
         </button>
       )}
       <div className={`min-w-0 ${isUser ? 'max-w-[86%]' : 'flex-1'}`}>

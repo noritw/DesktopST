@@ -4,7 +4,9 @@ import type { ViewEntry, ViewKind } from '../stores/uiStore'
 import { ThemePicker } from './ThemePicker'
 import { RandomToolsSheet } from '../chat/RandomToolsSheet'
 import { MessageMenu } from '../chat/MessageMenu'
+import { MessageAvatarPanel } from '../chat/MessageAvatarPanel'
 import { MessagePromptView } from '../chat/MessagePromptView'
+import { MessageEmotionPicker } from '../chat/MessageEmotionPicker'
 import { CharacterMenu } from '../characters/CharacterMenu'
 import { PresenceSheet } from '../characters/PresenceSheet'
 import { CharacterLibrary } from '../characters/CharacterLibrary'
@@ -37,8 +39,10 @@ const TITLES: Record<ViewKind, string> = {
   'conversation-editor': '編輯對話',
   presence: '這次對話有誰在場',
   'character-menu': '角色',
+  'message-avatar-panel': '角色',
   'message-menu': '訊息',
   'message-prompt': '完整 Prompt',
+  'message-emotion': '換表情',
   characters: '角色庫',
   'character-editor': '編輯角色',
   presets: '情境與設定組',
@@ -107,8 +111,10 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   // param 是必要的：沒有它不知道在講哪個角色／哪則訊息。
   // 缺了就當成程式錯誤讓它顯示「尚未實作」，不要靜靜地畫一個空選單。
   if (entry.kind === 'character-menu' && entry.param) return <CharacterMenu characterId={entry.param} />
+  if (entry.kind === 'message-avatar-panel' && entry.param) return <MessageAvatarPanel messageId={entry.param} />
   if (entry.kind === 'message-menu' && entry.param) return <MessageMenu messageId={entry.param} />
   if (entry.kind === 'message-prompt' && entry.param) return <MessagePromptView messageId={entry.param} />
+  if (entry.kind === 'message-emotion' && entry.param) return <MessageEmotionPicker messageId={entry.param} />
 
   // 走到這裡就是 param 缺了（例如點角色選單卻沒帶角色 id）。
   // 刻意寫得很明顯，避免看到空白畫面時誤以為是壞掉。

@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+import type { Character } from '@core/types'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { MenuItem } from '../characters/CharacterMenu'
@@ -14,10 +16,26 @@ export function MessageMenu({ messageId }: { messageId: string }): JSX.Element {
   const message = useAppStore((s) => s.messages.find((m) => m.id === messageId))
   const refresh = useAppStore((s) => s.refresh)
   const ui = useUiStore()
+  const [character, setCharacter] = useState<Character | null>(null)
+
+  useEffect(() => {
+    if (message?.role !== 'character' || !message.characterId) return
+    let alive = true
+    void getData()
+      .characters.get(message.characterId)
+      .then((c) => { if (alive) setCharacter(c) })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [message?.characterId, message?.role])
 
   if (!message) {
     return <div className="py-8 text-center text-sm text-[var(--text-sub)]">這則訊息已經不在了</div>
   }
+
+  // 沒有任何表情圖的角色顯示這一項毫無意義，直接不顯示比顯示了按下去又沒反應好
+  // （同一種角色限定寫法，比照「只有使用者訊息能重送」）。
+  const hasEmotions =
+    !!character && (Object.keys(character.emotions ?? {}).length > 0 || Object.keys(character.spriteIds ?? {}).length > 0)
 
   const run = async (fn: () => Promise<void>, failText: string): Promise<void> => {
     ui.pop()
@@ -77,6 +95,17 @@ export function MessageMenu({ messageId }: { messageId: string }): JSX.Element {
         <MenuItem icon="resend" label="重新發送" hint="刪掉這則之後的內容並重新產生回覆" onClick={() => void resend()} />
       )}
       <MenuItem icon="edit" label="編輯" hint="改內容，不會重新產生回覆" onClick={() => void edit()} />
+      {message.role === 'character' && hasEmotions && (
+        <MenuItem
+          icon="paw"
+          label="換表情"
+          hint="手動指定這則要顯示哪張表情圖，覆蓋 AI 判斷"
+          onClick={() => {
+            ui.pop()
+            ui.push('message-emotion', messageId)
+          }}
+        />
+      )}
       <MenuItem icon="trash" label="刪除" destructive onClick={() => void remove()} />
 
       {/* 除錯用（清單 A6 追加）。**只有真的還留著 prompt 的訊息才給入口** ——

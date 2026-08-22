@@ -50,6 +50,10 @@ export class LocalDataSource implements DataSource {
     return this.session.getMessageImageUrl(messageId, index)
   }
 
+  characterDisplayImageUrl(characterId: string, emotion: string | undefined): Promise<string | null> {
+    return this.session.characterDisplayImageUrl(characterId, emotion)
+  }
+
   readonly conversations: ConversationsApi = {
     list: async () => this.session.listConversations(),
     load: (id) => this.session.loadConversation(id),
@@ -66,7 +70,8 @@ export class LocalDataSource implements DataSource {
     remove: (id) => this.session.removeMessage(id),
     edit: (id, content) => this.session.editMessage(id, content),
     resend: (id) => this.session.resendMessage(id),
-    getDebug: async (id) => this.session.getMessageDebug(id)
+    getDebug: async (id) => this.session.getMessageDebug(id),
+    setEmotionOverride: (id, emotion) => this.session.setMessageEmotionOverride(id, emotion)
   }
 
   readonly characters: CharactersApi = {
@@ -98,7 +103,10 @@ export class LocalDataSource implements DataSource {
       return !!d?.muted
     },
     speak: (id) => this.session.speak(id),
-    avatarUrl: (id) => this.session.avatarDataUrl(id)
+    avatarUrl: (id) => this.session.avatarDataUrl(id),
+    getFaceCrop: (id) => this.session.getFaceCrop(id),
+    setFaceCrop: (id, rect) => this.session.setFaceCrop(id, rect),
+    saveEmotionSprite: (id, emotionKey, image) => this.session.saveEmotionSprite(id, emotionKey, image)
   }
 
   readonly presets: PresetsApi = {
@@ -249,6 +257,7 @@ export class LocalDataSource implements DataSource {
       this.session.settings.llm.maxResponseTokens = limits.maxResponseTokens
       this.session.settings.llm.maxGroupRounds = limits.maxGroupRounds
       this.session.settings.llm.maxImagesPerMessage = limits.maxImagesPerMessage
+      this.session.settings.llm.temperature = limits.temperature
       await this.session.saveSettings()
       this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
     },

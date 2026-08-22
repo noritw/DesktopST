@@ -266,6 +266,9 @@ export function SyncImportView(): JSX.Element {
         把電腦上的角色、設定組與設定拉一份到這台手機。電腦端請開啟「手機連線」，
         畫面上會出現一張 QR。
       </p>
+      <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
+        ⚠️ 那張 QR／網址等同能連進那台電腦資料的憑證，請勿轉傳畫面截圖給不信任的人。
+      </p>
 
       {scannerOk && (
         <button

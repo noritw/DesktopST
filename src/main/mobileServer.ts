@@ -17,6 +17,7 @@ import { stableStringify } from '../core/util/stableJson'
 import { buildManifest } from '../core/sync/manifestBuild'
 import { settingsSnapshotHash, type SettingsSnapshot } from '../core/sync/settingsSnapshot'
 import { loadNewsModuleSettings } from './modules/news/settings'
+import { resolveDisplayImagePath } from '../core/character/displayImage'
 
 // ── 注入的 bridge（由 index.ts 啟動時注入）────────────────
 
@@ -119,6 +120,8 @@ export interface MobileBridge {
   setColorTheme: (theme: import('./types').ColorTheme) => boolean
   deleteMessage: (id: string) => boolean
   editMessage: (id: string, content: string) => boolean
+  /** 手機端「換表情」：手動指定／清除訊息顯示的表情（emotion 為 null＝清除）。 */
+  setMessageEmotionOverride: (id: string, emotion: string | null) => boolean
   resendMessage: (id: string) => Promise<{ ok: boolean } | { error: string }>
   // ── 角色卡寫入（B3 階段 3）──
   // 手機端要能建立與編輯角色，這些是唯一的入口。實作與桌面 IPC 共用
@@ -128,6 +131,13 @@ export interface MobileBridge {
   saveCharacter: (char: import('./types').Character) => void
   deleteCharacter: (id: string) => { ok: true } | { error: 'last-character' | 'not-found' }
   saveCharacterAvatar: (id: string, buffer: ArrayBuffer, ext: string) => { path: string } | { error: string }
+  /** 手機端「新增／指定表情圖片」（§3.3）：落地圖檔並立刻指定給該情緒 key、持久化。 */
+  saveCharacterEmotionSprite: (
+    id: string,
+    emotionKey: string,
+    buffer: ArrayBuffer,
+    ext: string
+  ) => { path: string } | { error: string }
   importCharacterPng: (buffer: ArrayBuffer) => import('./types').Character | { error: string }
   importCharacterJson: (json: string) => import('./types').Character | { error: string }
   exportCharacterPng: (char: import('./types').Character) => { buffer: ArrayBuffer } | { error: string }
@@ -188,6 +198,7 @@ export interface MobileBridge {
     maxResponseTokens: number
     maxGroupRounds: number
     maxImagesPerMessage: number
+    temperature?: number
   }) => { ok: true } | { error: string }
   getMemorySettings: () => { keepRecentN: number; autoSummarizeAfter: number; autoSummarizeEnabled: boolean }
   setMemorySettings: (m: { keepRecentN: number; autoSummarizeAfter: number; autoSummarizeEnabled: boolean }) => { ok: true } | { error: string }
@@ -640,13 +651,24 @@ async function handleRequest(
     return
   }
 
-  // ── GET /api/avatar/:id ──
+  // ── GET /api/avatar/:id[?emotion=xxx] ──
   const avatarMatch = url.match(/^\/api\/avatar\/(.+)$/)
   if (method === 'GET' && avatarMatch) {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
     const charId = decodeURIComponent(avatarMatch[1])
     const char = bridge.getCharacters().find(c => c.id === charId)
     if (!char?.avatar) { jsonError(res, 404, 'Not found'); return }
+    /*
+     * `?emotion=xxx`：手機聊天泡泡換表情用（`docs/mobile-character-expression-plan.md` §5）。
+     * 找不到對應這個 emotion 的專屬圖片就退回主圖——裁切（faceCrop）永遠在手機端做，
+     * 這裡只負責給對的原圖。
+     */
+    const emotionParam = requestUrl.searchParams.get('emotion') ?? undefined
+    // ⚠️ 一定要走跟 `core/prompt/promptUtils.ts` 的 `buildEmotionContract()`
+    // 對稱的解析（`resolveDisplayImagePath()` 會查 `spriteIds`／檔名主幹的
+    // 衍生 id，不是只查 canonical 的 28 個情緒 key）——不然模型回傳的
+    // emotion tag 常態性地對不到圖，畫面永遠退回主圖。
+    const avatar = resolveDisplayImagePath(char, emotionParam).path
 
     /*
      * ⚠️ **一定要送 `Cache-Control: no-cache`。**
@@ -666,7 +688,6 @@ async function handleRequest(
      * 訊息圖片的內容**永遠不會變**（綁在某一則訊息的某一張），可以放心
      * 長快取；頭像剛好相反，是「網址不變、內容會變」，兩者要反過來處理。
      */
-    const avatar = char.avatar
     if (avatar.startsWith('data:image/')) {
       const [header, b64] = avatar.split(',')
       const mime = header.replace('data:', '').replace(';base64', '')
@@ -1339,6 +1360,18 @@ async function handleRequest(
     return
   }
 
+  // ── POST /api/messages/set-emotion（手機「換表情」，§3.2／§6.2）──
+  if (method === 'POST' && url === '/api/messages/set-emotion') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const body = await readBody(req)
+    let payload: { id?: string; emotion?: string | null }
+    try { payload = JSON.parse(body) } catch { jsonError(res, 400, 'Invalid JSON'); return }
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const ok = bridge.setMessageEmotionOverride(payload.id, payload.emotion ?? null)
+    jsonOk(res, { ok })
+    return
+  }
+
   // ── POST /api/messages/resend ──
   if (method === 'POST' && url === '/api/messages/resend') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
@@ -1440,6 +1473,19 @@ async function handleRequest(
     const r = bridge.saveCharacterAvatar(payload.id, bytes, String(payload.ext ?? '.png'))
     if ('error' in r) { jsonError(res, 400, r.error); return }
     jsonOk(res, { avatar: r.path })
+    return
+  }
+
+  // ── POST /api/characters/save-emotion-sprite（§3.3：手機新增/指定表情圖片）──
+  if (method === 'POST' && url === '/api/characters/save-emotion-sprite') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ id?: string; emotionKey?: string; data?: string; ext?: string }>(req, res, MEDIA_MAX_BODY)
+    if (!payload) return
+    const bytes = decodeBase64Payload(payload.data)
+    if (!payload.id || !payload.emotionKey || !bytes) { jsonError(res, 400, 'id, emotionKey and data required'); return }
+    const r = bridge.saveCharacterEmotionSprite(payload.id, payload.emotionKey, bytes, String(payload.ext ?? '.png'))
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { path: r.path })
     return
   }
 
@@ -1908,12 +1954,14 @@ async function handleRequest(
       maxResponseTokens?: number
       maxGroupRounds?: number
       maxImagesPerMessage?: number
+      temperature?: number
     }>(req, res)
     if (!payload) return
     const r = bridge.setLlmChatLimits({
       maxResponseTokens: Number(payload.maxResponseTokens),
       maxGroupRounds: Number(payload.maxGroupRounds),
-      maxImagesPerMessage: Number(payload.maxImagesPerMessage)
+      maxImagesPerMessage: Number(payload.maxImagesPerMessage),
+      temperature: payload.temperature === undefined ? undefined : Number(payload.temperature)
     })
     if ('error' in r) { jsonError(res, 400, r.error); return }
     jsonOk(res, { ok: true })

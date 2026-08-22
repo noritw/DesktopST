@@ -1052,6 +1052,7 @@ export function getLlmSettingsSummaryDirect(): {
   maxResponseTokens: number
   maxGroupRounds: number
   maxImagesPerMessage: number
+  temperature: number
   utilityEnabled: boolean
   utilityProvider: AppSettings['llm']['provider']
   utilityModel: string
@@ -1073,6 +1074,7 @@ export function getLlmSettingsSummaryDirect(): {
     maxResponseTokens: Math.max(100, Math.floor(Number(settings.llm.maxResponseTokens) || 400)),
     maxGroupRounds: Math.max(1, Math.floor(Number(settings.llm.maxGroupRounds) || 1)),
     maxImagesPerMessage: Math.max(1, Math.floor(Number(settings.llm.maxImagesPerMessage) || 5)),
+    temperature: Number.isFinite(Number(settings.llm.temperature)) ? Number(settings.llm.temperature) : 0.8,
     utilityEnabled: !!settings.llm.utilityEnabled,
     utilityProvider,
     utilityModel: settings.llm.utilityModels?.[utilityProvider] ?? '',
@@ -1200,6 +1202,7 @@ export function setLlmChatLimitsDirect(limits: {
   maxResponseTokens: number
   maxGroupRounds: number
   maxImagesPerMessage: number
+  temperature?: number
 }): { ok: true } | { error: string } {
   const maxResponseTokens = Math.round(Number(limits.maxResponseTokens))
   const maxGroupRounds = Math.round(Number(limits.maxGroupRounds))
@@ -1213,9 +1216,18 @@ export function setLlmChatLimitsDirect(limits: {
   if (!Number.isFinite(maxImagesPerMessage) || maxImagesPerMessage < 1 || maxImagesPerMessage > 10) {
     return { error: '圖片上限需在 1–10' }
   }
+  // temperature 選填：舊呼叫端（S2 M3 同步、假伺服器測試）只送前三個欄位，維持相容
+  let temperature: number | undefined
+  if (limits.temperature !== undefined) {
+    temperature = Number(limits.temperature)
+    if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
+      return { error: '溫度需在 0–2' }
+    }
+  }
   settings.llm.maxResponseTokens = maxResponseTokens
   settings.llm.maxGroupRounds = maxGroupRounds
   settings.llm.maxImagesPerMessage = maxImagesPerMessage
+  if (temperature !== undefined) settings.llm.temperature = temperature
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   // 圖片上限會影響手機 Composer；推一次狀態讓快照刷新
@@ -1654,6 +1666,25 @@ export function editMessageDirect(id: string, content: string): boolean {
   return true
 }
 
+/**
+ * 手機端「換表情」：手動指定／清除訊息顯示的表情，覆蓋 AI 判斷的 `emotion`
+ * （`docs/mobile-character-expression-plan.md` §3.2）。`emotion` 為 `null`
+ * ＝清掉覆蓋，回到跟隨 AI 判斷。
+ */
+export function setMessageEmotionOverrideDirect(id: string, emotion: string | null): boolean {
+  if (!activeConversationId) return false
+  const conv = getOrLoadConversation(activeConversationId)
+  if (!conv) return false
+  const msg = conv.messages.find(m => m.id === id)
+  if (!msg) return false
+  if (emotion) msg.emotionOverride = emotion
+  else delete msg.emotionOverride
+  conv.updatedAt = Date.now()
+  fileStore.saveConversation(conv)
+  broadcastConversationUpdate(conv)
+  return true
+}
+
 /** 覆寫訊息上的新聞 promptContext；可選同步釘住話題（供後續延續） */
 export function updateNewsPromptContextDirect(payload?: {
   messageId?: string
@@ -1774,6 +1805,48 @@ export function saveCharacterAvatarDirect(payload: { id: string; buffer: ArrayBu
       fileStore.saveCharacter(characters[idx])
       broadcastToAll('characters:updated', characters)
     }
+    return { path: dest }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/**
+ * 手機端「新增／指定表情圖片」（`docs/mobile-character-expression-plan.md` §3.3）。
+ *
+ * ⚠️ **跟桌面版 `character:save-emotion-sprite` 不一樣**：那支只落地圖檔、
+ * 回傳路徑，情緒指派留給桌面 UI（`EmotionSpritesTab.tsx`）自己勾選再存檔。
+ * 手機這邊是「選一張圖＝直接指定給這個情緒」的單步流程，跟 `saveCharacterAvatarDirect`
+ * 同語意——落地就立刻更新 `character.emotions[key]` 並持久化，不需要另一步「儲存」。
+ */
+export function saveCharacterEmotionSpriteAndAssignDirect(payload: {
+  id: string
+  emotionKey: string
+  buffer: ArrayBuffer
+  ext: string
+}): { path: string } | { error: string } {
+  try {
+    const ext = normalizeImageExt(payload.ext)
+    if (!ALLOWED_IMAGE_EXT.has(ext)) return { error: '不支援的圖片格式' }
+    const buf = Buffer.from(payload.buffer ?? new ArrayBuffer(0))
+    if (buf.length > MAX_MEDIA_BYTES) return { error: '檔案超過 10 MB 上限' }
+    const dir = safeCharacterDir(payload.id)
+    if (!dir) return { error: 'Character not found' }
+    const emotionsDir = path.join(dir, 'emotions')
+    fs.mkdirSync(emotionsDir, { recursive: true })
+    const safeKey = String(payload.emotionKey ?? '').replace(/[^\w-]/g, '_') || 'sprite'
+    const dest = path.join(emotionsDir, `${safeKey}-${Date.now()}${ext}`)
+    fs.writeFileSync(dest, buf)
+    const idx = characters.findIndex(c => c.id === payload.id)
+    if (idx < 0) return { error: 'Character not found' }
+    const nextEmotions = { ...(characters[idx].emotions ?? {}), [payload.emotionKey]: dest }
+    // 順手記一個乾淨的自訂 id（＝情緒 key 本身）：LLM 合約沒有自訂 id 時會
+    // 退回檔名主幹當 id（`buildEmotionContract()`），除錯畫面與模型回傳的
+    // tag 才會看到 `joy` 而不是一串檔名。
+    const nextSpriteIds = { ...(characters[idx].spriteIds ?? {}), [dest]: payload.emotionKey }
+    characters[idx] = { ...characters[idx], emotions: nextEmotions, spriteIds: nextSpriteIds, updatedAt: Date.now() }
+    fileStore.saveCharacter(characters[idx])
+    broadcastToAll('characters:updated', characters)
     return { path: dest }
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) }

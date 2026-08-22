@@ -252,6 +252,11 @@ export default function SettingsPanel({ draft, set, setDraft, setDirty }: Settin
               />
               <span className="text-sm text-primary">使用 Cloudflare Tunnel（外網可存取）</span>
             </label>
+            <p className="text-[11px] text-amber-600 leading-relaxed">
+              ⚠️ QR code／配對網址等同能連進這台電腦資料的憑證，請勿截圖外流或分享給不信任的人。
+              此選項預設開啟，開啟後手機會透過 relay.nori.tw 讓資料可從網際網路連入（有 token 保護）；
+              只想區網內使用請取消勾選。
+            </p>
             <div className="flex items-center gap-2">
               <span className="text-sm text-secondary">Port：</span>
               <input

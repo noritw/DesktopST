@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { ColorTheme } from '@core/types'
+import type { FaceCropRect } from '@core/character/displayImage'
 import type { ChoiceMap, PairTable } from '@core/sync/pair'
 import type { SettingsChoiceMap, SettingsFieldRow } from '@core/sync/settingsPair'
 import type { ConvChoiceMap, ConvFieldChoiceMap, ConvRow } from '@core/sync/convPair'
@@ -35,9 +36,13 @@ export type ViewKind =
   | 'conversation-editor'
   | 'presence'
   | 'character-menu'
+  /** 點聊天泡泡頭像開啟的大圖預覽＋角色操作（`docs/mobile-character-expression-plan.md`）。 */
+  | 'message-avatar-panel'
   | 'message-menu'
   /** 這則訊息送出去的完整 prompt（除錯用，從訊息選單進去）。 */
   | 'message-prompt'
+  /** 手動指定這則訊息要顯示哪張表情圖（`docs/mobile-character-expression-plan.md` §6.2）。 */
+  | 'message-emotion'
   | 'characters'
   | 'character-editor'
   | 'presets'
@@ -133,6 +138,17 @@ interface UiState {
   avatarCrop: { file: File; resolve: (result: File | null) => void } | null
   openAvatarCrop: (file: File) => Promise<File | null>
   closeAvatarCrop: (result: File | null) => void
+
+  /**
+   * 框選臉部顯示範圍（`docs/mobile-character-expression-plan.md` §3.1／§6.3）。
+   *
+   * 跟 `avatarCrop` 幾乎同一套 Promise 包裝，差別是**這裡只算比例矩形，
+   * 不輸出裁切後的檔案**——`imageUrl` 可以是任何已知尺寸的圖片位址
+   * （data: URI 或遙控模式的網路位址皆可），不需要先轉成 `File`。
+   */
+  faceCrop: { imageUrl: string; resolve: (result: FaceCropRect | null) => void } | null
+  openFaceCrop: (imageUrl: string) => Promise<FaceCropRect | null>
+  closeFaceCrop: (result: FaceCropRect | null) => void
 
   /**
    * 推送前的同名角色勾選（S2 M3，owner 2026-08-13 拍板）。
@@ -254,6 +270,17 @@ export const useUiStore = create<UiState>((set, get) => ({
     const c = get().avatarCrop
     set({ avatarCrop: null })
     // 先清掉再 resolve：跟 closeDialog 同理，呼叫端可能在 then 裡立刻做下一步。
+    c?.resolve(result)
+  },
+
+  faceCrop: null,
+  openFaceCrop: (imageUrl) =>
+    new Promise<FaceCropRect | null>((resolve) => {
+      set({ faceCrop: { imageUrl, resolve } })
+    }),
+  closeFaceCrop: (result) => {
+    const c = get().faceCrop
+    set({ faceCrop: null })
     c?.resolve(result)
   },
 

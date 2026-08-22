@@ -3,7 +3,7 @@ import { chatWithClaude } from './claude'
 import { chatWithGemini } from './gemini'
 import {
   buildEmotionClassifierSystemPrompt, buildEmotionIdList, buildNewsSubjectivityClassifierSystemPrompt, applyUtilitySettings,
-  expandReactionAnnotations, expandNewsLinkForPrompt, annotateTimeGaps,
+  expandReactionAnnotations, expandNewsLinkForPrompt, annotateTimeGaps, canonicalizeEmotionId,
   type ChatLLMParams, type ChatLLMResult, type PromptCharacter
 } from '../prompt/promptUtils'
 import type { AppSettings } from '../types'
@@ -90,6 +90,19 @@ export async function chatWithLLM(rawParams: ChatLLMParams, deps: LLMDeps): Prom
     messages: rawParams.settings.injectSystemTime ? annotateTimeGaps(expandedMessages) : expandedMessages,
     extraSystemContext: [memorySummaryBlock, rawParams.extraSystemContext].filter(Boolean).join('\n\n') || undefined
   }
+  const result = await dispatchChat(params, deps)
+  /*
+   * ⚠️ **一定要在這裡（唯一入口）換成 canonical key 再回傳，不要讓呼叫端自己存原始 id。**
+   * `buildEmotionContract()` 給模型的 id 可能是自訂 id／檔名主幹，這些是**裝置本地的**
+   * ——同一則訊息換一台裝置檢視（S2 對話同步）時，用那台裝置自己的
+   * `character.emotions`／`spriteIds` 反查會對不上，症狀是「這台剛發的正常，
+   * 同步過去那台看不到表情」（2026-08-23 owner 實機回報）。存 canonical key
+   * （`EMOTION_OPTIONS` 的固定英文字）才是跨裝置穩定的身分。
+   */
+  return { ...result, emotion: canonicalizeEmotionId(params.character, result.emotion) }
+}
+
+function dispatchChat(params: ChatLLMParams, deps: LLMDeps): Promise<ChatLLMResult> {
   const { provider } = params.settings.llm
   switch (provider) {
     case 'claude':
@@ -143,11 +156,13 @@ export async function classifyEmotionWithLLM(params: {
   const utilitySettings = applyUtilitySettings(settings)
   const systemPrompt = buildEmotionClassifierSystemPrompt(character)
   const knownIds = buildEmotionIdList(character)
-  const fallback = knownIds[0] ?? 'neutral'
+  // 跟 `chatWithLLM()` 同一個理由：存 canonical key，不要存裝置本地的自訂 id／檔名主幹
+  // ——`knownIds[0]` 本身也可能是自訂 id／檔名主幹，fallback 也要換算。
+  const fallback = canonicalizeEmotionId(character, knownIds[0] ?? 'neutral')
 
   const resolveId = (raw: string) => {
     const id = raw.replace(/[^a-z_一-鿿㐀-䶿]/gi, '').trim()
-    return knownIds.includes(id) ? id : fallback
+    return knownIds.includes(id) ? canonicalizeEmotionId(character, id) : fallback
   }
 
   const makeDebug = (provider: string, model: string, inputTokens: number | undefined, outputTokens: number | undefined, response: string) =>

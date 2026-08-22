@@ -2,12 +2,14 @@ import { cloneElement, isValidElement, useCallback, useEffect, useRef, useState 
 import type { ReactElement, TextareaHTMLAttributes } from 'react'
 import type { Character } from '@core/types'
 import type { PresetListItem } from '@core/data'
+import type { FaceCropRect } from '@core/character/displayImage'
+import { EMOTION_OPTIONS, emotionLabel } from '@core/character/emotionCatalog'
 import MonoIcon from '@shared/MonoIcon'
 import { getData, isAttached, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeCharacterError } from './characterErrors'
 import { extOf, prepareAvatar } from './avatarFile'
-import { invalidateAvatar, useAvatarUrl } from './useAvatarUrl'
+import { invalidateAvatar, useAvatarUrl, useCharacterDisplayImage, invalidateAllCharacterDisplayImages } from './useAvatarUrl'
 import { downloadBytes, mimeForFilename, pickFile } from '../shell/fileTransfer'
 
 /**
@@ -18,8 +20,10 @@ import { downloadBytes, mimeForFilename, pickFile } from '../shell/fileTransfer'
  *
  * 排版上把桌面的四個分頁壓成「一路往下捲 ＋ 一塊進階摺疊區」——
  * 手機上分頁要先猜東西藏在哪個標籤底下，而這裡的欄位少到不需要分。
- * 情緒圖片那一頁**不做**（roadmap §3.1：手機版是單張主圖免表情差分，
- * 這是範圍決定不是資料缺口，見計畫書 §5.1）。
+ *
+ * ⚠️ **「顯示設定」區塊（框選臉部範圍／表情圖片）已於 2026-08-22 補上**——
+ * 舊決議「情緒圖片那一頁不做」（roadmap §3.1／§5.1）已被 owner 推翻，
+ * 見 `docs/mobile-character-expression-plan.md` 開頭的說明。
  */
 export function CharacterEditor({ characterId }: { characterId: string }): JSX.Element {
   const toast = useUiStore((s) => s.toast)
@@ -27,6 +31,7 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
   const pop = useUiStore((s) => s.pop)
   const setCloseGuard = useUiStore((s) => s.setCloseGuard)
   const openAvatarCrop = useUiStore((s) => s.openAvatarCrop)
+  const openFaceCrop = useUiStore((s) => s.openFaceCrop)
   const refresh = useAppStore((s) => s.refresh)
   const attached = useAppStore((s) => s.attached)
 
@@ -37,6 +42,7 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
   const [lorebooks, setLorebooks] = useState<PresetListItem[]>([])
   const [generatingLoreId, setGeneratingLoreId] = useState<string | null>(null)
   const [loreMsg, setLoreMsg] = useState<string | null>(null)
+  const [faceCrop, setFaceCropState] = useState<FaceCropRect | null>(null)
 
   // guard 讀的是「當下」的狀態，所以走 ref —— 用 state 會被 closure 鎖在註冊當時那一刻。
   const dirtyRef = useRef(false)
@@ -49,13 +55,15 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
   const load = useCallback(async (): Promise<void> => {
     setFailed(false)
     try {
-      const [card, books] = await Promise.all([
+      const [card, books, crop] = await Promise.all([
         getData().characters.get(characterId),
         // 沒有用語解說功能的電腦（或還沒建任何一本）不該讓整個編輯器載不出來。
-        getData().lorebooks.list().catch(() => [])
+        getData().lorebooks.list().catch(() => []),
+        getData().characters.getFaceCrop(characterId).catch(() => null)
       ])
       setDraft(card)
       setLorebooks(books)
+      setFaceCropState(crop)
     } catch {
       // B-4：切換模式的空窗期間 getData() 會 throw，不是真的失敗——見
       // SettingsView.tsx 同一套修法的註解。保持 draft === null，下面
@@ -147,6 +155,58 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
     }
   }
 
+  /**
+   * 框選臉部顯示範圍（§3.1）：對話記錄與小工具共用同一份設定，只算比例矩形，
+   * 不輸出新檔案——所以拿現有的主圖網址去框，不需要先落地一份新圖。
+   */
+  const pickFaceCrop = async (): Promise<void> => {
+    if (!draft) return
+    const url = await getData().characters.avatarUrl(draft.id)
+    if (!url) {
+      toast('請先設定主圖，才能框選顯示範圍', 'error')
+      return
+    }
+    const rect = await openFaceCrop(url)
+    if (!rect) return
+    try {
+      await getData().characters.setFaceCrop(draft.id, rect)
+      setFaceCropState(rect)
+      invalidateAllCharacterDisplayImages()
+      toast('已更新顯示範圍')
+    } catch (e) {
+      toast(describeCharacterError(e, '框選顯示範圍'), 'error')
+    }
+  }
+
+  const clearFaceCrop = async (): Promise<void> => {
+    if (!draft) return
+    try {
+      await getData().characters.setFaceCrop(draft.id, null)
+      setFaceCropState(null)
+      invalidateAllCharacterDisplayImages()
+    } catch (e) {
+      toast(describeCharacterError(e, '清除顯示範圍'), 'error')
+    }
+  }
+
+  /** 新增／替換一張表情圖片，直接指定給某個情緒 key（§3.3）。 */
+  const pickEmotionSprite = async (emotionKey: string): Promise<void> => {
+    const file = await pickFile('image/*')
+    if (!file || !draft) return
+    setBusy(true)
+    try {
+      const prepared = await prepareAvatar(file)
+      const path = await getData().characters.saveEmotionSprite(draft.id, emotionKey, prepared)
+      setDraft((prev) => (prev ? { ...prev, emotions: { ...(prev.emotions ?? {}), [emotionKey]: path } } : prev))
+      markDirty()
+      invalidateAllCharacterDisplayImages()
+    } catch (e) {
+      toast(describeCharacterError(e, '新增表情圖片'), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const exportCard = async (kind: 'png' | 'json'): Promise<void> => {
     if (!draft) return
     // 匯出的是**電腦上那張**，所以未儲存的改動不會在裡面 —— 先存起來比較不意外。
@@ -228,6 +288,16 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
   return (
     <div className="pb-2">
       <AvatarPicker draft={draft} onPick={() => void changeAvatar()} busy={busy} />
+
+      <DisplaySettingsSection
+        characterId={draft.id}
+        emotions={draft.emotions ?? {}}
+        faceCrop={faceCrop}
+        busy={busy}
+        onPickFaceCrop={() => void pickFaceCrop()}
+        onClearFaceCrop={() => void clearFaceCrop()}
+        onPickEmotionSprite={(key) => void pickEmotionSprite(key)}
+      />
 
       <Field label="名稱">
         <input
@@ -457,6 +527,144 @@ function AvatarPicker({ draft, onPick, busy }: { draft: Character; onPick: () =>
         {showImage && <span className="text-[11px] text-[var(--text-sub)]">點一下換一張</span>}
       </button>
     </div>
+  )
+}
+
+/**
+ * 「顯示設定」區塊（`docs/mobile-character-expression-plan.md` §3.1／§3.3）：
+ * 框選臉部顯示範圍（對話記錄與小工具共用）＋ 新增/替換表情圖片。
+ */
+function DisplaySettingsSection({
+  characterId,
+  emotions,
+  faceCrop,
+  busy,
+  onPickFaceCrop,
+  onClearFaceCrop,
+  onPickEmotionSprite
+}: {
+  characterId: string
+  emotions: Record<string, string>
+  faceCrop: FaceCropRect | null
+  busy: boolean
+  onPickFaceCrop: () => void
+  onClearFaceCrop: () => void
+  onPickEmotionSprite: (emotionKey: string) => void
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  /*
+   * ⚠️ **只算 `emotions`，不要混進 `spriteIds`。** 兩者是不同的 key 命名空間——
+   * `emotions` 才是「情緒 key → 圖片路徑」（跟 `EMOTION_OPTIONS` 對得起來）；
+   * `spriteIds` 是「圖片路徑 → 自訂 id」（給桌面版 LLM 輸出比對用），
+   * 把兩邊的 key 混進同一個 Set 算數量，desktop 角色若同時有 spriteIds
+   * 自訂對應就會被重複計入，數字會超過 28（owner 2026-08-23 實機回報
+   * 「星離宸／琉緋璃表情圖變成 36／28」正是這個成因）。
+   */
+  const spriteCount = Object.values(emotions).filter((p) => p?.trim()).length
+
+  return (
+    <div className="mb-4 rounded-[18px] border border-[var(--border)] bg-[var(--bg)] p-3">
+      <span className="text-xs font-semibold text-[var(--text)]">顯示設定</span>
+      <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-sub)]">
+        框選臉部範圍後，換表情時會顯示裁切過的臉部特寫；沒框選就顯示原圖，兩者互不影響。
+      </p>
+
+      <div className="mt-2 flex items-center gap-3">
+        {/* 框選成功後**一定要有預覽**——不然使用者不知道到底設定成功了沒有
+            （owner 2026-08-23 實機回報「框選之後沒有預覽圖」）。這裡直接用
+            套用過框選的顯示圖（跟聊天泡泡、角色列表看到的是同一張）。 */}
+        {faceCrop && <FaceCropPreview characterId={characterId} />}
+        <div className="flex flex-1 items-center gap-2">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onPickFaceCrop}
+            className="flex-1 rounded-full border border-[var(--border)] py-2 text-xs text-[var(--text)] disabled:opacity-50"
+          >
+            {faceCrop ? '重新框選臉部顯示範圍' : '框選臉部顯示範圍'}
+          </button>
+          {faceCrop && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onClearFaceCrop}
+              className="rounded-full border border-[var(--border)] px-3 py-2 text-xs text-[var(--text-sub)] disabled:opacity-50"
+            >
+              清除
+            </button>
+          )}
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="mt-3 flex w-full items-center gap-1.5 border-t border-[var(--border)] pt-2 text-xs text-[var(--text-sub)]"
+      >
+        <span className={expanded ? 'rotate-90 transition-transform' : 'transition-transform'}>▶</span>
+        表情圖片（{spriteCount} / {EMOTION_OPTIONS.length}）
+      </button>
+
+      {expanded && (
+        <div className="mt-2 grid grid-cols-3 gap-2">
+          {EMOTION_OPTIONS.map((opt) => (
+            <EmotionSpriteRow
+              key={opt.en}
+              characterId={characterId}
+              emotionKey={opt.en}
+              hasSprite={!!emotions[opt.en]?.trim()}
+              busy={busy}
+              onPick={() => onPickEmotionSprite(opt.en)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 框選結果的即時預覽（`emotion` 給 `undefined`＝套用框選後的主圖，跟聊天泡泡預設看到的一致）。 */
+function FaceCropPreview({ characterId }: { characterId: string }): JSX.Element {
+  const url = useCharacterDisplayImage(characterId, undefined)
+  return (
+    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border border-[var(--border)] bg-[var(--surface)]">
+      {url && <img src={url} alt="" className="h-full w-full object-cover" />}
+    </div>
+  )
+}
+
+function EmotionSpriteRow({
+  characterId,
+  emotionKey,
+  hasSprite,
+  busy,
+  onPick
+}: {
+  characterId: string
+  emotionKey: string
+  hasSprite: boolean
+  busy: boolean
+  onPick: () => void
+}): JSX.Element {
+  const url = useCharacterDisplayImage(characterId, hasSprite ? emotionKey : undefined)
+
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={onPick}
+      className="flex flex-col items-center gap-1 rounded-[14px] border border-[var(--border)] bg-[var(--surface)] p-2 disabled:opacity-50"
+    >
+      <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-[var(--bg)]">
+        {hasSprite && url ? (
+          <img src={url} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <MonoIcon name="paw" className="h-1/2 w-1/2 text-[var(--text-sub)]" />
+        )}
+      </div>
+      <span className="line-clamp-1 text-center text-[10px] text-[var(--text)]">{emotionLabel(emotionKey)}</span>
+      <span className="text-[10px] text-[var(--text-sub)]">{hasSprite ? '更換' : '新增'}</span>
+    </button>
   )
 }
 

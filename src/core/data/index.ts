@@ -1,3 +1,4 @@
+export type { FaceCropRect } from '../character/displayImage'
 export type {
   AppStateSnapshot,
   Capabilities,

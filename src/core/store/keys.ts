@@ -45,6 +45,13 @@ export const MODE_PREF_KEY = 'mode-pref.json'
  * 這是同步游標，不是使用者資料，換一台手機不該帶著走。
  */
 export const SYNC_BASELINE_KEY = 'sync-baseline.json'
+/**
+ * 框選的臉部顯示範圍（`docs/mobile-character-expression-plan.md` §3.1），
+ * key 是 characterId。**mobile-only 裝置偏好，不進同步／搬家包**——理由與
+ * `MODE_PREF_KEY` 同一類：這是「這支手機想怎麼呈現」，換一台手機該重框，
+ * 桌面版沒有這個概念（全身圖，不需要臉部特寫）。
+ */
+export const CHARACTER_DISPLAY_CONFIG_KEY = 'character-display-config.json'
 
 export const MODULES_DIR = 'modules'
 export const CHARACTERS_DIR = 'characters'

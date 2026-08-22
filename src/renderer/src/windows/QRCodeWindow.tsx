@@ -149,6 +149,12 @@ export default function QRCodeWindow() {
             <span style={{ fontWeight: 600 }}>{status.localUrl}</span>
           </div>
         )}
+
+        {status.appAvailable && displayUrl && (
+          <div style={styles.pairWarnBox}>
+            ⚠️ 這張 QR／網址等同這台電腦的存取憑證，請勿截圖外流或分享給不信任的人。
+          </div>
+        )}
       </div>
     </div>
   )
@@ -289,6 +295,13 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--color-text-secondary)',
     textAlign: 'center',
     lineHeight: 1.6,
+  },
+  pairWarnBox: {
+    fontSize: 11,
+    color: 'var(--color-text-secondary)',
+    textAlign: 'center' as const,
+    lineHeight: 1.6,
+    padding: '0 4px',
   },
   spinner: {
     fontSize: 24,

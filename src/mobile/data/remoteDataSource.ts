@@ -40,6 +40,8 @@ import type { Character, PersonaPreset, Reminder, ScenePreset, WorldPreset } fro
 import type { NewsSource } from '@core/news/types'
 import type { Lorebook } from '@core/lore'
 import { base64ToBytes, bytesToBase64 } from '@core/util/base64'
+import type { FaceCropRect } from '@core/data'
+import { getFaceCrop, setFaceCrop, cropImageToFace } from '../runtime/faceCropConfig'
 import { HttpClient } from './httpClient'
 import type { HttpClientOptions } from './httpClient'
 
@@ -135,6 +137,34 @@ export class RemoteDataSource implements DataSource {
     return this.http.url(`/api/message-image/${encodeURIComponent(messageId)}/${index}`)
   }
 
+  /**
+   * 依訊息 emotion 決定顯示圖（`docs/mobile-character-expression-plan.md` §5）。
+   * 電腦端只負責給對的原圖（`/api/avatar/:id?emotion=`）；裁切（faceCrop）
+   * 永遠在手機端做——**用 `getBinary` 取位元組再轉 blob URL，不要直接把
+   * 網路位址塞給 `<img>` 再用 canvas 裁**，跨來源的圖片來源會讓 canvas
+   * 被判定「已污染」，`toDataURL()` 直接丟 SecurityError。
+   */
+  async characterDisplayImageUrl(characterId: string, emotion: string | undefined): Promise<string | null> {
+    const path = emotion
+      ? `/api/avatar/${encodeURIComponent(characterId)}?emotion=${encodeURIComponent(emotion)}`
+      : `/api/avatar/${encodeURIComponent(characterId)}`
+    let blob: Blob
+    try {
+      ;({ blob } = await this.http.getBinary(path))
+    } catch (e) {
+      if (e instanceof DataError && e.code === 'not-found') return null
+      throw e
+    }
+    const blobUrl = URL.createObjectURL(blob)
+    const rect = await getFaceCrop(characterId)
+    if (!rect) return blobUrl
+    try {
+      return await cropImageToFace(blobUrl, rect)
+    } catch {
+      return blobUrl
+    }
+  }
+
   readonly conversations: ConversationsApi = {
     list: async () => (await this.http.get<{ conversations: ConversationListItem[] }>('/api/conversations')).conversations,
     load: async (id) => { await this.http.post('/api/conversations/load', { id }) },
@@ -161,6 +191,7 @@ export class RemoteDataSource implements DataSource {
     remove: async (id) => { await this.http.post('/api/messages/delete', { id }) },
     edit: async (id, content) => { await this.http.post('/api/messages/edit', { id, content }) },
     resend: async (id) => { await this.http.post('/api/messages/resend', { id }) },
+    setEmotionOverride: async (id, emotion) => { await this.http.post('/api/messages/set-emotion', { id, emotion }) },
     // 舊版電腦端沒這支端點：當成「這則沒留 prompt」處理（回 null）而不是報錯，
     // UI 顯示「找不到」總比丟一個看不懂的連線錯誤好。
     getDebug: async (id) => {
@@ -226,7 +257,20 @@ export class RemoteDataSource implements DataSource {
     },
     toggleMute: async (id) => (await this.http.post<{ muted: boolean }>('/api/characters/toggle-mute', { characterId: id })).muted,
     speak: async (id) => { await this.http.post('/api/characters/speak', { characterId: id }) },
-    avatarUrl: async (id) => this.http.url(`/api/avatar/${encodeURIComponent(id)}`)
+    avatarUrl: async (id) => this.http.url(`/api/avatar/${encodeURIComponent(id)}`),
+
+    // faceCrop 是裝置偏好，不是電腦上的資料——不管當下是哪種模式都讀寫同一份
+    // 本機設定（`faceCropConfig.ts`），不透過 HTTP。
+    getFaceCrop: (id) => getFaceCrop(id),
+    setFaceCrop: (id, rect: FaceCropRect | null) => setFaceCrop(id, rect),
+
+    saveEmotionSprite: async (id, emotionKey, image) =>
+      (await this.http.post<{ path: string }>('/api/characters/save-emotion-sprite', {
+        id,
+        emotionKey,
+        data: bytesToBase64(image.bytes),
+        ext: image.ext
+      })).path
   }
 
   readonly presets: PresetsApi = {

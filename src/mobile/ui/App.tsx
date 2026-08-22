@@ -9,6 +9,7 @@ import { ToastHost } from './shell/ToastHost'
 import { DialogHost } from './shell/DialogHost'
 import { Lightbox } from './shell/Lightbox'
 import { AvatarCropView } from './characters/AvatarCropView'
+import { FaceCropView } from './characters/FaceCropView'
 import { NameConflictPicker } from './shell/NameConflictPicker'
 import { SyncComparePicker } from './shell/SyncComparePicker'
 import { MessageList } from './chat/MessageList'
@@ -377,6 +378,7 @@ export function App(): JSX.Element {
       <DialogHost />
       <Lightbox />
       <AvatarCropView />
+      <FaceCropView />
       <NameConflictPicker />
       <SyncComparePicker />
       <ToastHost />

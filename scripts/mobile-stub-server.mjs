@@ -108,6 +108,7 @@ const llmSettings = {
   maxResponseTokens: 400,
   maxGroupRounds: 3,
   maxImagesPerMessage: 5,
+  temperature: 0.8,
   utilityEnabled: false,
   utilityProvider: 'openai',
   utilityModels: {}
@@ -664,10 +665,18 @@ const server = http.createServer(async (req, res) => {
     if (!Number.isFinite(maxImagesPerMessage) || maxImagesPerMessage < 1 || maxImagesPerMessage > 10) {
       return json(res, { error: '圖片上限需在 1–10' }, 400)
     }
+    let temperature = llmSettings.temperature
+    if (p.temperature !== undefined) {
+      temperature = Number(p.temperature)
+      if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
+        return json(res, { error: '溫度需在 0–2' }, 400)
+      }
+    }
     llmSettings.maxResponseTokens = maxResponseTokens
     llmSettings.maxGroupRounds = maxGroupRounds
     llmSettings.maxImagesPerMessage = maxImagesPerMessage
-    console.log('[settings] chat-limits ->', JSON.stringify({ maxResponseTokens, maxGroupRounds, maxImagesPerMessage }))
+    llmSettings.temperature = temperature
+    console.log('[settings] chat-limits ->', JSON.stringify({ maxResponseTokens, maxGroupRounds, maxImagesPerMessage, temperature }))
     return json(res, { ok: true })
   }
 
@@ -684,6 +693,7 @@ const server = http.createServer(async (req, res) => {
         maxResponseTokens: llmSettings.maxResponseTokens,
         maxGroupRounds: llmSettings.maxGroupRounds,
         maxImagesPerMessage: llmSettings.maxImagesPerMessage,
+        temperature: llmSettings.temperature,
         utilityEnabled: llmSettings.utilityEnabled,
         utilityProvider: llmSettings.utilityProvider,
         utilityModel: llmSettings.utilityModels[llmSettings.utilityProvider] || '',

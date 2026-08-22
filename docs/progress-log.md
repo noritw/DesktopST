@@ -3802,3 +3802,344 @@ RSS 搜尋的標題／媒體拆解與相關標題摘要抽取、3 則上限、`m
 
 `npm run typecheck`／`npm test`（77 檔、988 項）全過。已 commit
 （`220727a`），未 push。
+
+## 2026-08-22（續十一）｜文件補追：B9a／CWA 即時查詢真機驗證確認＋資安免責警語落地
+
+盤點 `TODO.md` 時發現兩處文件落後於實際進度：
+
+- **飲食記錄 App B9a MVP**：`TODO.md` §0 與 `docs/nutrition-module-kickoff.md`
+  文首都還寫「尚未開工」，但 2026-08-18 那則條目其實已經寫著「owner 用過
+  B9a 之後回報四個 UI 問題」——代表 MVP 早就完成並在用，只是完工當下沒有
+  回頭改這兩處的狀態列。已補上 `[x]` 與說明。
+- **CWA 地震／颱風／天氣預報即時查詢**（續八那節）：owner 確認已經真機
+  驗證通過，`TODO.md` 對應段落原本寫「尚未真機驗證」一併更正。
+
+順手把 2026-08-22 討論資安風險時定案、owner 說「現在做」的兩則警語補上
+（`TODO.md` §2.5，原本只列了範圍還沒實作）：
+
+- **配對／QR 警語**：QR code／配對網址等同能連進電腦資料的憑證，勿外流
+  截圖；`mobile.useTunnel` 預設開啟會經 `relay.nori.tw` 讓資料可從網際
+  網路連入。放在桌面 `SettingsPanel.tsx`（手機遙控設定的配對區塊）、
+  `QRCodeWindow.tsx`（QR 實際顯示畫面）、手機 `SyncImportView.tsx`（S1
+  掃碼匯入 pair 步驟）、`ModeSwitcher.tsx`（S2 切換遙控模式掃碼區塊）。
+- **無雲端備份免責聲明**：本機／手機資料沒有雲端副本，硬碟壞掉／解除
+  安裝／手機遺失都會永久遺失資料，籲請自行用搬家包／角色卡匯出定期
+  備份。放在桌面設定「記憶」分頁（資料夾位置下方）、手機「關於」頁
+  （`AboutView.tsx`）。
+
+純文案＋UI 插入，沒有動任何邏輯。`npm run typecheck` 全過；未特別加測試
+（無邏輯可測）。未真機/未點開實際畫面驗證排版（純文字段落，風險低）。
+
+## 2026-08-22（續十二）｜文件補追（B9b 拍照估價確認完成）＋兩份新規劃文件
+
+再次盤點待辦時 owner 指出兩件事：
+
+- **B9b LLM 拍照估價**其實已經大致做完，`docs/progress-log.md` 前面幾節
+  （`docs/nutrition-photo-estimate-plan.md` §6.5 對照表那次）早就把 core／UI
+  的缺口補齊了，`TODO.md` 沒有把這條標成完成。owner 決定「先實際使用，
+  等用出問題再回頭調」，不是繼續往下開發——`TODO.md` 已標記 `[x]` 並註明
+  這個決定，避免下次又被當成「還沒做」重新排程。
+
+順手寫了兩份新的開工用文件（純規劃，沒有動程式碼）：
+
+- **`docs/reminder-sync-kickoff.md`**（新增）：`TODO.md` §2.3「提醒同步」的
+  開工指令。核心難點不是「多加一個 S2 M4 的 kind」，是 `Reminder` 裡
+  `notificationDevice`／`wakeMode`／`inactiveBehavior` 這幾個欄位是裝置本地
+  設定，同步時不能整包覆蓋——文件裡指名 `mobile/runtime/syncApply.ts` 的
+  `scenes` case（`desktopCharacters` 座標「電腦專屬，一律保留接收端原值」
+  那段）當作直接抄的範本，並列出 `characterId`／`sceneId` 可以用既有的
+  `Maps` id 對照表轉換，但 `conversationId` 沒有對應的對照表（對話同步是
+  獨立的 `convPair.ts` 配對邏輯），解不開就整欄位不推，不產生死參照。
+- **`docs/mobile-android-widget-plan.md`**（整份改寫，取代 2026-08-10 初版）：
+  owner 給出更具體的規格——角色頭像（可框選臉部範圍，重用既有
+  `avatarCropMath.ts`／`AvatarCropView.tsx` 的裁切數學）＋名稱＋一句話
+  （最新發言或使用者手動釘選過去發言，新入口規劃在 `MessageMenu.tsx`），
+  可選擇不顯示頭像，尺寸只做 3x1／4x1（拿掉初版的便利貼模式與多尺寸斷點）；
+  點擊小工具**只開主程式，不做任何小工具內操作**（拿掉初版的「對話」快捷
+  按鈕）。核心架構決定：DeST 主 App 有獨立／遙控兩種資料來源模式（飲食
+  記錄 App 沒有這個問題），設計上讓 JS 端 Bridge 把要顯示的內容（已裁切好
+  的圖片＋文字）落地成固定路徑的檔案，原生層只管讀檔案、不必分辨目前是
+  哪個模式，跟「資料到底存在手機還是電腦上」完全解耦。
+
+兩份都只是設計文件，**沒有寫任何程式碼**，不需要跑 typecheck／test。
+
+## 2026-08-22（續十三）｜owner 追加需求：小工具顯示提醒與兩則對話、聊天記錄換表情
+
+owner 對兩份新規劃文件追加需求，追加內容全部併回原文件，不另開檔：
+
+- **提醒能不能顯示在小工具上**：查證後發現這**幾乎是白送的**——提醒觸發時
+  `mobile/runtime/reminderSpeak.ts` 本來就會把生成的台詞
+  `conv.messages.push(msg)` 推進某個對話（`reminderSpeak.ts:360`），跟一般
+  聊天訊息完全同一種資料形狀。所以只要小工具 Bridge「找這個角色最新一則
+  訊息」時掃過角色參與的**全部**對話（不是只看使用者目前開著的那個），
+  提醒的台詞自然會被抓到。`mobile-android-widget-plan.md` §4.1／§4.2
+  補了這個說明，並提醒動工時要確認 `reminderSpeak.ts` 這條背景路徑真的有
+  掛到 Bridge 的觸發鏈，不是只掛在使用者主動聊天的 `chat.ts`。
+- **小工具拉到 3x2/4x2 時顯示最新兩則或最多釘選兩則**：資料模型從單一
+  `pinMode`／`pinnedMessage` 改成 `pinnedMessages` 陣列（最多 2 筆，順序＝
+  顯示順序），未釘滿的位置依最新到最舊遞補（跳過已釘選那幾則，避免同一句
+  重複出現在兩格）。頭像**只對應陣列第 0 筆**的表情——3x2/4x2 不會有兩張
+  頭像，這是刻意簡化，理由寫在 §5.2。尺寸判定沿用飲食小工具已驗證過的
+  「不用 API 31+ 的 `RemoteViews(Map<SizeF,…>)`，自己讀
+  `onAppWidgetOptionsChanged()` 判斷」做法，這次改判斷**高度**（1 格高
+  vs 2 格高）挑版面，`resizeMode` 也從原本設計的「只鎖橫向」改回開放縱向
+  （3x1/4x1 ↔ 3x2/4x2 本來就需要使用者能拉高）。
+- **手機對話記錄頭像也要換表情，且要跟小工具共用同一個框選範圍；並新增
+  手動指定表情覆蓋 AI 判斷**：這已經超出「小工具」的範疇（影響一般聊天
+  畫面），拆成新文件 **`docs/mobile-character-expression-plan.md`**，
+  `mobile-android-widget-plan.md` 改成引用它、不重複設計裁切邏輯。新文件
+  重點：
+  - 框選範圍存放位置從原本命名 `widget-config.json` 改名
+    `character-display-config.json`（mobile-only，不進同步／搬家包，理由
+    跟原本一樣，只是現在明確服務兩個消費端）。
+  - 新純函式 `resolveDisplayImagePath()`（放 `core/character/`）：找不到
+    對應 `emotion` 的圖就退回 `avatar`，聊天泡泡與小工具 Bridge 共用同一份，
+    不要各自算一次。
+  - `Message` 型別新增 `emotionOverride?: string`（使用者手動指定，跟 AI
+    判斷的 `emotion` 分開存，只影響顯示不影響下一輪 prompt）；因為是普通
+    `Message` 欄位，隨對話整包同步，不用碰任何同步引擎程式碼。
+  - **這份文件推翻一個舊決策**：`CharacterEditor.tsx` 檔頭與
+    `b3-mobile-ui-plan.md` §3.1／§5.1 寫過「手機版是單張主圖免表情差分」
+    是 2026-08 初的範圍決定，owner 2026-08-22 改變主意——文件開頭特別
+    加了警語，避免下一個接手的 AI 看到那句舊註解就誤以為這是誤讀規格。
+
+`TODO.md`／`CLAUDE.md` 依任務選讀表都補了對應項目與前置依賴關係
+（先做 `mobile-character-expression-plan.md` 再做
+`mobile-android-widget-plan.md`）。三份規劃文件都還沒有任何程式碼，
+不需要跑 typecheck／test。
+
+## 2026-08-22（續十四）｜owner 第三輪追加：小工具對白要多字＋點對白跳轉、手機新增表情圖片
+
+同一天第三輪追加，兩份規劃文件再更新：
+
+- **`mobile-android-widget-plan.md`**：
+  - **對白要顯示 20–50 字，不要單行截斷**：頭像改成**固定佔一格寬度**，
+    不論 3x1 拉到 4x1 都不變大，多出來的寬度全部給文字；名字改小字，
+    對白才是視覺重點；文字排版從「單行 `ellipsize`」改成「多行、依實際
+    寬高動態算字級/行數」（比照飲食小工具 `valueTextSizeSp()` 的做法），
+    只有真的超長才在最後一行截斷。
+  - **點對白要跳到對應的那一則訊息**：`widget-cache/<id>/state.json` 的
+    每則對白現在要帶 `conversationId`／`messageId`，不是只有顯示文字；
+    點擊行為從「整個小工具一個 PendingIntent」改成「對白區域各自獨立的
+    PendingIntent（帶 extra）＋其餘區域共用一個（不帶 extra）」。App 端
+    收到後呼叫既有的 `conversations.load()`（`ConversationsView.tsx` 已在
+    用的方法）切換對話，再捲動到指定訊息——**這是全新功能**，`MessageList.tsx`
+    檔頭剛好已經寫死一條教訓「用容器自己的 `scrollTop`，不要
+    `scrollIntoView()`（Capacitor WebView 裡常去捲外層）」，這次直接沿用
+    那條規則，沒有繞過去。
+- **`mobile-character-expression-plan.md`**：owner 追加「手機端也要能新增/
+  指定表情圖片本身」，理由是「可能有人拿去平板上用，畫完就直接指定過來」。
+  查了桌面版現況：`EmotionSpritesTab.tsx` ＋ `emotionUtils.ts` 的
+  `EMOTION_OPTIONS`（28 個固定情緒 key）＋ IPC `character:save-emotion-sprite`
+  就是現成的完整流程，這次是把同一套資料模型搬一份操作介面到手機——
+  新增 §3.3，把 `EMOTION_OPTIONS` 搬到 `core/` 給兩邊共用（避免兩份清單
+  漂移，這個專案已經在 `contentHash.ts` 等地方吃過同類虧好幾次），手機
+  存檔路徑要跟桌面現有的檔案佈局對齊（S1/S2/搬家包才讀得到）。這件事
+  跟 §3.1 的框選、§3.2 的手動指定顯示都不一樣——**這是真正的角色卡內容**，
+  正常隨同步走，不是裝置本地設定。
+
+`TODO.md` 兩條對應項目都同步更新細節。兩份都仍是純規劃文件，沒有動任何
+程式碼，不需要跑 typecheck／test。
+
+## 2026-08-23｜手機版對話記錄換表情＋手動指定表情＋手機新增表情圖片：實作完成
+
+照 `mobile-character-expression-plan.md` §8 步驟做完，`npm run typecheck`／
+`npm test`（78 檔、993 項）皆過，尚未真機驗證。
+
+- `core/types.ts`：`Message` 新增 `emotionOverride?: string`。
+- `core/character/emotionCatalog.ts`（新檔）：`EMOTION_OPTIONS`／`emotionLabel`
+  從 `renderer/src/utils/emotionUtils.ts` 搬過來；桌面那支改成 re-export。
+- `core/character/displayImage.ts`（新檔）：`resolveDisplayImagePath()`
+  （純函式，補了測試 `tests/core/character/displayImage.test.ts`）＋
+  `FaceCropRect`／`CharacterDisplayConfigMap` 型別。
+- `core/store/keys.ts`：新增 `CHARACTER_DISPLAY_CONFIG_KEY`。
+- `core/data/types.ts`：`CharactersApi` 加 `getFaceCrop`／`setFaceCrop`／
+  `saveEmotionSprite`；`MessagesApi` 加 `setEmotionOverride`；`DataSource`
+  加 `characterDisplayImageUrl(characterId, emotion)`。
+
+**跟文件原本設計有一處偏離，值得記下來**：文件 §4 說「裁切在讀圖那一層做，
+獨立模式在 `session.ts`、遙控模式在讀取端點回應後」，隱含兩邊各自存一份
+`getFaceCrop`/`setFaceCrop` 邏輯。實作時發現 `faceCrop` 跟 `MODE_PREF_KEY`
+是同一類東西——**裝置偏好，不是模式資料**：不管手機當下連哪一種模式，
+框選範圍都該讀寫同一份 `character-display-config.json`（`capacitorAdapters.storage`，
+跟連線模式無關）。於是抽成共用模組 `mobile/runtime/faceCropConfig.ts`
+（`getFaceCrop`／`setFaceCrop`／`cropImageToFace`），`LocalDataSource`（經
+`session.ts` delegate）與 `RemoteDataSource` 都直接呼叫它，**遙控模式的
+`getFaceCrop`/`setFaceCrop` 完全不打 HTTP**——沒有新增對應的
+`/api/characters/face-crop` 端點，這點跟文件字面稍有出入但不影響行為，
+只是實作位置更集中。
+
+另一個沒寫進文件但值得記的細節：`FaceCropView.tsx`（框選 UI）**完全不用
+canvas 讀取像素**——跟 `AvatarCropView.tsx` 不一樣，這裡只需要算「比例矩形」
+不需要輸出裁切後的檔案，所以只讀 `<img>.naturalWidth/naturalHeight` 就夠，
+canvas／`toDataURL()` 只用在**套用**裁切時（`cropImageToFace()`）。這樣
+框選來源圖可以直接是遙控模式的網路位址（`/api/avatar/:id`），不會有跨來源
+canvas「已污染」丟 `SecurityError` 的問題；真正需要讀像素的
+`cropImageToFace()` 則要求呼叫端先把圖轉成 `data:`／同源 `blob:` URL
+再傳進來（`RemoteDataSource.characterDisplayImageUrl` 用 `http.getBinary`
+取位元組轉 blob URL，不是直接把網路位址塞給 `<img>`）。
+
+`GET /api/avatar/:id` 加了 `?emotion=` query（找不到就退回主圖）；新增
+`POST /api/characters/save-emotion-sprite`（落地即指定情緒並持久化，
+`ipcHandlers.ts` 的 `saveCharacterEmotionSpriteAndAssignDirect`，跟桌面
+既有的 `character:save-emotion-sprite`——那支只落地不指定情緒——是兩支
+不同函式，服務不同 UI 流程）與 `POST /api/messages/set-emotion`。
+
+手機 UI：`useCharacterDisplayImage()`（`useAvatarUrl.ts`，cache key 含
+emotion）、聊天泡泡改用它（`MessageList.tsx` 的 `MessageAvatar`）、
+`MessageMenu.tsx` 新增「換表情」（只在角色訊息且該角色有表情圖時顯示）
+進 `MessageEmotionPicker.tsx`、`CharacterEditor.tsx` 新增「顯示設定」
+區塊（框選按鈕＋28 情緒 key 的縮圖網格，點了直接选圖上傳並指定）。
+
+真機待驗：框選手感、聊天泡泡表情切換有沒有跑版、手機新增表情圖片後
+桌面版能不能正確讀到（檔案佈局已對齊 `characters/<id>/emotions/`，理論上
+可以，但沒有實機測過）。
+
+## 2026-08-23（續）｜owner 首次真機實測回報五個問題，四個確認並修掉
+
+1. **框選之後沒有預覽圖**：`CharacterEditor.tsx` 的「顯示設定」框選按鈕旁加了
+   `FaceCropPreview`（用 `useCharacterDisplayImage(id, undefined)`，跟框選成功後
+   `invalidateAllCharacterDisplayImages()` 接得上，馬上看得到套用結果）。
+   **順手把「全部角色圖都要採用框選版」也做了**：`Avatar.tsx`（角色庫／
+   `AvatarBar`／`CharacterMenu`／`PresenceSheet` 共用的那顆頭像元件）原本吃
+   `useAvatarUrl`（永遠原圖），改成 `useCharacterDisplayImage(id, undefined)`，
+   沒框選時兩者結果相同，框選後全站頭像才會一致跟著變——原本只有聊天泡泡
+   會變，其餘頭像看不出框選有沒有生效。
+2. **手機本機版角色卡有表情設定，對話頭像卻沒反映**：**真正的成因**，
+   不是顯示邏輯的問題，是**手機獨立版聊天管線根本沒有在生成情緒標籤**。
+   `mobile/runtime/chat.ts`（3 處）與 `reminderSpeak.ts`（1 處）呼叫
+   `chatWithLLM()` 時都帶著 `omitEmotionTag: true`——這行字面上的意思是「這次
+   不需要情緒標籤」，是 2026-08 初「手機獨立版單張主圖免表情差分」那個舊決議
+   留下的參數，這次功能已經推翻該決議，但**送出聊天請求那幾行沒有跟著拿掉**。
+   `openai.ts`／`claude.ts`／`gemini.ts` 三個 provider 都把
+   `splitEmotion: params.splitEmotion || params.omitEmotionTag` 一起丟給
+   `buildSystemPrompt()`，而 `promptUtils.ts` 只在
+   `hasCustomSprites && !opts.splitEmotion` 時才會叫模型輸出 `[emotion_id]`
+   標籤——`omitEmotionTag: true` 等於永遠讓這個條件是 false，模型完全不會被
+   要求輸出情緒標籤，`chatWithLLM()` 回傳的 `emotion` 自然永遠是空/預設值。
+   **修法：4 處全拿掉 `omitEmotionTag: true`**，不需要額外的輔助模型分類呼叫
+   （跟桌面「不分離」模式一樣，情緒標籤就是主模型回覆的第一行）；角色卡沒有
+   任何表情圖時 `hasCustomSprites` 本來就是 false，不會多花 token，安全。
+3. **`36`／`28`：情緒圖片數量統計爆掉**：`resolveDisplayImagePath()` 與
+   `CharacterEditor.tsx` 的顯示設定區塊，都把 `character.spriteIds` 的
+   **key**（那是「圖片路徑 → 自訂 id」的路徑）跟 `character.emotions` 的
+   **key**（「情緒 key → 圖片路徑」）混進同一個 `Set` 算數量——兩者是完全不同
+   的命名空間，desktop 角色只要曾經在 `EmotionSpritesTab.tsx` 設過自訂 ID，
+   `spriteIds` 就會多出幾個「圖片路徑」當 key，跟 28 個情緒 key 加起來就超過
+   28（角色卡若有 8 張自訂 ID 圖，28+8=36，正好對上 owner 回報的數字）。
+   `resolveDisplayImagePath()` 的型別也從 `Pick<Character,'avatar'|'emotions'|'spriteIds'>`
+   改成不吃 `spriteIds`；`mobileServer.ts` 的 `/api/avatar/:id?emotion=` 端點
+   同一個坑也一起修掉。`tests/core/character/displayImage.test.ts` 補一條
+   「不查 spriteIds」的測試鎖住這個行為。
+4. **點聊天泡泡頭像應該放大顯示這則訊息用的表情圖**：`CharacterMenu.tsx`
+   拆成 `CharacterMenu`（給 `AvatarBar` 用，維持原樣）與新匯出的
+   `CharacterMenuActions`（純動作列表，不含頭像/名字那段）；新檔
+   `MessageAvatarPanel.tsx`（新 `ViewKind: 'message-avatar-panel'`）放大
+   顯示 `message.emotionOverride ?? message.emotion` 對應的那張圖
+   （128px，`useCharacterDisplayImage`），底下重用 `CharacterMenuActions`
+   維持原本的提及／說點什麼／禁言／編輯角色／移出對話。`MessageList.tsx`
+   的泡泡頭像 `onClick` 從 `push('character-menu', characterId)` 改成
+   `push('message-avatar-panel', messageId)`。
+5. **「遙控版的表情設定全部都一樣，出不來」尚未在程式碼裡找到對應的邏輯錯誤**
+   ——重新審過 `/api/avatar/:id?emotion=` 端點與 `RemoteDataSource` 的
+   `characterDisplayImageUrl()`／`getFaceCrop`／`setFaceCrop`，資料流看起來
+   是對的。**最可能的原因是 owner 測試時桌面 App／已裝的 APK 還是舊版**——
+   `mobileServer.ts`／`ipcHandlers.ts` 是 Electron **主行程**程式碼，改完
+   一定要重新 build 並整個重啟桌面 App（不是 renderer 那種可以熱更新的
+   部分），APK 那邊本來就要重新打包裝機。請 owner 重新走一次
+   `DesktopST-dev.bat`（桌面）／`MobileST.bat [1]`（手機）流程再測一次，
+   如果重建之後還是一樣，需要 owner 提供更具體的現象（例如：是「全部角色的
+   全部情緒都顯示同一張圖」還是「同一個角色的不同情緒顯示同一張圖」還是
+   「顯示不出來變成腳印圖示」）才能繼續往下查。
+
+`npm run typecheck`／`npm test`（78 檔、993 項）皆過。1–4 已修好但這輪仍然
+只是程式碼層級驗證，**還沒有 owner 二次實機驗證**。
+
+## 2026-08-23（續二）｜二次實機回報：真正的根因找到了（三個症狀同一個成因）
+
+owner 重測後回報：本機版跟遙控版都一樣，AI 選出來的表情完全沒反映在頭像上，
+**對話記錄上寫的表情看起來像檔名**，手動「換表情」才會正常顯示。
+
+「看起來像檔名」是關鍵線索，一路查回 `core/prompt/promptUtils.ts` 的
+`buildEmotionContract()`——**送給模型的情緒 id 合約，本來就不是
+`EMOTION_OPTIONS` 那 28 個 canonical key**：只要角色卡有任何一張表情圖，
+合約用的 id 是 `spriteIds[imagePath]`（自訂 id），**沒設自訂 id 時退回檔名主幹**
+（去掉副檔名，例如 `joy-1755900000000.png` → `joy-1755900000000`）。這是桌面
+版原本就有的機制（一張圖可以同時涵蓋好幾個情緒 key，需要一個共用 id），
+但這次 §4 寫的 `resolveDisplayImagePath()` 只做了「查 canonical 情緒 key」
+這一層，**完全沒有反查自訂 id／檔名主幹回圖片路徑**——而手機新增表情圖片
+時（`saveEmotionSprite`）從來不會填 `spriteIds`，所以合約 id 100% 會是
+檔名主幹。模型忠實地回傳這個檔名主幹當 emotion tag，`resolveDisplayImagePath`
+查不到對應的 canonical key，於是**每一句都判定「沒對到表情」，退回主圖**——
+本機版跟遙控版都是同一份 `resolveDisplayImagePath()`，所以兩邊症狀一致；
+手動「換表情」是直接從 `character.emotions`／`spriteIds` 的 key 選，本來就
+繞過了這個對應問題，所以唯獨那條路正常。
+
+**修法**：
+- `buildSpriteIdMap()`（原本只有桌面 `emotionUtils.ts` 私有）搬到
+  `core/character/emotionCatalog.ts`（連同 `stemFromFilename`），
+  `promptUtils.ts` 的 `buildEmotionContract()` 與桌面 `emotionUtils.ts`
+  都改成呼叫同一份——**這兩處算 id 的規則必須對稱**，各自維護一份遲早
+  又會漂移出同一種坑。
+- `resolveDisplayImagePath()` 補上第二層查詢：先查 `emotions[emotion]`
+  （canonical key），查不到再用 `buildSpriteIdMap()` 反查自訂 id／檔名主幹。
+  型別簽章加回 `spriteIds`（上一輪為了修 36/28 那個 bug 誤刪的，那個 bug
+  的成因是「統計時混用兩種命名空間」，不是「查 spriteIds 本身是錯的」——
+  這裡是另一個場景，兩者互不衝突）。
+- `mobileServer.ts` 的 `/api/avatar/:id?emotion=` 改呼叫同一支
+  `resolveDisplayImagePath()`，不要自己在端點裡重寫一次比對邏輯。
+- `saveEmotionSprite`（`session.ts` 與 `ipcHandlers.ts` 的
+  `saveCharacterEmotionSpriteAndAssignDirect`）新增時順手把
+  `spriteIds[path] = emotionKey` 填上——這樣 LLM 合約看到的 id 就是乾淨的
+  `joy`，不是一串檔名，除錯與 debug prompt 也更好讀（雖然檔名主幹的
+  fallback 已經能正確運作，這只是讓新存的資料更乾淨）。
+- 補了兩條測試鎖住這個對稱關係：自訂 id 能反查回圖、沒有自訂 id 時檔名
+  主幹也能反查回圖。`npm run typecheck`／`npm test`（78 檔、995 項）皆過。
+
+這輪修完才是真正解到「AI 選的表情能不能顯示」這個核心功能——前一輪
+（1–4）修的都是週邊（預覽、統計、放大面板），這條資料對應鏈路一直是斷的，
+兩輪加起來才是完整的東西。**仍待 owner 三次實機驗證**：本機版與遙控版
+聊天時，AI 選的表情這次應該真的會換頭像了。
+
+## 2026-08-23（續三）｜三次實機回報：跨裝置同步後表情又消失——真正的架構級成因
+
+owner 三次測試：遙控版剛發的新訊息表情正常了（確認上一輪修的沒錯），
+但**把那則訊息同步到本機版之後，同一則訊息卻變回沒有表情**，要在本機版
+再發一則新訊息才又正常。
+
+**這是比前一輪更深一層的架構問題**：上一輪修的 `resolveDisplayImagePath()`
+能反查自訂 id／檔名主幹沒錯，但反查用的 `character.emotions`／`spriteIds`
+是**每台裝置各自的本機資料**——自訂 id／檔名主幹本身是**裝置本地產生的**
+（獨立版存表情圖檔名是 `<key>-<timestamp>.ext`，桌面版另一套時間戳／可能
+另一個自訂 id）。`message.emotion` 存的若是這種裝置本地 id，訊息一旦透過
+S2 對話同步換一台裝置檢視，那台裝置用**自己的**（值不同、id 命名不同）
+`emotions`／`spriteIds` 反查，字串當然對不上——即使那台裝置的角色卡明明
+也有同一個情緒的圖片。原本能動是因為訊息與角色資料在**同一台裝置**上是
+自洽的（同一份 id 生成規則），一旦訊息離開原生裝置，這個自洽性就破了。
+
+**真正的修法：訊息落地前就換算成 canonical key（`EMOTION_OPTIONS` 的固定
+英文字，例如 `joy`），不要存裝置本地的自訂 id／檔名主幹**。canonical key
+兩邊定義完全相同（`core/character/emotionCatalog.ts` 是共用的唯一真相），
+不受各裝置檔名／自訂 id 差異影響，換裝置檢視時 `resolveDisplayImagePath()`
+的第一層（`emotions[emotion]`）就能直接用那台裝置自己指派的圖命中，不需要
+依賴任何跨裝置一致性假設。
+
+新函式 `canonicalizeEmotionId(character, id)`（`core/prompt/promptUtils.ts`）：
+本來就是 canonical key 就原樣回傳；不是的話用 `buildSpriteIdMap()` 反查
+成圖片路徑，再反查出對應的 canonical key。接進**唯一**兩個會產生
+`message.emotion` 的地方（不管桌面／獨立版／遙控版哪個平台呼叫，全部都
+只走這兩支）：
+- `chatWithLLM()`（`core/llm/index.ts`）：原本直接把 provider 回傳的
+  `emotion` 往外傳，改成先過 `canonicalizeEmotionId()` 再回傳。
+- `classifyEmotionWithLLM()`：`resolveId()` 跟它的 `fallback`（`knownIds[0]`
+  本身也可能是自訂 id／檔名主幹）都要換算。
+
+補了 4 條測試（`tests/prompt/promptUtils.test.ts`）鎖住：canonical key 原樣
+回傳、自訂 id 換算、檔名主幹換算、查無對應時安全回退（不擲錯）。
+`npm run typecheck`／`npm test`（78 檔、999 項）皆過。
+
+**這次修完之後，只有這次修正之前就已經生成的舊訊息**（`message.emotion`
+還是裝置本地 id 的那些）在跨裝置檢視時仍會退回主圖——這是資料問題不是
+程式問題，不會自動修好，使用者可以對那幾則手動「換表情」補回來。
+**之後新產生的訊息，不管在哪個裝置生成、同步到哪一台看，都應該正確**。
+仍待 owner 第四次實機驗證確認跨裝置同步後的表情真的穩了。

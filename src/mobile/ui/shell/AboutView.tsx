@@ -69,6 +69,15 @@ export function AboutView(): JSX.Element {
         )}
       </div>
 
+      <div className="rounded-[14px] border border-[var(--border)] bg-[var(--bg)] px-4 py-3 space-y-1">
+        <p className="text-[11px] font-medium text-[var(--text)]">⚠️ 免責聲明：資料沒有雲端備份</p>
+        <p className="text-[12px] leading-relaxed text-[var(--text-sub)]">
+          本機／手機資料沒有任何雲端副本。手機遺失、解除安裝、清除資料或恢復原廠設定都會造成
+          資料永久遺失。請自行用角色卡／設定包匯出功能定期備份——這是免費、資料不上雲換來的
+          代價，作者不對資料遺失負責。
+        </p>
+      </div>
+
       <ModeSwitcher />
 
       <div className="space-y-2">

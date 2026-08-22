@@ -98,6 +98,11 @@ export interface Message {
   llmModel?: string
   debugPrompt?: string
   emotion?: string
+  /**
+   * 使用者手動指定要顯示的表情（覆蓋 AI 判斷的 `emotion`，只影響顯示，不影響已送出的 prompt）。
+   * 顯示優先序：`emotionOverride ?? emotion`。見 `docs/mobile-character-expression-plan.md` §3.2。
+   */
+  emotionOverride?: string
   images?: string[]
   randomResult?: RandomResult
   randomResults?: RandomResult[]
