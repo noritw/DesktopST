@@ -3772,3 +3772,33 @@ RSS 搜尋的標題／媒體拆解與相關標題摘要抽取、3 則上限、`m
 
 **尚未真機驗證**：手機設定頁的開關、實際聊天觸發對話新聞搜尋並正確注入
 回覆，這兩件事都還沒有人在 Pixel 10a 上按過。
+
+## 2026-08-22（續十）｜對話新聞搜尋：開放手機編輯觸發詞／時效＋真機驗證通過
+
+上一節做完後 owner 決定觸發詞清單與 `maxAgeHours` 不要維持桌面專屬——手機
+`NewsSettingsView.tsx` 的「對話新聞搜尋」Section 補上跟黑名單同一套標籤
+加／刪 UI（觸發詞）與一個 0–168 的數字框（`maxAgeHours`，0＝不限制）。
+連帶把 `core/data/types.ts` 的 `NewsEditableSettings.conversationSearch`
+從 `{ enabled }` 擴成 `{ enabled, triggerWords, maxAgeHours }`，
+`mobileRoutes.ts`／`session.ts` 的存檔路徑跟著從「只覆蓋 enabled、其餘
+帶著走」改成「沒送到的欄位才帶著走」（三個欄位現在都可能被手機端真的改動）。
+
+打包 APK 裝機時踩到一個跟這次改動無關的既有腳本 bug：
+`scripts/build-mobile-apk.mjs` 呼叫 `gradlew.bat` 用裸檔名（沒有路徑
+前綴），這台機器的 Windows 設定 `NoDefaultCurrentDirectoryInExePath=1`
+（安全性設定，關掉 cmd.exe 用 cwd 找可執行檔的行為）會讓
+`spawnSync(..., { shell: true })` 底下的 cmd.exe 回「不是內部或外部命令」，
+即使 `cwd` 已經指到 `android/` 目錄——cmd.exe 的隱式目前目錄搜尋被系統設定
+關掉了，跟 cwd 有沒有設對是兩回事。改成傳絕對路徑
+`path.join(root, 'android', 'gradlew.bat')` 繞過，不依賴 cmd.exe 的
+隱式搜尋行為。
+
+**真機驗證通過**（2026-08-22，Pixel 10a）：開關、觸發詞加／刪、對話觸發
+搜尋並正確注入回覆，owner 實測皆正常。owner 也指出一個已知限制：要不要搜
+／抽什麼查詢詞是丟給輔助模型（或無輔助模型時的主模型）做的一次分類任務，
+準確度跟模型能力有關——弱模型可能誤判「是不是在問時事」或抽出不好的
+查詢詞。這是設計本身就有的限制（桌面版同樣邏輯、同樣風險），這次是逐字
+搬遷沒有加額外校驗層，記錄下來但不當成這次的 bug 處理。
+
+`npm run typecheck`／`npm test`（77 檔、988 項）全過。已 commit
+（`220727a`），未 push。
