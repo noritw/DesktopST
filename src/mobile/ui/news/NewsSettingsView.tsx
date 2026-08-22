@@ -235,6 +235,89 @@ export function NewsSettingsView(): JSX.Element {
         />
       </Section>
 
+      {/* ── 對話新聞搜尋 ───────────────────────────────── */}
+      <Section title="對話新聞搜尋" hint="聊天問到時事時，回覆前先即時查一下 Google 新聞">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() =>
+            void save(
+              { conversationSearch: { ...settings.conversationSearch, enabled: !settings.conversationSearch.enabled } },
+              '設定對話新聞搜尋'
+            )
+          }
+          className={`flex w-full items-center justify-between rounded-[14px] border px-3 py-2 text-left disabled:opacity-50 ${
+            settings.conversationSearch.enabled ? 'border-[var(--mint2)] bg-[var(--mint)]' : 'border-[var(--border)] bg-[var(--bg)]'
+          }`}
+        >
+          <span className="text-sm text-[var(--text)]">開啟</span>
+          <span className="text-[11px] text-[var(--text-sub)]">{settings.conversationSearch.enabled ? '已開啟' : '已關閉'}</span>
+        </button>
+
+        <div>
+          <p className="text-[12px] text-[var(--text-sub)]">觸發詞（訊息含任一詞才會判斷是否搜尋；清空＝每則都判斷）</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {settings.conversationSearch.triggerWords.length === 0 && <Note>目前無觸發詞，每則訊息都會送去判斷。</Note>}
+            {settings.conversationSearch.triggerWords.map((word) => (
+              <button
+                key={word}
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  void save(
+                    {
+                      conversationSearch: {
+                        ...settings.conversationSearch,
+                        triggerWords: settings.conversationSearch.triggerWords.filter((w) => w !== word)
+                      }
+                    },
+                    '移除觸發詞'
+                  )
+                }
+                className="flex min-h-[36px] items-center gap-1 rounded-full border border-[var(--border)] px-3 text-[12px] text-[var(--text-sub)] disabled:opacity-50"
+              >
+                {word}
+                <MonoIcon name="close" className="h-3 w-3" />
+              </button>
+            ))}
+          </div>
+          <div className="mt-1.5">
+            <AddRow
+              placeholder="新增觸發詞"
+              busy={busy}
+              onAdd={(text) => {
+                if (settings.conversationSearch.triggerWords.includes(text)) return
+                void save(
+                  {
+                    conversationSearch: {
+                      ...settings.conversationSearch,
+                      triggerWords: settings.conversationSearch.triggerWords.concat([text])
+                    }
+                  },
+                  '新增觸發詞'
+                )
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-[var(--text-sub)]">只收幾小時內的新聞（0＝不限制）</span>
+          <NumberField
+            label="小時"
+            value={settings.conversationSearch.maxAgeHours}
+            min={0}
+            max={168}
+            onChange={(n) =>
+              void save(
+                { conversationSearch: { ...settings.conversationSearch, maxAgeHours: n } },
+                '設定新聞時效'
+              )
+            }
+          />
+        </div>
+      </Section>
+
       {/* ── 訂閱來源 ───────────────────────────────────── */}
       <Section title="訂閱來源" hint="RSS 或 JSON 聚合站，與關鍵字並存">
         {feeds.length === 0 && <Note>還沒有訂閱來源。</Note>}

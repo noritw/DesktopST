@@ -3706,3 +3706,69 @@ hasCwaApiKey, forecastCounty }`，金鑰本身只回「有沒有設定」，不�
 **尚未真機驗證**：新的天氣設定頁區塊、CWA Key 只寫不讀的行為、S2 M5
 新增的兩個欄位在真的兩台裝置間比對套用、以及聊天裡實際觸發地震／颱風／
 預報關鍵詞查出正確資料，這幾件事都還沒有人在 Pixel 10a 上按過。
+
+## 2026-08-22（續九）｜對話新聞搜尋搬到手機獨立版
+
+`TODO.md` §3 排入的項目，owner 自用優先。原本桌面限定：使用者訊息含時事
+意圖時，回應前即時查一次 Google News RSS 補充事實，跟新聞陪聊（主動定時／
+「說點什麼」）是兩套獨立機制。整支邏輯搬進 `core/news/conversationSearch.ts`，
+逐字保留桌面 `main/modules/news/conversationSearch.ts` 原本的觸發詞前置過濾
+／輔助模型萃取查詢詞／RSS 搜尋／組注入字串四段流程，只換掉兩處平台耦合：
+`rss-parser` 換成注入的 `RssParseAdapter`（手機沿用個人新聞報已驗證過的
+`mobile/adapters/rssParseAdapter.ts` 原生 `DOMParser`，這個坑之前踩過也解過，
+這次直接複用）；LLM 呼叫換成 core 的 `chatWithLLM`／`applyUtilitySettings`
+（沿用 `core/news/enrich.ts` 的 `summarizeWithUtility` 那套「假角色＋
+`Promise.race` 手動計時器」寫法，不是 `AbortSignal`——CapacitorHttp 忽略
+signal，這條路徑已經在 enrich 那邊驗證過安全）。RSS 查詢字串直接複用
+`core/news/sources.ts` 的 `buildKeywordRssUrl`，沒有重複兜一份。
+
+桌面 `main/modules/news/conversationSearch.ts` 改薄殼，`ipcHandlers.ts` 的
+呼叫端不用改。`disasterNewsSupplement.ts`（CWA 即時查詢命中時的災害新聞
+補搜，刻意沒動這支邏輯）用到的 `searchGoogleNewsRss`／
+`buildConversationSearchInjection` 兩個既有匯出也留著，只是簽章換成薄殼
+內部固定綁 `electronHttp`／`electronRssParser`。
+
+手機 `mobile/runtime/chat.ts` 的 `sendStandaloneMessage` 送出使用者訊息前
+（在既有 `[Weather]`／即時氣象查詢之後）跑一次，命中就把
+`[Conversation search: ...]` 併進 `extraSystemContext`；debug prompt／
+token 數先存回 `userMsg`，主要回覆者的 `charMsg` 再複製一份，比照桌面
+`ipcHandlers.ts` 的慣例——`Message` 型別本來就有
+`convSearchDebugPrompt`／`convSearchInputTokens`／`convSearchOutputTokens`
+三個欄位（桌面早就在用），`MessagePromptView.tsx` 也已經有「對話搜尋」這個
+分頁，接上就直接生效，不用另外加 UI。不是在回一則使用者訊息的
+`forceSpeakStandalone`（「說點什麼」強制發話）刻意沒接這段——跟桌面一樣，
+對話新聞搜尋只掛在「回覆使用者這句話」的路徑上。
+
+開關新增到 `core/data/types.ts` 的 `NewsEditableSettings.conversationSearch:
+{ enabled: boolean }`，刻意只給這一項——觸發詞清單／查詢時效維持桌面
+設定面板專屬的進階項（`NewsSettingsView.tsx` 檔頭本來就寫明範圍刻意小）。
+`mobileRoutes.ts` 的 `GET/POST /api/news/settings`、`session.ts` 的
+`getNewsEditableSettings`／`saveNewsEditableSettings` 都加上這個欄位；
+手機新增一個 Section（開／關按鈕，比照既有「熱門話題」的樣式）。
+
+### 順手修掉一個坑：巢狀設定物件整包取代
+
+`NewsModuleSettings.conversationSearch` 是巢狀物件
+`{ enabled, triggerWords, maxAgeHours }`，`normalizeNewsModuleSettings` 對
+這個欄位是整包取代、不是逐欄合併（`raw.conversationSearch?.triggerWords`
+沒給就直接退回預設值，不會保留舊值）。桌面設定面板一直是整包送（本地先
+`{...cs, ...patch}` 合併好才送出），沒踩到；但手機只給得起 `enabled`，
+若直接把 `{ conversationSearch: { enabled } }` 當 patch 送進
+`saveNewsModuleSettings`，會把桌面設定的觸發詞清單／查詢時效一併重置成
+預設值——症狀會是「手機上開關對話新聞搜尋之後，桌面的觸發詞清單被清空」，
+而且看起來跟「按開關」完全無關，很難聯想到根因。`mobileRoutes.ts`／
+`session.ts` 的存檔路徑都改成：收到 `conversationSearch` patch 時先讀一次
+現況，只覆蓋 `enabled`，`triggerWords`／`maxAgeHours` 從現況帶著走。
+
+### 驗證
+
+新增 `tests/news/conversationSearch.test.ts`（14 項），涵蓋觸發詞前置過濾、
+RSS 搜尋的標題／媒體拆解與相關標題摘要抽取、3 則上限、`maxAgeHours` 篩選、
+抓取失敗回空陣列、注入字串格式化（含摘要裁切）、以及
+`getConversationSearchContext` 整條流程（模組關閉／未命中觸發詞時不打任何
+請求、LLM 判斷非時事仍帶回 debugPrompt、LLM 給查詢詞後組出注入字串、
+查詢詞搜不到結果時回 null）。`npm run typecheck`／`npm test`（77 檔、
+988 項）全過。
+
+**尚未真機驗證**：手機設定頁的開關、實際聊天觸發對話新聞搜尋並正確注入
+回覆，這兩件事都還沒有人在 Pixel 10a 上按過。

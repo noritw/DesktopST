@@ -623,6 +623,8 @@ export interface NewsEditableSettings {
   blacklist: string[]
   /** 「說點什麼」抓新聞頻率（關／偶爾／每次）。 */
   speakButton: SpeakMode
+  /** 對話新聞搜尋（開關＋觸發詞＋新聞時效，與桌面設定面板同一份資料）。 */
+  conversationSearch: { enabled: boolean; triggerWords: string[]; maxAgeHours: number }
 }
 
 /** 定時新聞陪聊。與桌面 `news:get-scheduler`／`news:sync-scheduler` 同一份資料。 */

@@ -95,7 +95,10 @@ console.log('[2/4] build:mobile + cap sync android ...')
 run('npm.cmd', ['run', 'sync:android'], { env, shell: true })
 
 console.log('[3/4] gradlew assembleDebug ...')
-run('gradlew.bat', ['assembleDebug'], {
+// ⚠️ 裸檔名在有些機器會找不到：Windows 的 NoDefaultCurrentDirectoryInExePath=1
+// （安全性設定）會關掉 cmd.exe 用 cwd 找可執行檔的行為，`shell:true` 底下
+// 跑 'gradlew.bat' 就會回「不是內部或外部命令」，即使 cwd 設對了。用絕對路徑繞過。
+run(path.join(root, 'android', 'gradlew.bat'), ['assembleDebug'], {
   cwd: path.join(root, 'android'),
   env,
   shell: true

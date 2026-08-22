@@ -158,7 +158,12 @@ export function registerNewsMobileRoutes(registerRoute: MobileRouteRegistrar): v
       sources: s.sources,
       keywordGroups: s.keywordGroups,
       blacklist: s.blacklist,
-      speakButton: s.speakButton
+      speakButton: s.speakButton,
+      conversationSearch: {
+        enabled: s.conversationSearch?.enabled ?? false,
+        triggerWords: s.conversationSearch?.triggerWords ?? [],
+        maxAgeHours: s.conversationSearch?.maxAgeHours ?? 48
+      }
     })
   })
 
@@ -168,6 +173,7 @@ export function registerNewsMobileRoutes(registerRoute: MobileRouteRegistrar): v
       keywordGroups?: unknown
       blacklist?: unknown
       speakButton?: unknown
+      conversationSearch?: unknown
     }>(req, res)
     if (!payload) return
 
@@ -191,13 +197,33 @@ export function registerNewsMobileRoutes(registerRoute: MobileRouteRegistrar): v
     if (payload.speakButton === 'off' || payload.speakButton === 'sometimes' || payload.speakButton === 'always') {
       patch.speakButton = payload.speakButton
     }
+    // conversationSearch 是巢狀物件、正規化時整包取代（見 core `normalizeNewsModuleSettings`），
+    // 沒送到的欄位要從現況帶著走，不然只改一項就把另外兩項重置成預設值。
+    if (payload.conversationSearch && typeof payload.conversationSearch === 'object') {
+      const csPatch = payload.conversationSearch as { enabled?: unknown; triggerWords?: unknown; maxAgeHours?: unknown }
+      const current = loadNewsModuleSettings()
+      patch.conversationSearch = {
+        enabled: typeof csPatch.enabled === 'boolean' ? csPatch.enabled : (current.conversationSearch?.enabled ?? false),
+        triggerWords: Array.isArray(csPatch.triggerWords)
+          ? csPatch.triggerWords.filter((w): w is string => typeof w === 'string' && w.length > 0)
+          : (current.conversationSearch?.triggerWords ?? []),
+        maxAgeHours: typeof csPatch.maxAgeHours === 'number' && csPatch.maxAgeHours >= 0
+          ? Math.floor(csPatch.maxAgeHours)
+          : (current.conversationSearch?.maxAgeHours ?? 48)
+      }
+    }
     const next = saveNewsModuleSettings(patch)
     jsonOk(res, {
       enabled: next.enabled,
       sources: next.sources,
       keywordGroups: next.keywordGroups,
       blacklist: next.blacklist,
-      speakButton: next.speakButton
+      speakButton: next.speakButton,
+      conversationSearch: {
+        enabled: next.conversationSearch?.enabled ?? false,
+        triggerWords: next.conversationSearch?.triggerWords ?? [],
+        maxAgeHours: next.conversationSearch?.maxAgeHours ?? 48
+      }
     })
   })
 

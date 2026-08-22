@@ -14,6 +14,8 @@ import { hasUsableApiKey, messageLlmMeta, resolveModel } from '@core/prompt/prom
 import { getRealtimeQueryContextString, getWeatherContextString } from '@core/weather'
 import { getNewsInjectionForSpeak, type NewsInjectionDeps } from '@core/news/injection'
 import { getActiveNewsTopic } from '@core/news/topicState'
+import { getConversationSearchContext, type ConversationSearchDeps } from '@core/news/conversationSearch'
+import { loadNewsModuleSettings } from '@core/news/settings'
 import {
   buildScanText,
   formatLoreBlock,
@@ -114,6 +116,11 @@ export async function buildLoreBlockFor(
  */
 export function newsInjectionDepsFor(adapters: PlatformAdapters): NewsInjectionDeps {
   return { http: adapters.http, rss: domRssParser, storage: adapters.storage }
+}
+
+/** 對話新聞搜尋（缺口：桌面 `main/modules/news/conversationSearch.ts` 搬 core，2026-08-22）。 */
+function conversationSearchDepsFor(adapters: PlatformAdapters): ConversationSearchDeps {
+  return { http: adapters.http, rss: domRssParser }
 }
 
 /**
@@ -461,7 +468,29 @@ export async function sendStandaloneMessage(opts: {
     await undoUserMessage()
     return
   }
-  const extraContext = [weatherContext, realtimeQueryContext.injectionText].filter(Boolean).join('\n\n') || undefined
+
+  /*
+   * 對話新聞搜尋：使用者這句話像在問時事時，回應前先即時查一次 Google News RSS。
+   * 桌面原本限定，搬進 core 後兩邊共用同一套流程；未啟用、未命中觸發詞、
+   * 或查詢失敗都靜默回 null，不影響一般聊天。debug 欄位先存回 userMsg，
+   * 之後（僅主要回覆者）再複製一份到 charMsg，比照桌面慣例。
+   */
+  const newsSearchResult = await getConversationSearchContext(
+    conversationSearchDepsFor(opts.adapters),
+    userContentForPrompt,
+    opts.settings,
+    await loadNewsModuleSettings(opts.adapters.storage)
+  )
+  if (opts.signal?.aborted) {
+    await undoUserMessage()
+    return
+  }
+  if (newsSearchResult.debugPrompt) {
+    userMsg.convSearchDebugPrompt = newsSearchResult.debugPrompt
+    userMsg.convSearchInputTokens = newsSearchResult.inputTokens
+    userMsg.convSearchOutputTokens = newsSearchResult.outputTokens
+  }
+  const extraContext = [weatherContext, realtimeQueryContext.injectionText, newsSearchResult.context].filter(Boolean).join('\n\n') || undefined
 
   // `omitEmotionTag`：獨立版是單張主圖、不做表情差分，沒有東西會用到情緒標籤。
   // 角色卡若帶著表情圖，情緒合約會把每張圖的 id 與用途逐條寫進 system prompt
@@ -512,7 +541,10 @@ export async function sendStandaloneMessage(opts: {
       emotion,
       inputTokens,
       outputTokens,
-      hasDebugPrompt: !!debugPrompt,
+      convSearchDebugPrompt: userMsg.convSearchDebugPrompt,
+      convSearchInputTokens: userMsg.convSearchInputTokens,
+      convSearchOutputTokens: userMsg.convSearchOutputTokens,
+      hasDebugPrompt: !!(debugPrompt || userMsg.convSearchDebugPrompt),
       timestamp: Date.now()
     }
     conv.messages.push(charMsg)

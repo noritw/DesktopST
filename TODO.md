@@ -277,15 +277,35 @@ owner 決定：提醒資料本身要同步（整份清單，比照角色／情�
       這幾支查詢、新的設定頁、CWA Key 只寫不讀的行為、S2 M5 新增的兩個
       欄位都還沒有人在真機上按過**，待驗清單見
       `docs/mobile-standalone-gap-inventory.md`。
-- [ ] **對話新聞搜尋搬到手機獨立版**（2026-08-21 owner 排入，owner 自己要
-      用）。原本在 §5「明確不做」，重新評估後改排入。`main/modules/news/
-      conversationSearch.ts`（關鍵詞前置過濾 → LLM 判斷要不要搜 → 打
-      Google News RSS → 注入 prompt）本身也是平台無關邏輯，唯一的坑是用了
-      `rss-parser`（Node 專用）——這個坑手機版**已經踩過也解過**：個人新聞報
-      搬過去時就是同一個問題，換成瀏覽器原生 `DOMParser`
-      （`mobile/adapters/rssParseAdapter.ts`，真機驗證過解析正確），
-      這次直接複用即可。LLM 呼叫手機聊天本來就有自己的 client，不是問題。
-      預估一到兩天（比地震颱風多一層關鍵詞＋LLM 意圖判斷）
+- [x] **對話新聞搜尋搬到手機獨立版** → ✅ **已實作，自動測試通過，尚未
+      真機驗證**（2026-08-22）。整支邏輯搬進 `core/news/conversationSearch.ts`
+      （逐字保留：觸發詞前置過濾 → 輔助模型判斷要不要搜／萃取查詢詞 →
+      Google News RSS → 組注入字串），只換掉兩處平台耦合：`rss-parser`
+      換成注入的 `RssParseAdapter`（手機沿用個人新聞報已驗證過的
+      `mobile/adapters/rssParseAdapter.ts` 原生 `DOMParser`），LLM 呼叫
+      換成 core 的 `chatWithLLM`／`applyUtilitySettings`。桌面
+      `main/modules/news/conversationSearch.ts` 改薄殼，`ipcHandlers.ts`
+      呼叫端與 `disasterNewsSupplement.ts` 用到的
+      `searchGoogleNewsRss`／`buildConversationSearchInjection` 都維持能用，
+      不用改。手機 `mobile/runtime/chat.ts` 的 `sendStandaloneMessage`
+      送出使用者訊息前跑一次，命中就把 `[Conversation search: ...]` 併進
+      `extraSystemContext`，debug prompt／token 數存回 `userMsg`／
+      `charMsg`（`MessagePromptView.tsx` 本來就有「對話搜尋」這個分頁，
+      直接生效）。開關新增到 `NewsEditableSettings.conversationSearch`，
+      手機設定頁 `NewsSettingsView.tsx` 新增一個 Section，後續 owner 要求
+      連觸發詞清單（加／刪標籤）與查詢時效（`maxAgeHours` 數字框，0＝不限制）
+      也一併開放手機編輯，不再是桌面專屬進階項。**修了一個順手發現的
+      坑**：`NewsModuleSettings.conversationSearch` 是巢狀物件、
+      `saveNewsModuleSettings` 對它是整包取代不是逐欄合併，手機若只送
+      部分欄位會把桌面設定的其他欄位一起重置成預設值——
+      `mobileRoutes.ts`／`session.ts` 的存檔路徑改成先讀現況、沒送到的
+      欄位帶著走。新增 `tests/news/conversationSearch.test.ts`（14 項）。
+      `npm run typecheck`／`npm test`（77 檔、988 項）全過。**真機驗證通過**
+      （2026-08-22，Pixel 10a，owner 實測開關、觸發詞編輯、對話觸發搜尋皆正常）。
+      owner 觀察：查詢詞萃取／要不要搜的判斷是輔助模型（或無輔助模型時的主模型）
+      做的一次分類任務，準確度跟模型能力有關——弱模型可能誤判「這是不是在問
+      時事」或抽不出好查詢詞，屬於已知限制，不是這次改動的 bug；沒有另外調整
+      prompt 或加驗證層，維持跟桌面同一份邏輯。
 
 ---
 
@@ -312,7 +332,7 @@ RTC 半夜喚醒、把 HTML 打包進遙控 APK、Spotify 自動選歌。
 獨立模式的遙控電腦（`remoteControl.*`）**永久不支援**——沒有電腦可控，設計如此。
 
 > 對話新聞搜尋原本也列在「刻意不搬」，2026-08-21 owner 重新評估後排入
-> §3「排程中／延後」，改成要做。
+> §3「排程中／延後」，改成要做；2026-08-22 已做完（見 §3 該條）。
 
 ---
 

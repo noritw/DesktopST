@@ -1782,13 +1782,47 @@ export class StandaloneSession {
 
   async getNewsEditableSettings(): Promise<NewsEditableSettings> {
     const s = await loadNewsModuleSettings(this.adapters.storage)
-    return { enabled: s.enabled, sources: s.sources, keywordGroups: s.keywordGroups, blacklist: s.blacklist, speakButton: s.speakButton }
+    return {
+      enabled: s.enabled,
+      sources: s.sources,
+      keywordGroups: s.keywordGroups,
+      blacklist: s.blacklist,
+      speakButton: s.speakButton,
+      conversationSearch: {
+        enabled: s.conversationSearch?.enabled ?? false,
+        triggerWords: s.conversationSearch?.triggerWords ?? [],
+        maxAgeHours: s.conversationSearch?.maxAgeHours ?? 48
+      }
+    }
   }
 
   async saveNewsEditableSettings(patch: Partial<Omit<NewsEditableSettings, 'enabled'>>): Promise<NewsEditableSettings> {
-    const next = await saveNewsModuleSettings(this.adapters.storage, patch)
+    // conversationSearch 整包取代（core normalize 的行為），沒送到的欄位要從現況
+    // 帶著走，不然只改一項就把另外兩項重置成預設值。
+    const { conversationSearch: csPatch, ...rest } = patch
+    const modulePatch: Partial<import('@core/news/types').NewsModuleSettings> = { ...rest }
+    if (csPatch) {
+      const current = await loadNewsModuleSettings(this.adapters.storage)
+      modulePatch.conversationSearch = {
+        enabled: csPatch.enabled ?? current.conversationSearch?.enabled ?? false,
+        triggerWords: csPatch.triggerWords ?? current.conversationSearch?.triggerWords ?? [],
+        maxAgeHours: csPatch.maxAgeHours ?? current.conversationSearch?.maxAgeHours ?? 48
+      }
+    }
+    const next = await saveNewsModuleSettings(this.adapters.storage, modulePatch)
     this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
-    return { enabled: next.enabled, sources: next.sources, keywordGroups: next.keywordGroups, blacklist: next.blacklist, speakButton: next.speakButton }
+    return {
+      enabled: next.enabled,
+      sources: next.sources,
+      keywordGroups: next.keywordGroups,
+      blacklist: next.blacklist,
+      speakButton: next.speakButton,
+      conversationSearch: {
+        enabled: next.conversationSearch?.enabled ?? false,
+        triggerWords: next.conversationSearch?.triggerWords ?? [],
+        maxAgeHours: next.conversationSearch?.maxAgeHours ?? 48
+      }
+    }
   }
 
   // ── 個人新聞報：定時陪聊（與桌面設定面板同一份資料形狀，各自的提醒存檔流程）──
