@@ -8,6 +8,7 @@ import {
   buildDailyView,
   buildFoodUsageIndex,
   buildMigrationPack,
+  buildNutritionPastePrompt,
   buildNutritionStats,
   capabilitiesFromPriceTable,
   calculateBmr,
@@ -91,6 +92,17 @@ interface FoodDraft {
 
 function blankFoodDraft(): FoodDraft {
   return { name: '', aliases: '', brand: '', flavor: '', tags: [], kcal: '400', proteinG: '25', carbsG: '', fatG: '', sugarG: '', sodiumMg: '', photoKeys: [] }
+}
+
+/**
+ * 飲食紀錄編輯畫面份量 [+][-] 按鈕的級距（owner 2026-08-22 確認）：
+ * 小於 1 份時每次 0.25 份，方便半份／四分之一份這類常見份量；
+ * 到了整數份之後每次 1 份。下限 0.25，份量不能記成 0。
+ */
+function adjustServings(current: number, direction: 1 | -1): number {
+  const step = current < 1 || (current === 1 && direction === -1) ? 0.25 : 1
+  const next = Math.round((current + step * direction) * 100) / 100
+  return Math.max(0.25, next)
 }
 
 /**
@@ -510,6 +522,11 @@ function App(): React.JSX.Element {
   const [mealServings, setMealServings] = React.useState('1')
   const [mealTime, setMealTime] = React.useState('12:00')
   const [confirmDeleteMeal, setConfirmDeleteMeal] = React.useState(false)
+  /** 「用食物庫的其他食物替換」：份量與時間不動，只換這筆紀錄連到哪個食物庫項目。 */
+  const [mealReplaceOpen, setMealReplaceOpen] = React.useState(false)
+  const [mealReplaceQuery, setMealReplaceQuery] = React.useState('')
+  const [mealReplaceTag, setMealReplaceTag] = React.useState('all')
+  const [mealReplaceTarget, setMealReplaceTarget] = React.useState<FoodItem | null>(null)
   const viewRef = React.useRef(view)
   const photoPreviewRef = React.useRef(photoPreview)
 
@@ -559,6 +576,12 @@ function App(): React.JSX.Element {
   const [estimatePhotoBytes, setEstimatePhotoBytes] = React.useState<Uint8Array[]>([])
   const [estimateError, setEstimateError] = React.useState<string | null>(null)
   /**
+   * 「用 AI 重新計算」模式：有值時表示這次估算是為了重算既有食物庫項目，
+   * 不是要新增食物／飲食紀錄。結果頁與錯誤頁的行為都要跟著切換，見
+   * `applyEstimateToFoodItem`／`discardEstimate`。
+   */
+  const [estimateTargetFoodId, setEstimateTargetFoodId] = React.useState<string | null>(null)
+  /**
    * 選好照片、還沒送出估算前的中繼狀態（§2.7：送出前一定有一次補充機會）。
    * 是**陣列**：同一份食物常常要拍好幾張才估得準（包裝正面／營養成分表／
    * 實際內容物，見規格 §2.6 拍法 A），上限比照 `FoodItem.photoKeys` 的 3 張。
@@ -602,7 +625,8 @@ function App(): React.JSX.Element {
         if (photoPreviewRef.current) { setPhotoPreview(null); return }
         const current = viewRef.current
         if (current === 'foodForm') { leaveFoodForm(); return }
-        if (current === 'library' || current === 'mealEditor' || current === 'profile' || current === 'about' || current === 'transfer' || current === 'photoEstimate' || current === 'stats') { setView('daily'); return }
+        if (current === 'photoEstimate') { discardEstimate(); return }
+        if (current === 'library' || current === 'mealEditor' || current === 'profile' || current === 'about' || current === 'transfer' || current === 'stats') { setView('daily'); return }
         void CapacitorApp.exitApp()
       }).catch(() => null)
       if (cancelled) void handle?.remove()
@@ -628,8 +652,14 @@ function App(): React.JSX.Element {
     const today = toIsoDateString(Date.now())
     if (path === 'photo') {
       setSelectedDate(today)
-      openPhotoEstimate()
-      void captureCameraPhoto().then((file) => { if (file) addEstimatePhotos([file]) })
+      if (photoEstimateEnabled) {
+        openPhotoEstimate()
+        void captureCameraPhoto().then((file) => { if (file) addEstimatePhotos([file]) })
+      } else {
+        // AI 拍照估算關著時，拍完照直接進新增食物表單並帶入照片，
+        // 讓使用者接續用「複製提示詞」的流程手動建檔（§2.10.4）。
+        void captureCameraPhoto().then((file) => { if (file) void openFoodFormWithPhoto(file) })
+      }
     } else if (path === 'quick-entry') {
       setSelectedDate(today)
       setView('daily')
@@ -1070,6 +1100,31 @@ function App(): React.JSX.Element {
   }
 
   /**
+   * 小工具拍照按鈕在 AI 拍照估算關閉時的落地：直接開「新增食物」表單並把剛拍的照片帶入，
+   * 讓使用者接續用「複製提示詞」手動建檔（§2.10.4／§5）。
+   */
+  async function openFoodFormWithPhoto(file: File): Promise<void> {
+    const id = `food-${Date.now()}`
+    setEditingFoodId(id)
+    setIsNewFood(true)
+    setFoodFormOrigin('quickEntry')
+    setConfirmDeleteFood(false)
+    setConfirmDuplicateFood(false)
+    setNewTagInput('')
+    pendingDeletePhotoKeysRef.current = []
+    sessionAddedPhotoKeysRef.current = []
+    setFoodDraft(blankFoodDraft())
+    setPastedNutritionText('')
+    setPastedNutritionMessage(null)
+    setView('foodForm')
+    const bytes = await compressImageFile(file)
+    const key = foodPhotoKey(id, 0)
+    await nutritionMobileStorage.writeBinary(key, bytes)
+    sessionAddedPhotoKeysRef.current.push(key)
+    setFoodDraft((prev) => ({ ...prev, photoKeys: [key] }))
+  }
+
+  /**
    * §2.10.3：從別的 AI／網頁複製一段文字回來自動填欄位。
    * **純本機正則、零網路請求**（`parsePastedNutrition`），解析不出來就當沒事、
    * 不跳錯誤——使用者照常手打。只填數字欄，不動名稱／品牌（那些猜錯的代價比較高）。
@@ -1089,6 +1144,20 @@ function App(): React.JSX.Element {
       return next
     })
     setPastedNutritionMessage(filled.length > 0 ? `已填入：${filled.join('、')}（可以再手動改）` : null)
+  }
+
+  /** §2.10.4：一鍵複製提示詞，貼到使用者自己常用的 AI 對話，不用手打也不用多付 API 費用。 */
+  async function copyNutritionPrompt(): Promise<void> {
+    const label = [foodDraft.name.trim(), [foodDraft.brand.trim(), foodDraft.flavor.trim()].filter(Boolean).join(' ')]
+      .filter(Boolean)
+      .join('，')
+    const prompt = buildNutritionPastePrompt(label)
+    try {
+      await navigator.clipboard.writeText(prompt)
+      setPastedNutritionMessage('提示詞已複製，貼到你常用的 AI 對話（可以自己附上照片），算完把回覆貼回這裡')
+    } catch {
+      setPastedNutritionMessage('複製失敗，請手動選取文字複製')
+    }
   }
 
   function toggleFoodTag(tag: string): void {
@@ -1264,6 +1333,12 @@ function App(): React.JSX.Element {
     setMealServings(String(mealLog.servings))
     setMealTime(timeInputValue(mealLog.eatenAt))
     setConfirmDeleteMeal(false)
+    // 上一次編輯若中途放棄替換食物，這幾個 state 不會自己清掉——不重設的話，
+    // 下次打開任何一筆飲食紀錄都會被殘留的 mealReplaceTarget 直接跳出確認視窗。
+    setMealReplaceOpen(false)
+    setMealReplaceTarget(null)
+    setMealReplaceQuery('')
+    setMealReplaceTag('all')
     setView('mealEditor')
   }
 
@@ -1291,6 +1366,26 @@ function App(): React.JSX.Element {
         await session.saveMealLog({ ...current, servings, eatenAt, override: { name, kcal, proteinG }, updatedAt: Date.now() })
       }
     }).then(() => setView('daily'))
+  }
+
+  /**
+   * 「用食物庫的其他食物替換」：只換這筆紀錄連到哪個食物庫項目，份量與時間不動、
+   * 清掉既有的 override（改吃新食物庫項目的值）。選好立即存檔（owner 2026-08-22 確認），
+   * 不用等按「儲存」——這是整理重複食物庫項目的操作，跟其他欄位編輯的語意不一樣。
+   */
+  function replaceMealFood(newFoodItem: FoodItem): void {
+    if (!editingMealId) return
+    void runAction(async (session) => {
+      const current = session.mealLogs.find((log) => log.id === editingMealId)
+      if (!current) return
+      await session.saveMealLog({ ...current, foodItemId: newFoodItem.id, override: undefined, updatedAt: Date.now() })
+    }).then(() => {
+      setMealReplaceOpen(false)
+      setMealReplaceTarget(null)
+      setMealName(newFoodItem.name)
+      setMealKcal(String(newFoodItem.perServing.kcal))
+      setMealProtein(String(newFoodItem.perServing.proteinG))
+    })
   }
 
   function deleteMeal(): void {
@@ -1343,6 +1438,7 @@ function App(): React.JSX.Element {
     setEstimateSelectedFiles([])
     setEstimateNote('')
     setEstimateFollowUpNote('')
+    setEstimateTargetFoodId(null)
     for (const url of estimatePreviewUrlsRef.current) URL.revokeObjectURL(url)
     estimatePreviewUrlsRef.current = []
     setEstimatePreviewUrls([])
@@ -1353,8 +1449,30 @@ function App(): React.JSX.Element {
     setView('photoEstimate')
   }
 
-  function discardEstimate(): void {
+  /**
+   * 食物庫編輯畫面的「用 AI 重新計算」入口：帶著這筆食物既有的照片直接進補充說明頁，
+   * 沒有照片時退回 `idle` 讓使用者自己拍/選。結果頁與錯誤頁靠 `estimateTargetFoodId`
+   * 判斷這是重算模式，不是新增食物／飲食紀錄。
+   */
+  async function openPhotoEstimateForFood(foodId: string, photoKeys: string[]): Promise<void> {
     resetEstimateState()
+    setEstimateTargetFoodId(foodId)
+    if (photoKeys.length > 0) {
+      const files: File[] = []
+      for (const key of photoKeys) {
+        const bytes = await nutritionMobileStorage.readBinary(key)
+        if (bytes) files.push(new File([new Uint8Array(bytes)], key, { type: 'image/webp' }))
+      }
+      if (files.length > 0) addEstimatePhotos(files)
+    }
+    setView('photoEstimate')
+  }
+
+  function discardEstimate(): void {
+    const targetId = estimateTargetFoodId
+    const targetFood = targetId ? snapshot?.foodItems.find((item) => item.id === targetId) : undefined
+    resetEstimateState()
+    if (targetFood) { openFoodForm(targetFood, 'library'); return }
     setView('daily')
   }
 
@@ -1439,7 +1557,8 @@ function App(): React.JSX.Element {
       })
       const result = results[0]
       if (!result) throw new PhotoEstimateRequestError('模型沒有回傳可用的結果')
-      const candidates = result.name ? matchFoodItem(result.name, result.brand, snapshot?.foodItems ?? []) : []
+      // 重算既有食物庫項目時不用名稱比對既有食物——目標食物已經確定，比對只會誤導使用者。
+      const candidates = !estimateTargetFoodId && result.name ? matchFoodItem(result.name, result.brand, snapshot?.foodItems ?? []) : []
       setEstimateMatchedFood(candidates.length === 1 ? candidates[0] : null)
       setEstimateResult(result)
       setEstimatePhase('result')
@@ -1551,6 +1670,31 @@ function App(): React.JSX.Element {
     setPastedNutritionText('')
     setPastedNutritionMessage(null)
     setView('foodForm')
+  }
+
+  /**
+   * 「用 AI 重新計算」的存檔：只更新 `estimateTargetFoodId` 這筆食物庫資料，
+   * 不新增飲食紀錄——這是重算食物庫，不是記一筆新的飲食。照片沿用原本的
+   * `photoKeys`，不重寫檔案。
+   */
+  function applyEstimateToFoodItem(): void {
+    if (!estimateResult || !estimateTargetFoodId || !snapshot) return
+    const result = estimateResult
+    const existing = snapshot.foodItems.find((item) => item.id === estimateTargetFoodId)
+    if (!existing) return
+    const updated: FoodItem = {
+      ...existing,
+      name: result.name?.trim() || existing.name,
+      brand: result.brand ?? existing.brand,
+      flavor: result.flavor ?? existing.flavor,
+      perServing: result.perServing ?? existing.perServing,
+      source: 'llm-photo-edited',
+      updatedAt: Date.now()
+    }
+    void runAction(async (session) => { await session.saveFoodItem(updated) }).then(() => {
+      resetEstimateState()
+      openFoodForm(updated, 'library')
+    })
   }
 
   function saveProfile(applyTdee: boolean): void {
@@ -1764,13 +1908,16 @@ function App(): React.JSX.Element {
           {/* §2.10.3：在別的地方算好，貼回來就自動填。純本機解析，不呼叫任何模型。 */}
           <details className="paste-nutrition">
             <summary>貼上營養資訊自動填欄位</summary>
+            <button type="button" className="copy-prompt-button" onClick={() => void copyNutritionPrompt()}>
+              複製提示詞
+            </button>
             <textarea
               value={pastedNutritionText}
               onChange={(event) => applyPastedNutrition(event.target.value)}
               placeholder="貼上例如：熱量 320 大卡，蛋白質 18 克，碳水 34g，脂肪 12 公克，糖 5g，鈉 610mg"
               rows={3}
             />
-            <small className="hint">{pastedNutritionMessage ?? '貼上就會自動填到上面的欄位；抓不到數字不會有任何影響，照常手打即可。不會連網、不會呼叫 AI。'}</small>
+            <small className="hint">{pastedNutritionMessage ?? '按「複製提示詞」貼到你常用的 AI，算完把回覆貼回這裡就會自動填；抓不到數字不會有任何影響，照常手打即可。不會連網、不會呼叫 AI。'}</small>
           </details>
 
           <div className="photo-section">
@@ -1783,6 +1930,16 @@ function App(): React.JSX.Element {
                 <PhotoSourceButtons multiple onFiles={(files) => void addFoodPhotos(files)} />
               )}
             </div>
+            {photoEstimateEnabled && !isNewFood && editingFoodId && (
+              <button
+                type="button"
+                className="ai-recalc-button"
+                disabled={saving}
+                onClick={() => void openPhotoEstimateForFood(editingFoodId, foodDraft.photoKeys)}
+              >
+                <MonoIcon name="camera" className="icon-sm" /> 用 AI 重新計算
+              </button>
+            )}
           </div>
 
           <button type="button" className="primary" disabled={saving || !foodDraft.name.trim()} onClick={() => saveFoodDraft(false)}>
@@ -1848,6 +2005,13 @@ function App(): React.JSX.Element {
     const editingMealLog = snapshot.mealLogs.find((log) => log.id === editingMealId)
     if (!editingMealLog) return <main className="shell"><p>載入中...</p></main>
     const linkedFoodItem = snapshot.foodItems.find((item) => item.id === editingMealLog.foodItemId) ?? null
+    const mealReplaceTagFiltered = mealReplaceTag === 'all'
+      ? snapshot.foodItems
+      : snapshot.foodItems.filter((item) => (item.tags ?? []).includes(mealReplaceTag))
+    const mealReplaceCandidates = (mealReplaceQuery.trim()
+      ? matchFoodKeyword(mealReplaceQuery, mealReplaceTagFiltered).map((match) => match.foodItem)
+      : mealReplaceTagFiltered
+    ).filter((item) => item.id !== editingMealLog.foodItemId)
     return (
       <main className="shell">
         <Header title="編輯飲食紀錄" onBack={() => setView('daily')} />
@@ -1855,9 +2019,68 @@ function App(): React.JSX.Element {
           <label>食物名稱<input value={mealName} onChange={(event) => setMealName(event.target.value)} /></label>
           <label>每份熱量（kcal）<input value={mealKcal} onChange={(event) => setMealKcal(event.target.value)} inputMode="decimal" /></label>
           <label>每份蛋白質（g）<input value={mealProtein} onChange={(event) => setMealProtein(event.target.value)} inputMode="decimal" /></label>
-          <label>份量（份）<input value={mealServings} onChange={(event) => setMealServings(event.target.value)} inputMode="decimal" /></label>
+          <label>份量（份）
+            <div className="servings-stepper">
+              <button type="button" aria-label="減少份量" onClick={() => setMealServings(String(adjustServings(Number(mealServings) || 1, -1)))}>−</button>
+              <input value={mealServings} onChange={(event) => setMealServings(event.target.value)} inputMode="decimal" />
+              <button type="button" aria-label="增加份量" onClick={() => setMealServings(String(adjustServings(Number(mealServings) || 1, 1)))}>＋</button>
+            </div>
+          </label>
           <label>時間<input type="time" value={mealTime} onChange={(event) => setMealTime(event.target.value)} /></label>
+          <button type="button" onClick={() => { setMealReplaceQuery(''); setMealReplaceTag('all'); setMealReplaceOpen(true) }}>
+            <MonoIcon name="refresh" className="icon-sm" /> 用食物庫的其他食物替換
+          </button>
+          <small className="hint">替換後份量與時間不變，只改這筆紀錄連到哪個食物庫項目。</small>
         </section>
+        {mealReplaceOpen && (
+          <div className="quick-entry-overlay" role="dialog" aria-modal="true" onClick={() => setMealReplaceOpen(false)}>
+            <section className="quick-entry-card" onClick={(event) => event.stopPropagation()}>
+              <button type="button" className="quick-entry-close" aria-label="關閉" onClick={() => setMealReplaceOpen(false)}><MonoIcon name="close" className="icon-md" /></button>
+              <div className="quick-entry-header">
+                <strong>選擇要替換成的食物</strong>
+              </div>
+              {tags.length > 0 && (
+                <div className="tag-options">
+                  <button type="button" className={`tag-choice${mealReplaceTag === 'all' ? ' selected' : ''}`} onClick={() => setMealReplaceTag('all')}>全部</button>
+                  {tags.map((tag) => (
+                    <button type="button" key={tag} className={`tag-choice${mealReplaceTag === tag ? ' selected' : ''}`} onClick={() => setMealReplaceTag(tag)}>{tag}</button>
+                  ))}
+                </div>
+              )}
+              <input value={mealReplaceQuery} onChange={(event) => setMealReplaceQuery(event.target.value)} placeholder="搜尋名稱或別名" autoFocus />
+              <div className="food-options">
+                {mealReplaceCandidates.length === 0 ? (
+                  <div className="empty"><p>找不到食物。</p></div>
+                ) : mealReplaceCandidates.map((foodItem) => (
+                  <button type="button" className="food-option" key={foodItem.id} disabled={saving} onClick={() => { setMealReplaceOpen(false); setMealReplaceTarget(foodItem) }}>
+                    <span className="food-option-name">
+                      <strong>{foodItem.name}</strong>
+                      {(foodItem.brand || foodItem.flavor) && (
+                        <small>{[foodItem.brand, foodItem.flavor].filter(Boolean).join(' · ')}</small>
+                      )}
+                    </span>
+                    <span className="food-option-stats">
+                      <small className="food-option-macro">{foodItem.perServing.kcal} kcal</small>
+                      <small className="food-option-macro">{foodItem.perServing.proteinG} g 蛋白</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>
+        )}
+        {mealReplaceTarget && (
+          <div className="confirm-overlay" role="dialog" aria-modal="true">
+            <div className="confirm-card">
+              <strong>確定要用「{mealReplaceTarget.name}」替換嗎？</strong>
+              <p>目前連結的食物「{linkedFoodItem?.name ?? '（已刪除的食物）'}」會換成「{mealReplaceTarget.name}」，份量與時間保留不變。</p>
+              <div className="confirm-actions">
+                <button type="button" onClick={() => setMealReplaceTarget(null)}>取消</button>
+                <button type="button" className="primary" disabled={saving} onClick={() => replaceMealFood(mealReplaceTarget)}>確定替換</button>
+              </div>
+            </div>
+          </div>
+        )}
         <MealPhotoField
           mealLog={editingMealLog}
           foodItem={linkedFoodItem}
@@ -2373,7 +2596,9 @@ function App(): React.JSX.Element {
               <div className="photo-source-row">
                 <PhotoSourceButtons multiple large onFiles={addEstimatePhotos} cameraLabel="重拍" galleryLabel="重選" />
               </div>
-              <button type="button" onClick={() => openFoodForm(null, 'quickEntry')}>改用手動輸入</button>
+              {estimateTargetFoodId
+                ? <button type="button" onClick={discardEstimate}>返回食物編輯</button>
+                : <button type="button" onClick={() => openFoodForm(null, 'quickEntry')}>改用手動輸入</button>}
             </>
           )}
           {estimatePhase === 'result' && estimateResult && (
@@ -2400,8 +2625,14 @@ function App(): React.JSX.Element {
               )}
               {estimateResult.note && <small className="hint">{estimateResult.note}</small>}
               <div className="scope-choice">
-                <button type="button" className="primary" disabled={saving} onClick={saveEstimateResult}>存入</button>
-                <button type="button" disabled={saving} onClick={() => void openFoodFormFromEstimate()}>不對，我改</button>
+                {estimateTargetFoodId ? (
+                  <button type="button" className="primary" disabled={saving} onClick={applyEstimateToFoodItem}>更新這筆食物庫資料</button>
+                ) : (
+                  <>
+                    <button type="button" className="primary" disabled={saving} onClick={saveEstimateResult}>存入</button>
+                    <button type="button" disabled={saving} onClick={() => void openFoodFormFromEstimate()}>不對，我改</button>
+                  </>
+                )}
               </div>
               <label className="estimate-followup">AI 誤解圖片或文字了嗎？再解釋一次讓它重算
                 <textarea

@@ -507,6 +507,25 @@ export interface ParsedNutrition {
  * 現在容許：全形數字與冒號、`約`／`大約`／`~`／`≈` 之類的模糊詞、
  * 標籤與數字間的空白與換行、單位可有可無、中英文標籤、千分位逗號。
  */
+/**
+ * 生成一段可以直接貼到任何 AI 對話的提示詞（§2.10.4 一鍵複製）。
+ * 標籤字詞刻意對齊 `parsePastedNutrition` 認得的關鍵字，回覆貼回來時才解析得到。
+ */
+export function buildNutritionPastePrompt(foodLabel: string): string {
+  const subject = foodLabel.trim() || '（請描述這是什麼食物／份量）'
+  return `請幫我估算這份食物的營養成分（依常見的一份／一份量認知），用下面的格式回覆：
+
+熱量: ___ kcal
+蛋白質: ___ g
+碳水化合物: ___ g
+脂肪: ___ g
+糖: ___ g
+鈉: ___ mg
+
+食物：${subject}
+（如果我有附上照片，麻煩依照片內容估算；不確定的欄位可以留空或標註「不確定」）`
+}
+
 export function parsePastedNutrition(text: string): ParsedNutrition {
   const normalized = normalizeForParsing(text)
   const result: ParsedNutrition = {}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyEstimateToEntries,
+  buildNutritionPastePrompt,
   buildPhotoEstimatePrompt,
   canAddAnotherFoodSlot,
   checkRequestCompatibility,
@@ -374,6 +375,24 @@ describe('parsePastedNutrition', () => {
   it('不會跨太遠亂抓：句子裡沒有該營養素的數字就不填', () => {
     // 「蛋白質很低」後面那個數字是熱量，不能被當成蛋白質。
     expect(parsePastedNutrition('這份蛋白質很低，整份大約有 320 大卡').proteinG).toBeUndefined()
+  })
+})
+
+describe('buildNutritionPastePrompt', () => {
+  it('包含 parsePastedNutrition 認得的關鍵字與食物名稱', () => {
+    const prompt = buildNutritionPastePrompt('燻雞三明治，7-11')
+    expect(prompt).toContain('熱量')
+    expect(prompt).toContain('蛋白質')
+    expect(prompt).toContain('碳水化合物')
+    expect(prompt).toContain('脂肪')
+    expect(prompt).toContain('糖')
+    expect(prompt).toContain('鈉')
+    expect(prompt).toContain('燻雞三明治，7-11')
+  })
+
+  it('沒有食物名稱時仍給出可用的提示詞', () => {
+    const prompt = buildNutritionPastePrompt('')
+    expect(prompt).toContain('請描述')
   })
 })
 

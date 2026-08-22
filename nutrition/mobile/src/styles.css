@@ -195,6 +195,35 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 .scope-choice { display: grid; gap: 4px; }
 .scope-choice small { color: #6d887f; font-size: 12px; margin-bottom: 8px; }
 
+.servings-stepper { display: flex; align-items: center; gap: 8px; }
+.servings-stepper input { flex: 1; text-align: center; }
+.servings-stepper button {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  font-size: 18px;
+  font-weight: 700;
+  background: #eefaf5;
+  border: 1px solid #c9e3da;
+  color: #4f9c8a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ai-recalc-button, .copy-prompt-button {
+  align-self: flex-start;
+  background: white;
+  border: 1px solid #c9e3da;
+  color: #4f9c8a;
+  padding: 6px 12px;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .library-data-section { display: grid; gap: 8px; border-top: 1px solid #d8ebe4; padding-top: 14px; }
 .library-data-section > .hint { margin: 0; }
 .library-data-preview { display: grid; gap: 6px; background: #eefaf5; border-radius: 10px; padding: 10px 12px; font-size: 13px; }
