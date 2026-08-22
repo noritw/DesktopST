@@ -45,6 +45,7 @@ export type {
   StopGeneratingResult,
   SettingsApi,
   WeatherNowSnapshot,
-  WeatherSettingsSnapshot
+  WeatherSettingsSnapshot,
+  WeatherRealtimeQuerySnapshot
 } from './types'
 export { DataError } from './types'

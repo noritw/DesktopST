@@ -105,6 +105,20 @@ export function pairSettings(local: SettingsSnapshot, remote: SettingsSnapshot):
       remote.appearance.showPersonaName
     ),
     row('weather.polish', 'modules', '天氣：使用輔助模型潤飾', local.weather.polish, remote.weather.polish),
+    row(
+      'weather.realtimeQueryEnabled',
+      'modules',
+      '天氣：啟用即時氣象查詢',
+      local.weather.realtimeQueryEnabled,
+      remote.weather.realtimeQueryEnabled
+    ),
+    row(
+      'weather.realtimeQueryForecastCounty',
+      'modules',
+      '天氣：即時查詢預設縣市',
+      local.weather.realtimeQueryForecastCounty,
+      remote.weather.realtimeQueryForecastCounty
+    ),
     row('news.speakButton', 'modules', '新聞：陪聊頻率', local.news.speakButton, remote.news.speakButton)
   ]
 

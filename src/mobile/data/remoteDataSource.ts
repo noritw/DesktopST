@@ -289,7 +289,9 @@ export class RemoteDataSource implements DataSource {
     fetchWeatherNow: async () => {
       const r = await this.http.post<WeatherNowSnapshot & { ok?: true }>('/api/settings/weather/fetch-now', {})
       return { description: r.description, temperatureC: r.temperatureC, humidity: r.humidity, windSpeed: r.windSpeed }
-    }
+    },
+    setCwaApiKey: async (apiKey) => { await this.http.post('/api/settings/weather/cwa-apikey', { apiKey }) },
+    testCwaApiKey: async (apiKey) => this.http.post('/api/settings/weather/cwa-test', { apiKey })
   }
 
   readonly lorebooks: LorebooksApi = {

@@ -24,3 +24,20 @@ export {
   invalidateWeatherCache,
   polishWeatherDescription
 } from './context'
+export {
+  detectQueryType,
+  fetchCwaData,
+  getRealtimeQueryContextString,
+  type CwaEqIntensity,
+  type CwaEqRecord,
+  type CwaEqResponse,
+  type CwaTyphoonFix,
+  type CwaTyphoonMovingPrediction,
+  type CwaTyphoonRecord,
+  type CwaTyphoonResponse,
+  type FetchTyphoonResult,
+  type RealtimeQueryContextResult,
+  type RealtimeQueryResult,
+  type RealtimeQuerySettingsLike,
+  type RealtimeQueryType
+} from './realtimeQuery'

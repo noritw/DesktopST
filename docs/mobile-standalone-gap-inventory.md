@@ -59,7 +59,7 @@
 | ~~1~~ | ~~情境（scene）套用／存檔／擷取／刪除~~ | `PresetsView` 有完整清單與按鈕 | **2026-08-08 完成** | — | 已做 |
 | ~~2~~ | ~~Lorebook（用語解說）編輯~~ | `LorebookEditor` 已存在 | **2026-08-09 完成**：CRUD 接上 `StandaloneSession`；另外把 `[Glossary]` 注入也接進 `chat.ts`（原本連桌面都沒有的那段獨立版聊天管線，光有編輯 UI 不會影響對話） | — | 已做 |
 | ~~3~~ | ~~**角色卡／設定包匯出**~~ | 角色編輯器有匯出入口 | **2026-08-12 完成**：`StandaloneSession.exportCard`／`exportPack` 接上，格式與桌面 `dstPack.ts`／`stCardMapper.ts` 完全相容（同一份 manifest／`characters/<id>/card.json` 佈局，桌面能直接匯入）；PNG 沒有頭像時退回 `core/card/pngCard.ts` 內建透明底圖。`fileTransfer.ts` 的 `downloadBytes` 改成非同步、平台分流：網頁走原本的 `<a download>`，APK 走 Capacitor Filesystem 寫進 `Directory.Cache` 再用新裝的 `@capacitor/share` 叫出系統分享面板（兩個外掛都動態 `import()`，煙測與 vitest 不受影響）。瀏覽器 `?mode=standalone` 煙測過角色包／單張 PNG／JSON 三種匯出，皆跳出成功 toast、console 無錯誤。**還沒做**：APK 真機驗證分享面板（僅網頁路徑測過，Capacitor Share 那條路徑要真機 `npx cap sync android` 後才測得到） | — | 已做 |
-| ~~4~~ | ~~天氣定位／即時查詢~~ | 設定頁有天氣區塊 | **2026-08-08 完成**（背景 `[Weather]` 含 CWA；地震／颱風關鍵詞查詢仍桌面限定） | — | 已做 |
+| ~~4~~ | ~~天氣定位／即時查詢~~ | 設定頁有天氣區塊 | **2026-08-08 完成背景天氣；2026-08-22 補上地震／颱風／天氣預報關鍵詞即時查詢**（`core/weather/realtimeQuery.ts`，自動測試通過，尚未真機驗證）。CWA API Key 走既有 S1 一次性匯入，設定頁新增可自行填 Key／測試連線的區塊 | — | 已做 |
 | ~~5~~ | ~~**提醒**~~ | `RemindersView`／`ReminderEditor` 完整 | **2026-08-09 完成**：CRUD 接上 `StandaloneSession`；手機端排程器（`reminderScheduler.ts`）與 Capacitor LocalNotifications；新增 `notificationDevice` 欄位（desktop/mobile/both，預設 mobile）；測試通過 13/13 排程邏輯。**2026-08-10 補齊**：① `startup` 排程在手機版靜默失效（`nextFireDelayMs` 明確不處理 startup，手機 `scheduleOne` 補對應分支）；② `ReminderEditor` 補 `notificationDevice` 選擇 UI（獨立模式才顯示）| — | 已做 |
 | ~~6~~ | ~~**個人新聞報**~~ | `NewsView`／設定／關鍵字面板完整 | **2026-08-12 完成**：`news.*` 15 支全部接上（`core/news/` 新增 `moduleId`／`rssAdapter`／`sources`／`readerState`／`settings`／`readerFetch`／`enrich`／`schedule`／`injection`）；桌面 `main/modules/news/*` 改薄殼、行為逐字等價；手機 RSS 解析改用瀏覽器原生 `DOMParser`（`mobile/adapters/rssParseAdapter.ts`，`rss-parser` 在 WebView 下無法用，已在真的 Chromium 環境驗證解析正確）；`chat.ts`／`reminderSpeak.ts` 都接上「挑一則新聞當話題」的自動注入與 `newsLink` 掛回訊息；`MainMenu` 與 `ReminderEditor` 的灰字解除。**不做**：背景定時抓新聞（仍只在前景開 App 時抓）、對話新聞搜尋、搬家包。 | — | 已做 |
 | 7 | **對話與電腦同步（S2）** | 只有 S1「從電腦匯入」 | **實作完成、待真機驗證**：M1 模式可切換（2026-08-12）、M2 差異預覽（2026-08-12）、M3 推／拉資料、M4 逐項比對＋M5 設定同步（2026-08-14）、對話同步（2026-08-15，訊息層聯集合併，新端點 `POST /api/sync-conversation-merge`）全部已實作。**沒有未實作的部分了**，剩真機逐條驗證 | roadmap §4.7 已定分層與星狀拓樸；**實作設計見 `mobile-mode-switch-sync.md`**（§8.1 M1、§8.2 M2、§8.3 對話同步落地筆記）與 `mobile-sync-m4-compare.md`（M4／M5） | ⑤（owner 2026-08-09：排在獨立版功能補完之後） |
@@ -143,7 +143,7 @@ owner：「天氣和提醒希望也可以和電腦同步，這樣我不用設定
 | 獨立版不再送表情合約 | `ChatLLMParams.omitEmotionTag`；獨立版單張主圖用不到情緒標籤 |
 | **缺口 #1 情境與設定組** | `applyScene`／`captureScene`／`saveScene`／`removeScene`／`removePersona`／`removeWorld` 全部接上；`activeSceneDirty` 也真的算了。設定層套用共用 `core/scene/apply` |
 | **S1 對話匯入** | 掃 QR 時可勾選要帶哪幾則（全選／取消全選，**預設全不選**）；電腦端 `/api/sync-conversations`（只給清單）＋ `/api/sync-conversation`（逐則）。角色 id 靠名字重新對上，`Conversation.importedFrom` 留給 S2 |
-| **缺口 #4 天氣** | 邏輯抽到 `core/weather/`（兩邊共用）；獨立版定位 **GPS 優先、退回 IP**，聊天會帶 `[Weather]`。CWA 背景預報也共用了 |
+| **缺口 #4 天氣** | 邏輯抽到 `core/weather/`（兩邊共用）；獨立版定位 **GPS 優先、退回 IP**，聊天會帶 `[Weather]`。CWA 背景預報也共用了。**2026-08-22**：地震／颱風／天氣預報關鍵詞即時查詢也搬進 `core/weather/realtimeQuery.ts`（自動測試通過，尚未真機驗證）；CWA Key 不進 S2 M5 比對子集（金鑰走既有 S1 匯入），M5 只加了 `realtimeQueryEnabled`／`realtimeQueryForecastCounty` 兩個非機密欄位 |
 | **從電腦重新拉設定** | 設定頁「與電腦同步」，可重複按。單向覆蓋，不碰角色／預設組／對話／天氣地點 |
 
 細節見 `progress-log.md` 同日條目。

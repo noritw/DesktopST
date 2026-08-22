@@ -75,7 +75,7 @@ src/mobile/ 手機 UI
 | **B6 遙控 UI** | 已完成（真機驗證通過） |
 | **手機獨立版 W1–W3** | 完成。**debug APK 已在 Pixel 10a 實測通過**（聊天、落地、金鑰加密、重開保留）。建置流程與陷阱：`src/mobile/README.md` |
 | **S1 初始化匯入** | 完成（掃 QR 單向拉角色／預設組／設定／**對話**；對話勾選匯入，預設全不選）。另有可重複執行的「從電腦重新拉設定」 |
-| **獨立版天氣** | 完成（缺口 #4）。邏輯在 `core/weather/`，定位 GPS 優先退回 IP，聊天會帶 `[Weather]`。地震／颱風關鍵詞查詢仍桌面限定 |
+| **獨立版天氣** | 完成（缺口 #4）。邏輯在 `core/weather/`，定位 GPS 優先退回 IP，聊天會帶 `[Weather]`。**地震／颱風／天氣預報關鍵詞即時查詢已實作，自動測試通過，尚未真機驗證**（2026-08-22，`core/weather/realtimeQuery.ts`）：手機聊天送出訊息前跑關鍵詞偵測，命中就打 CWA、注入 `[即時查詢：...]`；CWA API Key 走既有 S1 一次性匯入（不進 S2 M5 比對子集，那條子集永遠不放金鑰），手機天氣設定頁新增可自行填 Key／測試連線的區塊 |
 | **獨立版 Lorebook 編輯** | 完成（缺口 #2，2026-08-09）。`StandaloneSession` 接上 CRUD＋參照清理；`chat.ts` 補了原本沒接的 `[Glossary]` 注入（桌面版本來就有，獨立版聊天管線之前完全沒有） |
 | **獨立版提醒** | 完成（缺口 #5，2026-08-09～11）。CRUD＋排程器＋Capacitor 通知；原生層（AlarmManager＋headless WebView 現場生成台詞）也已完成，App 劃掉後仍會響；`screen_on_only`／`always` 兩種喚醒模式都在判斷 |
 | **獨立版個人新聞報** | 完成（缺口 #6，2026-08-12）。`core/news/*` 15 支全部接上，桌面／遙控／獨立版共用同一份邏輯。手機額外補了：面板下緣安全區、重新摘要、清除摘要（只留 `[Shared News] 標題`）、原文連結、兩層導覽（關鍵字組→欄）、熱門話題開關。**不做**：背景定時抓新聞、對話新聞搜尋、搬家包（皆桌面獨有，刻意不搬） |
@@ -95,7 +95,7 @@ src/mobile/ 手機 UI
 | 延後／已排程 | 角色印象（B8）；系統通知（B5）；飲食熱量模組其餘分期（**B9b／B9c**，B9-Health-lite 已完成見上） |
 
 獨立模式**尚未實作**（會誠實擲 `not-supported`，不是 bug）：
-天氣的地震／颱風關鍵詞查詢。Spotify／日曆授權仍只在桌面。
+Spotify／日曆授權仍只在桌面。
 遙控電腦（`remoteControl.*`）**永久不支援**——獨立模式沒有電腦可控，設計如此。
 → 缺口總表與建議順序：`docs/mobile-standalone-gap-inventory.md`（不長，可整份讀）。
 
@@ -284,7 +284,7 @@ src/mobile/ 手機 UI
 | **改／驗證切換模式的同步** | `mobile-sync-m4-compare.md`（整份，M4 逐項比對，**已取代 M3 流程**） | `mobile-sync-m3-kickoff.md`（只在追歷史時才讀） |
 | **改／驗證對話同步** | `mobile-mode-switch-sync.md` **§3.1／§6.2 ②／§8.3／§8.4**；`core/sync/convPair.ts` 檔頭 | 整份 roadmap、M3 那幾份 |
 | 打 APK／改 Capacitor | `src/mobile/README.md` | 一切長文 |
-| 動天氣（兩邊共用） | `core/weather/`（四個小檔，直接讀原始碼）＋ `progress-log.md` 搜「獨立版天氣」 | 舊的 `weather-realtime-query-spec.md`（那是桌面 CWA 規格） |
+| 動天氣（兩邊共用，含地震／颱風／預報即時查詢） | `core/weather/`（五個小檔，直接讀原始碼；`realtimeQuery.ts` 是即時查詢）＋ `progress-log.md` 搜「獨立版天氣」 | 舊的 `weather-realtime-query-spec.md`（那是搬過去之前的桌面 CWA 規格，即時查詢邏輯現在兩邊共用） |
 | 問「獨立版還缺什麼」／挑下一項做 | `mobile-standalone-gap-inventory.md`（整份，不長） | 舊的 `mobile-html-feature-inventory.md` |
 | 實作手機獨立版精準鬧鐘／提醒 | `mobile-standalone-reminder-plan.md`（整份） | 一切長文 |
 | **實作獨立版個人新聞報（缺口 #6）** | `news-standalone-kickoff.md`（整份，開工指令） | 一切長文 |

@@ -54,7 +54,11 @@ export async function buildLocalSettingsSnapshot(session: StandaloneSession): Pr
     memory: session.settings.memory,
     colorTheme: session.settings.ui.colorTheme ?? 'mint',
     modules: modules.map((m) => ({ id: m.id, label: m.label, enabled: m.enabled })),
-    weather: { polish: !!session.settings.weather?.polish },
+    weather: {
+      polish: !!session.settings.weather?.polish,
+      realtimeQueryEnabled: !!session.settings.weather?.realtimeQuery?.enabled,
+      realtimeQueryForecastCounty: session.settings.weather?.realtimeQuery?.forecastCounty ?? ''
+    },
     news: { speakButton: newsEditable.speakButton },
     appearance: {
       showLlmBadge: session.settings.ui.showLlmBadge ?? true,

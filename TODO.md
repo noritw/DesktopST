@@ -251,15 +251,32 @@ owner 決定：提醒資料本身要同步（整份清單，比照角色／情�
       Capacitor 外掛 `NutritionWidgetBridgePlugin`（`refresh()` 方法呼叫
       `NutritionWidgetProvider.updateAll()`），這是計畫書原本檔案結構沒列出來
       但必要的補充。
-- [ ] **CWA 地震／颱風即時查詢搬到手機獨立版**（2026-08-21 owner 排入，
-      owner 自己要用）。原本標在 §4「獨立版尚未實作」，評估後技術上不難：
-      `main/cwaService.ts` 的 `detectQueryType`／`fetchEarthquake`／
-      `fetchTyphoon` 完全不碰 Electron API，只靠注入的 `HttpAdapter` 打
-      CWA REST、純解析組字串，跟已經兩邊共用的 `core/weather/cwa.ts`
-      背景天氣是同一個模式。要做的事：把這幾支移進 `core/weather/`（或原地
-      留著讓手機 import），手機 `chat.ts` 送出使用者訊息前跑一次關鍵詞偵測，
-      命中就打 CWA、注入 `[即時查詢：...]`——手機聊天管線已經有
-      `[Weather]`／`[Glossary]` 注入的先例可以照抄。預估半天～一天
+- [x] **CWA 地震／颱風即時查詢搬到手機獨立版** → ✅ **已實作，自動測試
+      通過，尚未真機驗證**（2026-08-22）。三種查詢（地震／颱風／天氣預報）
+      全部搬進 `core/weather/realtimeQuery.ts`（原本只有地震／颱風排進
+      排程，開工前重新確認後 owner 決定連天氣預報關鍵詞也一併搬，理由是
+      手機背景 `[Weather]` 涵蓋的是「每次聊天都帶」，跟「使用者主動問明天
+      天氣」語意不完全一樣）；`detectQueryType`／`fetchCwaData` 都改吃
+      `deps: WeatherDeps`，桌面 `main/cwaService.ts`／`weatherService.ts`
+      改成薄殼呼叫 core，手機 `mobile/runtime/chat.ts` 的
+      `sendStandaloneMessage` 送出使用者訊息前跑一次偵測，命中就注入
+      `[即時查詢：...]`，跟既有 `[Weather]`／`[Glossary]` 合併進
+      `extraSystemContext`。CWA API Key 依 owner 決定走「跟桌面同步」而非
+      手機自己填一把——但**沒有**把金鑰塞進 S2 M5 的比對子集（那條規矩
+      `settingsSnapshot.ts` 明文禁止金鑰入子集），金鑰本身走既有的 S1
+      一次性匯入（區網直連才附值）；M5 只新增了兩個非機密欄位
+      `realtimeQueryEnabled`／`realtimeQueryForecastCounty` 進比對。另外
+      補上手機自己編輯這組設定的管道（原本的 `WeatherSettingsSnapshot`
+      明文排除 CWA Key，這次比照 `LlmSettingsSnapshot.hasApiKey` 的模式
+      新增只寫不讀的 `setCwaApiKey`／`hasCwaApiKey`），手機天氣設定頁
+      新增「即時氣象查詢」區塊（開關／API Key 輸入＋測試連線／預設縣市），
+      拿掉舊的「地震與颱風查詢仍只在電腦版」提示文字。新增
+      `tests/weather/realtimeQuery.test.ts`（17 項）。
+      `npm run typecheck`／`npm test`（76 檔、974 項）／`npm run
+      build:mobile`／`npm run build` 全過——**只證明邏輯與建置正確，
+      這幾支查詢、新的設定頁、CWA Key 只寫不讀的行為、S2 M5 新增的兩個
+      欄位都還沒有人在真機上按過**，待驗清單見
+      `docs/mobile-standalone-gap-inventory.md`。
 - [ ] **對話新聞搜尋搬到手機獨立版**（2026-08-21 owner 排入，owner 自己要
       用）。原本在 §5「明確不做」，重新評估後改排入。`main/modules/news/
       conversationSearch.ts`（關鍵詞前置過濾 → LLM 判斷要不要搜 → 打
@@ -277,8 +294,8 @@ owner 決定：提醒資料本身要同步（整份清單，比照角色／情�
 - [ ] Spotify 授權（目前桌面限定）
 - [ ] 日曆授權（目前桌面限定）
 
-> 天氣的地震／颱風關鍵詞查詢原本列在這裡，2026-08-21 owner 排入排程，
-> 移到 §3「排程中／延後」。
+> 天氣的地震／颱風／預報關鍵詞查詢原本列在這裡，2026-08-21 owner 排入排程，
+> 移到 §3「排程中／延後」，2026-08-22 已實作完成（自動測試通過，尚未真機驗證）。
 
 缺口總表：`docs/mobile-standalone-gap-inventory.md`（不長，可整份讀）
 

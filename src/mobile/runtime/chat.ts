@@ -11,7 +11,7 @@ import { stripOtherCharacterSpeakerLines } from '@core/group/dialogueCleanup'
 import { normalizeCharacterDialogue } from '@core/prompt/dialogue'
 import { formatRandomResultForPrompt } from '@core/prompt/randomResult'
 import { hasUsableApiKey, messageLlmMeta, resolveModel } from '@core/prompt/promptUtils'
-import { getWeatherContextString } from '@core/weather'
+import { getRealtimeQueryContextString, getWeatherContextString } from '@core/weather'
 import { getNewsInjectionForSpeak, type NewsInjectionDeps } from '@core/news/injection'
 import { getActiveNewsTopic } from '@core/news/topicState'
 import {
@@ -447,6 +447,22 @@ export async function sendStandaloneMessage(opts: {
     return
   }
 
+  /*
+   * 即時氣象關鍵詞查詢（地震／颱風／天氣預報）。原本桌面限定，現在兩邊共用
+   * `core/weather/realtimeQuery.ts`；未啟用、無 Key、或查詢失敗都靜默回 null，
+   * 不影響一般聊天。用使用者這句原始輸入（含隨機結果附註前）偵測關鍵詞。
+   */
+  const realtimeQueryContext = await getRealtimeQueryContextString(
+    userContentForPrompt,
+    opts.settings,
+    { http: opts.adapters.http }
+  )
+  if (opts.signal?.aborted) {
+    await undoUserMessage()
+    return
+  }
+  const extraContext = [weatherContext, realtimeQueryContext.injectionText].filter(Boolean).join('\n\n') || undefined
+
   // `omitEmotionTag`：獨立版是單張主圖、不做表情差分，沒有東西會用到情緒標籤。
   // 角色卡若帶著表情圖，情緒合約會把每張圖的 id 與用途逐條寫進 system prompt
   // （id 取自圖檔檔名），每則對話都白付這筆 token。
@@ -462,7 +478,7 @@ export async function sendStandaloneMessage(opts: {
         world,
         desktopCharacterNames,
         memorySummary: conv.summary,
-        extraSystemContext: weatherContext ?? undefined,
+        extraSystemContext: extraContext,
         loreBlock: await buildLoreBlockFor(
           primaryChar,
           world,
@@ -528,7 +544,7 @@ export async function sendStandaloneMessage(opts: {
             world,
             desktopCharacterNames,
             memorySummary: conv.summary,
-            extraSystemContext: weatherContext ?? undefined,
+            extraSystemContext: extraContext,
             loreBlock: await buildLoreBlockFor(
               och,
               world,

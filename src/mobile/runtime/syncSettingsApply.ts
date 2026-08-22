@@ -370,6 +370,45 @@ export async function applySettingsSync(
     }
   }
 
+  // ── 天氣：啟用即時氣象查詢／即時查詢預設縣市（不碰 CWA API Key）──
+  const realtimeQueryKeys = ['weather.realtimeQueryEnabled', 'weather.realtimeQueryForecastCounty'] as const
+  for (const key of realtimeQueryKeys) {
+    const r = byKey.get(key)
+    if (!r || !r.differs) continue
+    const choice = choiceOf(key)
+    const field = key === 'weather.realtimeQueryEnabled' ? 'enabled' : 'forecastCounty'
+    if (choice === 'local') {
+      await track(r.label, async () => {
+        onProgress?.(`推送「${r.label}」⋯⋯`)
+        await postJson(src, '/api/settings/weather', { realtimeQuery: { [field]: r.localValue } }, fetchImpl)
+        result.pushed.push(r.label)
+      })
+    } else if (choice === 'remote') {
+      await track(r.label, async () => {
+        onProgress?.(`帶回「${r.label}」⋯⋯`)
+        const prevRq = session.settings.weather?.realtimeQuery
+        session.settings.weather = {
+          enabled: false,
+          polish: false,
+          locationName: '',
+          latitude: 0,
+          longitude: 0,
+          locationSource: '',
+          ...session.settings.weather
+        }
+        session.settings.weather.realtimeQuery = {
+          enabled: false,
+          cwaApiKey: '',
+          forecastCounty: '',
+          ...prevRq,
+          [field]: field === 'enabled' ? !!r.remoteValue : String(r.remoteValue)
+        }
+        await session.saveSettings()
+        result.pulled.push(r.label)
+      })
+    }
+  }
+
   // ── 模組開關：各自獨立，直接沿用 session.setModuleEnabled（處理各模組的特殊欄位） ──
   for (const r of rows) {
     if (!r.key.startsWith('module.') || !r.differs) continue

@@ -13,12 +13,13 @@ import {
   fetchWeatherOpenMeteo as coreFetchWeatherOpenMeteo,
   fetchWeatherWttrIn as coreFetchWeatherWttrIn,
   geocodeCity as coreGeocodeCity,
+  getRealtimeQueryContextString as coreGetRealtimeQueryContextString,
   getWeatherContextString as coreGetWeatherContextString,
   polishWeatherDescription as corePolishWeatherDescription,
+  type RealtimeQueryContextResult,
   type WeatherData
 } from '../core/weather'
 import { electronHttp } from './adapters/httpAdapter'
-import { detectQueryType, fetchCwaData } from './cwaService'
 import type { AppSettings } from './types'
 
 const deps = { http: electronHttp }
@@ -64,39 +65,17 @@ export function getWeatherContextString(settings: AppSettings): Promise<string |
   return coreGetWeatherContextString(settings, deps)
 }
 
-export interface RealtimeQueryContextResult {
-  injectionText: string | null
-  /** 若查詢到颱風，回傳中文颱風名（供災害新聞補搜用） */
-  typhoonName?: string
-}
+export type { RealtimeQueryContextResult }
 
 /**
  * 即時氣象查詢：偵測使用者訊息中的氣象關鍵詞，命中時向中央氣象署查詢並回傳注入字串。
  * 功能未啟用、無 Key、或查詢失敗時靜默回傳 null。
  *
- * **桌面限定** —— 手機獨立版目前只有背景 `[Weather]`，沒有這條關鍵詞路徑。
+ * 手機獨立版走同一份 core 邏輯，見 `mobile/runtime/chat.ts`。
  */
-export async function getRealtimeQueryContextString(
+export function getRealtimeQueryContextString(
   userMessage: string,
   settings: AppSettings
 ): Promise<RealtimeQueryContextResult> {
-  const rq = settings.weather?.realtimeQuery
-  if (!rq?.enabled || !rq.cwaApiKey) return { injectionText: null }
-
-  const type = detectQueryType(userMessage)
-  if (!type) return { injectionText: null }
-
-  // 載入時已經解過密；解不開的值會原樣留著密文，那種情況當作沒金鑰
-  const apiKey = rq.cwaApiKey
-  if (apiKey.startsWith('enc:v1:')) return { injectionText: null }
-
-  const county = rq.forecastCounty || settings.weather?.locationName || ''
-
-  try {
-    const result = await fetchCwaData(type, apiKey, county)
-    return { injectionText: result.injectionText, typhoonName: result.typhoonName }
-  } catch (e) {
-    console.warn('[cwa] realtime query failed:', (e as Error).message)
-    return { injectionText: null }
-  }
+  return coreGetRealtimeQueryContextString(userMessage, settings, deps)
 }

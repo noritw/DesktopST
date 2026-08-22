@@ -3642,3 +3642,67 @@ App 把檔案刪掉，小工具自動退回靜態上限。這樣小工具就不�
 真機驗證（03:01）：`widget-health.json` 內容為
 `burnedSoFarToday=146.5、restingKcalPerHour=48.46`，App 顯示 `/ 1163`（帶
 「依手錶動態」標籤）、小工具顯示 `/ 1163kcal`，**兩邊完全一致**。
+
+## 2026-08-22（續八）｜CWA 地震／颱風／天氣預報即時查詢搬到手機獨立版
+
+`TODO.md` §3 排入的項目，owner 自用優先。原本桌面限定：`main/cwaService.ts`
+偵測使用者訊息裡的關鍵詞（地震／颱風／天氣預報，優先序地震 > 颱風 > 預報），
+命中就打對應 CWA API 組成 `[即時查詢：...]` 注入 prompt。手機獨立版原本只有
+背景 `[Weather]`（`core/weather/` 的 F-C0032-001），沒有這條主動關鍵詞路徑。
+
+開工前跟 owner 對了三件事，跟原本排程筆記的假設都不一樣：
+
+1. **天氣預報關鍵詞要不要一起搬**——原始排程筆記猜測「手機已有背景
+   `[Weather]`，預報大概不用搬」，owner 決定三支全搬：背景天氣是「每次聊天
+   都帶」，跟「使用者主動問明天天氣」語意不同，不能互相取代。
+2. **CWA API Key 來源**——決定跟桌面同步（S2 M5），不是手機自己填一把。
+3. **要不要做 UI 開關**——決定要，加在天氣設定頁。
+
+### 怎麼搬
+
+邏輯本體移進新檔 `core/weather/realtimeQuery.ts`：`detectQueryType`、
+`fetchCwaData`（forecast／earthquake／typhoon 三支內部函式）、與新增的
+`getRealtimeQueryContextString`（把桌面 `weatherService.ts` 原本那段
+「未啟用／無 Key／查詢失敗都靜默回 null」的判斷邏輯也一併搬進 core，
+桌面與手機才不會各自維護一份判斷）。搬動時所有函式都加了
+`deps: WeatherDeps` 第一參數，跟已經共用的背景天氣 `cwaFetch` 同一個
+注入模式。桌面 `main/cwaService.ts`／`weatherService.ts` 改成薄殼，
+呼叫核心邏輯並注入 `electronHttp`。
+
+手機 `mobile/runtime/chat.ts` 的 `sendStandaloneMessage`（不是
+`forceSpeakStandalone`——那條路徑沒有使用者訊息可以偵測關鍵詞）在抓完
+`[Weather]` 之後多跑一次 `detectQueryType`／`getRealtimeQueryContextString`，
+兩段注入合併塞進 `extraSystemContext`，兩個主／副角色回合都吃得到。
+
+### CWA Key 沒有塞進 S2 M5，是刻意的
+
+`core/sync/settingsSnapshot.ts` 檔頭明講「API Key 不在這裡——S2 任何情況
+都不碰金鑰，子集裡連欄位都不能出現」。owner 選「跟桌面同步」不代表要
+違反這條規矩——實際金鑰仍然只透過既有的 **S1 一次性匯入**帶到手機（區網
+直連才附真正的值，非直連時手機保留自己原本那把，這條規則早就存在）。
+M5 這次只新增兩個非機密欄位進比對子集：`weather.realtimeQueryEnabled`／
+`weather.realtimeQueryForecastCounty`，讓「要不要開」「用哪個縣市」這兩件
+事也能在設定同步畫面上看到差異、選邊套用。
+
+### 手機自己編輯這組設定的管道
+
+`WeatherSettingsSnapshot`（`core/data/types.ts`）原本的註解明講「不含 CWA
+API Key」——那是搬過來之前的舊決定，這次刻意覆蓋。做法比照
+`LlmSettingsSnapshot.hasApiKey`：新增 `realtimeQuery: { enabled,
+hasCwaApiKey, forecastCounty }`，金鑰本身只回「有沒有設定」，不回明文；
+覆寫金鑰另開一支只寫不讀的 `setCwaApiKey`（遙控模式下這支比照
+`setLlmApiKey` 的規矩，非區網直連一律拒絕，見 `mobileServer.ts` 的
+`isLanDirectRequest` 檢查）。手機天氣設定頁新增「即時氣象查詢」區塊：
+啟用開關（沒 Key 前反白鎖住）、API Key 輸入＋儲存＋測試連線、預設縣市
+下拉；拿掉舊的「地震與颱風查詢仍只在電腦版」提示文字。
+
+### 驗證
+
+新增 `tests/weather/realtimeQuery.test.ts`（17 項，涵蓋關鍵詞優先序、三種
+查詢類型的成功／空結果／API 失敗分支、`getRealtimeQueryContextString` 的
+未啟用／無 Key／密文金鑰／查詢失敗全部靜默回 null）。`npm run typecheck`／
+`npm test`（76 檔、974 項）／`npm run build:mobile`／`npm run build` 全過。
+
+**尚未真機驗證**：新的天氣設定頁區塊、CWA Key 只寫不讀的行為、S2 M5
+新增的兩個欄位在真的兩台裝置間比對套用、以及聊天裡實際觸發地震／颱風／
+預報關鍵詞查出正確資料，這幾件事都還沒有人在 Pixel 10a 上按過。

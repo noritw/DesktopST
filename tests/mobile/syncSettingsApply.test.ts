@@ -38,7 +38,7 @@ function snapshot(over: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     memory: { keepRecentN: 20, autoSummarizeAfter: 30, autoSummarizeEnabled: true },
     colorTheme: 'mint',
     modules: [],
-    weather: { polish: false },
+    weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' },
     news: { speakButton: 'sometimes' },
     appearance: { showLlmBadge: true, showPersonaName: true },
     ...over
@@ -240,8 +240,8 @@ describe('applySettingsSync 模組', () => {
 describe('applySettingsSync 天氣潤飾', () => {
   it("choice 'local' 推送 polish，不動地點座標等其他天氣欄位", async () => {
     const session = await bootSession()
-    const local = snapshot({ weather: { polish: true } })
-    const remote = snapshot({ weather: { polish: false } })
+    const local = snapshot({ weather: { polish: true, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' } })
+    const remote = snapshot({ weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' } })
     const rows = pairSettings(local, remote)
     const { fetchImpl, calls } = makeFakeDesktop()
 
@@ -262,8 +262,8 @@ describe('applySettingsSync 天氣潤飾', () => {
       longitude: 121.56,
       locationSource: 'gps'
     }
-    const local = snapshot({ weather: { polish: false } })
-    const remote = snapshot({ weather: { polish: true } })
+    const local = snapshot({ weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' } })
+    const remote = snapshot({ weather: { polish: true, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' } })
     const rows = pairSettings(local, remote)
     const { fetchImpl } = makeFakeDesktop()
 

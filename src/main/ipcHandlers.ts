@@ -1305,7 +1305,7 @@ export function setMobileModuleEnabledDirect(id: string, enabled: boolean): { ok
   return { ok: true }
 }
 
-/** 手機可讀寫的天氣設定快照（不含 CWA API Key 等進階欄位）。 */
+/** 手機可讀寫的天氣設定快照（CWA API Key 只回傳 `hasCwaApiKey`，見 `WeatherRealtimeQuerySnapshot`）。 */
 export function getWeatherSettingsDirect(): {
   enabled: boolean
   polish: boolean
@@ -1314,8 +1314,10 @@ export function getWeatherSettingsDirect(): {
   longitude: number
   locationSource: WeatherLocationSource
   utilityEnabled: boolean
+  realtimeQuery: { enabled: boolean; hasCwaApiKey: boolean; forecastCounty: string }
 } {
   const w = settings.weather
+  const rq = w?.realtimeQuery
   return {
     enabled: !!w?.enabled,
     polish: !!w?.polish,
@@ -1323,7 +1325,12 @@ export function getWeatherSettingsDirect(): {
     latitude: w?.latitude ?? 0,
     longitude: w?.longitude ?? 0,
     locationSource: w?.locationSource ?? '',
-    utilityEnabled: !!settings.llm?.utilityEnabled
+    utilityEnabled: !!settings.llm?.utilityEnabled,
+    realtimeQuery: {
+      enabled: !!rq?.enabled,
+      hasCwaApiKey: !!rq?.cwaApiKey?.trim(),
+      forecastCounty: rq?.forecastCounty ?? ''
+    }
   }
 }
 
@@ -1342,8 +1349,8 @@ function ensureWeatherSettings(): NonNullable<typeof settings.weather> {
 }
 
 /**
- * 手機寫入天氣基本設定（位置／開關／潤飾）。
- * CWA 即時查詢與 API Key 仍只在桌面設定（與 Spotify／日曆授權同層級的進階）。
+ * 手機寫入天氣基本設定（位置／開關／潤飾／即時氣象查詢的 enabled／forecastCounty）。
+ * CWA API Key 本身走 `setCwaApiKeyDirect`（只寫不讀，區網直連限定）。
  */
 export function setWeatherSettingsDirect(patch: {
   enabled?: boolean
@@ -1352,6 +1359,7 @@ export function setWeatherSettingsDirect(patch: {
   latitude?: number
   longitude?: number
   locationSource?: WeatherLocationSource
+  realtimeQuery?: { enabled?: boolean; forecastCounty?: string }
 }): { ok: true; weather: ReturnType<typeof getWeatherSettingsDirect> } | { error: string } {
   const w = ensureWeatherSettings()
   if (typeof patch.enabled === 'boolean') {
@@ -1372,11 +1380,35 @@ export function setWeatherSettingsDirect(patch: {
   ) {
     w.locationSource = patch.locationSource
   }
+  if (patch.realtimeQuery) {
+    const rq = w.realtimeQuery ?? { enabled: false, cwaApiKey: '', forecastCounty: '' }
+    if (typeof patch.realtimeQuery.enabled === 'boolean') {
+      if (patch.realtimeQuery.enabled && !rq.cwaApiKey?.trim()) {
+        return { error: '請先填入中央氣象署 API Key' }
+      }
+      rq.enabled = patch.realtimeQuery.enabled
+    }
+    if (typeof patch.realtimeQuery.forecastCounty === 'string') {
+      rq.forecastCounty = patch.realtimeQuery.forecastCounty.trim()
+    }
+    w.realtimeQuery = rq
+  }
   settings.weather = w
   invalidateWeatherCache()
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return { ok: true, weather: getWeatherSettingsDirect() }
+}
+
+/** 覆寫 CWA API Key。**只寫不讀**——呼叫端（`mobileServer.ts`）須先做區網直連檢查，理由同 `setLlmApiKeyDirect`。 */
+export function setCwaApiKeyDirect(apiKey: string): { ok: true } | { error: string } {
+  const w = ensureWeatherSettings()
+  w.realtimeQuery = { enabled: false, forecastCounty: '', ...w.realtimeQuery, cwaApiKey: apiKey }
+  if (!apiKey.trim()) w.realtimeQuery.enabled = false
+  settings.weather = w
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true }
 }
 
 /**

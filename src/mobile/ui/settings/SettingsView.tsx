@@ -22,6 +22,14 @@ import {
 } from './providerInfo'
 import { moduleDescription } from './moduleInfo'
 
+/** 即時氣象查詢的預設縣市選單，與桌面 `SettingsWindow.tsx` 同一份清單。 */
+const TAIWAN_COUNTIES = [
+  '臺北市', '新北市', '基隆市', '桃園市', '新竹市', '新竹縣', '苗栗縣',
+  '臺中市', '彰化縣', '南投縣', '雲林縣', '嘉義市', '嘉義縣',
+  '臺南市', '高雄市', '屏東縣', '臺東縣', '花蓮縣', '宜蘭縣',
+  '澎湖縣', '金門縣', '連江縣'
+]
+
 /**
  * 設定（B3 階段 4；2026-08-06 依 owner 回報重整資訊架構）。
  *
@@ -62,6 +70,10 @@ export function SettingsView(): JSX.Element {
   const [cityDraft, setCityDraft] = useState('')
   const [weatherBusy, setWeatherBusy] = useState(false)
   const [weatherMsg, setWeatherMsg] = useState<string | null>(null)
+  const [cwaKeyDraft, setCwaKeyDraft] = useState('')
+  const [cwaSavingKey, setCwaSavingKey] = useState(false)
+  const [cwaTesting, setCwaTesting] = useState(false)
+  const [cwaTestMsg, setCwaTestMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   const [modelDraft, setModelDraft] = useState('')
   const [apiKeyDraft, setApiKeyDraft] = useState('')
@@ -403,7 +415,9 @@ export function SettingsView(): JSX.Element {
   }
 
   const patchWeather = async (
-    patch: Partial<Omit<WeatherSettingsSnapshot, 'utilityEnabled'>>,
+    patch: Partial<Omit<WeatherSettingsSnapshot, 'utilityEnabled' | 'realtimeQuery'>> & {
+      realtimeQuery?: Partial<Omit<WeatherSettingsSnapshot['realtimeQuery'], 'hasCwaApiKey'>>
+    },
     action: string
   ): Promise<void> => {
     setWeatherBusy(true)
@@ -469,6 +483,37 @@ export function SettingsView(): JSX.Element {
       toast(describeSettingsError(e, '更新天氣'), 'error')
     } finally {
       setWeatherBusy(false)
+    }
+  }
+
+  const saveCwaApiKey = async (): Promise<void> => {
+    if (!cwaKeyDraft.trim()) return
+    setCwaSavingKey(true)
+    try {
+      await getData().settings.setCwaApiKey(cwaKeyDraft.trim())
+      setCwaKeyDraft('')
+      setCwaTestMsg(null)
+      await loadWeather()
+      toast('已儲存 API Key')
+    } catch (e) {
+      toast(describeSettingsError(e, '儲存 API Key'), 'error')
+    } finally {
+      setCwaSavingKey(false)
+    }
+  }
+
+  const testCwaConnection = async (): Promise<void> => {
+    const key = cwaKeyDraft.trim()
+    if (!key) return
+    setCwaTesting(true)
+    setCwaTestMsg(null)
+    try {
+      const r = await getData().settings.testCwaApiKey(key)
+      setCwaTestMsg(r.ok ? { ok: true, text: '連線成功，API Key 有效' } : { ok: false, text: r.error ?? '連線失敗' })
+    } catch (e) {
+      setCwaTestMsg({ ok: false, text: describeSettingsError(e, '測試連線') })
+    } finally {
+      setCwaTesting(false)
     }
   }
 
@@ -820,9 +865,6 @@ export function SettingsView(): JSX.Element {
               checked={weather.enabled}
               onChange={(v) => void patchWeather({ enabled: v }, '切換天氣')}
             />
-            <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
-              地震與颱風的關鍵詞查詢仍只在電腦版。
-            </p>
             <button
               type="button"
               disabled={weatherBusy}
@@ -892,6 +934,89 @@ export function SettingsView(): JSX.Element {
                 <span className="text-[11px] text-[var(--text-sub)]">（需先在上方「輔助模型」開啟）</span>
               )}
             </label>
+
+            {/* ── 即時氣象查詢（地震／颱風／天氣預報）── */}
+            <div className="mt-2 space-y-2 rounded-[14px] bg-[var(--bg)] p-3">
+              <p className="text-sm font-medium text-[var(--text)]">即時氣象查詢</p>
+              <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
+                偵測到「地震」「颱風」「明天天氣」等關鍵詞時，自動查詢中央氣象署取得即時資料。
+              </p>
+              <label
+                className={`flex items-center gap-2 text-sm text-[var(--text)] ${!weather.realtimeQuery.hasCwaApiKey ? 'opacity-40' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={weather.realtimeQuery.enabled}
+                  disabled={!weather.realtimeQuery.hasCwaApiKey || weatherBusy}
+                  onChange={(e) =>
+                    void patchWeather({ realtimeQuery: { enabled: e.target.checked } }, '切換即時氣象查詢')
+                  }
+                  className="h-4 w-4 accent-[var(--mint2)]"
+                />
+                啟用即時氣象查詢
+                {!weather.realtimeQuery.hasCwaApiKey && (
+                  <span className="text-[11px] text-[var(--text-sub)]">（需先填入 API Key）</span>
+                )}
+              </label>
+
+              <div className="space-y-1">
+                <label className="text-xs text-[var(--text-sub)]">
+                  中央氣象署 API Key {weather.realtimeQuery.hasCwaApiKey && '（已設定）'}
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    className="field flex-1 font-mono"
+                    placeholder="CWA-XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX"
+                    value={cwaKeyDraft}
+                    onChange={(e) => {
+                      setCwaKeyDraft(e.target.value)
+                      setCwaTestMsg(null)
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={cwaSavingKey || !cwaKeyDraft.trim()}
+                    onClick={() => void saveCwaApiKey()}
+                    className="shrink-0 rounded-full border border-[var(--border)] px-4 text-sm text-[var(--text)] disabled:opacity-50"
+                  >
+                    {cwaSavingKey ? '儲存中…' : '儲存'}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  disabled={cwaTesting || !cwaKeyDraft.trim()}
+                  onClick={() => void testCwaConnection()}
+                  className="text-[11px] text-[var(--mint2)] underline disabled:opacity-50"
+                >
+                  {cwaTesting ? '測試中…' : '測試這組 Key'}
+                </button>
+                {cwaTestMsg && (
+                  <p className={`text-[11px] ${cwaTestMsg.ok ? 'text-[var(--mint2)]' : 'text-red-500'}`}>
+                    {cwaTestMsg.text}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs text-[var(--text-sub)]">預設縣市（天氣預報用）</label>
+                <select
+                  className="field w-full"
+                  value={weather.realtimeQuery.forecastCounty}
+                  onChange={(e) =>
+                    void patchWeather({ realtimeQuery: { forecastCounty: e.target.value } }, '切換即時查詢縣市')
+                  }
+                >
+                  <option value="">跟隨天氣設定的位置</option>
+                  {TAIWAN_COUNTIES.map((county) => (
+                    <option key={county} value={county}>{county}</option>
+                  ))}
+                </select>
+                {!weather.realtimeQuery.forecastCounty && weather.locationName && (
+                  <p className="text-[11px] text-[var(--text-sub)]">目前使用：{weather.locationName}</p>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </Section>

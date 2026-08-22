@@ -396,7 +396,20 @@ export interface ModuleToggle {
   enabled: boolean
 }
 
-/** 手機可編輯的天氣基本設定（不含 CWA API Key）。 */
+/**
+ * 即時氣象關鍵詞查詢（地震／颱風／天氣預報）的手機端快照。
+ *
+ * ⚠️ **刻意不含 `cwaApiKey` 的實際內容**——跟 `LlmSettingsSnapshot.hasApiKey`
+ * 同一個理由：遙控模式下這支會經由 HTTP 傳到手機，金鑰不該明文過網路。
+ * 要覆寫金鑰走 `SettingsApi.setCwaApiKey`（只寫不讀）。
+ */
+export interface WeatherRealtimeQuerySnapshot {
+  enabled: boolean
+  hasCwaApiKey: boolean
+  forecastCounty: string
+}
+
+/** 手機可編輯的天氣基本設定（CWA API Key 見 `WeatherRealtimeQuerySnapshot`）。 */
 export interface WeatherSettingsSnapshot {
   enabled: boolean
   polish: boolean
@@ -406,6 +419,7 @@ export interface WeatherSettingsSnapshot {
   locationSource: WeatherLocationSource
   /** 輔助模型是否啟用；潤飾勾選要靠它，只讀。 */
   utilityEnabled: boolean
+  realtimeQuery: WeatherRealtimeQuerySnapshot
 }
 
 export interface WeatherNowSnapshot {
@@ -472,14 +486,22 @@ export interface SettingsApi {
   setModuleEnabled(id: string, enabled: boolean): Promise<void>
 
   /**
-   * 天氣基本設定（位置／開關／潤飾）。
-   * CWA API Key 等進階仍只在桌面；Spotify／日曆授權同樣不走這支。
+   * 天氣基本設定（位置／開關／潤飾／即時氣象查詢）。
+   * Spotify／日曆授權不走這支。
    */
   getWeather(): Promise<WeatherSettingsSnapshot>
-  setWeather(patch: Partial<Omit<WeatherSettingsSnapshot, 'utilityEnabled'>>): Promise<WeatherSettingsSnapshot>
+  setWeather(
+    patch: Partial<Omit<WeatherSettingsSnapshot, 'utilityEnabled' | 'realtimeQuery'>> & {
+      realtimeQuery?: Partial<Omit<WeatherRealtimeQuerySnapshot, 'hasCwaApiKey'>>
+    }
+  ): Promise<WeatherSettingsSnapshot>
   detectWeatherLocation(): Promise<WeatherSettingsSnapshot>
   geocodeWeatherLocation(name: string): Promise<WeatherSettingsSnapshot>
   fetchWeatherNow(): Promise<WeatherNowSnapshot>
+  /** 覆寫中央氣象署 API Key。**只能寫、讀不到舊值**，理由同 `setLlmApiKey`。 */
+  setCwaApiKey(apiKey: string): Promise<void>
+  /** 測試目前（或剛填入但尚未存檔的）CWA API Key 是否可用。 */
+  testCwaApiKey(apiKey: string): Promise<{ ok: boolean; error?: string }>
 }
 
 /**

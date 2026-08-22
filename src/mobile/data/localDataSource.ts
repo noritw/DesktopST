@@ -15,6 +15,7 @@ import type {
   SettingsApi
 } from '@core/data'
 import { DEFAULT_MODEL_BY_PROVIDER } from '@core/llm/modelCatalog'
+import { testCwaApiKey } from '@core/weather'
 import { personaKey, worldKey } from '@core/store/keys'
 import type { StandaloneSession } from '../runtime/session'
 import { newId } from '../runtime/id'
@@ -264,6 +265,7 @@ export class LocalDataSource implements DataSource {
     setModuleEnabled: (id, enabled) => this.session.setModuleEnabled(id, enabled),
     getWeather: async () => {
       const w = this.session.settings.weather
+      const rq = w?.realtimeQuery
       return {
         enabled: !!w?.enabled,
         polish: !!w?.polish,
@@ -271,10 +273,17 @@ export class LocalDataSource implements DataSource {
         latitude: w?.latitude ?? 0,
         longitude: w?.longitude ?? 0,
         locationSource: w?.locationSource ?? '',
-        utilityEnabled: !!this.session.settings.llm.utilityEnabled
+        utilityEnabled: !!this.session.settings.llm.utilityEnabled,
+        realtimeQuery: {
+          enabled: !!rq?.enabled,
+          hasCwaApiKey: !!rq?.cwaApiKey?.trim(),
+          forecastCounty: rq?.forecastCounty ?? ''
+        }
       }
     },
     setWeather: async (patch) => {
+      const { realtimeQuery: rqPatch, ...rest } = patch
+      const prevRq = this.session.settings.weather?.realtimeQuery
       this.session.settings.weather = {
         enabled: false,
         polish: false,
@@ -283,7 +292,16 @@ export class LocalDataSource implements DataSource {
         longitude: 0,
         locationSource: '',
         ...this.session.settings.weather,
-        ...patch
+        ...rest
+      }
+      if (rqPatch) {
+        this.session.settings.weather.realtimeQuery = {
+          enabled: false,
+          cwaApiKey: '',
+          forecastCounty: '',
+          ...prevRq,
+          ...rqPatch
+        }
       }
       await this.session.saveSettings()
       return this.settings.getWeather()
@@ -296,7 +314,21 @@ export class LocalDataSource implements DataSource {
       await this.session.geocodeWeatherLocation(name)
       return this.settings.getWeather()
     },
-    fetchWeatherNow: () => this.session.fetchWeatherNow()
+    fetchWeatherNow: () => this.session.fetchWeatherNow(),
+    setCwaApiKey: async (apiKey) => {
+      const w = this.session.settings.weather ?? {
+        enabled: false,
+        polish: false,
+        locationName: '',
+        latitude: 0,
+        longitude: 0,
+        locationSource: ''
+      }
+      w.realtimeQuery = { enabled: false, forecastCounty: '', ...w.realtimeQuery, cwaApiKey: apiKey }
+      this.session.settings.weather = w
+      await this.session.saveSettings()
+    },
+    testCwaApiKey: (apiKey) => testCwaApiKey({ http: this.session.adapters.http }, apiKey)
   }
 
   readonly lorebooks: LorebooksApi = {

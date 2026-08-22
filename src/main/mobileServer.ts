@@ -201,6 +201,7 @@ export interface MobileBridge {
     longitude: number
     locationSource: WeatherLocationSource
     utilityEnabled: boolean
+    realtimeQuery: { enabled: boolean; hasCwaApiKey: boolean; forecastCounty: string }
   }
   setWeatherSettings: (patch: {
     enabled?: boolean
@@ -209,7 +210,11 @@ export interface MobileBridge {
     latitude?: number
     longitude?: number
     locationSource?: WeatherLocationSource
+    realtimeQuery?: { enabled?: boolean; forecastCounty?: string }
   }) => { ok: true; weather: ReturnType<MobileBridge['getWeatherSettings']> } | { error: string }
+  /** 覆寫 CWA API Key。**只寫不讀**，理由同 `setLlmApiKey`。 */
+  setCwaApiKey: (apiKey: string) => { ok: true } | { error: string }
+  testCwaApiKey: (apiKey: string) => Promise<{ ok: boolean; error?: string }>
   /**
    * S1 要帶去手機的天氣設定。**不含地點**（手機自己定位）。
    * `lanDirect` 為 false 時不附 `cwaApiKey`，規矩同 LLM 金鑰。
@@ -525,7 +530,14 @@ function buildSettingsSnapshot(bridge: MobileBridge): SettingsSnapshot {
     memory: bridge.getMemorySettings(),
     colorTheme: bridge.getColorTheme(),
     modules: bridge.listModuleToggles(),
-    weather: { polish: bridge.getWeatherSettings().polish },
+    weather: (() => {
+      const w = bridge.getWeatherSettings()
+      return {
+        polish: w.polish,
+        realtimeQueryEnabled: w.realtimeQuery.enabled,
+        realtimeQueryForecastCounty: w.realtimeQuery.forecastCounty
+      }
+    })(),
     news: { speakButton: loadNewsModuleSettings().speakButton },
     appearance: { showLlmBadge: bridge.getShowLlmBadge(), showPersonaName: bridge.getShowPersonaName() }
   }
@@ -1970,11 +1982,33 @@ async function handleRequest(
       latitude?: number
       longitude?: number
       locationSource?: WeatherLocationSource
+      realtimeQuery?: { enabled?: boolean; forecastCounty?: string }
     }>(req, res)
     if (!payload) return
     const r = bridge.setWeatherSettings(payload)
     if ('error' in r) { jsonError(res, 400, r.error); return }
     jsonOk(res, { weather: r.weather })
+    return
+  }
+
+  // 即時氣象查詢的 CWA API Key：規矩同 `/api/settings/llm-apikey`，只能區網直連寫入。
+  if (method === 'POST' && url === '/api/settings/weather/cwa-apikey') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    if (!isLanDirectRequest(req)) { jsonError(res, 409, 'API key can only be set over a direct LAN connection'); return }
+    const payload = await readJson<{ apiKey?: string }>(req, res)
+    if (!payload) return
+    const r = bridge.setCwaApiKey(String(payload.apiKey ?? ''))
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/weather/cwa-test') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ apiKey?: string }>(req, res)
+    if (!payload) return
+    const r = await bridge.testCwaApiKey(String(payload.apiKey ?? ''))
+    jsonOk(res, r)
     return
   }
 

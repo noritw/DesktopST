@@ -66,13 +66,21 @@ export interface ModuleSyncItem {
 }
 
 /**
- * 天氣模組的子設定。**只有 `polish`**——`enabled` 走 `modules` 那組既有的
- * 開關列，位置座標／地名／定位來源刻意不在這裡：CLAUDE.md §4 天氣段落
- * 「地點不帶：手機會移動、也有 GPS，帶座標只會讓它出門顯示家裡的天氣」，
- * S1 初始化匯入就已經是這個規則，設定同步沒有理由破例。
+ * 天氣模組的子設定。**`polish` 之外只加 `realtimeQuery.enabled`／`forecastCounty`**——
+ * `enabled`（天氣模組總開關）走 `modules` 那組既有的開關列，位置座標／地名／
+ * 定位來源刻意不在這裡：CLAUDE.md §4 天氣段落「地點不帶：手機會移動、也有
+ * GPS，帶座標只會讓它出門顯示家裡的天氣」，S1 初始化匯入就已經是這個規則，
+ * 設定同步沒有理由破例。
+ *
+ * `realtimeQuery.cwaApiKey` **絕對不進這裡**——S2 任何情況都不碰金鑰
+ * （roadmap §4.7），子集裡連欄位都不能出現。金鑰本身的實際傳輸走既有的
+ * S1 一次性匯入（區網直連才附值，見 `getWeatherSyncSettingsDirect`），
+ * 這裡只同步「要不要開」「用哪個縣市」這兩個非機密欄位。
  */
 export interface WeatherSyncSubset {
   polish: boolean
+  realtimeQueryEnabled: boolean
+  realtimeQueryForecastCounty: string
 }
 
 /**

@@ -24,7 +24,7 @@ function snapshot(over: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     memory: { keepRecentN: 20, autoSummarizeAfter: 30, autoSummarizeEnabled: true },
     colorTheme: 'mint',
     modules: [{ id: 'desktopst.weather', label: '天氣', enabled: true }],
-    weather: { polish: false },
+    weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' },
     news: { speakButton: 'sometimes' },
     appearance: { showLlmBadge: true, showPersonaName: true },
     ...over
