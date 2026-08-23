@@ -55,7 +55,8 @@ src/mobile/ 手機 UI
 - 禁止：厚重陰影、毛玻璃、純黑字、尖角；賽博主題亦避免霓虹 glow
 - 檔案：`src/renderer/src/styles/theme.css`、`src/mobile/ui/theme.ts`、`tailwind.config.ts`、`src/renderer/src/styles/global.css`、`src/shared/MonoIcon.tsx`
 - 加圖示只改 `src/shared/MonoIcon.tsx`，不要在桌面／手機各抄一份
-- 新增／改主題時：`ColorTheme` union、桌面選色器、情境 `THEME_META`、手機 ThemePicker、**以及** `mobileServer` 的 `MOBILE_COLOR_THEMES` 白名單要一起改
+- **12 組配色的色值真相是 `src/shared/colorThemes.ts`**（2026-08-23 從 `src/mobile/ui/theme.ts` 搬過去，因為飲食記錄 App 的小工具也要用，而它碰不到 `src/mobile/`；後者仍 re-export，既有 import 不用改）
+- 新增／改主題時：`ColorTheme` union、**`src/shared/colorThemes.ts` 的色值與 `THEME_LABELS`**、桌面選色器、情境 `THEME_META`、**以及** `mobileServer` 的 `MOBILE_COLOR_THEMES` 白名單要一起改
 
 **架構（手機／跨平台提案必過）**——濃縮自 roadmap §2／§8，細節選讀原文
 - 四大目標：①裝置上可單機聊自己的角色 ②不另付費給作者（無須營運後端）

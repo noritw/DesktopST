@@ -13,6 +13,7 @@ import { CharacterLibrary } from '../characters/CharacterLibrary'
 import { CharacterEditor } from '../characters/CharacterEditor'
 import { SettingsView } from '../settings/SettingsView'
 import { RemindersView } from '../settings/RemindersView'
+import { WidgetSettingsView } from '../settings/WidgetSettingsView'
 import { ReminderEditor } from '../settings/ReminderEditor'
 import { ReminderHistoryView } from '../settings/ReminderHistoryView'
 import { PresetsView } from '../presets/PresetsView'
@@ -54,6 +55,7 @@ const TITLES: Record<ViewKind, string> = {
   news: '個人新聞報',
   'news-settings': '新聞設定',
   'random-tools': '隨機工具',
+  'widget-settings': '桌面小工具',
   'theme-picker': '色彩主題',
   'lorebook-editor': '編輯用語解說',
   'sync-import': '從電腦匯入',
@@ -91,6 +93,7 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'conversation-editor' && entry.param) return <ConversationEditor conversationId={entry.param} />
   if (entry.kind === 'theme-picker') return <ThemePicker />
   if (entry.kind === 'random-tools') return <RandomToolsSheet />
+  if (entry.kind === 'widget-settings') return <WidgetSettingsView />
   if (entry.kind === 'presence') return <PresenceSheet />
   if (entry.kind === 'characters') return <CharacterLibrary />
   if (entry.kind === 'character-editor' && entry.param) return <CharacterEditor characterId={entry.param} />

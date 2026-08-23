@@ -1,6 +1,7 @@
 package tw.nori.destnutrition.widget
 
 import android.content.Context
+import android.graphics.Color
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -40,6 +41,44 @@ object NutritionWidgetDataReader {
 
     /** 由 App 寫入的動態上限原料，檔名要跟 `mobile/src/widgetBridge.ts` 的常數一致。 */
     private const val WIDGET_HEALTH_FILE = "widget-health.json"
+
+    /** 小工具配色（§14.2），同樣由 `mobile/src/widgetBridge.ts` 寫入。 */
+    private const val WIDGET_THEME_FILE = "widget-theme.json"
+
+    /**
+     * 小工具配色，全部是 `#AARRGGBB`。預設值＝薄荷主題不透明，
+     * 跟改版前寫死在 `colors_widget.xml` 的那組一致——檔案還沒被寫出來
+     * （升級上來、還沒開過 App）時就用這組，不會突然變色。
+     */
+    data class NutritionWidgetColors(
+        val bg: Int = Color.parseColor("#FFF7FFFC"),
+        val text: Int = Color.parseColor("#FF3D5A52"),
+        val textSub: Int = Color.parseColor("#FF7AA898"),
+        val border: Int = Color.parseColor("#14000000"),
+        /** 相機／鉛筆的圓底。 */
+        val accent: Int = Color.parseColor("#FFCBFBC4"),
+        /** 進度條的填色。 */
+        val accentStrong: Int = Color.parseColor("#FFAAEEDD")
+    )
+
+    /** 顏色字串是 JS 端換算好的；parse 不動就用預設值那一格，不要整組放棄。 */
+    fun readColors(context: Context): NutritionWidgetColors {
+        val obj = readJsonObject(context, WIDGET_THEME_FILE) ?: return NutritionWidgetColors()
+        val fallback = NutritionWidgetColors()
+        fun pick(key: String, default: Int): Int = try {
+            obj.optString(key, "").ifBlank { null }?.let { Color.parseColor(it) } ?: default
+        } catch (_: Exception) {
+            default
+        }
+        return NutritionWidgetColors(
+            bg = pick("bg", fallback.bg),
+            text = pick("text", fallback.text),
+            textSub = pick("textSub", fallback.textSub),
+            border = pick("border", fallback.border),
+            accent = pick("accent", fallback.accent),
+            accentStrong = pick("accentStrong", fallback.accentStrong)
+        )
+    }
 
     fun read(context: Context): NutritionWidgetSnapshot {
         val bodyProfile = readJsonObject(context, BODY_PROFILE_FILE)

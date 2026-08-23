@@ -14,7 +14,13 @@ import { resolve } from 'path'
  */
 export default defineConfig({
   resolve: {
-    alias: { '@core': resolve(__dirname, 'src/core') }
+    // `@shared`：`src/mobile/runtime/widgetBridge.ts` 透過 session.ts 進到測試的
+    // 模組圖裡，而它要用 `@shared/widgetAppearance`（色表與透明度換算，
+    // DeST 與飲食記錄 App 共用同一份，見 `docs/mobile-android-widget-plan.md` §14.2）。
+    alias: {
+      '@core': resolve(__dirname, 'src/core'),
+      '@shared': resolve(__dirname, 'src/shared')
+    }
   },
   test: {
     environment: 'node',

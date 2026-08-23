@@ -26,12 +26,29 @@ export interface DisplayImageResult {
  * 頭像卻都是預設圖」正是這裡當初漏接 `buildSpriteIdMap()` 這一步。
  * 兩邊算 id 的規則**必須對稱**，所以都共用同一支 `buildSpriteIdMap()`。
  */
+/**
+ * `emotionOverride` 的哨符：**明確指定「不要用表情圖，就顯示主圖」**。
+ *
+ * 跟 `emotionOverride` 不存在（＝跟隨 AI 判斷）是**不同的意思**，所以需要
+ * 第三個狀態而不是清成 null：清成 null 只是把選擇權交回 AI，AI 下次判斷出
+ * 什麼表情就顯示什麼；使用者要的是「這則就是給我顯示主圖」。
+ * owner 2026-08-23 實機回報「換表情之後換不回去了」正是缺這個選項——
+ * 選單上只有「跟隨 AI 判斷」，而 AI 判定的表情本來就不是主圖。
+ *
+ * 用一個不可能跟真實情緒 key／自訂 sprite id 撞名的字串當哨符，
+ * 存進 `message.emotionOverride` 就跟一般的表情 key 走同一條儲存路徑
+ * （桌面／手機的 `setEmotionOverride` 都不驗證值，見兩邊的實作）。
+ */
+export const DEFAULT_IMAGE_EMOTION = '__default__'
+
 export function resolveDisplayImagePath(
   character: Pick<Character, 'avatar' | 'emotions' | 'spriteIds'>,
   emotion: string | undefined
 ): DisplayImageResult {
   const em = emotion?.trim()
   if (!em) return { path: character.avatar, matchedEmotion: false }
+  // 明確要求主圖：不要往下查 emotions／spriteIds（就算真的有同名的也不理）
+  if (em === DEFAULT_IMAGE_EMOTION) return { path: character.avatar, matchedEmotion: false }
 
   const emotions = character.emotions ?? {}
   const direct = emotions[em]

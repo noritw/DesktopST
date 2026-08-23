@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import type { Character } from '@core/types'
+import { WIDGET_LINE_LIMIT, type PinnedWidgetMessage } from '@core/character/widgetSnapshot'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { MenuItem } from '../characters/CharacterMenu'
+import { useIsPinned, useWidgetStore } from '../stores/widgetStore'
 
 /**
  * 訊息的操作選單（清單 A6：重新發送／編輯／刪除）。
@@ -17,6 +19,10 @@ export function MessageMenu({ messageId }: { messageId: string }): JSX.Element {
   const refresh = useAppStore((s) => s.refresh)
   const ui = useUiStore()
   const [character, setCharacter] = useState<Character | null>(null)
+  const pinned = useIsPinned(messageId)
+  const pins = useWidgetStore((s) => s.config.pinnedMessages)
+  const pin = useWidgetStore((s) => s.pin)
+  const unpin = useWidgetStore((s) => s.unpin)
 
   useEffect(() => {
     if (message?.role !== 'character' || !message.characterId) return
@@ -69,6 +75,69 @@ export function MessageMenu({ messageId }: { messageId: string }): JSX.Element {
     await run(() => getData().messages.remove(messageId), '刪除失敗')
   }
 
+  /**
+   * 釘選／取消釘選到小工具（`docs/mobile-android-widget-plan.md` §4.3）。
+   *
+   * 未滿 2 則直接加入；已滿 2 則問要取代哪一則，換掉的位置維持原本的順序
+   * （取代第一句就排在第 0 筆，不是硬塞到尾端——使用者體感上「換掉第一句」
+   * 就該顯示在原本第一句的位置）。已經釘過的再點一次就是取消。
+   */
+  const togglePin = async (): Promise<void> => {
+    if (message.role !== 'character') return
+
+    if (pinned) {
+      ui.pop()
+      await unpin(message.id)
+      ui.toast('已取消釘選')
+      return
+    }
+
+    const conversationId = useAppStore.getState().snapshot?.conversation?.id
+    if (!conversationId) {
+      ui.toast('目前沒有開著的對話', 'error')
+      return
+    }
+    const candidate: PinnedWidgetMessage = {
+      messageId: message.id,
+      conversationId,
+      text: message.content,
+      characterId: message.characterId,
+      characterName: character?.name ?? message.characterName,
+      emotion: message.emotionOverride ?? message.emotion,
+      pinnedAt: Date.now()
+    }
+
+    if (pins.length < WIDGET_LINE_LIMIT) {
+      ui.pop()
+      await pin(candidate)
+      ui.toast('已釘選到小工具')
+      return
+    }
+
+    ui.pop()
+    const summarize = (t: string): string => (t.length > 14 ? `${t.slice(0, 14)}…` : t) || '（沒有文字）'
+    void ui.confirm({
+      title: '小工具已經釘選兩則了',
+      message: '要換掉哪一則？',
+      // 主按鈕（右邊那顆）在這個對話框裡沒有「確定」的語意，兩個選項都在
+      // extraActions 上——所以把它的字面改成「不要換」，免得使用者以為
+      // 按了會有第三種結果。
+      confirmLabel: '不要換',
+      extraActions: [
+        {
+          label: `換掉第一則\n${summarize(pins[0].text)}`,
+          closeAfter: true,
+          onClick: () => void pin(candidate, 0).then(() => ui.toast('已更新小工具釘選'))
+        },
+        {
+          label: `換掉第二則\n${summarize(pins[1].text)}`,
+          closeAfter: true,
+          onClick: () => void pin(candidate, 1).then(() => ui.toast('已更新小工具釘選'))
+        }
+      ]
+    })
+  }
+
   const resend = async (): Promise<void> => {
     const ok = await ui.confirm({
       title: '重新發送？',
@@ -95,6 +164,18 @@ export function MessageMenu({ messageId }: { messageId: string }): JSX.Element {
         <MenuItem icon="resend" label="重新發送" hint="刪掉這則之後的內容並重新產生回覆" onClick={() => void resend()} />
       )}
       <MenuItem icon="edit" label="編輯" hint="改內容，不會重新產生回覆" onClick={() => void edit()} />
+      {message.role === 'character' && (
+        <MenuItem
+          icon="pin"
+          label={pinned ? '取消釘選' : '釘選到小工具'}
+          hint={
+            pinned
+              ? '取消後那一格會恢復顯示這個對話最新的一則'
+              : '固定顯示在桌面小工具上，不會被之後的新對話蓋過去'
+          }
+          onClick={() => void togglePin()}
+        />
+      )}
       {message.role === 'character' && hasEmotions && (
         <MenuItem
           icon="paw"

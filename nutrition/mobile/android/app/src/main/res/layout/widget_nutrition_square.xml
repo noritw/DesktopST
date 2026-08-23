@@ -16,12 +16,30 @@
   重新整理放在底列最左邊，跟右邊的相機／鉛筆分開（§4 的硬規則：次要動作不要
   跟常按的主要動作相鄰）。
 -->
-<LinearLayout
+<FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!--
+      底板：一張 ImageView 而不是 root 的 android:background（計畫書 §14.2）。
+      底色要能換 12 組配色**還要能調透明度**，而 RemoteViews 在 minSdk 26 上
+      沒辦法對背景 drawable 上色（setBackgroundTintList 要 API 31，
+      setBackgroundColor 又會失去圓角）。改由 Provider 畫一張圓角矩形 bitmap
+      塞進來。android:src 留一張靜態底板，讓小工具選單裡的預覽圖不是空白。
+    -->
+    <ImageView
+        android:id="@+id/widget_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:src="@drawable/bg_widget_container"
+        android:contentDescription="@null" />
+
+<LinearLayout
+    android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/bg_widget_container"
     android:padding="10dp"
     android:orientation="vertical">
 
@@ -54,17 +72,17 @@
                 android:singleLine="true"
                 android:text="@string/widget_label_kcal" />
 
-            <ProgressBar
+            <!-- 進度條改用 ImageView＋自繪 bitmap（計畫書 §14.2）：ProgressBar 的
+                 progressTint 只能在 XML 寫死，RemoteViews 在 minSdk 26 上改不動
+                 （setProgressTintList 要 API 31），配色就永遠停在原本那組淺綠。 -->
+            <ImageView
                 android:id="@+id/widget_kcal_progress"
-                style="?android:attr/progressBarStyleHorizontal"
                 android:layout_width="0dp"
                 android:layout_height="5dp"
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
-                android:max="100"
-                android:progress="0"
-                android:progressTint="@color/widget_mint2"
-                android:progressBackgroundTint="@color/widget_track" />
+                android:scaleType="fitXY"
+                android:contentDescription="@null" />
         </LinearLayout>
 
         <LinearLayout
@@ -117,17 +135,17 @@
                 android:singleLine="true"
                 android:text="@string/widget_label_protein" />
 
-            <ProgressBar
+            <!-- 進度條改用 ImageView＋自繪 bitmap（計畫書 §14.2）：ProgressBar 的
+                 progressTint 只能在 XML 寫死，RemoteViews 在 minSdk 26 上改不動
+                 （setProgressTintList 要 API 31），配色就永遠停在原本那組淺綠。 -->
+            <ImageView
                 android:id="@+id/widget_protein_progress"
-                style="?android:attr/progressBarStyleHorizontal"
                 android:layout_width="0dp"
                 android:layout_height="5dp"
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
-                android:max="100"
-                android:progress="0"
-                android:progressTint="@color/widget_mint2"
-                android:progressBackgroundTint="@color/widget_track" />
+                android:scaleType="fitXY"
+                android:contentDescription="@null" />
         </LinearLayout>
 
         <LinearLayout
@@ -217,3 +235,5 @@
     </RelativeLayout>
 
 </LinearLayout>
+
+</FrameLayout>

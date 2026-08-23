@@ -12,7 +12,9 @@
     "noUnusedParameters": false,
     "resolveJsonModule": true,
     "baseUrl": ".",
-    "paths": { "@core/*": ["./src/core/*"] },
+    // `@shared` 是給 `src/mobile/runtime/widgetBridge.ts` 用的——它透過
+    // session.ts 進到 `tests/` 的模組圖裡（見 vitest.config.ts 同一條說明）。
+    "paths": { "@core/*": ["./src/core/*"], "@shared/*": ["./src/shared/*"] },
     "outDir": "out"
   },
   "include": ["tests", "vitest.config.ts", "src/core", "src/main", "src/preload", "electron.vite.config.ts", "capacitor.config.ts", "nutrition/desktop/src/main", "nutrition/desktop/electron-vite.config.ts", "nutrition/mobile/vite.config.ts", "nutrition/mobile/capacitor.config.ts"]

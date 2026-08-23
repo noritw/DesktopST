@@ -62,11 +62,21 @@ import { nutritionMobileHttp } from './http'
 import { compressImageFile } from './imageInput'
 import { isVoiceInputAvailable, startVoiceInput, type VoiceSession } from './voiceInput'
 import { nutritionMobileStorage } from './storage'
-import { refreshNutritionWidget, writeWidgetHealthState } from './widgetBridge'
+import { refreshNutritionWidget, writeWidgetHealthState, writeWidgetTheme } from './widgetBridge'
+import { THEMES, THEME_IDS, THEME_LABELS } from '@shared/colorThemes'
+import { DEFAULT_WIDGET_APPEARANCE } from '@shared/widgetAppearance'
+import type { ColorTheme } from '@core/types'
+import { applyNutritionTheme, DEFAULT_NUTRITION_THEME } from './theme'
 import './styles.css'
 
 const DEFAULT_HEALTH_SETTINGS: NutritionHealthSettings = { connected: false, autoSync: true, useWatchCalorieLimit: false }
 const DEFAULT_LLM_SETTINGS: NutritionLlmSettings = { provider: 'openai', apiKeys: {} }
+/**
+ * 小工具外觀的預設值：薄荷、不透明——跟改版前寫死在 `colors_widget.xml` 的
+ * 那組一致，升級上來的人不會突然變色。這個 App 沒有「跟隨 App 配色」的概念
+ * （見 `NutritionAppSettings.widgetAppearance`），所以 theme 直接給 `'mint'`。
+ */
+const DEFAULT_NUTRITION_WIDGET_APPEARANCE = { ...DEFAULT_WIDGET_APPEARANCE, theme: 'mint' as string | null }
 /** 最近／最常吃的食物名稱清單上限（§3.1，只送名稱不送營養數字）。 */
 const RECENT_FOOD_NAMES_LIMIT = 30
 
@@ -546,6 +556,11 @@ function App(): React.JSX.Element {
   const [profileProtein, setProfileProtein] = React.useState('100')
 
   const [showWeightBadge, setShowWeightBadge] = React.useState(false)
+  /** App 介面的配色（12 組，跟小工具的配色各自獨立）。 */
+  const [colorTheme, setColorTheme] = React.useState<ColorTheme>(DEFAULT_NUTRITION_THEME)
+  /** 小工具配色與底色透明度（§14.2）。拖曳中的透明度另外用 draft，放開才寫檔。 */
+  const [widgetAppearance, setWidgetAppearance] = React.useState(DEFAULT_NUTRITION_WIDGET_APPEARANCE)
+  const [widgetOpacityDraft, setWidgetOpacityDraft] = React.useState(DEFAULT_NUTRITION_WIDGET_APPEARANCE.bgOpacity)
   const [healthAvailable, setHealthAvailable] = React.useState(false)
   const [healthSettings, setHealthSettings] = React.useState<NutritionHealthSettings>(DEFAULT_HEALTH_SETTINGS)
   const [healthPermissionGranted, setHealthPermissionGranted] = React.useState(false)
@@ -742,6 +757,15 @@ function App(): React.JSX.Element {
       }
       if (session.settings.health) setHealthSettings(session.settings.health)
       setShowWeightBadge(session.settings.showWeightBadge ?? false)
+      const theme = (session.settings.colorTheme as ColorTheme | undefined) ?? DEFAULT_NUTRITION_THEME
+      setColorTheme(theme)
+      applyNutritionTheme(theme)
+      const appearance = session.settings.widgetAppearance ?? DEFAULT_NUTRITION_WIDGET_APPEARANCE
+      setWidgetAppearance(appearance)
+      setWidgetOpacityDraft(appearance.bgOpacity)
+      // 開機補寫一次色票：使用者可能是升級上來的（舊版沒有這個檔案），
+      // 沒有這一步的話小工具會一直用原生層的預設色，直到第一次改設定為止。
+      void writeWidgetTheme(appearance)
       setLlmSettings(session.settings.llm)
       setPhotoEstimateEnabled(session.settings.photoEstimate?.enabled ?? false)
       setScaleReference(session.settings.photoEstimate?.scaleReference ?? '')
@@ -879,6 +903,34 @@ function App(): React.JSX.Element {
     setShowWeightBadge(next)
     void runAction(async (session) => {
       await session.saveSettings({ ...session.settings, showWeightBadge: next })
+    })
+  }
+
+  /**
+   * App 介面配色。先套用給即時回饋再寫檔——比照 DeST 的 ThemePicker 慣例。
+   * 跟小工具的配色是**兩個獨立設定**，改這個不會動到小工具。
+   */
+  function updateColorTheme(next: ColorTheme): void {
+    setColorTheme(next)
+    applyNutritionTheme(next)
+    void runAction(async (session) => {
+      await session.saveSettings({ ...session.settings, colorTheme: next })
+    })
+  }
+
+  /**
+   * 小工具配色與底色透明度（`docs/mobile-android-widget-plan.md` §14.2）。
+   * 用 DeST 的 12 組配色，但**跟 DeST 各存各的**——owner 明講兩邊可以設不同顏色。
+   */
+  function updateWidgetAppearance(patch: Partial<{ theme: string | null; bgOpacity: number }>): void {
+    const current = sessionRef.current?.settings.widgetAppearance ?? DEFAULT_NUTRITION_WIDGET_APPEARANCE
+    const next = { ...current, ...patch }
+    setWidgetAppearance(next)
+    void runAction(async (session) => {
+      await session.saveSettings({ ...session.settings, widgetAppearance: next })
+      // 設定存好之後要**同時**把色票落地並叫原生重繪，否則要等下一次存飲食紀錄才會變。
+      await writeWidgetTheme(next)
+      await refreshNutritionWidget()
     })
   }
 
@@ -2222,6 +2274,85 @@ function App(): React.JSX.Element {
             <br />
             蛋白質基礎值參考衛生福利部國民健康署《國人膳食營養素參考攝取量》第八版；熱量與蛋白質的活動量加成為一般經驗法則。
           </p>
+        </section>
+
+        {/* App 介面的配色。跟下面的小工具配色是兩個獨立設定。 */}
+        <section className="health-sync-section">
+          <strong>介面配色</strong>
+          <p className="hint">跟 DeST 主程式同一組 12 色，但各自獨立，可以設成不一樣的顏色。</p>
+          <div className="widget-theme-grid">
+            {THEME_IDS.map((id) => {
+              const t = THEMES[id]
+              const active = colorTheme === id
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={`widget-theme-swatch${active ? ' active' : ''}`}
+                  disabled={saving}
+                  aria-pressed={active}
+                  style={{ background: t.bg }}
+                  onClick={() => updateColorTheme(id)}
+                >
+                  <span className="widget-theme-dots">
+                    {[t.mint, t.mint2, t.userBubble].map((c, i) => (
+                      <span key={i} style={{ background: c }} />
+                    ))}
+                  </span>
+                  <span className="widget-theme-label" style={{ color: t.text }}>{THEME_LABELS[id] ?? id}</span>
+                </button>
+              )
+            })}
+          </div>
+        </section>
+
+        {/*
+          桌面小工具的外觀（§14.2）。用 DeST 的 12 組配色，但跟 DeST 各存各的——
+          owner 明講「兩邊可以設定不同顏色」；也跟上面的 App 配色各自獨立。
+        */}
+        <section className="health-sync-section">
+          <strong>桌面小工具外觀</strong>
+          <p className="hint">配色與底色透明度。跟 DeST 主程式各自獨立，可以設成不一樣的顏色。</p>
+          <div className="widget-theme-grid">
+            {THEME_IDS.map((id) => {
+              const t = THEMES[id]
+              const active = (widgetAppearance.theme ?? 'mint') === id
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  className={`widget-theme-swatch${active ? ' active' : ''}`}
+                  disabled={saving}
+                  aria-pressed={active}
+                  style={{ background: t.bg }}
+                  onClick={() => updateWidgetAppearance({ theme: id })}
+                >
+                  <span className="widget-theme-dots">
+                    {[t.mint, t.mint2, t.userBubble].map((c, i) => (
+                      <span key={i} style={{ background: c }} />
+                    ))}
+                  </span>
+                  <span className="widget-theme-label" style={{ color: t.text }}>{THEME_LABELS[id] ?? id}</span>
+                </button>
+              )
+            })}
+          </div>
+          <label className="widget-opacity-row">
+            <span>底色透明度：{widgetOpacityDraft}%</span>
+            {/* 拖曳中只動本地 state，放開才寫檔＋叫原生重繪（每動一格就寫會很卡）。 */}
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={widgetOpacityDraft}
+              disabled={saving}
+              onChange={(event) => setWidgetOpacityDraft(Number(event.target.value))}
+              onPointerUp={() => updateWidgetAppearance({ bgOpacity: widgetOpacityDraft })}
+              onTouchEnd={() => updateWidgetAppearance({ bgOpacity: widgetOpacityDraft })}
+            />
+          </label>
+          <p className="hint">調到 0% 就只剩數字浮在桌布上。文字顏色不受透明度影響。</p>
         </section>
 
         <section className="health-sync-section">

@@ -23,7 +23,31 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!--
+              桌面小工具點對白的深連結，@capacitor/app 的 appUrlOpen／getLaunchUrl()
+              收下，見 widget/DeSTWidgetProvider.kt 與
+              docs/mobile-android-widget-plan.md §6。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="@string/custom_url_scheme" />
+            </intent-filter>
+
         </activity>
+
+        <!-- 角色陪伴桌面小工具（docs/mobile-android-widget-plan.md §7）。 -->
+        <receiver
+            android:name=".widget.DeSTWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_dest_character_info" />
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

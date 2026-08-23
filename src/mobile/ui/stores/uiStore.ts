@@ -54,6 +54,8 @@ export type ViewKind =
   | 'news'
   | 'news-settings'
   | 'random-tools'
+  /** 桌面小工具：預覽會顯示什麼、管理釘選、顯示頭像開關（`docs/mobile-android-widget-plan.md` §11.3）。 */
+  | 'widget-settings'
   | 'theme-picker'
   | 'lorebook-editor'
   /** 遙控電腦（清單 H1–H11，B6）。只有 `capabilities.remoteControl` 為真時入口才會出現。 */
@@ -238,6 +240,14 @@ interface UiState {
   confirm: (opts: Omit<DialogRequest, 'kind' | 'resolve'>) => Promise<boolean>
   prompt: (opts: Omit<DialogRequest, 'kind' | 'resolve'>) => Promise<string | null>
   closeDialog: (value: string | boolean | null) => void
+
+  /**
+   * 桌面小工具點對白（`docs/mobile-android-widget-plan.md` §6.3）：切到目標對話後，
+   * `MessageList` 要捲到這則訊息。切換對話本身走既有的 `conversations.load()`，
+   * 這裡只記「捲到哪一則」——`MessageList` 消化掉就清空，不然回這個對話會一直捲。
+   */
+  pendingScrollMessageId: string | null
+  setPendingScrollMessageId: (id: string | null) => void
 }
 
 let seq = 0
@@ -360,7 +370,10 @@ export const useUiStore = create<UiState>((set, get) => ({
     set({ dialog: null })
     // 先清掉再 resolve：呼叫端可能在 then 裡立刻開下一個對話框。
     d?.resolve(value)
-  }
+  },
+
+  pendingScrollMessageId: null,
+  setPendingScrollMessageId: (id) => set({ pendingScrollMessageId: id })
 }))
 
 /**

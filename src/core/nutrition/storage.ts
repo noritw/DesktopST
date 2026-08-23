@@ -64,6 +64,15 @@ function normalizeSettings(settings: NutritionAppSettings): NutritionAppSettings
     // （showWeightBadge、photoEstimate）都要記得跟著補，否則讀回來就悄悄消失
     // （2026-08-19 發現 showWeightBadge 已經踩到這個坑，一併修掉）。
     showWeightBadge: settings.showWeightBadge,
+    colorTheme: settings.colorTheme,
+    widgetAppearance: settings.widgetAppearance
+      ? {
+          theme: typeof settings.widgetAppearance.theme === 'string' ? settings.widgetAppearance.theme : null,
+          bgOpacity: Number.isFinite(settings.widgetAppearance.bgOpacity)
+            ? Math.min(100, Math.max(0, Math.round(settings.widgetAppearance.bgOpacity)))
+            : 100
+        }
+      : undefined,
     photoEstimate: settings.photoEstimate
       ? {
           enabled: settings.photoEstimate.enabled ?? false,

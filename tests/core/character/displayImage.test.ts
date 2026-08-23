@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveDisplayImagePath } from '../../../src/core/character/displayImage'
+import { DEFAULT_IMAGE_EMOTION, resolveDisplayImagePath } from '../../../src/core/character/displayImage'
 
 describe('resolveDisplayImagePath', () => {
   const base = { avatar: 'characters/abc/avatar.png', emotions: { joy: 'characters/abc/emotions/joy.png' } }
@@ -14,6 +14,15 @@ describe('resolveDisplayImagePath', () => {
 
   it('對不到圖就退回主圖', () => {
     expect(resolveDisplayImagePath(base, 'anger')).toEqual({ path: base.avatar, matchedEmotion: false })
+  })
+
+  it('明確指定「使用預設圖片」時給主圖，不往下查 emotions', () => {
+    // 就算角色真的有一張叫這個名字的圖也不理它——哨符的語意優先。
+    const trap = { ...base, emotions: { ...base.emotions, [DEFAULT_IMAGE_EMOTION]: 'characters/abc/trap.png' } }
+    expect(resolveDisplayImagePath(trap, DEFAULT_IMAGE_EMOTION)).toEqual({
+      path: base.avatar,
+      matchedEmotion: false
+    })
   })
 
   it('emotions 缺席時（角色卡沒設定任何表情）也能安全退回主圖', () => {

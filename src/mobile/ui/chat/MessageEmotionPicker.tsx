@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Character } from '@core/types'
 import { emotionLabel } from '@core/character/emotionCatalog'
+import { DEFAULT_IMAGE_EMOTION } from '@core/character/displayImage'
 import { getData, useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { useCharacterDisplayImage } from '../characters/useAvatarUrl'
@@ -40,6 +41,7 @@ export function MessageEmotionPicker({ messageId }: { messageId: string }): JSX.
     new Set([...Object.keys(character.emotions ?? {}), ...Object.keys(character.spriteIds ?? {})])
   )
   const current = message.emotionOverride ?? null
+  const isDefault = current === DEFAULT_IMAGE_EMOTION
 
   const choose = async (emotion: string | null): Promise<void> => {
     setBusy(true)
@@ -60,12 +62,30 @@ export function MessageEmotionPicker({ messageId }: { messageId: string }): JSX.
         type="button"
         disabled={busy}
         onClick={() => void choose(null)}
-        className={`mb-3 flex w-full items-center justify-between rounded-[14px] border px-3.5 py-2.5 text-sm disabled:opacity-50 ${
+        className={`mb-2 flex w-full items-center justify-between rounded-[14px] border px-3.5 py-2.5 text-sm disabled:opacity-50 ${
           current === null ? 'border-[var(--mint2)] bg-[var(--mint)] text-[var(--text)]' : 'border-[var(--border)] text-[var(--text-sub)]'
         }`}
       >
         跟隨 AI 判斷{message.emotion ? `（目前：${emotionLabel(message.emotion)}）` : ''}
         {current === null && <span>✓</span>}
+      </button>
+
+      {/*
+        「使用預設圖片」跟上面那顆是**不同的意思**，不能只留一顆
+        （owner 2026-08-23 實機回報「換表情之後換不回去了」）：
+        「跟隨 AI 判斷」是把選擇權交回 AI，AI 判出什麼表情就顯示什麼；
+        這顆是「這則就是要顯示主圖」，不管 AI 怎麼判。
+      */}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void choose(DEFAULT_IMAGE_EMOTION)}
+        className={`mb-3 flex w-full items-center justify-between rounded-[14px] border px-3.5 py-2.5 text-sm disabled:opacity-50 ${
+          isDefault ? 'border-[var(--mint2)] bg-[var(--mint)] text-[var(--text)]' : 'border-[var(--border)] text-[var(--text-sub)]'
+        }`}
+      >
+        使用預設圖片（不用表情圖）
+        {isDefault && <span>✓</span>}
       </button>
 
       <div className="grid grid-cols-3 gap-2">

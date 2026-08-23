@@ -1,8 +1,38 @@
+/*
+ * 配色（owner 2026-08-23：飲食 App 本身也要能選 DeST 的 12 組配色）。
+ *
+ * ⚠️ **色值不要寫死在這裡**，全部走 CSS 變數，由 `theme.ts` 的
+ * `applyNutritionTheme()` 依使用者選的主題塞進 `<html>` 的 inline style。
+ * 色表的唯一真相是 `src/shared/colorThemes.ts`（跟 DeST 共用同一份）。
+ * 下面這組預設值是薄荷主題，只在 JS 還沒跑起來的那一瞬間會看到。
+ *
+ * 例外：`#d8a86a`／`#a06f2c`（未分類標籤）與 `#d94f4f`（錄音中）是**語意色**，
+ * 刻意不跟著配色跑——跟著變會把「這是警告／正在錄音」的意思洗掉。
+ */
 :root {
-  color: #3d5a52;
-  background: #f7fffc;
+  --bg: #F7FFFC;
+  --surface: #ffffff;
+  --text: #3D5A52;
+  --text-sub: #7AA898;
+  --border: rgba(0, 0, 0, 0.08);
+  /** 淺色填底（區塊、chip、次要按鈕）＝主題的 `mint` */
+  --tint: #CBFBC4;
+  /** 主要強調色（主按鈕、選中狀態）＝主題的 `mint2` */
+  --accent: #AAEEDD;
+  /** 比 accent 更沉的一階，用在小字連結、圖示、統計長條——由 accent 與 text 混出來 */
+  --accent-strong: #6FA898;
+  --danger: #FFBBBB;
+  --danger-text: #5A2A3A;
+  /** 語意色：熱量超標／蛋白質達標。深色主題會換成亮一階的版本，見 theme.ts */
+  --over: #C55656;
+  --good: #3F8F6B;
+
+  color: var(--text);
+  background: var(--bg);
   font-family: 'M PLUS Rounded 1c', 'Nunito', sans-serif;
 }
+
+body { background: var(--bg); color: var(--text); }
 
 * { box-sizing: border-box; }
 
@@ -18,17 +48,17 @@ body { margin: 0; }
   gap: 16px;
 }
 
-.eyebrow { margin: 0; color: #4f9c8a; font-size: 14px; }
+.eyebrow { margin: 0; color: var(--accent-strong); font-size: 14px; }
 .eyebrow-button { background: transparent; border: 0; padding: 0; cursor: pointer; text-align: left; }
 h1 { margin: 2px 0 0; font-size: 26px; }
 p { margin: 0; }
 
 .date-row, .meal-row-compact, .food-option, .food-library-row { display: flex; align-items: center; }
 
-button { border: 0; border-radius: 10px; padding: 11px 15px; color: #3d5a52; background: #d9f4eb; font: inherit; cursor: pointer; }
+button { border: 0; border-radius: 10px; padding: 11px 15px; color: var(--text); background: var(--tint); font: inherit; cursor: pointer; }
 button:disabled { opacity: .6; cursor: wait; }
-.primary { background: #65bda6; color: white; font-weight: 700; }
-.danger { background: #f6dede; color: #9c3838; font-weight: 700; }
+.primary { background: var(--accent); color: var(--text); font-weight: 700; }
+.danger { background: var(--danger); color: var(--danger-text); font-weight: 700; }
 .full-width { width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; }
 
 .icon-sm { width: 16px; height: 16px; }
@@ -42,17 +72,17 @@ button:disabled { opacity: .6; cursor: wait; }
 
 .weight-badge { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .weight-badge strong { font-size: 18px; }
-.weight-badge small { color: #6b8f85; font-size: 12px; }
+.weight-badge small { color: var(--text-sub); font-size: 12px; }
 
-.date-row { justify-content: space-between; border-block: 1px solid #d8ebe4; padding: 10px 0; }
+.date-row { justify-content: space-between; border-block: 1px solid var(--border); padding: 10px 0; }
 .date-row button { padding: 8px 14px; font-size: 22px; line-height: 1; background: transparent; }
 
 .summary { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.summary > div { background: white; border: 1px solid #d8ebe4; border-radius: 10px; padding: 16px; display: grid; gap: 5px; }
-.summary span, .summary small { color: #6d887f; font-size: 13px; }
+.summary > div { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; display: grid; gap: 5px; }
+.summary span, .summary small { color: var(--text-sub); font-size: 13px; }
 .summary strong { font-size: 22px; }
-.over { color: #c55656; }
-.good { color: #3f8f6b; }
+.over { color: var(--over); }
+.good { color: var(--good); }
 
 /* 手機飲食列表：一行內完整顯示時間／名稱／熱量／蛋白，編輯只留一個小圖示 */
 .meal-list { display: grid; gap: 8px; }
@@ -61,29 +91,31 @@ button:disabled { opacity: .6; cursor: wait; }
   text-align: left;
   font: inherit;
   color: inherit;
-  background: white;
-  border: 1px solid #d8ebe4;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 10px 12px;
   gap: 12px;
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) auto auto 18px;
 }
-.meal-row-compact time { color: #6d887f; font-size: 12px; white-space: nowrap; }
+.meal-row-compact time { color: var(--text-sub); font-size: 12px; white-space: nowrap; }
 .meal-row-compact .meal-name { display: grid; gap: 1px; min-width: 0; }
 .meal-row-compact .meal-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
-.meal-row-compact .meal-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6d887f; font-size: 11px; }
+.meal-row-compact .meal-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-sub); font-size: 11px; }
 .meal-row-compact .meal-kcal { font-weight: 700; font-size: 13px; white-space: nowrap; }
-.meal-row-compact .meal-protein { color: #6d887f; font-size: 12px; white-space: nowrap; }
+.meal-row-compact .meal-protein { color: var(--text-sub); font-size: 12px; white-space: nowrap; }
 
-.empty { text-align: center; padding: 40px 12px; color: #6d887f; display: grid; gap: 10px; justify-items: center; }
-.hint { color: #6d887f; font-size: 13px; }
+.empty { text-align: center; padding: 40px 12px; color: var(--text-sub); display: grid; gap: 10px; justify-items: center; }
+.hint { color: var(--text-sub); font-size: 13px; }
 
 .food-form { display: grid; gap: 10px; }
-input { min-width: 0; border: 1px solid #c9e3da; border-radius: 8px; padding: 11px; color: #3d5a52; font: inherit; }
-select { min-width: 0; border: 1px solid #c9e3da; border-radius: 8px; padding: 11px; color: #3d5a52; background: white; font: inherit; }
-textarea { min-width: 0; width: 100%; border: 1px solid #c9e3da; border-radius: 8px; padding: 11px; color: #3d5a52; font: inherit; resize: vertical; box-sizing: border-box; }
-label { display: grid; gap: 5px; color: #4f6e65; font-size: 13px; font-weight: 700; }
+/* ⚠️ 輸入框**一定要明確給 background**：原本靠瀏覽器預設的白底，深色主題下
+   會變成白底配淺色文字，等於看不到自己在打什麼。 */
+input { min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 11px; color: var(--text); background: var(--surface); font: inherit; }
+select { min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: 11px; color: var(--text); background: var(--surface); font: inherit; }
+textarea { min-width: 0; width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 11px; color: var(--text); background: var(--surface); font: inherit; resize: vertical; box-sizing: border-box; }
+label { display: grid; gap: 5px; color: var(--text); font-size: 13px; font-weight: 700; }
 label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 
 .quick-entry-overlay {
@@ -96,7 +128,7 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
   padding: 8px;
 }
 .quick-entry-card {
-  background: white;
+  background: var(--surface);
   border-radius: 16px;
   padding: 16px;
   max-height: 94vh;
@@ -118,30 +150,30 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #6d887f;
+  color: var(--text-sub);
 }
-.quick-entry-time-row { display: flex; align-items: center; gap: 8px; color: #4f6e65; font-size: 13px; font-weight: 700; }
+.quick-entry-time-row { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; font-weight: 700; }
 .quick-entry-time-input {
   font-weight: 400;
   width: auto;
-  background: #eefaf5;
-  border: 1px solid #c9e3da;
+  background: var(--tint);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 6px 10px;
-  color: #3d5a52;
+  color: var(--text);
 }
-.time-now-button { flex-shrink: 0; padding: 6px; background: #eefaf5; border: 1px solid #c9e3da; display: inline-flex; align-items: center; justify-content: center; color: #4f9c8a; }
+.time-now-button { flex-shrink: 0; padding: 6px; background: var(--tint); border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; color: var(--accent-strong); }
 .quick-entry-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
-.quick-entry-header button { background: white; border: 1px solid #c9e3da; padding: 6px 11px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
-.quick-entry-header .add-food-button { background: #65bda6; border-color: #65bda6; color: white; font-weight: 700; }
+.quick-entry-header button { background: var(--surface); border: 1px solid var(--border); padding: 6px 11px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
+.quick-entry-header .add-food-button { background: var(--accent); border-color: var(--accent); color: var(--text); font-weight: 700; }
 .food-options { display: grid; gap: 7px; max-height: 55vh; overflow: auto; }
-.food-option { justify-content: space-between; gap: 12px; text-align: left; background: white; border: 1px solid #c9e3da; }
+.food-option { justify-content: space-between; gap: 12px; text-align: left; background: var(--surface); border: 1px solid var(--border); }
 .food-option-stats { display: grid; gap: 1px; flex-shrink: 0; width: 88px; text-align: right; }
-.food-option-macro { display: block; color: #6d887f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.food-option-usage { display: block; font-size: 50%; color: #6d887f; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.food-option-macro { display: block; color: var(--text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.food-option-usage { display: block; font-size: 50%; color: var(--text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .food-option-name { display: grid; gap: 1px; min-width: 0; flex: 1 1 auto; text-align: left; }
 .food-option-name strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.food-option-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6d887f; font-size: 11px; }
+.food-option-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-sub); font-size: 11px; }
 
 .library-toolbar { display: grid; grid-template-columns: 1fr; gap: 8px; }
 
@@ -154,22 +186,22 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
   justify-content: space-between;
   gap: 12px;
   padding: 11px;
-  border: 1px solid #d8ebe4;
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: white;
+  background: var(--surface);
 }
 .food-library-row > div { display: grid; gap: 4px; }
-.food-library-row small { color: #6d887f; font-size: 12px; }
+.food-library-row small { color: var(--text-sub); font-size: 12px; }
 .food-library-kcal { text-align: right; font-weight: 700; font-size: 13px; white-space: nowrap; }
-.food-library-kcal small { color: #6d887f; font-weight: 400; }
+.food-library-kcal small { color: var(--text-sub); font-weight: 400; }
 
 .tag-row { display: flex; flex-wrap: wrap; gap: 5px; }
-.tag-chip { background: #eefaf5; color: #4f9c8a; border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700; }
+.tag-chip { background: var(--tint); color: var(--accent-strong); border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700; }
 
 .tag-picker { display: grid; gap: 8px; }
 .tag-options { display: flex; flex-wrap: wrap; gap: 6px; }
-.tag-choice { background: white; border: 1px solid #c9e3da; border-radius: 999px; padding: 6px 12px; font-size: 13px; }
-.tag-choice.selected { background: #65bda6; border-color: #65bda6; color: white; font-weight: 700; }
+.tag-choice { background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+.tag-choice.selected { background: var(--accent); border-color: var(--accent); color: var(--text); font-weight: 700; }
 .tag-choice-untagged { border-style: dashed; border-color: #d8a86a; color: #a06f2c; }
 .tag-choice-untagged.selected { background: #d8a86a; border-color: #d8a86a; border-style: solid; color: white; }
 .tag-new { display: flex; gap: 8px; }
@@ -177,14 +209,14 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 
 .photo-section { display: grid; gap: 8px; }
 .photo-grid { display: flex; flex-wrap: wrap; gap: 10px; }
-.photo-thumb, .photo-add { position: relative; width: 84px; height: 84px; border-radius: 10px; overflow: hidden; border: 1px solid #c9e3da; }
+.photo-thumb, .photo-add { position: relative; width: 84px; height: 84px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
 .photo-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .photo-remove { position: absolute; top: 3px; right: 3px; padding: 4px; background: rgba(61, 90, 82, 0.7); color: white; border-radius: 999px; }
-.photo-add { display: flex; align-items: center; justify-content: center; background: #eefaf5; color: #4f9c8a; cursor: pointer; padding: 0; }
+.photo-add { display: flex; align-items: center; justify-content: center; background: var(--tint); color: var(--accent-strong); cursor: pointer; padding: 0; }
 .photo-add input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .photo-image-button { padding: 0; background: transparent; border-radius: 0; display: block; }
 .photo-image-button .photo-thumb { border: 0; }
-.food-library-photo, .food-library-photo-placeholder { width: 52px; height: 52px; flex: 0 0 52px; border-radius: 8px; object-fit: cover; background: #eefaf5; }
+.food-library-photo, .food-library-photo-placeholder { width: 52px; height: 52px; flex: 0 0 52px; border-radius: 8px; object-fit: cover; background: var(--tint); }
 .photo-preview-overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 20px; background: rgba(20, 35, 31, .82); }
 .photo-preview { position: relative; max-width: min(92vw, 720px); max-height: 88vh; display: grid; place-items: center; gap: 8px; color: white; }
 .zoom-pan-frame { display: inline-flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; }
@@ -195,7 +227,7 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 .photo-preview-next { right: -72px; }
 
 .scope-choice { display: grid; gap: 4px; }
-.scope-choice small { color: #6d887f; font-size: 12px; margin-bottom: 8px; }
+.scope-choice small { color: var(--text-sub); font-size: 12px; margin-bottom: 8px; }
 
 .servings-stepper { display: flex; align-items: center; gap: 8px; }
 .servings-stepper input { flex: 1; text-align: center; }
@@ -206,9 +238,9 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
   padding: 0;
   font-size: 18px;
   font-weight: 700;
-  background: #eefaf5;
-  border: 1px solid #c9e3da;
-  color: #4f9c8a;
+  background: var(--tint);
+  border: 1px solid var(--border);
+  color: var(--accent-strong);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -216,9 +248,9 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 
 .ai-recalc-button, .copy-prompt-button {
   align-self: flex-start;
-  background: white;
-  border: 1px solid #c9e3da;
-  color: #4f9c8a;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--accent-strong);
   padding: 6px 12px;
   font-size: 12px;
   display: inline-flex;
@@ -226,29 +258,29 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
   gap: 4px;
 }
 
-.library-data-section { display: grid; gap: 8px; border-top: 1px solid #d8ebe4; padding-top: 14px; }
+.library-data-section { display: grid; gap: 8px; border-top: 1px solid var(--border); padding-top: 14px; }
 .library-data-section > .hint { margin: 0; }
-.library-data-preview { display: grid; gap: 6px; background: #eefaf5; border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+.library-data-preview { display: grid; gap: 6px; background: var(--tint); border-radius: 10px; padding: 10px 12px; font-size: 13px; }
 
-.health-sync-section { display: grid; gap: 8px; border-top: 1px solid #d8ebe4; padding-top: 14px; }
+.health-sync-section { display: grid; gap: 8px; border-top: 1px solid var(--border); padding-top: 14px; }
 .health-sync-section > .hint { margin: 0; }
 .toggle-row { display: flex; align-items: center; gap: 8px; font-weight: 400; cursor: pointer; }
-.toggle-row input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; accent-color: #65bda6; }
-.toggle-row span { font-size: 14px; color: #3d5a52; }
+.toggle-row input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; accent-color: var(--accent); }
+.toggle-row span { font-size: 14px; color: var(--text); }
 
-.photo-add-large { position: relative; width: 100%; height: 180px; border-radius: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: #eefaf5; color: #4f9c8a; font-weight: 700; cursor: pointer; border: 1px dashed #9fd4c1; }
+.photo-add-large { position: relative; width: 100%; height: 180px; border-radius: 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: var(--tint); color: var(--accent-strong); font-weight: 700; cursor: pointer; border: 1px dashed var(--accent); }
 .photo-add-large input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .estimate-note-section { display: grid; gap: 12px; }
-.estimate-note-preview { width: 100%; max-height: 220px; object-fit: contain; border-radius: 12px; background: #eefaf5; }
-.estimate-result-card { display: grid; gap: 8px; background: #eefaf5; border-radius: 14px; padding: 16px; }
-.estimate-result-card strong { font-size: 17px; color: #3d5a52; }
+.estimate-note-preview { width: 100%; max-height: 220px; object-fit: contain; border-radius: 12px; background: var(--tint); }
+.estimate-result-card { display: grid; gap: 8px; background: var(--tint); border-radius: 14px; padding: 16px; }
+.estimate-result-card strong { font-size: 17px; color: var(--text); }
 .estimate-result-card p { margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.dynamic-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: #eefaf5; color: #4f9c8a; font-weight: 700; font-size: 10px; vertical-align: middle; }
-.hint.danger-text { color: #9c3838; }
-.advanced-endpoint summary { color: #4f9c8a; font-size: 13px; cursor: pointer; margin-bottom: 6px; }
+.dynamic-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: var(--tint); color: var(--accent-strong); font-weight: 700; font-size: 10px; vertical-align: middle; }
+.hint.danger-text { color: var(--danger-text); }
+.advanced-endpoint summary { color: var(--accent-strong); font-size: 13px; cursor: pointer; margin-bottom: 6px; }
 .advanced-endpoint[open] summary { margin-bottom: 10px; }
 
-.danger-zone { border-top: 1px solid #d8ebe4; padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.danger-zone { border-top: 1px solid var(--border); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
 
 .confirm-overlay {
   position: fixed;
@@ -259,8 +291,8 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
   padding: 20px;
   z-index: 20;
 }
-.confirm-card { background: white; border-radius: 14px; padding: 20px; display: grid; gap: 10px; max-width: 360px; width: 100%; }
-.confirm-card p { color: #6d887f; font-size: 13px; }
+.confirm-card { background: var(--surface); border-radius: 14px; padding: 20px; display: grid; gap: 10px; max-width: 360px; width: 100%; }
+.confirm-card p { color: var(--text-sub); font-size: 13px; }
 .confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
 
 
@@ -272,35 +304,35 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 .photo-source-row .photo-add-large { flex: 1; }
 
 /* 食物庫的引用次數：同名重複資料要靠這行判斷哪筆能刪 */
-.food-usage { color: #6d887f; font-size: 12px; }
-.food-usage-banner { margin: 0 0 4px; padding: 8px 12px; border-radius: 10px; background: #eefaf5; color: #4f9c8a; font-size: 13px; font-weight: 700; }
+.food-usage { color: var(--text-sub); font-size: 12px; }
+.food-usage-banner { margin: 0 0 4px; padding: 8px 12px; border-radius: 10px; background: var(--tint); color: var(--accent-strong); font-size: 13px; font-weight: 700; }
 
 /* 熱量統計頁 */
 .summary-tappable { cursor: pointer; }
-.stats-card { background: white; border: 1px solid #d8ebe4; border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px; }
+.stats-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px; }
 .stats-card header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .stats-card header strong { font-size: 16px; }
-.stats-card header small { color: #6d887f; font-size: 12px; }
+.stats-card header small { color: var(--text-sub); font-size: 12px; }
 .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
 .stats-grid > div { display: grid; gap: 2px; }
-.stats-grid span { color: #6d887f; font-size: 12px; }
+.stats-grid span { color: var(--text-sub); font-size: 12px; }
 .stats-grid strong { font-size: 18px; }
 .stats-range-picker { display: grid; gap: 10px; }
 .stats-custom-range { display: flex; gap: 12px; }
-.stats-custom-range label { flex: 1; display: grid; gap: 4px; color: #6d887f; font-size: 13px; }
+.stats-custom-range label { flex: 1; display: grid; gap: 4px; color: var(--text-sub); font-size: 13px; }
 .stats-bars { display: grid; gap: 4px; }
 .stats-bar-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) 48px; align-items: center; gap: 8px; }
-.stats-bar-row time { color: #6d887f; font-size: 11px; }
-.stats-bar-track { position: relative; height: 16px; background: #eefaf5; border-radius: 999px; overflow: hidden; }
+.stats-bar-row time { color: var(--text-sub); font-size: 11px; }
+.stats-bar-track { position: relative; height: 16px; background: var(--tint); border-radius: 999px; overflow: hidden; }
 .stats-bar { position: absolute; top: 0; height: 8px; border-radius: 999px; }
-.stats-bar.intake { background: #4f9c8a; }
-.stats-bar.burned { top: 8px; background: #a9d8c8; }
-.stats-bar-value { text-align: right; color: #3d5a52; font-size: 12px; }
+.stats-bar.intake { background: var(--accent-strong); }
+.stats-bar.burned { top: 8px; background: var(--accent); }
+.stats-bar-value { text-align: right; color: var(--text); font-size: 12px; }
 
 /* 估算中的等待動畫：純文字看起來像當掉，本機模型又可能跑好幾分鐘 */
 .estimate-loading { display: grid; gap: 10px; justify-items: center; padding: 40px 12px; text-align: center; }
 .estimate-spinner { display: flex; gap: 6px; }
-.estimate-spinner span { width: 10px; height: 10px; border-radius: 50%; background: #7fc8b0; animation: estimate-bounce 1.2s ease-in-out infinite; }
+.estimate-spinner span { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); animation: estimate-bounce 1.2s ease-in-out infinite; }
 .estimate-spinner span:nth-child(2) { animation-delay: 0.15s; }
 .estimate-spinner span:nth-child(3) { animation-delay: 0.3s; }
 @keyframes estimate-bounce {
@@ -327,7 +359,7 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  background: #d9f4eb;
+  background: var(--tint);
 }
 .voice-mic-button.listening { background: #d94f4f; color: white; }
 
@@ -351,11 +383,24 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 /* 份量：接在餐次名稱後面的小字，不換行也不跟名稱搶粗體；名稱過長時截斷的是名稱、不是份量 */
 .meal-row-compact .meal-name-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .meal-row-compact .meal-name-row strong { min-width: 0; }
-.meal-row-compact .meal-servings { flex: none; font-weight: 400; font-size: 11px; color: #6d887f; white-space: nowrap; }
+.meal-row-compact .meal-servings { flex: none; font-weight: 400; font-size: 11px; color: var(--text-sub); white-space: nowrap; }
 
 /* 表單的摺疊區（更多營養欄位／貼上自動填） */
-.more-nutrition, .paste-nutrition { border: 1px solid #d8ebe4; border-radius: 10px; padding: 10px 12px; background: white; }
-.more-nutrition summary, .paste-nutrition summary { cursor: pointer; font-size: 13px; color: #6d887f; }
+.more-nutrition, .paste-nutrition { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; background: var(--surface); }
+.more-nutrition summary, .paste-nutrition summary { cursor: pointer; font-size: 13px; color: var(--text-sub); }
 .more-nutrition[open] summary, .paste-nutrition[open] summary { margin-bottom: 8px; }
 .more-nutrition label, .paste-nutrition textarea { display: grid; gap: 4px; margin-top: 8px; }
 .paste-nutrition textarea { width: 100%; }
+
+/* 桌面小工具外觀（docs/mobile-android-widget-plan.md §14.2）：
+   12 組配色的色票格 ＋ 底色透明度拉桿。配色表本身是
+   src/shared/colorThemes.ts，跟 DeST 共用同一份色值。 */
+.widget-theme-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.widget-theme-swatch { border: 2px solid transparent; border-radius: 12px; padding: 6px 4px; cursor: pointer; }
+.widget-theme-swatch.active { border-color: var(--text-sub); }
+.widget-theme-swatch:disabled { opacity: 0.5; }
+.widget-theme-dots { display: flex; justify-content: center; gap: 3px; }
+.widget-theme-dots span { width: 12px; height: 12px; border-radius: 50%; }
+.widget-theme-label { display: block; margin-top: 4px; font-size: 11px; }
+.widget-opacity-row { display: grid; gap: 6px; margin-top: 12px; font-size: 14px; color: var(--text); }
+.widget-opacity-row input[type="range"] { width: 100%; accent-color: var(--accent); }

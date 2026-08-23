@@ -1,22 +1,6 @@
-import { THEMES, THEME_IDS } from '../theme'
+import { THEMES, THEME_IDS, THEME_LABELS } from '../theme'
 import { useUiStore } from '../stores/uiStore'
 import { getData } from '../stores/appStore'
-
-/** 主題名稱是 UI 文案，所以留在這裡不進 core（roadmap §3.3）。 */
-const THEME_LABELS: Record<string, string> = {
-  mint: '薄荷',
-  butter: '奶油',
-  peach: '蜜桃',
-  aqua: '水藍',
-  sky: '天空',
-  blush: '腮紅',
-  lavender: '薰衣草',
-  forest: '森林',
-  white: '純白',
-  dark: '黑白灰',
-  sepia: '復古',
-  cyber: '賽博'
-}
 
 export function ThemePicker(): JSX.Element {
   const theme = useUiStore((s) => s.theme)

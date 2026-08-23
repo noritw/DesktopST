@@ -38,6 +38,8 @@ import { testLLMConnection } from '@core/llm'
 import { DataError } from '@core/data'
 import { resolveDisplayImagePath, type FaceCropRect } from '@core/character/displayImage'
 import { getFaceCrop as getFaceCropConfig, setFaceCrop as setFaceCropConfig, cropImageToFace } from './faceCropConfig'
+import { refreshWidgetCacheWith } from './widgetBridge'
+import { readWidgetConfig } from './widgetPins'
 import type {
   AppStateSnapshot,
   LlmProvider,
@@ -1640,6 +1642,21 @@ export class StandaloneSession {
     }
   }
 
+  /**
+   * 刷新桌面小工具（fire-and-forget：輔助功能，失敗不影響呼叫端的主要流程）。
+   *
+   * ⚠️ **不走 `getData()`/appStore**：這支唯一的呼叫端 `runReminderHeadless()`
+   * 可能在 App 完全被劃掉、原生層叫起 headless WebView 的那一趟執行，
+   * appStore 從未 `attach()` 過。`this`（`StandaloneSession`）本身就滿足
+   * `WidgetDataProvider`（`getState` ＋ `characterDisplayImageUrl`），直接傳自己。
+   */
+  private refreshWidget(): void {
+    void (async () => {
+      const config = await readWidgetConfig()
+      await refreshWidgetCacheWith(this, this.adapters.storage, config)
+    })().catch(() => {})
+  }
+
   // ── 用語解說（Lorebook，缺口 #2）────────────────────────
   // 桌面對應 `ipcHandlers.ts` 的 `*LorebookDirect`，邏輯只有一份（規格見
   // docs/future-lorebook.md）。清單不快取——本數不多，逐檔讀成本可忽略，
@@ -2260,6 +2277,11 @@ export class StandaloneSession {
       characterName: spoken.characterName,
       errorMessage: spoken.fallbackReason
     })
+    // 提醒的台詞已經寫進目前這個對話（`reminderSpeak.ts` 的 `appendReminderMessage`），
+    // 所以小工具的「目前對話最新一則」自然就會抓到它——見計畫書 §4.1 第 2 點。
+    // `offline_plain` 沒有寫進對話（那是提醒事項不是角色發言），刷了也不會變，但
+    // 刷一次是無害的，不特別分支判斷。
+    this.refreshWidget()
     return {
       notify: true,
       title: spoken.characterName,

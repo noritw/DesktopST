@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { applyTheme } from './theme'
 import { useUiStore } from './stores/uiStore'
-import { useAppStore, describeError, notifyForeground } from './stores/appStore'
+import { useAppStore, describeError, notifyForeground, getData, isAttached } from './stores/appStore'
 import { useBackButton } from './shell/useBackButton'
 import { ViewStack } from './shell/ViewStack'
 import { ToastHost } from './shell/ToastHost'
@@ -28,6 +28,7 @@ import { isReconnected, nextOfflineSince } from './shell/offlineWatch'
 import { initCapacitorSecrets, capacitorAdapters } from '../adapters'
 import { bootStandaloneSession } from '../runtime/session'
 import { getStandaloneSession, setStandaloneSession, takePendingStandaloneSession } from '../runtime/sessionHolder'
+import { useWidgetStore } from './stores/widgetStore'
 
 /**
  * 手機 UI 的根元件。
@@ -74,6 +75,75 @@ export function App(): JSX.Element {
   const [sustainedOffline, setSustainedOffline] = useState(false)
 
   useBackButton()
+
+  /**
+   * 桌面小工具點對白的深連結導覽（`docs/mobile-android-widget-plan.md` §6.2）。
+   *
+   * URL 是 `tw.nori.dest://widget/message?conversationId=…&messageId=…`
+   * （其餘區域點擊沒有 query，帶不到 `conversationId` 就什麼都不做，App 開到
+   * 原本會開到的畫面即可——見 `DeSTWidgetProvider.kt` 的兩種 `PendingIntent`）。
+   */
+  const lastWidgetUrlRef = useRef<{ url: string; at: number } | null>(null)
+  const pendingWidgetUrlRef = useRef<string | null>(null)
+
+  const handleWidgetDeepLink = useCallback(async (url: string): Promise<void> => {
+    // 冷啟動時 `getLaunchUrl()` 與緊接著註冊的 `appUrlOpen` 監聽器可能對同一個
+    // deep link 各觸發一次（飲食小工具已驗證過的 Capacitor App 8 已知行為）。
+    const last = lastWidgetUrlRef.current
+    const now = Date.now()
+    if (last && last.url === url && now - last.at < 3000) return
+    lastWidgetUrlRef.current = { url, at: now }
+
+    let conversationId: string | null
+    let messageId: string | null
+    try {
+      const parsed = new URL(url)
+      conversationId = parsed.searchParams.get('conversationId')
+      messageId = parsed.searchParams.get('messageId')
+    } catch {
+      return
+    }
+    if (!conversationId) return
+
+    if (!isAttached()) {
+      pendingWidgetUrlRef.current = url
+      return
+    }
+    try {
+      await getData().conversations.load(conversationId)
+      await useAppStore.getState().refresh()
+      if (messageId) useUiStore.getState().setPendingScrollMessageId(messageId)
+    } catch {
+      // 對話／訊息可能已經被刪除，或被記憶摘要濃縮掉了——安靜放棄，不顯示錯誤（§8）
+    }
+  }, [])
+
+  // App 冷啟動時 `attach()` 還沒跑完，先記住 URL，等 ready 了再補做一次。
+  useEffect(() => {
+    if (ready && pendingWidgetUrlRef.current) {
+      const url = pendingWidgetUrlRef.current
+      pendingWidgetUrlRef.current = null
+      void handleWidgetDeepLink(url)
+    }
+  }, [ready, handleWidgetDeepLink])
+
+  useEffect(() => {
+    let cancelled = false
+    let remove: (() => void) | null = null
+    void (async () => {
+      const mod = await import('@capacitor/app').catch(() => null)
+      if (!mod || cancelled) return
+      const { App: CapacitorApp } = mod
+      // 冷啟動：App 本來沒開，小工具直接把它拉起來。
+      const launch = await CapacitorApp.getLaunchUrl().catch(() => null)
+      if (!cancelled && launch?.url) void handleWidgetDeepLink(launch.url)
+      // 已在背景：App 沒被殺掉、只是在背景，這條才會觸發。
+      const handle = await CapacitorApp.addListener('appUrlOpen', ({ url }) => void handleWidgetDeepLink(url)).catch(() => null)
+      if (cancelled) void handle?.remove()
+      else remove = handle ? () => void handle.remove() : null
+    })()
+    return () => { cancelled = true; remove?.() }
+  }, [handleWidgetDeepLink])
 
   useEffect(() => {
     applyTheme(theme, document.documentElement, document)
@@ -273,6 +343,13 @@ export function App(): JSX.Element {
     return () => clearTimeout(timer)
   }, [offlineSince, switchToStandalone])
 
+  // 桌面小工具：開機讀一次設定（釘選／顯示頭像），並把快照補寫一次——
+  // 上次關 App 之後電腦端可能改過東西，開起來時對一次帳最省事。
+  useEffect(() => {
+    if (!ready) return
+    void useWidgetStore.getState().load().then(() => useWidgetStore.getState().refresh())
+  }, [ready])
+
   useEffect(() => {
     const onVisible = (): void => {
       const session = getStandaloneSession()
@@ -299,6 +376,9 @@ export function App(): JSX.Element {
          * 所以這個時機也涵蓋「劃掉」的情況。
          */
         session?.onAppBackgrounded()
+
+        // 桌面小工具（§4.1 觸發點 4）：確保使用者剛聊完離開時小工具是新的。
+        void useWidgetStore.getState().refresh()
       }
     }
     document.addEventListener('visibilitychange', onVisible)

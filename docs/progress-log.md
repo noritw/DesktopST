@@ -4145,3 +4145,218 @@ S2 對話同步換一台裝置檢視，那台裝置用**自己的**（值不同�
 
 **owner 第四次實機驗證通過**：跨裝置同步後表情正常顯示。三輪修正到此收工，
 已 commit（`0cf918f`）並推上 `origin/main`。
+
+---
+
+## Android 桌面小工具（DeST 主 App，2026-08-23）
+
+`docs/mobile-android-widget-plan.md` 整份實作完成，`npm run typecheck`／
+`npm test`（999 項）皆過。**真機測試清單完全還沒跑**——這是原生 Android／
+Capacitor 外掛工作，自動測試測不到原生層，詳細待驗清單見計畫書 §11.2。
+
+核心架構跟計畫書一致：JS 端 Bridge 把「角色現在該顯示什麼」落地成
+`widget-cache/<characterId>/state.json`＋`image.png`，原生層只讀檔案、
+不必分辨獨立／遙控模式。新增 `core/character/widgetSnapshot.ts`（掃全部
+對話找角色最新訊息的純邏輯，`mobileServer.ts` 與 `session.ts` 共用同一份，
+不重複維護）、`DataSource.widgetLatestMessages()` 新介面方法（獨立模式
+委派 `session.ts` 直接掃 `conversationIndex`；遙控模式打新端點
+`GET /api/widget/latest-messages/:id`，複用既有的 `bridge.getConversationList()`／
+`getConversationForSync()`，沒有改 `MobileBridge` 介面）。頭像圖片完全
+沿用既有的 `characterDisplayImageUrl()`（含表情解析與框選裁切），Bridge
+只需要把回傳的 `data:`／`blob:` URL 轉成位元組寫檔。
+
+觸發時機沒有分散掛在 `chat.ts`／`reminderSpeak.ts` 每個訊息推送點，改成
+集中在 `appStore.ts` 的 `handleEvent()`「message」分支（涵蓋前景與背景但
+JS 還活著的情境）＋ `session.ts` 的 `runReminderHeadless()`（這支本來就是
+「前景排程與原生 headless WebView 共用的同一條路徑」，是唯一可能在
+`appStore` 未 `attach()` 時執行的路徑，另外用不經過 `getData()` 的
+`refreshWidgetCacheWith()` 版本 hook）。兩個點就涵蓋了計畫書 §4.1 列的
+四種觸發時機，不用改 `chat.ts`／`reminderSpeak.ts` 一行。
+
+原生端（`android/app/src/main/java/tw/nori/dest/widget/`）：
+`DeSTWidgetProvider.kt`（讀快取、依高度挑 1 行/2 行版面、頭像在 Kotlin 端
+用 Canvas 裁成圓形、每則對白與其餘區域各自的 `PendingIntent`）、
+`DeSTWidgetConfigureActivity.kt`（選角色＋顯示頭像開關，標準
+`ACTION_APPWIDGET_CONFIGURE` 流程）、`DeSTWidgetBridgePlugin.kt`
+（`refresh()` 觸發 `updateAll()`，照抄飲食小工具的既有做法）。DeST 這個
+Android 專案原本純 Java，這次比照飲食小工具補了 Kotlin 工具鏈
+（`kotlin-android` plugin＋`kotlin-stdlib`，`kotlinVersion 2.4.10` 對齊）。
+
+§5.0 要求的動態字級／行數演算法目前是簡化版（依寬度分三段給固定
+12/13/14sp，不是像飲食小工具 `valueTextSizeSp()` 那樣精確算可用 dp
+反推），先求「對白不會被單行截斷」的核心要求成立，真機測出字級不合適
+再回頭調整那三個數字即可。完整偏離設計的清單見計畫書 §11.1。
+
+### 第一次真機測試回饋後的改版（同日稍後）
+
+owner 裝機後回報六項，完整記錄在計畫書 §12。兩個純技術坑值得記在這裡：
+
+**① Kotlin 的區塊註解會巢狀，`/*` 出現在註解字串裡就編不過。** KDoc 裡寫了
+`` `widget-cache/*` ``，那個 `/*` 被當成又開一層註解，整份檔案「Unclosed
+comment」，而錯誤位置指向檔案最後一行，完全看不出跟註解有關。Java／TS
+都沒有這個行為（不巢狀），所以很容易寫出來。**Kotlin 註解裡不要出現
+`/*` 或 `*/`**。
+
+**② `RemoteViews` 不認得裸的 `<View>`。** 兩則對白版的分隔線用了
+`<View android:layout_height="1dp">`，inflate 直接丟例外，launcher 顯示
+「無法載入小工具」——而且**只有拉高到兩格的尺寸會壞**（一行版沒有分隔線），
+症狀看起來像尺寸判定寫錯，完全不會聯想到分隔線。RemoteViews 只吃帶
+`@RemoteView` 註解的白名單類別（FrameLayout／LinearLayout／TextView／
+ImageView／ProgressBar⋯⋯），改用 `FrameLayout` 當分隔線就好。
+**之後往小工具版面加任何新元素，先確認那個類別在白名單上。**
+
+**架構上最大的一項：小工具不再綁角色，改成跟著「目前這個對話」走。**
+owner 的三項回饋（不想先選角色／不知道為什麼顯示那一則／釘選沒反應）
+其實是同一個問題——小工具實例綁在角色 A，釘選的卻是角色 B 的發言，
+於是「釘了但沒反應」，而使用者根本不知道有綁定這回事（那是放置時點過
+一次就再也看不到的設定）。改成全域一份快照之後連帶簡化掉不少東西：
+`DataSource.widgetLatestMessages()` 與 `mobileServer.ts` 的
+`/api/widget/latest-messages/:id` 端點整個拿掉（`getState()` 本來就帶
+目前對話的訊息，遙控模式不必多打一支 API、電腦端完全不用動）、
+`DeSTWidgetConfigureActivity` 與 `widget-character-list.json` 一起刪掉。
+另外補了 App 內的「桌面小工具」設定頁（預覽＋管理釘選＋頭像開關，
+預覽走跟小工具同一支 `computeWidgetLines()` 保證不漂移）、釘選狀態的
+單一真相 `ui/stores/widgetStore.ts`、以及表情選單的「使用預設圖片」
+（新哨符 `DEFAULT_IMAGE_EMOTION`——「跟隨 AI 判斷」不等於「顯示主圖」，
+少了這一顆就真的換不回去）。
+
+`npm run typecheck`／`npm test`（79 檔、1014 項）與
+`gradlew assembleDebug` 皆過；**真機仍待驗證**，清單見計畫書 §12.7。
+
+### 兩則不同角色時各自顯示頭像與名字（同日再追加，計畫書 §13）
+
+owner：「小工具顯示兩則對話的時候，如果兩則是不同角色，希望兩則都能顯示
+各自的頭像和名字。」——推翻原 §5.2「頭像只有一張」那條刻意簡化。原本的
+理由（同一張臉的兩個表情擺在一起像故障）在**同一個角色**連講兩句時仍然
+成立，但群組聊天裡只掛一張臉等於分不出哪句是誰說的。所以規則變成三態：
+一則／兩則同角色 → 共用一張臉；兩則不同角色 → 各自一張。
+
+判斷 `hasDistinctSpeakers()` 放在 core（有測試），結果寫進 `state.json` 的
+`perLineSpeaker`，原生層照著挑版面不重算——延續「原生層不做決策」的做法。
+版面新增第三份 `widget_dest_character_2line_multi.xml`（兩列各自完整）
+而不是靠 visibility 兜：兩種結構本來就不一樣，硬塞同一份會變成一堆互相
+牴觸的 margin，而 RemoteViews 能改的屬性又有限。`widget_line1/2` 與
+`widget_root` 的 id 三份共用，所以點擊與對白那幾段完全不用分支。
+
+頭像檔案從 `image.png` 改成 `image1.png`／`image2.png`。**抓不到圖時一定要
+把舊檔刪掉**，否則角色換了、頭像卻停在上一位的臉。`state.json` 的 `name`
+也從頂層移到每一則，JS 端解析完再寫，原生層不必知道 `presentCharacters`。
+
+typecheck／test（1018 項）／`gradlew assembleDebug` 皆過，真機待驗項見
+計畫書 §13.5。
+
+### 顯示順序與配色／透明度（同日第三輪，計畫書 §14）
+
+owner 三項：自動顯示的要「新的在下面」、小工具要能選 12 組配色＋調底色
+透明度、飲食小工具也要同一套但兩邊各自獨立。
+
+**①「新的在下面」有一個很隱蔽的連鎖反應。** `buildWidgetLines()` 取最新
+N 則後再反轉成時間序，於是 **`limit` 不再是單純的截斷關係**：`limit=1`
+拿到「最新那則」，`limit=2` 的第 0 則卻是**比較舊**的那則。矮版小工具
+（3x1／4x1）若照舊拿 `limit=2` 的結果取第一個，群組聊天時就會顯示 A 的
+舊發言配 B 的頭像。改成 `limit=1` 另外算一份寫進 `state.json` 的
+`singleLine`，並讓每一則各自帶 `avatarIndex` 指向要用哪張 `imageN.png`
+（頭像也因此改成「每則顯示出來的都準備一張」，不再只在 perLineSpeaker 時
+才產第二張）。有測試守著這條。
+
+**② 色表搬到 `src/shared/colorThemes.ts` 當唯一真相。** 飲食記錄 App 只吃
+得到 `@core`／`@shared` 兩個 alias，碰不到 `src/mobile/`；抄一份過去就是
+這個專案踩過好幾次的雙邊定義漂移（`contentHash.ts`／`settingsSnapshot.ts`）。
+`src/mobile/ui/theme.ts` 改成 re-export，既有 import 全部不用動。
+**CLAUDE.md §3 那條「改主題要一起改的清單」已經跟著更新。**
+換算邏輯也共用（`src/shared/widgetAppearance.ts`）：主題色 ＋ 透明度算成
+`#AARRGGBB` 交給原生層——原生層讀不到 TS 色表，而且 Android 的
+`Color.parseColor()` **不吃 CSS 的 `rgba(...)`**，色表裡的 `border` 剛好
+就是那個格式，一定要先換算。
+
+**③ 圓角底板只能用 ImageView。** RemoteViews 在 minSdk 26 上，
+`setBackgroundColor` 會失去圓角、`setBackgroundTintList` 要 API 31——
+兩條都不能用。所以八份版面（DeST 三份、飲食四份）的 root 都改成
+`FrameLayout` 包一個 `widget_bg` ImageView，由 Provider 依實際尺寸畫一張
+圓角矩形 bitmap 塞進去。⚠️ 那個 ImageView **不可以設 `android:background`**，
+會蓋在透明 bitmap 底下讓透明度完全失效。
+
+飲食小工具的語意色（熱量超標紅／蛋白質達標綠）**刻意不跟著配色跑**，
+但「正常」那一側的大數字改用配色文字色——否則深色配色下是深綠字配深底。
+
+typecheck／test（80 檔、1035 項）／兩支 APK 的 `assembleDebug` 皆過，
+真機待驗項見計畫書 §14.4。
+
+### 按鈕沒跟著配色 ＋ 飲食 App 本身也要換色（第四輪，計畫書 §15）
+
+owner：「改了飲食小工具配色，結果按鈕還是原本的淺綠色」「飲食 App 本身
+配色也是要可以設定那 12 組」。
+
+**按鈕漏掉的原因就是 §14.3 記過的那條限制，只是上一輪只修了容器。**
+三顆按鈕的圓底是 `android:background` 指到寫死 `@color/widget_mint` 的
+drawable，而 RemoteViews 在 minSdk 26 上不能 tint 背景 drawable、
+`setBackgroundColor` 又只會得到方形。修法是**把「圓底＋圖示」整顆畫成
+bitmap 當 src**，再用 `setBackgroundResource(0)` 拿掉原本的綠圓底；
+圖示的線條色也寫死在向量圖裡，靠 `drawable.setTint()` 蓋一層 color filter
+連筆畫一起換。⚠️ 內距要一起歸零，否則會連圓底一起被縮小。
+
+進度條是同一個坑（`progressTint` 只能 XML 寫死），順手把四個 `ProgressBar`
+換成 `ImageView` 自繪圓角長條。⚠️ **換完絕對不能再呼叫 `setProgressBar()`**
+——那會對 ImageView 呼叫不存在的 `setMax`／`setProgress`，套用時丟例外，
+症狀又是「無法載入小工具」（跟 `<View>` 那次同一種死法、不同原因）。
+
+**按鈕顏色刻意不吃底色透明度**：底板調到 0% 時整排按鈕會跟著消失，
+但按鈕要按得到就要看得見。有測試守著。
+
+**飲食 App 本身**：`styles.css` 21 個寫死色值全部換成 CSS 變數，新增
+`nutrition/mobile/src/theme.ts` 依主題塞進 inline style（比照 DeST 手機端的
+`applyTheme()`，但變數名各自獨立——共用的是色值不是命名）。過程中三個
+非機械性的判斷：①「accent 底＋白字」的主按鈕改成「accent 底＋主題文字色」
+（12 組的 `mint2` 多半是淺色，白字會看不到）②輸入框一定要明確給
+`background`（原本靠瀏覽器預設白底，深色主題下＝白底配淺字）③未分類標籤的
+橘、錄音中的紅、超標／達標的紅綠都是**語意色不跟著配色跑**，但超標／達標
+備了淺色／深色兩版，因為深色底上那組深紅深綠會糊掉。
+
+至此四個配色設定彼此獨立：DeST App／DeST 小工具／飲食 App／飲食小工具。
+typecheck／test（80 檔、1040 項）／兩支 APK 皆過，待驗項見計畫書 §15.4。
+
+### 設定頁預覽壞掉：`#AARRGGBB` vs `#RRGGBBAA`（第五輪，計畫書 §16）
+
+owner：「改顏色和透明度沒有正確在上面的預覽顯示」。
+
+**成因是一個很值得記住的格式陷阱**：`resolveWidgetColors()` 回的是 Android
+的 `#AARRGGBB`（alpha 在最前面），而 CSS 的八碼十六進位是 `#RRGGBBAA`
+（alpha 在最後面）。設定頁把前者直接塞進 `style`，於是 alpha 被當成紅色、
+藍色被當成 alpha——**兩種都是合法的八碼十六進位，所以不會噴任何錯誤**，
+瀏覽器照畫，只是顏色與透明度全錯。這種「有反應但反應不對」比整個不動
+更難聯想到成因。新增 `toCssColor()`／`widgetColorsToCss()`（`shared/`），
+預覽一律走這支，**不另外算一份 CSS 色票**（否則預覽與實際顏色會漂移，
+跟「預覽走同一支計算」同一個理由）。測試裡放了一條「轉兩次不等於原值」
+把這個陷阱釘住。
+
+順帶重排設定頁：配色／透明度／頭像開關**全部搬到預覽正下方**（owner：
+「應該放在預覽旁邊，才不用一直上下來回拉看結果」）。三者都會改變預覽，
+所以收進同一段「外觀」；配色格改四欄讓 13 個選項從五列縮成四列，
+預覽與控制項在一般手機上能同框。透明度拉桿吃拖曳中的 draft，
+拖的當下預覽就跟著變，放開才寫檔＋叫原生重繪。
+
+typecheck／test（80 檔、1044 項）／兩支 APK 皆過，待驗項見計畫書 §16.3。
+
+### 頭像底色圓也要跟著配色（第六輪，計畫書 §17）
+
+owner：「DeST 小工具的頭像背景要跟著顏色設定跑」。
+
+**這是第三個踩到同一條 RemoteViews 限制的地方**（容器底板 §14.3、飲食小工具的
+按鈕與進度條 §15.1／§15.2，現在是頭像底色圓）——`android:background` 指到
+寫死顏色的 drawable，而 minSdk 26 上不能 tint 背景 drawable。這一顆特別
+容易漏，因為多數時候被頭像蓋住；但角色圖多半是**去背 PNG**，透明的地方
+就會露出那顆綠圓，換配色後看到的是「臉的周圍還是一圈原本的綠」。
+
+修法同按鈕：底色圓畫進 bitmap，再 `setBackgroundResource(0)` 拿掉 XML 那顆。
+⚠️ **不能沿用原本的「先畫遮罩 → `PorterDuff.SRC_IN`」寫法**——那個模式會把
+來源的 alpha 套到整層，連剛畫好的底色圓一起挖掉，等於白畫。改用
+`BitmapShader` 一次畫完（填色圓 → 用 shader 畫同一個圓），順便少一張暫存
+bitmap。底色圓一樣不吃底板透明度（臉要看得清楚就得有穩定背景）。
+
+`bg_dest_widget_avatar.xml` 沒刪（還是小工具選單預覽圖的底色），但檔案裡
+加註了「改這裡不會改變實機顏色」，免得之後有人在那邊白改。
+
+順帶：DeST 的 Kotlin `WidgetColors` 上一輪漏加 `accent`／`accentStrong`
+兩個欄位（只加在飲食那邊），這次補齊，兩個 App 的色票欄位現在一致。
+
+typecheck／test（80 檔、1044 項）／APK 皆過，待驗項見計畫書 §17.1。

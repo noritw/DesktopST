@@ -324,6 +324,19 @@ export function toEventMessageSnapshot(m: Message): MessageSnapshot {
   }
 }
 
+/**
+ * 重算桌面小工具快照。
+ *
+ * ⚠️ **動態 import 是必要的，不要改成頂層 import**：
+ * `widgetStore` → `widgetBridge` → `appStore`（`getData`／`isAttached`）
+ * 是一個循環，頂層 import 會在模組求值階段拿到還沒初始化完的 binding。
+ */
+function refreshWidgetSnapshot(): void {
+  void import('./widgetStore')
+    .then((m) => m.useWidgetStore.getState().refresh())
+    .catch(() => {})
+}
+
 type Setter = (partial: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void
 
 function handleEvent(e: AppEvent, set: Setter, get: () => AppState): void {
@@ -339,6 +352,10 @@ function handleEvent(e: AppEvent, set: Setter, get: () => AppState): void {
           localImages: replacedId ? renameKey(s.localImages, replacedId, incoming.id) : s.localImages
         }
       })
+      // 桌面小工具（`docs/mobile-android-widget-plan.md` §4.1 觸發點 1）：
+      // 角色訊息進來就刷一次快取。獨立模式的提醒背景路徑（headless、appStore
+      // 未 attach）不會經過這裡，那條走 `session.ts` 自己的 hook——見那邊的說明。
+      if (incoming.role === 'character') void refreshWidgetSnapshot()
       return
     }
 
@@ -371,6 +388,8 @@ function handleEvent(e: AppEvent, set: Setter, get: () => AppState): void {
       // 講是哪一隻角色，乾脆全部清快取重問一次（owner 2026-08-13 實機回報：
       // 遙控模式下電腦端換的主圖沒有反映到手機畫面，成因就是這裡漏掉）。
       invalidateAllAvatars()
+      // 切換對話、電腦端改了東西 —— 小工具顯示的「目前對話最新一則」跟著變。
+      refreshWidgetSnapshot()
       return
   }
 }

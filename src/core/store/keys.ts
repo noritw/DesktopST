@@ -52,6 +52,17 @@ export const SYNC_BASELINE_KEY = 'sync-baseline.json'
  * 桌面版沒有這個概念（全身圖，不需要臉部特寫）。
  */
 export const CHARACTER_DISPLAY_CONFIG_KEY = 'character-display-config.json'
+/**
+ * Android 桌面小工具的設定（釘選的對白＋要不要顯示頭像，
+ * `docs/mobile-android-widget-plan.md` §2.2 A 層）。**全域一份，不以角色分群**
+ * ——小工具跟著「目前這個對話」走，見 `core/character/widgetSnapshot.ts` 檔頭。
+ * 同樣是 mobile-only 裝置偏好，理由與 `CHARACTER_DISPLAY_CONFIG_KEY` 一致：
+ * 不進同步／搬家包，桌面版沒有這個小工具。
+ *
+ * ⚠️ 原生層（`DeSTWidgetProvider.kt`）**不讀這一份**，只讀 Bridge 產出的
+ * `widget-cache/state.json`——檔名改動時要順手確認那邊。
+ */
+export const WIDGET_CONFIG_KEY = 'widget-config.json'
 
 export const MODULES_DIR = 'modules'
 export const CHARACTERS_DIR = 'characters'

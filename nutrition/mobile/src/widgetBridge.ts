@@ -1,3 +1,4 @@
+import { normalizeWidgetAppearance, resolveWidgetColors } from '@shared/widgetAppearance'
 import { nutritionMobileStorage } from './storage'
 
 /**
@@ -52,5 +53,29 @@ export async function writeWidgetHealthState(state: WidgetHealthState | null): P
     else await nutritionMobileStorage.writeJson(WIDGET_HEALTH_STATE_KEY, state)
   } catch {
     // 小工具的裝飾性資料，寫不進去就算了，不要影響 App 本身
+  }
+}
+
+/** 小工具配色。檔名要跟 `NutritionWidgetDataReader.kt` 的常數一致。 */
+export const WIDGET_THEME_KEY = 'widget-theme.json'
+
+/**
+ * 把配色與底色透明度換算成 `#AARRGGBB` 落地給原生層（`docs/mobile-android-widget-plan.md` §14.2）。
+ *
+ * ⚠️ **色表與換算跟 DeST 共用 `@shared/widgetAppearance`**——抄一份過來就是
+ * 計畫書再三警告的雙邊定義漂移。這個 App 沒有「跟隨 App 配色」的概念
+ * （UI 有自己一套 CSS），所以 `resolveWidgetColors` 的第二個參數固定
+ * 傳預設值，實際用的一定是 `appearance.theme`。
+ */
+export async function writeWidgetTheme(appearance: unknown): Promise<void> {
+  try {
+    const normalized = normalizeWidgetAppearance(appearance)
+    // theme 為 null（還沒選過）時就用全站預設的薄荷，跟改版前的寫死色值一致。
+    await nutritionMobileStorage.writeJson(
+      WIDGET_THEME_KEY,
+      resolveWidgetColors({ ...normalized, theme: normalized.theme ?? 'mint' })
+    )
+  } catch {
+    // 同上：裝飾性資料，失敗不影響 App
   }
 }

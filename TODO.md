@@ -236,24 +236,56 @@ owner 決定：提醒資料本身要同步（整份清單，比照角色／情�
 - [ ] 飲食熱量模組其餘分期（桌面小工具已完成見下方；本機報表頁；
       B9c：Health 寫、接 S2、角色偏好注入）→ `docs/future-nutrition-module.md`。
       **本機報表頁**排最後（純唯讀，隨時能補）
-- [ ] Android 桌面小工具（DeST 主 App）→ **規格已重新定案（2026-08-22，
-      三輪追加：3x2/4x2 兩則對話＋提醒顯示 → 對白顯示更多字＋點對白跳轉
-      對應訊息），尚未動工**。`docs/mobile-android-widget-plan.md` 整份
-      改寫：角色頭像（框選臉部範圍，固定佔一格寬度不隨尺寸放大）＋小字
-      名稱＋對白（最新發言／提醒觸發時的台詞／使用者最多釘選兩則過去
-      發言，目標顯示 20–50 字、多行而非單行截斷），可選擇不顯示頭像，
-      尺寸 3x1/4x1（一句）與 3x2/4x2（兩句）。**點擊行為不再是純開
-      App**：點對白區域會帶 `conversationId`／`messageId` 跳到對應對話並
-      捲動到那一則（新功能，`MessageList.tsx` 要新增手動 `scrollTop`
-      捲動，**不可以用 `scrollIntoView()`**——檔頭已有這條踩過的教訓）；
-      點頭像/名字/背景仍是單純開 App。核心架構難點是手機有獨立／遙控兩種
-      資料來源模式，設計上讓 JS 端 Bridge 把要顯示的內容落地成檔案，
-      原生層只讀檔案、不必分辨目前是哪個模式（§2）。**前置依賴
-      `docs/mobile-character-expression-plan.md`**（框選/表情解析邏輯
-      搬去那份文件，兩邊共用），建議先做那份再做這份。「提醒顯示在小工具
-      上」不需要額外資料路徑——提醒觸發本來就會把台詞寫進對話訊息，只要
-      小工具的「找最新訊息」邏輯掃過角色參與的所有對話就自然涵蓋，見該
-      文件 §4.1
+- [x] Android 桌面小工具（DeST 主 App）→ ✅ **已實作，自動測試通過（`npm run
+      typecheck`／`npm test` 999 項全過），真機驗證尚未進行**（2026-08-23）。
+      `docs/mobile-android-widget-plan.md` 整份＋§11 落地筆記。JS 端：
+      `core/character/widgetSnapshot.ts`（純邏輯）、`mobile/runtime/widgetPins.ts`
+      （釘選存取）、`mobile/runtime/widgetBridge.ts`（Bridge，`getData()` 版與
+      `session.ts` 直用版兩種入口，見落地筆記）、`DataSource.widgetLatestMessages`
+      新方法（`LocalDataSource` 委派 `session`；`RemoteDataSource` 打
+      `GET /api/widget/latest-messages/:id`，`mobileServer.ts` 新端點）、
+      `MessageMenu.tsx`「釘選到小工具」、`CharacterEditor.tsx`「小工具設定」
+      區塊、`App.tsx` 深連結導覽、`MessageList.tsx` 捲到指定訊息（手動
+      `scrollTop`，未用 `scrollIntoView()`）。原生：
+      `android/app/src/main/java/tw/nori/dest/widget/`
+      兩支 Kotlin（`DeSTWidgetProvider`／`DeSTWidgetBridgePlugin`）＋版面／
+      manifest／build.gradle（比照飲食小工具補上 Kotlin 工具鏈）。
+      **owner 第一次裝機回報六項，已全部處理**（同日，見計畫書 §12）：
+      打包失敗（Kotlin 註解會巢狀，`/*` 寫在 KDoc 裡就編不過）、拉高到兩格
+      顯示「無法載入小工具」（RemoteViews 不認得裸的 `<View>`，分隔線改
+      `FrameLayout`）、**小工具改成不綁角色、跟著目前對話走**（三項回饋
+      同一個成因，連帶拿掉 `DataSource.widgetLatestMessages()`／
+      `/api/widget/latest-messages` 端點／ConfigureActivity）、新增 App 內
+      「桌面小工具」設定頁（預覽＋管理釘選＋頭像開關）、釘選改用
+      `ui/stores/widgetStore.ts` 當單一真相並加圖釘標示、表情選單補
+      「使用預設圖片」。**owner 同日再追加一項**（計畫書 §13）：兩則對白是
+      不同角色時各自顯示頭像與名字（推翻原 §5.2「頭像只有一張」的簡化，
+      新增第三份版面 `widget_dest_character_2line_multi.xml`，頭像檔案
+      拆成 `image1/2.png`）。**第三輪追加**（計畫書 §14）：自動顯示的那幾則
+      改成「新的在下面」跟對話記錄一致（連帶讓 `limit` 不再是截斷關係，
+      矮版要另算 `singleLine`）、小工具可選 DeST 的 12 組配色＋底色透明度
+      0–100% 拉桿（色表搬到 `src/shared/colorThemes.ts` 當唯一真相，
+      換算在 `src/shared/widgetAppearance.ts`）、**飲食記錄 App 的小工具
+      也一併支援且與 DeST 各自獨立**。全部改完後 typecheck／test
+      （80 檔 1035 項）／兩支 APK 的 `gradlew assembleDebug` 皆過。
+      **第四輪追加**（計畫書 §15）：飲食小工具的按鈕／進度條沒跟著配色
+      （成因與 §14.3 同一條 RemoteViews 限制，上一輪只修了容器；改成把
+      「圓底＋圖示」整顆畫成 bitmap、進度條換 ImageView 自繪）、
+      **飲食 App 本身也接上 12 組配色**（`styles.css` 全面改用 CSS 變數
+      ＋新增 `nutrition/mobile/src/theme.ts`）。至此四個配色設定彼此獨立：
+      DeST App／DeST 小工具／飲食 App／飲食小工具。全部改完後 typecheck／
+      test（80 檔 1040 項）／兩支 APK 皆過。**第五輪追加**（計畫書 §16）：
+      設定頁預覽的顏色／透明度全錯（`resolveWidgetColors()` 回 Android 的
+      `#AARRGGBB`，CSS 八碼卻是 `#RRGGBBAA`，alpha 位置相反且兩者都合法
+      所以安靜壞掉；新增 `toCssColor()`／`widgetColorsToCss()`）＋設定頁
+      重排（配色／透明度／頭像開關全部搬到預覽正下方）。全部改完後
+      typecheck／test（80 檔 1044 項）／兩支 APK 皆過。**第六輪追加**
+      （計畫書 §17）：頭像的底色圓也要跟著配色——第三個踩到同一條
+      RemoteViews 限制的地方，去背角色圖會露出寫死的綠圓；改用
+      `BitmapShader` 把底色畫進 bitmap（**不能用原本的 `SRC_IN`，
+      那會把底色一起挖掉**）。全部改完後 typecheck／test（80 檔 1044 項）／
+      兩支 APK 皆過，**真機仍待驗證**，清單見計畫書
+      §12.7 ＋ §13.5 ＋ §14.4 ＋ §15.4 ＋ §16.3 ＋ §17.1。
 - [x] **手機版對話記錄換表情＋手動指定表情＋手機新增表情圖片** → ✅ **已實作，
       三輪修正後 owner 第四次實機驗證通過**（2026-08-23）：跨裝置同步後
       表情正常顯示。

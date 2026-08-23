@@ -7,6 +7,7 @@ import { MessageImages } from './MessageImages'
 import { formatRandomBadge } from './randomLabels'
 import { useCharacterDisplayImage } from '../characters/useAvatarUrl'
 import { useUiStore } from '../stores/uiStore'
+import { useIsPinned } from '../stores/widgetStore'
 import MonoIcon from '@shared/MonoIcon'
 import { resolveCharacterName } from '@core/chat/characterName'
 import { NewsContextSheet } from '../news/NewsContextSheet'
@@ -25,6 +26,8 @@ export function MessageList(): JSX.Element {
   const endRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const stickToBottom = useRef(true)
+  /** 桌面小工具點對白（`docs/mobile-android-widget-plan.md` §6.3）：每則訊息的 DOM 節點。 */
+  const rowRefs = useRef(new Map<string, HTMLDivElement>())
 
   const scrollToEnd = (): void => {
     const el = containerRef.current
@@ -67,6 +70,34 @@ export function MessageList(): JSX.Element {
   }, [messages, thinkingIds])
 
   /**
+   * 桌面小工具點對白：捲到目標訊息（`docs/mobile-android-widget-plan.md` §6.3）。
+   *
+   * ⚠️ **用容器自己的 `scrollTop`，不要 `scrollIntoView()`**——`MessageList.tsx`
+   * 檔頭那條教訓（Capacitor WebView 裡 `scrollIntoView` 常去捲外層）對「捲到
+   * 指定訊息」一樣適用，這是第一個真的需要這個功能的地方。
+   * 找不到目標（記憶摘要濃縮掉了、或訊息被刪除）就安靜退回捲到底部，不報錯。
+   */
+  const pendingScrollMessageId = useUiStore((s) => s.pendingScrollMessageId)
+  const setPendingScrollMessageId = useUiStore((s) => s.setPendingScrollMessageId)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!pendingScrollMessageId) return
+    const container = containerRef.current
+    const target = rowRefs.current.get(pendingScrollMessageId)
+    if (container && target) {
+      container.scrollTop = target.offsetTop - 16
+      setHighlightId(pendingScrollMessageId)
+      window.setTimeout(() => setHighlightId((id) => (id === pendingScrollMessageId ? null : id)), 1500)
+    } else if (container) {
+      scrollToEnd()
+    }
+    setPendingScrollMessageId(null)
+    // messages 變動時（例如切換對話後訊息才載入完）要重新嘗試一次，
+    // 所以把它放進依賴——`pendingScrollMessageId` 本身在第一次成功後就被清空了。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingScrollMessageId, messages])
+
+  /**
    * 角色名字：以現存角色為準，查不到才退回訊息裡的名字快照
    * （`Message.characterName`——同步把角色 id 換掉時的備援）。
    *
@@ -93,7 +124,17 @@ export function MessageList(): JSX.Element {
   return (
     <div ref={containerRef} className="scroll-y flex-1 px-4 py-3">
       {messages.map((m) => (
-        <MessageRow key={m.id} message={m} characterName={nameOf(m.characterId, m.characterName)} onEditNews={setNewsMsg} />
+        <MessageRow
+          key={m.id}
+          message={m}
+          characterName={nameOf(m.characterId, m.characterName)}
+          onEditNews={setNewsMsg}
+          highlighted={highlightId === m.id}
+          registerRef={(el) => {
+            if (el) rowRefs.current.set(m.id, el)
+            else rowRefs.current.delete(m.id)
+          }}
+        />
       ))}
       {thinkingIds.map((id) => (
         <ThinkingRow key={`thinking:${id}`} name={nameOf(id)} />
@@ -190,17 +231,21 @@ function MessageAvatar({ characterId, emotion }: { characterId: string; emotion?
   )
 }
 
-function MessageRow({ message, characterName, onEditNews }: {
+function MessageRow({ message, characterName, onEditNews, highlighted, registerRef }: {
   message: MessageSnapshot
   characterName: string
   onEditNews: (m: MessageSnapshot) => void
+  /** 桌面小工具捲動定位剛好命中這則時短暫高亮（§6.3，體驗加分項）。 */
+  highlighted?: boolean
+  registerRef?: (el: HTMLDivElement | null) => void
 }): JSX.Element {
   // 未設定＝開啟，與 `showLlmBadge` 同一個慣例。
   const showPersonaName = useAppStore((s) => s.snapshot?.showPersonaName !== false)
+  const pinnedToWidget = useIsPinned(message.id)
 
   if (message.role === 'system') {
     return (
-      <div className="my-2 px-6 text-center text-xs leading-relaxed text-[var(--text-sub)]">
+      <div ref={registerRef} className="my-2 px-6 text-center text-xs leading-relaxed text-[var(--text-sub)]">
         {message.content}
       </div>
     )
@@ -208,7 +253,10 @@ function MessageRow({ message, characterName, onEditNews }: {
 
   const isUser = message.role === 'user'
   return (
-    <div className={`mb-2.5 flex items-start gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div
+      ref={registerRef}
+      className={`mb-2.5 flex items-start gap-2 rounded-[16px] transition-colors duration-500 ${isUser ? 'justify-end' : 'justify-start'} ${highlighted ? 'bg-[var(--mint2)]/40' : ''}`}
+    >
       {!isUser && message.characterId && (
         /* 頭像＝放大預覽這則訊息用的表情圖＋角色操作（提及／說點什麼／禁言／編輯角色）。
            泡泡上的頭像很小，點進去才看得清楚選了哪張表情圖
@@ -264,6 +312,14 @@ function MessageRow({ message, characterName, onEditNews }: {
                   {formatRandomBadge(r)}
                 </div>
               )
+            )}
+            {/* 釘在桌面小工具上的那幾則要看得出來——不然使用者無從得知小工具上
+                為什麼固定顯示這一句（owner 2026-08-23 回報）。 */}
+            {pinnedToWidget && (
+              <span className="mb-1 flex items-center gap-1 text-[11px] text-[var(--text-sub)]">
+                <MonoIcon name="pin" className="h-3 w-3" />
+                已釘選到小工具
+              </span>
             )}
             {renderInline(message.content)}
             {message.newsLink?.title && (

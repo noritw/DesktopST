@@ -178,6 +178,26 @@ export interface NutritionAppSettings {
    */
   showWeightBadge?: boolean
   /**
+   * App 介面的配色（owner 2026-08-23）。用的是 DeST 的 12 組配色
+   * （`src/shared/colorThemes.ts` 是唯一真相），但**跟 DeST 各存各的**，
+   * 也跟下面的 `widgetAppearance` 各自獨立——App 用深色、小工具用淺色是允許的。
+   * 未設定時是 `'mint'`（全站預設）。
+   */
+  colorTheme?: string
+  /**
+   * 桌面小工具的配色與底色透明度（owner 2026-08-23，
+   * 見 `docs/mobile-android-widget-plan.md` §14.2）。
+   *
+   * 用的是 DeST 的 12 組配色（`src/shared/colorThemes.ts` 是唯一真相），
+   * 但**兩個 App 各存各的**——owner 明講「兩邊可以設定不同顏色」。
+   * 這個 App 沒有「跟隨 App 配色」的概念（它的 UI 有自己一套 CSS），
+   * 所以 `theme` 一律是明確指定，未設定時當作 `'mint'`（全站預設）。
+   *
+   * ⚠️ 型別寫成結構而不是 import `WidgetAppearance`：**core 不可以往上依賴
+   * `shared/`**（那是呈現層），換算邏輯在 `shared/widgetAppearance.ts`。
+   */
+  widgetAppearance?: { theme: string | null; bgOpacity: number }
+  /**
    * 第三層開關（母規格外的加值路徑），預設關。關閉時拍照／補記／重估
    * 入口全部隱藏（非變灰），手打路徑不受影響。
    * 見 `docs/nutrition-photo-estimate-plan.md` §2.10。

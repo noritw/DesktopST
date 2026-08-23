@@ -6,6 +6,10 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -108,7 +112,13 @@ class NutritionWidgetProvider : AppWidgetProvider() {
             val sizeSp = valueTextSizeSp(layoutRes, widthDp, heightDp, snapshot, shortSuffix, buttonDp, refreshDp)
             Log.d(TAG, "widget $appWidgetId ${widthDp}x${heightDp}dp -> ${layoutName(layoutRes)} value=${sizeSp}sp btn=${buttonDp}dp")
 
-            val views = buildRemoteViews(context, layoutRes, appWidgetId, snapshot, shortSuffix)
+            // ── 配色與底色透明度（docs/mobile-android-widget-plan.md §14.2）──
+            // 色票由 App 寫進 widget-theme.json（跟 DeST 共用同一張色表，
+            // 但兩邊各存各的）。這裡只負責塗，不做任何顏色決策。
+            val colors = NutritionWidgetDataReader.readColors(context)
+            val views = buildRemoteViews(context, layoutRes, appWidgetId, snapshot, shortSuffix, colors)
+            applyBackground(context, views, widthDp, heightDp, colors.bg)
+            applyThemeColors(views, colors)
             views.setTextViewTextSize(R.id.widget_kcal_value, TypedValue.COMPLEX_UNIT_SP, sizeSp)
             views.setTextViewTextSize(R.id.widget_protein_value, TypedValue.COMPLEX_UNIT_SP, sizeSp)
             // 上下限那行也要跟著放大，否則大數字旁邊會顯得像註腳（owner 2026-08-22 ①③）。
@@ -116,12 +126,58 @@ class NutritionWidgetProvider : AppWidgetProvider() {
             views.setTextViewTextSize(R.id.widget_kcal_suffix, TypedValue.COMPLEX_UNIT_SP, suffixSp)
             views.setTextViewTextSize(R.id.widget_protein_suffix, TypedValue.COMPLEX_UNIT_SP, suffixSp)
 
-            applyButtonSizes(context, views, buttonDp, refreshDp)
+            applyButtons(context, views, buttonDp, refreshDp, colors)
             manager.updateAppWidget(appWidgetId, views)
         }
 
         /** 上下限尾巴相對大數字的比例。字寬估算與實際設定共用同一個常數，不可以各寫各的。 */
         private const val SUFFIX_RATIO = 0.45f
+
+        /** 底板圓角，與 `bg_widget_container.xml` 的值一致。 */
+        private const val CORNER_RADIUS_DP = 20f
+
+        /**
+         * 圓角底板（§14.2）。
+         *
+         * ⚠️ **不能用 `setInt(root, "setBackgroundColor", …)`**：那會是直角，
+         * 而 CLAUDE.md §3 的視覺硬規則明訂不要尖角；`setBackgroundTintList`
+         * 又要 API 31（本專案 minSdk 26）。所以自己畫一張圓角矩形 bitmap 塞進
+         * `widget_bg` 那個 ImageView（`scaleType="fitXY"`，bitmap 就是實際尺寸）。
+         */
+        private fun applyBackground(context: Context, views: RemoteViews, widthDp: Int, heightDp: Int, color: Int) {
+            val density = context.resources.displayMetrics.density
+            val w = (widthDp * density).toInt().coerceIn(1, 2000)
+            val h = (heightDp * density).toInt().coerceIn(1, 2000)
+            val radius = CORNER_RADIUS_DP * density
+            val bitmap = try {
+                val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bmp)
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+                paint.color = color
+                canvas.drawRoundRect(RectF(0f, 0f, w.toFloat(), h.toFloat()), radius, radius, paint)
+                bmp
+            } catch (_: Exception) {
+                null
+            }
+            if (bitmap != null) views.setImageViewBitmap(R.id.widget_bg, bitmap)
+        }
+
+        /**
+         * 文字顏色。
+         *
+         * ⚠️ **大數字的顏色不在這裡設**：那兩個是語意色（熱量超標紅字／蛋白質
+         * 達標綠字，見 [buildRemoteViews]），跟著配色跑會把「超標」的警示意義
+         * 洗掉。標籤與尾巴這種純敘述文字才跟著配色走。
+         * RemoteViews 對找不到的 id 會安靜略過，所以不必判斷現在是哪個版面。
+         */
+        private fun applyThemeColors(views: RemoteViews, colors: NutritionWidgetDataReader.NutritionWidgetColors) {
+            for (id in intArrayOf(R.id.widget_kcal_label, R.id.widget_protein_label)) {
+                views.setTextColor(id, colors.textSub)
+            }
+            for (id in intArrayOf(R.id.widget_kcal_suffix, R.id.widget_protein_suffix)) {
+                views.setTextColor(id, colors.textSub)
+            }
+        }
 
         /**
          * 相機／鉛筆的邊長。
@@ -158,26 +214,112 @@ class NutritionWidgetProvider : AppWidgetProvider() {
          *
          * `setViewPadding()` 吃的是 **px**（不是 dp），要自己乘密度換算。
          */
-        private fun applyButtonSizes(context: Context, views: RemoteViews, buttonDp: Float, refreshDp: Float) {
-            val density = context.resources.displayMetrics.density
-            fun dpToPx(dp: Float): Int = (dp * density).roundToInt()
-
-            val iconPadPx = dpToPx(buttonDp * 0.26f)
+        private fun applyButtons(
+            context: Context,
+            views: RemoteViews,
+            buttonDp: Float,
+            refreshDp: Float,
+            colors: NutritionWidgetDataReader.NutritionWidgetColors
+        ) {
             for (id in intArrayOf(R.id.widget_btn_edit, R.id.widget_btn_camera)) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     views.setViewLayoutWidth(id, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
                     views.setViewLayoutHeight(id, buttonDp, TypedValue.COMPLEX_UNIT_DIP)
                 }
-                // 內距不受 API 31 限制，舊機至少圖示比例是對的。
-                views.setViewPadding(id, iconPadPx, iconPadPx, iconPadPx, iconPadPx)
             }
-
-            val refreshPadPx = dpToPx(refreshDp * 0.22f)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 views.setViewLayoutWidth(R.id.widget_btn_refresh, refreshDp, TypedValue.COMPLEX_UNIT_DIP)
                 views.setViewLayoutHeight(R.id.widget_btn_refresh, refreshDp, TypedValue.COMPLEX_UNIT_DIP)
             }
-            views.setViewPadding(R.id.widget_btn_refresh, refreshPadPx, refreshPadPx, refreshPadPx, refreshPadPx)
+
+            applyButtonSkin(context, views, R.id.widget_btn_camera, R.drawable.ic_widget_camera, buttonDp, colors.accent, colors.text)
+            applyButtonSkin(context, views, R.id.widget_btn_edit, R.drawable.ic_widget_edit, buttonDp, colors.accent, colors.text)
+            // 重新整理是次要動作：用比主要按鈕淡的底（border）＋次要文字色，維持視覺層級。
+            applyButtonSkin(context, views, R.id.widget_btn_refresh, R.drawable.ic_widget_refresh, refreshDp, colors.border, colors.textSub)
+        }
+
+        /**
+         * 把「圓底＋圖示」畫成一張 bitmap 當 `src`（計畫書 §14.2）。
+         *
+         * ⚠️ **這是唯一能讓按鈕跟著配色走的做法。** 圓底原本是
+         * `android:background="@drawable/bg_widget_button_circle"`（寫死 widget_mint），
+         * 而 RemoteViews 在 minSdk 26 上既不能 tint 背景 drawable
+         * （`setBackgroundTintList` 要 API 31），`setBackgroundColor` 又會變成方形——
+         * owner 2026-08-23 回報「改了小工具配色，按鈕還是原本的淺綠色」就是這個。
+         * 改成自己畫好整顆按鈕，再用 `setBackgroundResource(0)` 把舊的綠圓底拿掉。
+         *
+         * 內距要一起歸零（原本 XML 有 padding，是給「背景是圓、src 是圖示」那套用的）；
+         * 現在圖示的留白已經畫在 bitmap 裡了，不歸零會連圓底一起被縮小。
+         */
+        private fun applyButtonSkin(
+            context: Context,
+            views: RemoteViews,
+            viewId: Int,
+            iconRes: Int,
+            sizeDp: Float,
+            circleColor: Int,
+            iconColor: Int
+        ) {
+            views.setInt(viewId, "setBackgroundResource", 0)
+            views.setViewPadding(viewId, 0, 0, 0, 0)
+
+            val density = context.resources.displayMetrics.density
+            val size = (sizeDp * density).roundToInt().coerceIn(1, 400)
+            val bitmap = try {
+                val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bmp)
+                canvas.drawCircle(size / 2f, size / 2f, size / 2f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = circleColor })
+                // 圖示留白固定佔邊長 26%——跟改版前 applyButtonSizes 的比例一致，
+                // 大按鈕時圖示才不會幾乎填滿整個圓（owner 2026-08-22 回報過）。
+                val icon = ContextCompat.getDrawable(context, iconRes)
+                if (icon != null) {
+                    val pad = (size * 0.26f).roundToInt()
+                    icon.setBounds(pad, pad, size - pad, size - pad)
+                    // 向量圖的線條色寫死在 XML（strokeColor="@color/widget_text"），
+                    // setTint 是整層 color filter，連筆畫一起蓋掉，正是我們要的。
+                    icon.setTint(iconColor)
+                    icon.draw(canvas)
+                }
+                bmp
+            } catch (_: Exception) {
+                null
+            }
+            if (bitmap != null) views.setImageViewBitmap(viewId, bitmap)
+        }
+
+        /**
+         * 進度條：自繪的圓角長條 bitmap（計畫書 §14.2）。
+         *
+         * 版面裡那幾個 id 已經從 `ProgressBar` 換成 `ImageView`——`progressTint`
+         * 只能在 XML 寫死，RemoteViews 改不動（`setProgressTintList` 要 API 31），
+         * 配色會永遠停在原本那組淺綠。
+         *
+         * ⚠️ **換成 ImageView 之後就不能再呼叫 `views.setProgressBar()`**：
+         * 那支會對 ImageView 呼叫不存在的 `setMax`／`setProgress`，
+         * 套用時直接丟例外變成「無法載入小工具」。
+         */
+        private fun applyProgress(context: Context, views: RemoteViews, viewId: Int, percent: Int, colors: NutritionWidgetDataReader.NutritionWidgetColors) {
+            val density = context.resources.displayMetrics.density
+            // 寬度只是繪製解析度，實際由 scaleType="fitXY" 拉滿容器。
+            val w = (240 * density).roundToInt()
+            val h = (6 * density).roundToInt().coerceAtLeast(2)
+            val bitmap = try {
+                val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bmp)
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+                val r = h / 2f
+                paint.color = colors.border
+                canvas.drawRoundRect(RectF(0f, 0f, w.toFloat(), h.toFloat()), r, r, paint)
+                val filled = w * percent.coerceIn(0, 100) / 100f
+                if (filled > 0f) {
+                    paint.color = colors.accentStrong
+                    canvas.drawRoundRect(RectF(0f, 0f, filled.coerceAtLeast(h.toFloat()), h.toFloat()), r, r, paint)
+                }
+                bmp
+            } catch (_: Exception) {
+                null
+            }
+            if (bitmap != null) views.setImageViewBitmap(viewId, bitmap)
         }
 
         /**
@@ -275,12 +417,14 @@ class NutritionWidgetProvider : AppWidgetProvider() {
             layoutRes: Int,
             appWidgetId: Int,
             snapshot: NutritionWidgetSnapshot,
-            shortSuffix: Boolean
+            shortSuffix: Boolean,
+            colors: NutritionWidgetDataReader.NutritionWidgetColors
         ): RemoteViews {
             val views = RemoteViews(context.packageName, layoutRes)
 
             if (!snapshot.hasBodyProfile) {
                 views.setTextViewText(R.id.widget_kcal_value, "--")
+                views.setTextColor(R.id.widget_kcal_value, colors.text)
                 // 窄版的尾巴只有幾個字寬，長句會被截成「尚未設定身…」——那裡用短字串。
                 views.setTextViewText(
                     R.id.widget_kcal_suffix,
@@ -328,8 +472,11 @@ class NutritionWidgetProvider : AppWidgetProvider() {
                     )
                 )
 
-                val kcalColor = ContextCompat.getColor(context, if (kcalExceeded) R.color.widget_exceeded else R.color.widget_text)
-                val proteinColor = ContextCompat.getColor(context, if (proteinBelowGoal) R.color.widget_exceeded else R.color.widget_good)
+                // ⚠️ 「正常」那一側要用**配色的文字色**，不是寫死的 widget_text——
+                // 否則挑深色配色時數字會是深綠字配深底，整個看不到（§14.2）。
+                // 超標紅／達標綠是語意色，跟著配色跑會把警示意義洗掉，維持固定值。
+                val kcalColor = if (kcalExceeded) ContextCompat.getColor(context, R.color.widget_exceeded) else colors.text
+                val proteinColor = if (proteinBelowGoal) ContextCompat.getColor(context, R.color.widget_exceeded) else ContextCompat.getColor(context, R.color.widget_good)
                 views.setTextColor(R.id.widget_kcal_value, kcalColor)
                 views.setTextColor(R.id.widget_protein_value, proteinColor)
 
@@ -341,11 +488,11 @@ class NutritionWidgetProvider : AppWidgetProvider() {
                 }
 
                 // 只有夠高的兩種版面有進度條；矮版（narrow／medium）一格高塞不下，
-                // 那兩個版面根本沒有這兩個 id，setProgressBar 會安靜略過——
+                // 那兩個版面根本沒有這兩個 id，RemoteViews 對不存在的 id 會安靜略過——
                 // 但還是明確判斷，免得之後有人以為矮版也該有。
                 if (layoutRes == R.layout.widget_nutrition_wide || layoutRes == R.layout.widget_nutrition_square) {
-                    views.setProgressBar(R.id.widget_kcal_progress, 100, progressPercent(snapshot.totalKcal, snapshot.kcalLimit), false)
-                    views.setProgressBar(R.id.widget_protein_progress, 100, progressPercent(snapshot.totalProteinG, snapshot.proteinGoalG), false)
+                    applyProgress(context, views, R.id.widget_kcal_progress, progressPercent(snapshot.totalKcal, snapshot.kcalLimit), colors)
+                    applyProgress(context, views, R.id.widget_protein_progress, progressPercent(snapshot.totalProteinG, snapshot.proteinGoalG), colors)
                 }
             }
 

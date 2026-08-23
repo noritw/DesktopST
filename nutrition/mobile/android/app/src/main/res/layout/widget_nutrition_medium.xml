@@ -9,12 +9,30 @@
   標籤用 `minWidth="42dp"`：「熱量」兩字、「蛋白質」三字寬度不同，不給最小寬度的話
   兩列的數字起點會差一個字，看起來像沒對齊。
 -->
-<LinearLayout
+<FrameLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!--
+      底板：一張 ImageView 而不是 root 的 android:background（計畫書 §14.2）。
+      底色要能換 12 組配色**還要能調透明度**，而 RemoteViews 在 minSdk 26 上
+      沒辦法對背景 drawable 上色（setBackgroundTintList 要 API 31，
+      setBackgroundColor 又會失去圓角）。改由 Provider 畫一張圓角矩形 bitmap
+      塞進來。android:src 留一張靜態底板，讓小工具選單裡的預覽圖不是空白。
+    -->
+    <ImageView
+        android:id="@+id/widget_bg"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="fitXY"
+        android:src="@drawable/bg_widget_container"
+        android:contentDescription="@null" />
+
+<LinearLayout
+    android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/bg_widget_container"
     android:padding="7dp"
     android:gravity="center_vertical"
     android:orientation="horizontal">
@@ -162,3 +180,5 @@
     </LinearLayout>
 
 </LinearLayout>
+
+</FrameLayout>
