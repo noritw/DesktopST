@@ -26,6 +26,7 @@
 | [`mobile-mode-switch-sync.md`](mobile-mode-switch-sync.md) | **做手機的模式切換／切換時帶資料走（S2）** | §2 方向決議；對話同步看 §3.1／§6.2 ②／§8.3／§8.4 |
 | [`mobile-sync-m4-compare.md`](mobile-sync-m4-compare.md) | **改／驗證切換模式的同步（現行流程）** | 整份。M4 逐項比對**已取代 M3 流程**，S2 M1–M5＋對話同步皆已完成並真機驗證（2026-08-16） |
 | [`mobile-sync-m3-kickoff.md`](mobile-sync-m3-kickoff.md) | 只在追歷史時才讀 | **已被 M4 取代**，勿當現況 |
+| [`qr-entry-merge-plan.md`](qr-entry-merge-plan.md) | **合併 QR 配對入口／出口**（2026-08-24 owner 指定，尚未動工） | 整份，開工指令。⚠️ §6 有 4 個必須先問 owner 的開放問題 |
 | [`reminder-sync-kickoff.md`](reminder-sync-kickoff.md) | **做提醒跨裝置同步（S2 新分類）** | 整份，開工指令。**尚未實作** |
 | [`local-llm-provider-plan.md`](local-llm-provider-plan.md) | 接本地 LLM（Ollama／LM Studio）當主／輔助模型 | **已實作**（2026-08-15），看 §9 落地筆記 |
 | [`mobile-android-widget-plan.md`](mobile-android-widget-plan.md) | 查／改 DeST 主 App 的 Android 桌面小工具 | **已實作、真機待驗**（2026-08-23）。§11 落地筆記＋§12–§17 六輪修正 |

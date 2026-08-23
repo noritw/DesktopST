@@ -291,6 +291,7 @@ Spotify／日曆授權仍只在桌面。
 | 動天氣（兩邊共用，含地震／颱風／預報即時查詢） | `core/weather/`（五個小檔，直接讀原始碼；`realtimeQuery.ts` 是即時查詢）＋ `progress-log.md` 搜「獨立版天氣」 | 舊的 `weather-realtime-query-spec.md`（那是搬過去之前的桌面 CWA 規格，即時查詢邏輯現在兩邊共用） |
 | 問「獨立版還缺什麼」／挑下一項做 | `mobile-standalone-gap-inventory.md`（整份，不長） | 舊的 `mobile-html-feature-inventory.md` |
 | 實作手機獨立版精準鬧鐘／提醒 | `mobile-standalone-reminder-plan.md`（整份） | 一切長文 |
+| **合併 QR 配對入口／出口（手機兩個入口＋電腦一張 QR 互相打架）** | `qr-entry-merge-plan.md`（整份，開工指令；§6 有 4 個開放問題要先問 owner） | 一切長文 |
 | **實作提醒跨裝置同步（S2 新分類）** | `reminder-sync-kickoff.md`（整份，開工指令） | 一切長文 |
 | **實作獨立版個人新聞報（缺口 #6）** | `news-standalone-kickoff.md`（整份，開工指令） | 一切長文 |
 | 地方新聞為什麼不是獨立欄了 | `news-local-merge-plan.md`（已完成，看 §9） | 一切長文 |
