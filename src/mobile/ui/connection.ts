@@ -23,6 +23,17 @@ export interface Connection {
   /** 遙控模式才有意義。不含結尾斜線。 */
   baseUrl: string
   token: string
+  /**
+   * §2.4：APK 原生殼走中繼時，電腦告訴我們的 WebSocket 網址
+   * （`GET /api/connection-info` 的 `tunnelWsUrl`，來自 cloudflared，不是
+   * `window.__tunnelWsUrl` 那種只有中繼代管網頁才有的注入）。
+   *
+   * ⚠️ **故意不存進 `ModePref`。** trycloudflare 的免費網址是動態的，重開
+   * cloudflared 就會換——存起來下次開機直接用只會連到一個已經失效的位址。
+   * 每次 attach（`App.tsx`）都要用 `probeRemote()` 現問一次，這裡只是讓
+   * 問到的值有地方放，傳給 `wsUrlFor()` 用。
+   */
+  tunnelWsUrl?: string
 }
 
 /**
@@ -91,6 +102,8 @@ export function resolveConnection(loc: Location = location, pref?: ModePref | nu
 
 export function wsUrlFor(conn: Connection): string {
   if (window.__tunnelWsUrl) return window.__tunnelWsUrl
+  // §2.4：原生殼走中繼時沒有上面那個網頁注入，改用電腦自己回報的 tunnel 位址。
+  if (conn.tunnelWsUrl) return `${conn.tunnelWsUrl}?token=${encodeURIComponent(conn.token)}`
 
   const token = encodeURIComponent(conn.token)
   if (/^https?:/i.test(conn.baseUrl)) {
@@ -124,7 +137,14 @@ export interface LiveRemoteResolution {
   /** `ok:true` 時才有意義：最後真的要用來連線的位址（可能已升級成區網直連）。 */
   baseUrl?: string
   token?: string
-  /** 走的是中繼、而且升級不了區網直連——這個 App 版本沒辦法在這條連線上建立即時遙控。 */
+  /** §2.4：中繼路徑下電腦回報的 tunnel WebSocket 位址，給 `wsUrlFor()` 用。 */
+  tunnelWsUrl?: string
+  /**
+   * 走的是中繼、升級不了區網直連、**而且電腦也沒有可用的 tunnel WebSocket 位址**
+   * （中繼沒開或 tunnel 還沒就緒）——這條連線目前沒辦法建立即時遙控。
+   * `tunnelWsUrl` 有值時不會走到這裡（§2.4 之前這裡涵蓋了「APK 走中繼」全部的
+   * 情況，那其實是判斷過度概括，見 CLAUDE.md §2.4）。
+   */
   relayOnly?: boolean
 }
 
@@ -138,9 +158,11 @@ export interface LiveRemoteResolution {
  * 症狀是 HTTP（送訊息）正常、WebSocket（即時狀態／推播）永遠連不上、
  * 畫面卡在「連線中斷，正在重新連線」（2026-08-12 owner 實機回報）。
  *
- * 因此**掃到中繼網址時，一律嘗試比照 S1（`syncImport.ts` 的 `upgradeToLan`）
- * 升級成區網直連**；升級不了就老實回報 `relayOnly`，讓呼叫端明講「這條連線
- * 這個版本還不支援即時遙控」，不要讓使用者切過去卻卡在一個永遠連不上的假連線。
+ * 掃到中繼網址時，先嘗試比照 S1（`syncImport.ts` 的 `upgradeToLan`）升級成
+ * 區網直連；升級不了就改用電腦回報的 `tunnelWsUrl`（§2.4，`getTunnelWsUrl()`）
+ * ——那是 cloudflared 自己的位址，原生殼可以直接拿去開 WebSocket，不需要
+ * 「WebSocket 經中繼代理」那種大工程。真的兩條都拿不到（中繼沒開、tunnel
+ * 還沒就緒）才回報 `relayOnly`。
  */
 export async function resolveLiveRemote(baseUrl: string, token: string): Promise<LiveRemoteResolution> {
   const base = baseUrl.replace(/\/$/, '')
@@ -153,21 +175,22 @@ export async function resolveLiveRemote(baseUrl: string, token: string): Promise
     const upgraded = await fetchSyncInitInfo(lanUrl.replace(/\/$/, ''), token)
     if (upgraded?.lanDirect) return { ok: true, baseUrl: lanUrl.replace(/\/$/, ''), token }
   }
+  if (info.tunnelWsUrl) return { ok: true, baseUrl: base, token, tunnelWsUrl: info.tunnelWsUrl }
   return { ok: true, relayOnly: true }
 }
 
 async function fetchSyncInitInfo(
   base: string,
   token: string
-): Promise<{ lanDirect: boolean; lanUrl?: string } | null> {
+): Promise<{ lanDirect: boolean; lanUrl?: string; tunnelWsUrl?: string } | null> {
   // 同樣要自己算逾時：這支是「切換到遙控」按下去之後第一個等待點，
   // 電腦關機時沒有逾時就會一直停在「連線中⋯⋯」（owner 2026-08-13 回報）。
-  const work = (async (): Promise<{ lanDirect: boolean; lanUrl?: string } | null> => {
+  const work = (async (): Promise<{ lanDirect: boolean; lanUrl?: string; tunnelWsUrl?: string } | null> => {
     try {
       const res = await fetch(`${base}/api/sync-init`, { headers: { 'X-DesktopST-Token': token } })
       if (!res.ok) return null
-      const data = (await res.json()) as { lanDirect?: boolean; lanUrl?: string }
-      return { lanDirect: !!data.lanDirect, lanUrl: data.lanUrl }
+      const data = (await res.json()) as { lanDirect?: boolean; lanUrl?: string; tunnelWsUrl?: string }
+      return { lanDirect: !!data.lanDirect, lanUrl: data.lanUrl, tunnelWsUrl: data.tunnelWsUrl ?? undefined }
     } catch {
       return null
     }
@@ -206,9 +229,9 @@ function withTimeout<T>(work: Promise<T>, ms: number, onTimeout: T): Promise<T> 
 export async function probeRemote(
   conn: Connection,
   timeoutMs = PROBE_TIMEOUT_MS
-): Promise<{ alive: boolean; lanDirect: boolean }> {
+): Promise<{ alive: boolean; lanDirect: boolean; tunnelWsUrl?: string }> {
   if (conn.mode === 'standalone') return { alive: true, lanDirect: false }
-  const work = (async (): Promise<{ alive: boolean; lanDirect: boolean }> => {
+  const work = (async (): Promise<{ alive: boolean; lanDirect: boolean; tunnelWsUrl?: string }> => {
     try {
       const base = conn.baseUrl.replace(/\/$/, '')
       const res = await fetch(`${base}/api/connection-info`, {
@@ -216,8 +239,9 @@ export async function probeRemote(
       })
       // 權杖過期（401／403）也算「電腦在」——那要走重新配對，不是叫使用者切回本機。
       if (!res.ok) return { alive: res.status === 401 || res.status === 403, lanDirect: false }
-      const data = (await res.json()) as { lanDirect?: boolean }
-      return { alive: true, lanDirect: data.lanDirect === true }
+      const data = (await res.json()) as { lanDirect?: boolean; tunnelWsUrl?: string }
+      // §2.4：每次探測都重問一次 tunnelWsUrl（trycloudflare 位址會變，不能只在配對時拿一次）。
+      return { alive: true, lanDirect: data.lanDirect === true, tunnelWsUrl: data.tunnelWsUrl ?? undefined }
     } catch {
       return { alive: false, lanDirect: false }
     }

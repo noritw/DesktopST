@@ -444,11 +444,16 @@ export function getMobileStatus() {
   const networkIp = getLocalIp()
   const token = encodeURIComponent(getAccessToken())
   const tunnelUrl = getCloudflaredUrl()
-  const relayUrl = getRelayUrl()
+  const tunnelReady = !!tunnelUrl
+  // relayUrl 只在中繼真的有在跑（設定開著且 tunnel 已就緒）時才給值——
+  // getRelayUrl() 本身只是拿設定檔組字串，不管中繼有沒有實際連上；
+  // 中繼關閉或還沒連上時回傳它會讓 QR 指向一個打下去只會 503 的網址。
+  const relayEnabled = (s.mobile?.useTunnel ?? true) && tunnelReady
+  const relayUrl = relayEnabled ? getRelayUrl() : ''
   return {
     enabled: s.mobile?.enabled ?? false,
     running: isServerRunning(),
-    tunnelReady: !!tunnelUrl,
+    tunnelReady,
     // 單一入口：`/` 一律送 B3 React UI（不再有 `?ui=app`／舊版 mobile.html 分流）。
     url: tunnelUrl ? `${tunnelUrl}?token=${token}` : null,
     localUrl: `http://${networkIp}:${port}?token=${token}`,
@@ -460,14 +465,38 @@ export function getMobileStatus() {
   }
 }
 
+/** RFC1918 私有位址（10.x／172.16–31.x／192.168.x）。判斷邏輯與手機端 `isPrivateHost()` 對齊。 */
+function isRfc1918(address: string): boolean {
+  const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(address)
+  if (!m) return false
+  const a = Number(m[1])
+  const b = Number(m[2])
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+}
+
+/**
+ * 找一個手機真的連得到的區網位址。
+ *
+ * ⚠️ **不能直接拿 `os.networkInterfaces()` 列出的第一個非內部位址**——
+ * 這台電腦若裝了 Tailscale（或其他 VPN），它的虛擬網卡（100.64.0.0/10 這段
+ * CGNAT 位址）常常排在真正的 Wi-Fi 網卡**前面**（實測：`Tailscale` 排在
+ * `Wi-Fi` 前面）。QR 配對的「自動升級區網」（`upgradeToLan`）與 `isPrivateHost()`
+ * 只認 RFC1918 私有位址，Tailscale 的位址不算在內、也不是手機在同一個
+ * Wi-Fi 下打得到的位址——選到它會讓自動升級永遠靜靜失敗，看起來像「這台電腦
+ * 不支援」，但其實只是選錯了網卡（2026-08-24 排查 QR 配對問題時發現）。
+ * 優先挑 RFC1918 位址；真的沒有才退回舊行為（第一個非內部位址）。
+ */
 function getLocalIp(): string {
   const interfaces = os.networkInterfaces()
+  let fallback: string | null = null
   for (const name of Object.keys(interfaces)) {
     for (const iface of interfaces[name] ?? []) {
-      if (iface.family === 'IPv4' && !iface.internal) return iface.address
+      if (iface.family !== 'IPv4' || iface.internal) continue
+      if (isRfc1918(iface.address)) return iface.address
+      if (!fallback) fallback = iface.address
     }
   }
-  return '127.0.0.1'
+  return fallback ?? '127.0.0.1'
 }
 
 let mobileLastConvId = ''
@@ -573,6 +602,10 @@ function initMobileServer(): void {
     getLanBaseUrl: () => {
       const st = getSettings()
       return `http://${getLocalIp()}:${st.mobile?.port ?? 3721}`
+    },
+    getTunnelWsUrl: () => {
+      const tunnelUrl = getCloudflaredUrl()
+      return tunnelUrl ? tunnelUrl.replace(/^http/, 'ws') : null
     },
     setShowLlmBadge: (show) => setShowLlmBadgeDirect(show),
     getShowPersonaName: () => getSettings().ui.showPersonaName !== false,

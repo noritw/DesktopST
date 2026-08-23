@@ -199,6 +199,7 @@ export function SettingsView(): JSX.Element {
     if (!llm) return
     const previous = llm
     setLlm({ ...llm, provider, model: llm.models[provider] ?? '' })
+    setTestMsg(null) // 換供應商後上一家的連線結果就不準了，不要留著誤導
     try {
       await getData().settings.setLlmProvider(provider)
       await load()
@@ -279,6 +280,31 @@ export function SettingsView(): JSX.Element {
       } else {
         setTestMsg({ ok: false, text: r.error })
       }
+    } catch (e) {
+      setTestMsg({ ok: false, text: describeSettingsError(e, '測試連線') })
+    } finally {
+      setTestingConn(false)
+    }
+  }
+
+  /**
+   * 雲端供應商（openai／claude／gemini／grok）的「連線」按鈕。
+   *
+   * 跟上面 `testConnection()`（本機專用，測 `endpoints.local`）分開一支，
+   * 理由是 `testConnection` 也被 `localEndpointField` 拿去給輔助模型的
+   * local 分支共用（見下方 790 行附近），改成看 `llm.provider` 會在
+   * 「主模型雲端、輔助模型 local」這個很常見的組合下測錯供應商。
+   * 桌面版（`SettingsWindow.tsx`）本來就有這顆，這裡只是補上手機一直缺的
+   * 對應功能（owner 2026-08-24 回報）——`session.testLlmConnection()` 本來就
+   * 支援任何供應商，金鑰也是它自己從已存的設定讀，這裡不用另外傳。
+   */
+  const testCloudConnection = async (): Promise<void> => {
+    if (!llm || llm.provider === 'local') return
+    setTestingConn(true)
+    setTestMsg(null)
+    try {
+      const r = await getData().settings.testLlmConnection(llm.provider, customEndpointDraft.trim() || undefined)
+      setTestMsg(r.ok ? { ok: true, text: '已驗證' } : { ok: false, text: r.error })
     } catch (e) {
       setTestMsg({ ok: false, text: describeSettingsError(e, '測試連線') })
     } finally {
@@ -685,6 +711,23 @@ export function SettingsView(): JSX.Element {
                 儲存
               </button>
             </div>
+            {llm.provider !== 'local' && (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={testingConn}
+                  onClick={() => void testCloudConnection()}
+                  className="btn-secondary px-3 py-1.5 text-xs disabled:opacity-40"
+                >
+                  {testingConn ? '連線中…' : '連線'}
+                </button>
+                {testMsg && (
+                  <span className={`text-[11px] ${testMsg.ok ? 'text-[#4CAF50]' : 'text-[#E85D3F]'}`}>
+                    {testMsg.text}
+                  </span>
+                )}
+              </div>
+            )}
             {plaintextKey && (
               <p className="mt-2 rounded-[14px] bg-[var(--bg)] p-3 text-[11px] leading-relaxed text-[var(--text-sub)]">
                 這台裝置沒有可用的金鑰保險箱，API Key 會以明文存在本機資料裡。測試用的金鑰沒問題，正式金鑰請改用 App 版。

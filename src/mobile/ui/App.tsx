@@ -16,7 +16,7 @@ import { MessageList } from './chat/MessageList'
 import { Composer } from './chat/Composer'
 import { AvatarBar } from './characters/AvatarBar'
 import MonoIcon from '@shared/MonoIcon'
-import { PROBE_TIMEOUT_MS, modeBadgeLabel, probeRemote, wsUrlFor } from './connection'
+import { PROBE_TIMEOUT_MS, modeBadgeLabel, probeRemote, wsUrlFor, type Connection } from './connection'
 import { useConnectionStore } from './stores/connectionStore'
 import { RemoteDataSource } from '../data/remoteDataSource'
 import { LocalDataSource } from '../data/localDataSource'
@@ -253,6 +253,13 @@ export function App(): JSX.Element {
 
       setLanDirect(probe.lanDirect)
 
+      /*
+       * §2.4：APK 走中繼時 `wsUrlFor()` 要用電腦回報的 tunnel 位址，而那個位址
+       * 會隨 cloudflared 重啟而變（trycloudflare 免費網址是動態的）—— 不能沿用
+       * 配對當下存的舊值，每次開機／重新 attach 都用這次 `probeRemote()` 剛問到的。
+       */
+      const connForWs: Connection = probe.tunnelWsUrl ? { ...conn, tunnelWsUrl: probe.tunnelWsUrl } : conn
+
       const data = new RemoteDataSource({
         baseUrl: () => conn.baseUrl,
         token: () => conn.token,
@@ -260,7 +267,7 @@ export function App(): JSX.Element {
         lanDirect: probe.lanDirect
       })
       const events = new RemoteEventSource({
-        wsUrl: () => wsUrlFor(conn),
+        wsUrl: () => wsUrlFor(connForWs),
         onNeedsReload: conn.baseUrl === location.origin ? () => location.reload() : undefined
       })
       detach = attach({ data, events })

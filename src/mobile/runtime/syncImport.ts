@@ -425,8 +425,19 @@ function applySettings(session: StandaloneSession, bundle: SyncInitBundle): numb
   let apiKeysImported = 0
   const llm = bundle.llm
   if (llm) {
-    const { apiKeys, ...rest } = llm
+    const { apiKeys, models, endpoints, utilityModels, ...rest } = llm
     s.llm = { ...s.llm, ...rest }
+    /*
+     * `models`／`endpoints`／`utilityModels` 是「每家供應商各自」的表，
+     * 逐 key 合併、不要整包覆蓋——跟下面 `apiKeys` 同一套理由：整包蓋掉的話，
+     * 電腦沒設定過的那幾家會被手機自己填過的值一起清掉。這正是「本地模型的
+     * 端點／模型清單同步過來反而消失」的成因（owner 2026-08-24 實機回報），
+     * `resolveEndpoint()` 只信 `endpoints[provider]`，表非空但缺這一家時
+     * **不會**退回舊的攤平欄位。
+     */
+    if (models) s.llm.models = mergeNonEmpty(s.llm.models, models)
+    if (endpoints) s.llm.endpoints = mergeNonEmpty(s.llm.endpoints, endpoints)
+    if (utilityModels) s.llm.utilityModels = mergeNonEmpty(s.llm.utilityModels, utilityModels)
     if (apiKeys) {
       // 只覆蓋電腦上真的有值的那幾家，手機自己填過的其他家不要被清掉
       for (const [provider, key] of Object.entries(apiKeys)) {
@@ -588,6 +599,21 @@ function sceneBoundConversationIds(bundle: SyncInitBundle): string[] {
       .map((s) => s.lastActiveConversationId)
       .filter((id): id is string => !!id?.trim())
   )
+}
+
+/**
+ * 逐 key 合併「每家供應商各自」的表（`llm.models`／`llm.endpoints`／
+ * `llm.utilityModels`）。電腦沒填值的 key 不覆蓋，手機自己填過的原樣留著。
+ */
+function mergeNonEmpty(
+  local: Record<string, string> | undefined,
+  incoming: Record<string, string>
+): Record<string, string> {
+  const next: Record<string, string> = { ...local }
+  for (const [key, value] of Object.entries(incoming)) {
+    if (value?.trim()) next[key] = value
+  }
+  return next
 }
 
 function uniqueIds(ids: string[]): string[] {

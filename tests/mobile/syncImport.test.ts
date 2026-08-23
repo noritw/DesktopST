@@ -180,6 +180,42 @@ describe('S1 初始化匯入', () => {
     expect(session.settings.llm.apiKeys.openai).toBe('手機填的')
   })
 
+  it('本機模型的端點／型號逐 key 合併，不整包覆蓋掉手機自己填的其他家', async () => {
+    const session = await boot()
+    session.settings.llm.endpoints = { openai: 'https://手機自己填的.example/v1' }
+    session.settings.llm.models = { openai: '手機選的型號' }
+    session.settings.llm.utilityModels = { openai: '手機選的輔助型號' }
+
+    const result = await runSyncImport(
+      SRC,
+      session,
+      { onConflict: 'skip' },
+      fakeFetch(
+        bundle({
+          llm: {
+            provider: 'local',
+            endpoints: { local: 'http://192.168.1.20:11434/v1' },
+            models: { local: 'qwen3:8b' },
+            utilityProvider: 'local',
+            utilityModels: { local: 'qwen3:8b' }
+          }
+        }),
+        (await makePacks(['星離宸'])).packs
+      )
+    )
+
+    expect(result.settingsApplied).toBe(true)
+    // 電腦帶來的本機模型設定要落地
+    expect(session.settings.llm.endpoints.local).toBe('http://192.168.1.20:11434/v1')
+    expect(session.settings.llm.models!.local).toBe('qwen3:8b')
+    expect(session.settings.llm.utilityModels!.local).toBe('qwen3:8b')
+    expect(session.settings.llm.utilityProvider).toBe('local')
+    // 手機自己填過的 openai 那幾項要保留，不能被整包覆蓋清空
+    expect(session.settings.llm.endpoints.openai).toBe('https://手機自己填的.example/v1')
+    expect(session.settings.llm.models!.openai).toBe('手機選的型號')
+    expect(session.settings.llm.utilityModels!.openai).toBe('手機選的輔助型號')
+  })
+
   it('中繼連線沒有 apiKeys 欄位時，不動手機既有金鑰', async () => {
     const session = await boot()
     session.settings.llm.apiKeys = { openai: '手機填的', claude: '', gemini: '', grok: '' }

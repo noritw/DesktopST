@@ -11,12 +11,17 @@ import { fileURLToPath } from 'node:url'
 import QRCode from 'qrcode'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const apkPath = path.join(root, 'out', 'apk', 'DeST-debug.apk')
-const qrPath = path.join(root, 'out', 'apk', 'DeST-debug-qr.png')
+// `DESTA_APK_PATH`：正式簽章裝機（MobileST.bat 新的 [4]）用來指到
+// `out/apk/DeST-v*-release.apk`，不寫死才不用另外複製一份改名。
+const apkPath = process.env.DESTA_APK_PATH
+  ? path.resolve(process.env.DESTA_APK_PATH)
+  : path.join(root, 'out', 'apk', 'DeST-debug.apk')
+const apkName = path.basename(apkPath)
+const qrPath = path.join(root, 'out', 'apk', `${apkName}-qr.png`)
 
 if (!fs.existsSync(apkPath)) {
   console.error(`找不到 APK：${apkPath}`)
-  console.error('請先跑 MobileST.bat 選 [1] 打包。')
+  console.error('請先跑 MobileST.bat 選 [1] 打包（或 [4] 打包正式簽章版）。')
   process.exit(1)
 }
 
@@ -47,7 +52,7 @@ const ip = candidates[0]?.ip ?? '127.0.0.1'
 const port = Number(process.env.DESTA_APK_PORT || 8731)
 // QR 指向下載頁（幾 KB），不要直連 40MB APK —— 手機瀏覽器直連常會一直轉圈
 const pageUrl = `http://${ip}:${port}/`
-const apkUrl = `http://${ip}:${port}/DeST-debug.apk`
+const apkUrl = `http://${ip}:${port}/${apkName}`
 
 const qrPng = await QRCode.toBuffer(pageUrl, { width: 640, margin: 2, errorCorrectionLevel: 'M' })
 fs.writeFileSync(qrPath, qrPng)
@@ -93,7 +98,7 @@ const renderHtml = (sizeMb) => `<!doctype html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>DeST debug APK</title>
+  <title>${apkName}</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 28rem; margin: 2rem auto; padding: 0 1rem; color: #3D5A52; background: #F7FFFC; }
     a.btn { display: block; text-align: center; padding: 0.9rem 1rem; border-radius: 1rem; background: #7ec8b8; color: #fff; text-decoration: none; font-weight: 600; }
@@ -103,9 +108,9 @@ const renderHtml = (sizeMb) => `<!doctype html>
   </style>
 </head>
 <body>
-  <h1>DeST debug APK</h1>
+  <h1>${apkName}</h1>
   <p>約 ${sizeMb} MB。同一個 Wi-Fi 下點下面下載。</p>
-  <p><a class="btn" href="/DeST-debug.apk">下載並安裝</a></p>
+  <p><a class="btn" href="/${apkName}">下載並安裝</a></p>
   <p>若只下載不安裝：用檔案管理員打開 APK，允許「未知應用程式」來源。</p>
   <p><small><code>${apkUrl}</code></small></p>
   <hr style="border:none;border-top:1px solid #cfe8df;margin:1.5rem 0" />
@@ -134,7 +139,7 @@ const server = http.createServer((req, res) => {
     res.end(renderHtml(sizeMb))
     return
   }
-  if (url.pathname === '/DeST-debug.apk') {
+  if (url.pathname === `/${apkName}`) {
     let size
     try {
       size = apkSize()
@@ -147,7 +152,7 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, {
       'Content-Type': 'application/vnd.android.package-archive',
       'Content-Length': size,
-      'Content-Disposition': 'attachment; filename="DeST-debug.apk"',
+      'Content-Disposition': `attachment; filename="${apkName}"`,
       'Cache-Control': 'no-store'
     })
     fs.createReadStream(apkPath).pipe(res)

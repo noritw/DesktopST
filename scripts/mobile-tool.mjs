@@ -5,10 +5,13 @@
  * （打包／重開 QR／HMR 預覽／防火牆），每次都要想一下該點哪個。
  * 併成一個選單，預設就是最常用的「打包並裝到手機」，直接 Enter 即可。
  *
- * 三條路徑：
+ * 四條路徑：
  *   [1] 打包 APK 裝到手機：防火牆 → 打包 → USB 直裝 → 開桌面 DeST → 區網 QR
  *   [2] 只開下載 QR：APK 沒重打，只是要再裝一次（省掉 gradle 那一分鐘）
  *   [3] 手機 UI 即時預覽：改版面用的 HMR，不產 APK
+ *   [4] 打包正式簽章 APK 並裝到手機：跟 [1] 是姊妹選項，差在簽章跟已發布的
+ *       版本一致，能直接覆蓋安裝、不必先解除安裝清資料（2026-08-24 加，
+ *       QR 配對合併那次順手補的——debug 簽章裝不上已經裝過正式版的手機）
  *
  * 埠：DeST mobileServer 3721、APK 下載頁 8731、手機 UI HMR 5180 起。
  */
@@ -18,6 +21,7 @@ import net from 'node:net'
 import path from 'node:path'
 import readline from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
+import { tryAdbInstall } from './adbHelpers.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 process.chdir(root)
@@ -26,6 +30,10 @@ const DEST_PORT = 3721
 const APK_PORT = Number(process.env.DESTA_APK_PORT || 8731)
 const FIREWALL_RULE = 'DeST APK serve'
 const apkPath = path.join(root, 'out', 'apk', 'DeST-debug.apk')
+const releaseApkPath = () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+  return path.join(root, 'out', 'apk', `DeST-v${pkg.version}-release.apk`)
+}
 
 // ── 小工具 ────────────────────────────────────────────────
 
@@ -172,6 +180,47 @@ async function actionServeOnly(rl) {
   return true
 }
 
+/**
+ * 打包正式簽章 APK，優先 USB 直裝，裝不上才退回區網 QR。
+ *
+ * 跟 [1]（debug）平行、不是取代——debug 版還是改版面時最快的日常測試手段。
+ * 這個選項存在的理由單純是「手機上已經裝過正式簽章版時，debug 簽章蓋不上去」
+ * （2026-08-24 實測撞到），要嘛先解除安裝清掉手機資料，要嘛用跟手機上那份
+ * 同一把簽章重新裝——這裡走後者。
+ */
+async function actionReleaseApk(rl) {
+  console.log('')
+  console.log('=== 打包正式簽章 APK ===')
+  console.log('需要 android/keystore.properties 已經存在（沒有的話下面會直接失敗並說明怎麼做）。')
+  if (!runStep('node', ['scripts/build-mobile-apk-release.mjs'])) {
+    console.error('')
+    console.error('打包失敗，上面有錯誤訊息。')
+    return false
+  }
+
+  const releasePath = releaseApkPath()
+  if (!fs.existsSync(releasePath)) {
+    console.error(`打包步驟回報成功，但找不到 ${releasePath}（不應該發生，回報給開發者）。`)
+    return false
+  }
+
+  console.log('')
+  const installed = tryAdbInstall(releasePath)
+  if (installed) return true
+
+  await ensureFirewall(rl)
+  console.log('')
+  await ensureDesktopRunning()
+
+  console.log('')
+  console.log('=== 開區網下載頁（QR）===')
+  console.log('手機跟電腦要在同一個 Wi-Fi（不要訪客網路）。')
+  process.env.DESTA_APK_PATH = releasePath
+  openWindow('DeST APK serve', 'node scripts\\serve-apk.mjs')
+  console.log('已另開「DeST APK serve」視窗，QR 在那裡。裝完關掉它即可。')
+  return true
+}
+
 async function actionUiPreview(rl) {
   console.log('')
   console.log('這是改版面用的即時預覽（HMR），不會產生 APK。')
@@ -221,6 +270,7 @@ console.log('')
 console.log('  [1] 打包 APK 並裝到手機   （USB 直裝，或掃 QR 下載；順便開桌面 DeST）')
 console.log('  [2] 只開下載 QR           （APK 已經打好，省掉重新打包）')
 console.log('  [3] 手機 UI 即時預覽      （改版面用，不產 APK）')
+console.log('  [4] 打包正式簽章 APK      （手機上已裝正式版時用這個才裝得上去）')
 console.log('')
 
 const choice = (await rl.question('請選擇（直接 Enter = 1）：')).trim() || '1'
@@ -229,6 +279,9 @@ let ok = false
 switch (choice) {
   case '1':
     ok = await actionBuildApk(rl)
+    break
+  case '4':
+    ok = await actionReleaseApk(rl)
     break
   case '2':
     ok = await actionServeOnly(rl)

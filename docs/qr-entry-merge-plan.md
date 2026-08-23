@@ -1,6 +1,8 @@
-# QR 配對入口／出口合併 —— 開工指令
+﻿# QR 配對入口／出口合併 —— 開工指令
 
-> 狀態：**可以動工**（2026-08-24 owner 已答完 §6 全部四題）。
+> 狀態：**已實作，待 owner 真機驗證**（2026-08-24）。落地筆記見 §9。
+
+> 狀態（原文）：**可以動工**（2026-08-24 owner 已答完 §6 全部四題）。
 > ⚠️ **0.5.0 的發布被這件事擋住**——owner 要求入口全部改完、真機測過才發版。
 > 起因：owner 實機操作時連自己都走錯入口,並連續撞到三個問題。
 > 目標讀者：接手實作的 AI／人類。**整份可讀,不長。**
@@ -347,3 +349,68 @@ owner：「入口全部改完才來出 0.5.0 版，不改這個入口我很難�
 | `src/mobile/ui/shell/ModeSwitcher.tsx` | 手機「切換模式」（S2）,中繼擋人的訊息在這 |
 | `src/mobile/ui/connection.ts` | `resolveLiveRemote()`——S2 這側的自動升級 |
 | `src/mobile/ui/shell/MainMenu.tsx` | 首頁選單項目定義 |
+
+---
+
+## 9. 落地筆記（2026-08-24，實作完成）
+
+**§2.3 的真正根因不是 AP isolation**，而是 `src/main/index.ts` 的 `getLocalIp()`
+從 `os.networkInterfaces()` 拿「第一個非內部 IPv4」——這台電腦裝了 Tailscale，
+它的虛擬網卡（100.64.0.0/10 CGNAT，實測 `100.86.50.84`）排在真正的 Wi-Fi 網卡
+（`192.168.50.136`）**前面**（用 `node -e "os.networkInterfaces()"` 直接確認順序）。
+QR 上的「區網位址」因此變成 Tailscale 位址，`isPrivateHost()` 判它不是 RFC1918
+私有位址就直接拒絕升級，**連網路請求都沒發生**。用 `adb shell` 對電腦 3721 port
+直接發 raw TCP 請求驗證過區網連線本身完全正常（回 401，不是連不到）；
+`AndroidManifest.xml` 也早有 `usesCleartextTraffic="true"`，cleartext 不是問題。
+修法：新增 `isRfc1918()`，`getLocalIp()` 優先挑 RFC1918 位址。這個坑會咬到
+任何裝了 Tailscale／其他 VPN 的使用者，不是這台機器獨有。
+
+**階段一其餘部分**：`pickUrl()` 短路 bug 照 §2.1 修掉，改成 `getMobileStatus()`
+在中繼未啟用／未連上時就把 `relayUrl` 回傳空字串（`s.mobile?.useTunnel !== false
+&& tunnelReady` 兩個條件都要成立）。
+
+**階段二**：`QRCodeWindow.tsx` 改成先選用途（`Purpose = 'backup' | 'remote'`）
+才出 QR；「複製資料」用 `pickBackupUrl()`（純區網，不碰 relay/tunnel），
+「遙控同步」用 `pickRemoteUrl()`（沿用原本 relay→tunnel→區網順位，現在
+`relayUrl` 已經可信）。電腦端入口搬到「關於」頁的新「連接手機」卡片
+（啟用開關＋開 QR 按鈕＋「進階遙控設定」連去隱藏的「遙控」分頁）；「擴充」
+分頁與「遙控」分頁裡原本重複的「開啟 QR Code 視窗」按鈕都拿掉。手機端
+`MainMenu.tsx` 的 `sync-import` 項目整個移除；`ModeSwitcher.tsx`（掛在「關於」
+頁）本機模式下新增「連接電腦」區塊，兩顆按鈕分別轉場到 `SyncImportView`
+（push('sync-import')）或展開既有的掃 QR／手動貼上區塊（`setShowPair(true)`），
+取代原本「本機模式無條件顯示掃 QR」的邏輯。
+
+**§4.3「走錯入口指路」沒做嚴格版**：評估後兩張 QR 本質上是同一個
+`baseUrl+token`，只是位址挑選與金鑰判定不同，既有訊息（S1 的「這條連線不會
+傳輸 API Key」、S2 連不上時的訊息）已經覆蓋大部分「走錯」情境，沒有另外做
+偵測 QR 用途並強制跳轉的邏輯——如果 owner 真機測試後仍覺得容易走錯，屆時
+再針對實際碰到的情境補。
+
+**§2.4 APK 遙控中繼支援**：新增 `getTunnelWsUrl()`（`src/main/index.ts`，
+讀 `getCloudflaredUrl()` 轉 `ws(s)://`），經 `mobileServer.ts` 的
+`/api/connection-info`／`/api/sync-init` 回給手機；`connection.ts` 的
+`resolveLiveRemote()`（配對當下）與 `probeRemote()`（之後每次 attach）都會
+帶回它，`wsUrlFor()` 在沒有網頁版才有的 `window.__tunnelWsUrl` 時改用
+`conn.tunnelWsUrl`。⚠️ **故意不寫進 `ModePref`**——trycloudflare 免費網址會變，
+`App.tsx` 的 attach effect 每次都用 `probeRemote()` 現問一次，`Connection`
+介面因此新增了 `tunnelWsUrl?: string` 這個不落地的欄位。`ModeSwitcher.tsx:261`
+原本「這個版本還不支援用中繼建立即時遙控」的誤導訊息也改寫成不概括整個功能。
+
+**驗證**：`npm run typecheck` 乾淨、`npm test` 80 檔 1049 項全過。
+**真機待驗清單**（0.5.0 發布前，owner 自己測）：
+1. 電腦端「關於」頁開 QR，選「複製資料」→ 手機掃碼／貼上 → 確認 API Key 有帶到
+2. 同一台電腦選「遙控同步」→ 手機掃碼／貼上 → 切換成功，WebSocket 正常
+3. APK 原生殼在**不同網路**（例如手機關 Wi-Fi 用行動網路）下切換到遙控，
+   驗證 §2.4 的中繼 WebSocket 真的能用（這條路徑之前完全沒測過）
+4. 手機「連接電腦」兩顆按鈕的文案與轉場手感
+5. 有裝 Tailscale 的這台電腦上，QR 的區網位址／自動升級是否真的改用
+   192.168.x 而不是 100.x
+
+**追加（同日，owner 實跑 `MobileST.bat [1]` 時發現）**：同一類 Tailscale 排序問題
+不只在 `src/main/index.ts`，`scripts/build-mobile-apk.mjs`（打包完印的「本機 IP 提示」）
+與 `scripts/mobile-test-qr.mjs`（`[3]` UI 即時預覽的 QR，**這支是真的會用來連線，
+不只是提示文字**）也各自寫了一份「抓第一個非內部 IPv4」的邏輯，一樣會抓到
+Tailscale 位址。已比照同一套 RFC1918 優先判斷修掉。`scripts/serve-apk.mjs`
+（`[1]`／`[2]` 的下載頁 QR，也就是 owner 這次實際用到、成功掃碼下載的那個）
+原本就有做評分排序（192.168.x／10.x／172.16-31.x 優先），**沒有這個問題**，
+這也是為什麼 owner 那次下載沒卡住——只有打包完印的那行文字提示是錯的。

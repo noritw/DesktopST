@@ -268,13 +268,7 @@ export default function SettingsPanel({ draft, set, setDraft, setDirty }: Settin
                 className="input-field w-24 px-2 py-1"
               />
             </div>
-            <button
-              type="button"
-              className="px-3 py-1.5 rounded-lg text-sm bg-mint text-primary border border-border"
-              onClick={() => window.api.invoke('mobile:open-qr')}
-            >
-              開啟 QR Code 視窗
-            </button>
+            {/* QR 入口只留「關於」那一個（qr-entry-merge-plan.md Q1／Q2），這裡不重複放。 */}
           </div>
         )}
       </div>

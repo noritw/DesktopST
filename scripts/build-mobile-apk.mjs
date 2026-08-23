@@ -12,6 +12,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { tryAdbInstall } from './adbHelpers.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 process.chdir(root)
@@ -36,36 +37,6 @@ function run(command, args, opts = {}) {
   })
   if (result.error) fail(result.error.message)
   if (result.status !== 0) fail(`指令失敗（exit ${result.status}）`, result.status ?? 1)
-}
-
-function findAdb() {
-  const candidates = [
-    path.join(process.env.LOCALAPPDATA || '', 'Android', 'Sdk', 'platform-tools', 'adb.exe'),
-    process.env.ANDROID_HOME ? path.join(process.env.ANDROID_HOME, 'platform-tools', 'adb.exe') : '',
-    process.env.ANDROID_SDK_ROOT ? path.join(process.env.ANDROID_SDK_ROOT, 'platform-tools', 'adb.exe') : ''
-  ].filter(Boolean)
-
-  for (const c of candidates) {
-    if (fs.existsSync(c)) return c
-  }
-
-  try {
-    const which = spawnSync('where.exe', ['adb'], { encoding: 'utf8' })
-    const first = (which.stdout || '').split(/\r?\n/).map((s) => s.trim()).find(Boolean)
-    if (first && fs.existsSync(first)) return first
-  } catch {
-    /* ignore */
-  }
-  return null
-}
-
-function hasAdbDevice(adb) {
-  const result = spawnSync(adb, ['devices'], { encoding: 'utf8' })
-  if (result.status !== 0) return false
-  return (result.stdout || '')
-    .split(/\r?\n/)
-    .slice(1)
-    .some((line) => /\tdevice$/.test(line))
 }
 
 console.log('')
@@ -116,24 +87,7 @@ console.log('')
 console.log(`[4/4] 完成：${apkDst}  (${sizeMb} MB)`)
 console.log('')
 
-let installed = false
-const adb = findAdb()
-if (adb) {
-  if (hasAdbDevice(adb)) {
-    console.log('偵測到 USB 裝置，嘗試 adb install -r ...')
-    const install = spawnSync(adb, ['install', '-r', apkDst], { stdio: 'inherit' })
-    if (install.status === 0) {
-      installed = true
-      console.log('已安裝到手機。直接打開 DeST 即可測。')
-    } else {
-      console.log('adb install 失敗（權限／簽名衝突常見）。改走區網下載。')
-    }
-  } else {
-    console.log('沒有可用的 adb device（USB 偵錯未開或沒接上）。改走區網下載。')
-  }
-} else {
-  console.log('本機找不到 adb。改走區網下載。')
-}
+const installed = tryAdbInstall(apkDst)
 
 if (!installed) {
   try {
@@ -144,4 +98,13 @@ if (!installed) {
 }
 
 console.log('')
-console.log(`本機 IP 提示：${Object.values(os.networkInterfaces()).flat().find((x) => x && x.family === 'IPv4' && !x.internal)?.address ?? '未知'}`)
+// 只挑「第一個非內部 IPv4」的話，裝了 Tailscale／VPN 的電腦常會先列出虛擬網卡
+// （100.64.0.0/10 那段），這個提示就會印一個手機根本連不到的位址——優先挑真正
+// 的私有網段（192.168.x／10.x／172.16-31.x），跟 `serve-apk.mjs` 的 `pickLanIPv4()`
+// 用同一套判斷（2026-08-24，qr-entry-merge-plan.md 那次順手一起修）。
+function pickHintIp() {
+  const addrs = Object.values(os.networkInterfaces()).flat().filter((x) => x && x.family === 'IPv4' && !x.internal)
+  const isPrivate = (ip) => /^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip)
+  return addrs.find((x) => isPrivate(x.address))?.address ?? addrs[0]?.address ?? '未知'
+}
+console.log(`本機 IP 提示：${pickHintIp()}`)

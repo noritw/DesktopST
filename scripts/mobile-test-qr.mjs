@@ -8,8 +8,19 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import QRCode from 'qrcode'
 
-const interfaces = os.networkInterfaces()
-const ip = Object.values(interfaces).flat().find(x => x && x.family === 'IPv4' && !x.internal)?.address ?? '127.0.0.1'
+/*
+ * 只挑「第一個非內部 IPv4」的話，裝了 Tailscale／VPN 的電腦常會先列出虛擬網卡
+ * （100.64.0.0/10 那段），QR 就會指向手機在一般 Wi-Fi 下連不到的位址——
+ * 優先挑真正的私有網段，跟 `serve-apk.mjs` 的 `pickLanIPv4()`／
+ * `src/main/index.ts` 的 `getLocalIp()` 用同一套判斷
+ * （2026-08-24，qr-entry-merge-plan.md 那次順手一起修）。
+ */
+function pickLanIp() {
+  const addrs = Object.values(os.networkInterfaces()).flat().filter(x => x && x.family === 'IPv4' && !x.internal)
+  const isPrivate = (ip) => /^10\./.test(ip) || /^192\.168\./.test(ip) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(ip)
+  return addrs.find(x => isPrivate(x.address))?.address ?? addrs[0]?.address ?? '127.0.0.1'
+}
+const ip = pickLanIp()
 const uiPort = Number(process.env.MOBILE_UI_PORT || 5180)
 const stubPort = Number(process.env.MOBILE_STUB_PORT || 5999)
 function appDataRoots() {

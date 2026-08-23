@@ -109,6 +109,14 @@ export interface MobileBridge {
    * 掃 QR 拿到的多半是 relay 網址，手機靠這個把連線升級成區網直連（S1）。
    */
   getLanBaseUrl: () => string
+  /**
+   * cloudflared tunnel 的 WebSocket 版網址（`wss://xxx.trycloudflare.com`），
+   * tunnel 還沒就緒時回 `null`。APK 原生殼走中繼時，`window.__tunnelWsUrl`
+   * 從來不會被注入（那只有中繼代管的網頁載入時才有，見 `connection.ts` 的
+   * `resolveLiveRemote` 檔頭）——這支讓 `/api/connection-info` 把同一個位址
+   * 直接告訴原生殼，補上 §2.4 那塊缺口（`wsUrlFor()` 才有東西可以優先採用）。
+   */
+  getTunnelWsUrl: () => string | null
   getShowLlmBadge: () => boolean
   setShowLlmBadge: (show: boolean) => boolean
   getShowPersonaName: () => boolean
@@ -1655,6 +1663,9 @@ async function handleRequest(
        * 重新判斷一次，權威還是在電腦端。
        */
       lanUrl: lanDirect ? '' : bridge.getLanBaseUrl(),
+      // §2.4：APK 原生殼走中繼時連不上 WebSocket（`window.__tunnelWsUrl` 沒被注入），
+      // 附上同一個位址讓 `resolveLiveRemote()` 直接採用，不必再判定成 `relayOnly` 而拒絕切換。
+      tunnelWsUrl: bridge.getTunnelWsUrl(),
       colorTheme: bridge.getColorTheme(),
       showLlmBadge: bridge.getShowLlmBadge(),
       showPersonaName: bridge.getShowPersonaName(),
@@ -1665,6 +1676,18 @@ async function handleRequest(
         model: llm.model,
         models: llm.models,
         endpoint: llm.endpoint,
+        /*
+         * 本機供應商真正吃的是這張表（`resolveEndpoint()` 只信 `endpoints[provider]`，
+         * 「表非空但缺這一家」時**不會**退回上面的 `endpoint` 舊欄位）。以前這裡沒送，
+         * 手機同步完本機模型的 provider／舊欄位都到了，`endpoints.local` 卻是空的——
+         * 一旦手機這邊之後任何一次改 provider（`localDataSource.setLlmProvider` 沒有
+         * fallback），連舊欄位那份備份也會被空值蓋掉，端點看起來就「同步完消失了」
+         * （owner 2026-08-24 實機回報）。順手把輔助模型的供應商／型號表也一起帶上，
+         * 同一類欄位、同一個坑。
+         */
+        endpoints: llm.endpoints,
+        utilityProvider: llm.utilityProvider,
+        utilityModels: llm.utilityModels,
         maxResponseTokens: llm.maxResponseTokens,
         maxGroupRounds: llm.maxGroupRounds,
         maxImagesPerMessage: llm.maxImagesPerMessage,
@@ -1855,7 +1878,7 @@ async function handleRequest(
   // 手機端在建立 `RemoteDataSource` 前先問一次，決定 `Capabilities.apiKeyAccess`
   // （roadmap §4.7）。不需要 `bridge` ready，純粹是傳輸層的判斷。
   if (method === 'GET' && url === '/api/connection-info') {
-    jsonOk(res, { lanDirect: isLanDirectRequest(req) })
+    jsonOk(res, { lanDirect: isLanDirectRequest(req), tunnelWsUrl: bridge?.getTunnelWsUrl() ?? null })
     return
   }
 

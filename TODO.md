@@ -246,7 +246,7 @@ owner 決定：提醒資料本身要同步（整份清單，比照角色／情�
 
 ---
 
-## 2.6 QR 配對入口／出口合併（2026-08-24 owner 指定方向，尚未動工）
+## 2.6 QR 配對入口／出口合併（2026-08-24 owner 指定方向，**已實作，待 owner 真機驗證**）
 
 owner 換裝正式簽章 APK 後要匯回資料，連續撞到三件事：從「關於→切換模式」掃 QR
 被擋（不支援中繼）→ 關掉電腦端中繼再掃 → Server Error → 改從「從電腦匯入」掃
@@ -261,28 +261,49 @@ owner 換裝正式簽章 APK 後要匯回資料，連續撞到三件事：從「
 > ⚠️ **0.5.0 的發布被這件事擋住。** owner：「入口全部改完才來出 0.5.0 版，
 > 不改這個入口我很難繼續測。」`package.json` 已經是 0.5.0，不要再升版。
 
-- [ ] **階段一：修硬缺陷**（風險低，做完 owner 就能完成卡住的匯入）
-  - [ ] `QRCodeWindow.tsx:20` 的 `pickUrl()` 短路 bug——`s.relayUrl` 永遠是非空字串
-        （`relayService.getRelayUrl()` 無條件組網址），導致 `||` 後面兩條路永遠走不到，
-        **關掉中繼後 QR 仍指向中繼 → 503 → Server Error**（已實測驗證）
-  - [ ] 查清「自動升級區網」為什麼沒生效——機制本來就有（`upgradeToLan()`／
-        `resolveLiveRemote()`），但 owner 實測顯示「這條連線不會傳輸 API Key」，
-        代表升級回了 null。已排除：同網段（實測）、電腦端回應正確（實測）、
-        位址格式正確。**尚未查清**，可能是 AP isolation／CapacitorHttp 行為／
-        `catch` 把錯誤吃掉沒日誌。⚠️ 這條的結論會決定階段二能不能依賴自動升級
-- [ ] **階段二：合併入口／出口**（UI 改動）
-  - [ ] 電腦端 QR **入口從「擴充」搬到「關於」**（owner 2026-08-24 指定），
-        「要不要開放遙控」的設定一併整併過去，並改成「先問用途 → 出對應 QR」
-  - [ ] 手機端「從電腦匯入」與「切換模式」合併成單一「連接電腦」流程
-  - [ ] 走錯入口時要指路＋可直接跳過去，不要只報錯
-  - [ ] 主要流程文案不出現「中繼」「區網」
-- [ ] **APK 遙控補上中繼支援**（§2.4，owner 質疑後查證補的一節）——
-      ⚠️ **「遙控不支援中繼」只對 APK 成立，網頁版一直都能用**（owner 在外面
-      用的就是網頁版）。成因：WebSocket 位址靠中繼 Worker 注入 `__tunnelWsUrl`，
-      APK 頁面是本地載入的拿不到，落到字串代換 → 錯的路由。修法預估是小改
-      （`/api/connection-info` 加欄位回傳電腦的 tunnel 網址 + `wsUrlFor()` 加分支），
-      **不需要做 WebSocket 經中繼代理**。順帶要修 `ModeSwitcher.tsx:261` 那句
-      會誤導的訊息
+- [x] **階段一：修硬缺陷** → ✅ **已實作**（2026-08-24）
+  - [x] `QRCodeWindow.tsx` 的 `pickUrl()` 短路 bug 修掉，改成 `getMobileStatus()`
+        在中繼未啟用／未連上時就把 `relayUrl` 回傳空字串（`src/main/index.ts`），
+        不再依賴呼叫端自己判斷真值
+  - [x] 查清「自動升級區網」為什麼沒生效——**真正原因不是 AP isolation**，
+        是 `getLocalIp()`（`src/main/index.ts`）從 `os.networkInterfaces()`
+        拿「第一個非內部 IPv4」，這台電腦裝了 Tailscale，它的虛擬網卡
+        （100.64.0.0/10 CGNAT）排在真正的 Wi-Fi 網卡**前面**（已用
+        `node -e "os.networkInterfaces()"` 實測確認順序）。QR 上的「區網位址」
+        因此變成 Tailscale 位址，`isPrivateHost()` 判它不是 RFC1918 私有位址而
+        直接拒絕升級——連網路請求都沒發生，跟 AP isolation 無關（已用 `adb shell`
+        對電腦的 3721 port 直接發 raw TCP 請求驗證區網連線本身完全正常，
+        且 `AndroidManifest.xml` 已有 `usesCleartextTraffic="true"`，cleartext
+        也不是問題）。修法：新增 `isRfc1918()`，`getLocalIp()` 優先挑 RFC1918
+        位址，真的沒有才退回舊行為
+- [x] **階段二：合併入口／出口** → ✅ **已實作**（2026-08-24）
+  - [x] 電腦端 QR **入口從「擴充」搬到「關於」**，「啟用手機連線」與
+        「開啟 QR Code 視窗」都在那裡；`QRCodeWindow.tsx` 改成先選用途
+        （複製資料／遙控同步）才出對應 QR——複製資料一律用區網位址，
+        遙控同步沿用 relay→tunnel→區網 的順位。「擴充」頁的舊入口與
+        遙控設定頁裡重複的「開啟 QR Code 視窗」按鈕都已移除
+  - [x] 手機端 `MainMenu.tsx` 的 `sync-import` 項目移除；`ModeSwitcher.tsx`
+        （「關於」頁）新增「連接電腦」兩顆選項按鈕（複製資料 → 轉場到
+        `SyncImportView`；遙控／同步 → 展開既有掃 QR 流程），取代原本
+        「本機模式就無條件顯示掃 QR」的舊邏輯
+  - [x] 主要流程文案不出現「中繼」「區網」（僅保留在「關於」頁的連線細節與失敗訊息）
+  - [ ] **走錯入口時的指路＋跳轉**：評估後認為現在兩個 QR 本質上都是同一個
+        `baseUrl+token`，差別只在位址與金鑰有沒有附，兩邊既有訊息（S1 的
+        「這條連線不會傳輸 API Key」、S2 的連不上訊息）已经能覆蓋大部分情境，
+        沒有另外做嚴格的「偵測到用途不符就跳轉」邏輯——**owner 真機測試如果
+        還是覺得會走錯，回報後再補**
+- [x] **APK 遙控補上中繼支援**（§2.4）→ ✅ **已實作**（2026-08-24）。
+      `getTunnelWsUrl()`（`src/main/index.ts`，讀 cloudflared 網址轉 `ws(s)://`）
+      經 `bridge` 掛進 `/api/connection-info` 與 `/api/sync-init`；
+      `connection.ts` 的 `resolveLiveRemote()`／`probeRemote()` 都會帶回它，
+      `wsUrlFor()` 在沒有 `window.__tunnelWsUrl`（原生殼特徵）時改用它；
+      `ModeSwitcher.tsx:261` 的誤導訊息已改寫（不再說「這個版本不支援中繼」）。
+      ⚠️ **trycloudflare 網址會變**，所以故意不寫進 `ModePref`，每次
+      `App.tsx` 的 attach effect 都用 `probeRemote()` 現問一次
+- [ ] **owner 真機驗證**（0.5.0 發布前必過，見 §開放問題 Q4）：
+      `npm run typecheck`／`npm test` 已過，但沒有真機測試——尤其是
+      「把資料複製到手機」QR（區網直連＋API Key）、APK 走中繼的即時遙控
+      （§2.4 的新路徑，之前完全沒測過）、以及「連接電腦」兩顆按鈕的實際手感
 
 ---
 

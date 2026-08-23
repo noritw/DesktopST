@@ -183,7 +183,8 @@ export async function classifyEmotionWithLLM(params: {
   try {
     if (provider === 'claude') {
       const { default: Anthropic } = await import('@anthropic-ai/sdk')
-      const client = new Anthropic({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey, fetch: deps.http.fetch })
+      // dangerouslyAllowBrowser：手機獨立版的 WebView 有 `window`，SDK 預設拒跑（見 `claude.ts` chatWithClaude 的說明）
+      const client = new Anthropic({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey, fetch: deps.http.fetch, dangerouslyAllowBrowser: true })
       const model = utilitySettings.llm.models?.[provider] || utilitySettings.llm.model
       const resp = await client.messages.create({
         model,
@@ -287,7 +288,8 @@ export async function classifyNewsSubjectivityWithLLM(params: {
   try {
     if (provider === 'claude') {
       const { default: Anthropic } = await import('@anthropic-ai/sdk')
-      const client = new Anthropic({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey, fetch: deps.http.fetch })
+      // dangerouslyAllowBrowser：手機獨立版的 WebView 有 `window`，SDK 預設拒跑（見 `claude.ts` chatWithClaude 的說明）
+      const client = new Anthropic({ apiKey: utilitySettings.llm.apiKeys?.[provider] || utilitySettings.llm.apiKey, fetch: deps.http.fetch, dangerouslyAllowBrowser: true })
       const model = utilitySettings.llm.models?.[provider] || utilitySettings.llm.model
       const resp = await client.messages.create({
         model,
@@ -366,7 +368,8 @@ export async function testLLMConnection(params: {
   try {
     if (provider === 'claude') {
       const { default: Anthropic } = await import('@anthropic-ai/sdk')
-      const client = new Anthropic({ apiKey, fetch: deps.http.fetch })
+      // dangerouslyAllowBrowser：手機獨立版的 WebView 有 `window`，SDK 預設拒跑（見 `claude.ts` chatWithClaude 的說明）
+      const client = new Anthropic({ apiKey, fetch: deps.http.fetch, dangerouslyAllowBrowser: true })
       const resp = await client.models.list()
       const models: string[] = []
       for (const m of resp.data) {
@@ -420,7 +423,8 @@ export async function testLLMMessage(params: {
   try {
     if (provider === 'claude') {
       const { default: Anthropic } = await import('@anthropic-ai/sdk')
-      const client = new Anthropic({ apiKey, fetch: deps.http.fetch })
+      // dangerouslyAllowBrowser：手機獨立版的 WebView 有 `window`，SDK 預設拒跑（見 `claude.ts` chatWithClaude 的說明）
+      const client = new Anthropic({ apiKey, fetch: deps.http.fetch, dangerouslyAllowBrowser: true })
       const resp = await client.messages.create({
         model,
         max_tokens: 20,

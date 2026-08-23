@@ -333,7 +333,7 @@ npm run build:mobile # 產出 out/mobile（含 inline，給 QR／relay）
 | 檔案 | 做什麼 |
 |---|---|
 | `DesktopST-dev.bat` | 日常開發：先 `build:mobile` 再開桌面 DeST |
-| `MobileST.bat` | 手機全部：`[1]` 打包 APK 並裝機（含防火牆、桌面 DeST、區網 QR）`[2]` 只重開 QR `[3]` UI 即時預覽 |
+| `MobileST.bat` | 手機全部：`[1]` 打包 debug APK 並裝機（含防火牆、桌面 DeST、區網 QR）`[2]` 只重開 QR `[3]` UI 即時預覽 `[4]` 打包**正式簽章** APK 並裝機（手機上已裝正式版時 debug 簽章蓋不上去，要用這個才能覆蓋安裝、不必先解除安裝清資料；需要 `android/keystore.properties`） |
 | `release.bat` | 發布：升版 → build → zip →（可選）APK → commit／tag／push → GitHub Release |
 
 選單邏輯在 `scripts/mobile-tool.mjs`；它只做編排，實際工作仍在

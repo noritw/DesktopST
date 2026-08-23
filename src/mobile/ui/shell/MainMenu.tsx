@@ -44,9 +44,6 @@ const ITEMS: MenuItemDef[] = [
   // 桌面小工具：只有原生殼（APK）才有小工具這個東西，網頁版下面用 `.filter()` 拿掉。
   { kind: 'widget-settings', icon: 'pin', label: '桌面小工具', hint: '預覽小工具內容、管理釘選的對白' },
   { kind: 'settings', icon: 'settings', label: '設定', hint: 'API Key、模型、記憶與模組開關' },
-  // 從電腦匯入（S1）：只有獨立模式看得到 —— 遙控模式讀的本來就是電腦那份資料，
-  // 「匯入」在那裡沒有意義。下面用 `.filter()` 整個拿掉，不是 disabled。
-  { kind: 'sync-import', icon: 'qr', label: '從電腦匯入', hint: '掃 QR，把電腦上的角色與設定拉過來' },
   // 遙控電腦（清單 H1–H11，B6）：只在遙控模式（`RemoteDataSource`）才有意義，
   // 獨立模式的 `capabilities.remoteControl` 恆為 false，下面用 `.filter()` 整個拿掉這一項——
   // 不是渲染出來再 disabled，是「這台裝置根本沒有電腦可控」這件事在 UI 上不存在。
@@ -58,7 +55,6 @@ export function MainMenu(): JSX.Element {
   const standalone = getStandaloneSession() !== null
   const items = ITEMS.filter((item) => {
     if (item.kind === 'remote') return isAttached() && getData().capabilities.remoteControl
-    if (item.kind === 'sync-import') return standalone
     // 小工具是 Android 主畫面的東西，網頁版沒有可以設定的對象。
     if (item.kind === 'widget-settings') return Capacitor.isNativePlatform()
     return true

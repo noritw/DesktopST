@@ -53,6 +53,7 @@ export function ModeSwitcher(): JSX.Element | null {
   const toast = useUiStore((s) => s.toast)
   const confirm = useUiStore((s) => s.confirm)
   const openSyncCompare = useUiStore((s) => s.openSyncCompare)
+  const push = useUiStore((s) => s.push)
   const sending = useAppStore((s) => s.sending)
 
   const [scannerOk, setScannerOk] = useState(false)
@@ -257,15 +258,21 @@ export function ModeSwitcher(): JSX.Element | null {
         return 'failed'
       }
       if (resolved.relayOnly) {
-        // 這裡不切換——切過去只會卡在「連線中斷」（見 connection.ts 的 resolveLiveRemote 註解）。
-        toast('這條連線是透過中繼，這個版本還不支援用中繼建立即時遙控。請確認手機和電腦在同一個 Wi-Fi 再試一次', 'error')
+        // §2.4：中繼一直都能遙控（網頁版本來就是這樣連），這裡真的連不上是因為
+        // 電腦沒開中繼、tunnel 還沒就緒，而手機又不在同一個 Wi-Fi——不是「這個版本不支援中繼」。
+        toast('連不上這台電腦的即時遙控。請確認手機和電腦在同一個 Wi-Fi，或電腦已開啟中繼', 'error')
         return 'failed'
       }
       const remoteSrc = { baseUrl: resolved.baseUrl!, token: resolved.token! }
       const outcome = await syncBeforeSwitch(remoteSrc)
       if (outcome !== 'ok') return outcome
 
-      const next: Connection = { mode: 'remote', baseUrl: remoteSrc.baseUrl, token: remoteSrc.token }
+      const next: Connection = {
+        mode: 'remote',
+        baseUrl: remoteSrc.baseUrl,
+        token: remoteSrc.token,
+        tunnelWsUrl: resolved.tunnelWsUrl
+      }
       await switchTo(next)
       setShowPair(false)
       toast('已切換到遙控模式')
@@ -370,12 +377,46 @@ export function ModeSwitcher(): JSX.Element | null {
       )}
 
       {/*
-        本機模式**一律**顯示掃 QR，不管有沒有記住上一台（owner 2026-08-13）。
-        原本只有「連上次那台」失敗時才會冒出來，於是已經配對過的人**永遠找不到
-        換一台電腦的入口**——記憶反而把功能藏起來了。
+        「連接電腦」合併入口（qr-entry-merge-plan.md §4.3）：先問用途、再掃 QR。
+        以前本機模式**一律**顯示掃 QR（不管有沒有記住上一台），跟主選單另一顆
+        「從電腦匯入」是兩個長得很像但能力不同的入口，owner 自己都會弄錯
+        （2026-08-24 實機經歷）。現在兩件事**都從這裡進**：選「複製資料」
+        會轉場到 `SyncImportView`（S1，一次性複製一份，不影響這裡的模式）；
+        選「遙控／同步」才展開下面這段既有的掃 QR／手動貼上流程（S2）。
       */}
-      {(showPair || conn.mode === 'standalone') && (
+      {conn.mode === 'standalone' && !showPair && (
         <div className="space-y-2 border-t border-[var(--border)] pt-3">
+          <p className="text-[11px] text-[var(--text-sub)]">連接電腦</p>
+          <button
+            type="button"
+            onClick={() => push('sync-import')}
+            className="w-full rounded-[14px] border border-[var(--border)] px-3 py-2.5 text-left"
+          >
+            <span className="block text-sm font-medium text-[var(--text)]">把電腦的資料複製過來</span>
+            <span className="mt-0.5 block text-[11px] leading-relaxed text-[var(--text-sub)]">
+              角色、設定、對話複製一份到這支手機，之後可以獨立使用
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowPair(true)}
+            className="w-full rounded-[14px] border border-[var(--border)] px-3 py-2.5 text-left"
+          >
+            <span className="block text-sm font-medium text-[var(--text)]">遙控／同步這台電腦</span>
+            <span className="mt-0.5 block text-[11px] leading-relaxed text-[var(--text-sub)]">
+              直接使用電腦上的資料，兩邊會保持同步
+            </span>
+          </button>
+        </div>
+      )}
+
+      {showPair && (
+        <div className="space-y-2 border-t border-[var(--border)] pt-3">
+          {conn.mode === 'standalone' && (
+            <button type="button" onClick={() => setShowPair(false)} className="text-[11px] text-[var(--text-sub)] underline">
+              ← 返回
+            </button>
+          )}
           <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
             {remembered && conn.mode === 'standalone'
               ? '要改連別台電腦，掃那台的 QR 就會換過去。電腦請開啟「手機連線」。'

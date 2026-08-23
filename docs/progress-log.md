@@ -4448,3 +4448,184 @@ owner 要求盤點「還有哪些模組子設定沒進同步」。起因是 2026
 
 M4 第 6 條（電腦端 `scenes/*.json` 的 `activePersonaId` 是否正確翻譯）也在這輪
 由 owner 補驗通過，S2 的真機待驗清單至此清空。
+
+---
+
+## 2026-08-24｜QR 配對入口／出口合併：真正的根因不是 AP isolation，是 Tailscale
+
+`docs/qr-entry-merge-plan.md` 開工指令的實作。owner 換裝正式簽章 APK 後撞到三件事
+（見該文件 §1），§6 四個開放問題當天都已答完，直接動工，分兩階段做完。
+
+**階段一最重要的發現**：§2.3「自動升級區網為什麼沒生效」原本懷疑是 AP isolation，
+**查下去發現完全不是**。用 `adb shell` 對電腦的 3721 port 直接發 raw TCP 請求
+（`nc` 手搓 HTTP GET），區網連線本身完全正常，回 `401 Unauthorized`（沒帶 token，
+但連得到）；`AndroidManifest.xml` 也早就有 `usesCleartextTraffic="true"`，
+cleartext 也不是問題。真正原因是 `src/main/index.ts` 的 `getLocalIp()`：
+它從 `os.networkInterfaces()` 拿「第一個非內部 IPv4」，而這台電腦裝了 Tailscale——
+用 `node -e "os.networkInterfaces()"` 實測確認，Tailscale 的虛擬網卡（`100.86.50.84`，
+100.64.0.0/10 CGNAT 位址）排在真正的 Wi-Fi 網卡（`192.168.50.136`）**前面**。
+QR 上「區網位址」因此變成 Tailscale 位址，`isPrivateHost()`／`isRfc1918()` 判它
+不是 RFC1918 私有位址就直接拒絕升級——**連網路請求都沒發生**，回 `null` 回得
+無聲無息，難怪 owner 完全排查不出來。這也連帶炸到 `localUrl`（QR 的「區網位址」
+本身）與 `isLanDirectRequest()` 之外的所有依賴 `getLocalIp()` 的地方。
+
+修法：新增 `isRfc1918()`，`getLocalIp()` 改成優先挑 RFC1918 位址，真的沒有
+（例如使用者的電腦真的只有 VPN 沒有實體網卡）才退回舊行為（第一個非內部位址）。
+這個坑理論上會咬到**任何裝了 Tailscale／其他 VPN 的 DeST 使用者**，不是
+owner 這台機器獨有的巧合，值得記住：`os.networkInterfaces()` 的順序不可信任，
+要看位址本身是不是真的私有網段。
+
+**同一輪順手修的 §2.1**：`QRCodeWindow.tsx` 的 `pickUrl()` 短路 bug——
+`getRelayUrl()` 只是拿設定檔組字串，不管中繼有沒有實際連上都回非空字串，
+導致 `||` 後面的 tunnel／區網分支永遠走不到。改成 `getMobileStatus()` 在
+中繼未啟用（`useTunnel===false`）或 tunnel 未就緒時，直接把 `relayUrl`
+設成空字串，呼叫端不用自己判斷「這個值可不可信」。
+
+**階段二（合併入口）**：電腦端 QR 入口從「擴充」搬到「關於」，改成先選用途
+（複製資料／遙控同步）才出對應 QR——複製資料一律用區網位址（不牽涉中繼，
+不依賴自動升級）；遙控同步沿用 relay→tunnel→區網 順位。手機端 `MainMenu.tsx`
+的 `sync-import` 移除，`ModeSwitcher.tsx`（「關於」頁）新增「連接電腦」兩顆
+選項按鈕取代原本「本機模式無條件顯示掃 QR」的邏輯。「走錯入口指路」這條沒做
+嚴格版——評估後兩個 QR 本質上是同一個 `baseUrl+token`，既有訊息（金鑰有沒有
+附／連不連得上）已經覆蓋大部分情境，先不做過度設計，真機測試如果 owner 還是
+會走錯再回頭補。
+
+**§2.4 APK 遙控中繼支援**：新增 `getTunnelWsUrl()`（讀 cloudflared 網址轉
+`ws(s)://`），經 `/api/connection-info`／`/api/sync-init` 回傳給手機；
+`connection.ts` 的 `resolveLiveRemote()`／`probeRemote()` 都會帶回它，
+`wsUrlFor()` 在沒有網頁版才有的 `window.__tunnelWsUrl` 時改用它。
+⚠️ trycloudflare 網址會變，故意不寫進 `ModePref`，每次 `App.tsx` 的 attach
+effect 都用 `probeRemote()` 現問一次。`ModeSwitcher.tsx` 原本那句「這個版本
+不支援中繼」的誤導訊息也一併改寫。
+
+`npm run typecheck` 乾淨、`npm test` 80 檔 1049 項全過。**這輪沒有真機驗證**——
+0.5.0 卡在這個入口合併上，owner 說要自己測過才發版（`TODO.md` §2.6）。
+
+---
+
+## 2026-08-24（續）｜`MobileST.bat` 補上正式簽章裝機選項
+
+owner 實跑 `MobileST.bat [1]` 想裝上面那次改動測試，撞到
+`INSTALL_FAILED_UPDATE_INCOMPATIBLE`——手機上裝的是正式簽章版（v0.5.0
+release），這次打的是 debug 簽章，Android 不准跨簽章覆蓋安裝。這不是
+bug，是預期中的行為，但沒有對應的裝機路徑：`npm run apk:release`
+（`build-mobile-apk-release.mjs`）原本刻意不自動裝機（那支是給「拿去發布」
+用的正式產物，不該被開發機的舊安裝記錄干擾），要測就得自己 `adb install -r`。
+
+補上 `MobileST.bat` 的 `[4]`：打包正式簽章 APK，優先 USB 直裝（跟手機上的
+簽章一致，能直接覆蓋、不必解除安裝清資料），裝不上才退回既有的區網 QR 下載
+流程。跟 `[1]`（debug）是平行選項，不是取代——debug 版還是日常改版面最快
+的路徑，只是這台手機現在裝著正式版，debug 簽章暫時裝不上去。
+
+順手做了兩件事：
+- `adb install` 那段邏輯原本在 `build-mobile-apk.mjs` 裡是寫死的一份，
+  現在的 `[4]` 需要一模一樣的邏輯——抽成 `scripts/adbHelpers.mjs`
+  共用。理由直接：上一輪才因為「同一段邏輯在三支腳本各抄一份」
+  （`getLocalIp()` 的 Tailscale 排序問題）踩過坑，這裡不想再犯一次。
+- `serve-apk.mjs` 原本把檔名 `DeST-debug.apk` 寫死在好幾處（下載路由、
+  `Content-Disposition`、HTML 標題與按鈕），改成從 `DESTA_APK_PATH`
+  環境變數（沒設就退回原本的 debug 路徑）動態算檔名，`[4]` 才能不複製
+  改名檔案就重用同一支下載伺服器。
+
+`node --check` 過四支改動的腳本、`npm run typecheck`／`npm test` 照跑
+（純 `.mjs` 建置腳本不在那兩項檢查範圍內，純語法檢查）。這輪一樣沒有
+真機驗證——下次 owner 用 `[4]` 裝機就是第一次真機驗證。
+
+---
+
+## 2026-08-24（續）｜S1 匯入沒帶 `llm.endpoints`，本機模型同步後端點消失
+
+owner 手機用「複製電腦資料」把本機模型（Ollama）的設定拉過來後，回報
+「設定同步過來、講一句話沒講完、然後設定不見了」。「講一句話沒講完」
+owner 自己判斷可能是 Input Leap（KVM 軟體）切到跑 LLM 那台電腦分心誤觸，
+不確定跟這次改動有沒有關係，先擱置；「設定不見了」查下去是真的 bug。
+
+`src/main/mobileServer.ts` 的 `GET /api/sync-init` 原本只送 `llm.endpoint`
+（單數，遺留欄位）,沒送 `llm.endpoints`（每家供應商各自的端點表，本機模型
+真正吃的是這個）。`core/llm/index.ts` 的 `resolveEndpoint()` 自己就寫著
+警告：`endpoints` 表**只要非空**、但缺當前這家的 key，就**不會**退回舊
+欄位。手機那張表如果本來就不是空的（例如已經設過任一家的自訂端點），
+匯入完 `provider` 換成 `local`、`endpoint` 舊欄位也對，但 `endpoints.local`
+沒有——這時候端點就已經是空的，只是還沒被使用者發現；一旦手機這邊之後
+任何一次改 provider（`localDataSource.ts` 的 `setLlmProvider` 沒有
+fallback，直接 `llm.endpoint = llm.endpoints?.[provider]`），連舊欄位那份
+備份也會被空值蓋掉，這才是使用者會實際看到「消失」的時間點。
+
+同一個坑也波及 `llm.models`（每家的型號選擇）與 `llm.utilityModels`／
+`utilityProvider`（輔助模型）——`applySettings()` 原本用
+`s.llm = { ...s.llm, ...rest }` 整包蓋，`models`／`endpoints`／
+`utilityModels` 這三張表只要電腦那邊有送（哪怕只有一個 key），就會把手機
+自己填過的其他供應商的值一起洗掉，跟金鑰匯入不同步「只覆蓋電腦上有值的
+那幾家」的規矩，是三處遺漏。
+
+修法：`sync-init` 補上 `endpoints`／`utilityProvider`／`utilityModels`；
+`applySettings()` 把 `models`／`endpoints`／`utilityModels` 從整包 spread
+裡拆出來，新增 `mergeNonEmpty()` 逐 key 合併（跟 `apiKeys` 同一套邏輯：
+電腦沒填值的 key 不覆蓋）。補了一個對稱的測試（`tests/mobile/syncImport.test.ts`
+「本機模型的端點／型號逐 key 合併，不整包覆蓋掉手機自己填的其他家」）。
+
+`npm run typecheck` 乾淨、`npm test` 80 檔 1050 項全過。**這輪沒有真機
+驗證**——下次 owner 用本機模型跑一次 S1 匯入才是第一次真的測到。
+
+---
+
+## 2026-08-24（續）｜手機設定頁補上雲端供應商的「連線」按鈕
+
+owner 順手回報：手機的 LLM 設定頁只有 provider 選 `local` 時才有「連線」
+按鈕，OpenAI／Claude／Gemini／Grok 都沒有。查證後確認桌面版
+（`SettingsWindow.tsx`）本來就有一顆通用的「連線」按鈕，不分供應商都能按；
+手機這顆按鈕原本寫死只出現在 `localEndpointField`（`llm.provider === 'local'`
+才渲染），沒有對應雲端供應商的版本——是漏做，不是刻意設計。
+
+底層其實早就支援任何供應商：`session.testLlmConnection(provider, endpoint)`
+本來就吃 `provider` 參數，金鑰也是它自己從已存設定讀，呼叫端不用另外傳；
+遙控模式打的 `/api/settings/llm-test-connection` 一樣是通用端點。純粹是
+`SettingsView.tsx` 沒把按鈕放出來。
+
+補了一顆 `testCloudConnection()`，跟原本 `testConnection()`（本機專用）
+分開一支——後者也被輔助模型的 local 分支共用（`llm.utilityProvider ===
+'local'` 時同一個 `localEndpointField` 會再渲染一次），改成看
+`llm.provider` 會在「主模型雲端、輔助模型 local」這個常見組合下測錯供應商。
+新按鈕放在 API Key 欄位下方（`llm.provider !== 'local'` 才顯示，跟本機那顆
+互斥不重複），成功只顯示「已驗證」（不像本機那樣有模型清單可秀）。順手在
+`changeProvider()` 加了 `setTestMsg(null)`——原本切供應商後上一家的測試
+結果會留著，容易誤以為是這家測過的。
+
+`npm run typecheck` 乾淨、`npm test` 80 檔 1050 項全過（純 UI 改動，沒加
+測試）。純程式碼審查沒有真機驗證——這輪嘗試用 Claude Browser 開手機網頁版
+驗證畫面，但 `/` 本身也要求 token 驗證，沒有現成權杖就卡在
+`{"error":"Unauthorized"}`，放棄用瀏覽器驗證，改以「跟桌面版、跟本機那顆
+按鈕的既有寫法完全對齊」佐證正確性。owner 下次開手機設定頁確認一下畫面。
+
+---
+
+## 2026-08-24（續）｜手機按 Claude「連線」跳 `browser-like environment`
+
+上面那顆新按鈕補完，owner 馬上實測：其他供應商都正常，Claude 按下去跳紅字
+`browser-like environment`。查了一下，是 Anthropic SDK 自己的防呆機制——
+偵測到 `window` 就拒跑（防的是「網站把金鑰發給瀏覽器、被同頁面第三方腳本
+偷走」），要顯式帶 `dangerouslyAllowBrowser: true` 才會放行。手機獨立版的
+WebView 有 `window`，這個檢查一定會觸發。
+
+`chatWithClaude()`（`core/llm/claude.ts`）本來就有帶這個旗標、也有寫清楚
+為什麼手機這樣做是安全的（金鑰只在使用者自己的裝置上，不是網站發給不特定
+瀏覽器）。但 `core/llm/index.ts` 裡另外**四處**各自 `new Anthropic(...)`
+的地方都漏了：`applyUtilitySettings()` 的情緒分類與新聞主觀度分類各一處
+（輔助模型選 Claude 時就會炸，不只是這次新按鈕的 `testLLMConnection`／
+`testLLMMessage` 那兩處）——同一支 SDK、同一份設定，四個呼叫點各自建立
+client 而不是共用一個 helper，改一處漏三處的老問題又發生一次。
+
+**這個坑其實比「連線按鈕」更嚴重**：只要手機獨立版的輔助模型（提醒發話、
+情緒分類）選了 Claude，之前每一次分類都會用同一個錯誤炸掉，退化模式接手，
+使用者未必看得出來是這個原因——沒去點「連線」按鈕的話這條路完全不會被
+主動測到。
+
+修法：四處都補 `dangerouslyAllowBrowser: true`，比照 `claude.ts` 與其他
+`new OpenAI(...)` 呼叫點（那些原本就有帶）。沒有另外抽 helper——四個呼叫點
+分散在不同函式、建構參數也不完全一樣（有沒有 `apiKeys` 對照表），硬抽的話
+改動範圍更大，先用最小修法堵住，之後如果又漏第五處再考慮。
+
+`npm run typecheck`／`npm test`（80 檔 1050 項）都過。**這條沒辦法自動測**
+（要真的打 Anthropic API 或攔截 SDK 內部的環境偵測），純粹是讀 SDK 原始碼
+＋比對 `claude.ts` 既有寫法确认。owner 下次用 Claude 當主模型或輔助模型
+在手機獨立版測一次最準。

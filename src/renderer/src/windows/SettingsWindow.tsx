@@ -2596,15 +2596,6 @@ export default function SettingsWindow() {
               statusText={draft.ui.randomToolsEnabled !== false ? '已啟用' : '已停用'}
             />
             <ExtensionRow
-              title="手機遠端對話／遙控"
-              description="用手機傳訊息、查看角色，並可啟用鍵鼠遠端控制；啟用時 prompt 會標記訊息來源裝置。"
-              enabled={!!draft.mobile?.enabled && !!draft.remoteControl?.enabled}
-              onToggle={setMobileRemoteExtensionEnabled}
-              statusText={draft.mobile?.enabled ? (draft.remoteControl?.enabled ? '已啟用' : '僅手機對話') : '已停用'}
-              settingsLabel="設定"
-              onSettings={() => changeTab('遙控')}
-            />
-            <ExtensionRow
               title="天氣資訊"
               description="讓角色取得所在地天氣、氣溫與濕度。"
               enabled={!!draft.weather?.enabled}
@@ -2939,6 +2930,42 @@ export default function SettingsWindow() {
 
         {tab === '關於' && (
           <div className="space-y-4">
+            <div className="rounded-xl bg-surface border border-border px-4 py-3 space-y-2">
+              <p className="text-xs text-secondary">連接手機</p>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!draft.mobile?.enabled}
+                  onChange={e => setMobileRemoteExtensionEnabled(e.target.checked)}
+                  className="accent-teal w-4 h-4"
+                />
+                <span className="text-sm text-primary">啟用手機連線</span>
+              </label>
+              {draft.mobile?.enabled && (
+                <>
+                  <p className="text-xs text-secondary leading-relaxed">
+                    先決定用途，再讓手機掃對應的 QR：備份資料需要區網直連才會帶 API Key；
+                    遙控／同步在同一個 Wi-Fi 時最快，不同網路會自動走中繼。
+                  </p>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded-lg text-sm bg-mint text-primary border border-border"
+                      onClick={() => window.api.invoke('mobile:open-qr')}
+                    >
+                      開啟 QR Code 視窗
+                    </button>
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 rounded-lg text-sm bg-surface text-primary border border-border"
+                      onClick={() => changeTab('遙控')}
+                    >
+                      進階遙控設定
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
             <div className="rounded-xl bg-surface border border-border px-4 py-3 space-y-0.5">
               <p className="text-xs text-secondary">目前版本</p>
               <p

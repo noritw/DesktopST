@@ -13,15 +13,33 @@ interface MobileStatus {
   cloudflaredAvailable: boolean
 }
 
+type Purpose = 'backup' | 'remote'
+
 /**
- * 挑一個最穩的網址：relay（最穩，換網路也不用重掃）→ tunnel → 區網。
+ * 「用手機遙控這台電腦」：挑一個最穩的網址（relay → tunnel → 區網）。
+ * 中繼未啟用／未連上時 `relayUrl` 已經是空字串（見 `getMobileStatus()`），
+ * 不會再指向一個打下去只會 503 的網址（qr-entry-merge-plan.md §2.1）。
  */
-function pickUrl(s: MobileStatus): string | null {
+function pickRemoteUrl(s: MobileStatus): string | null {
   return s.relayUrl || (s.tunnelReady && s.url ? s.url : s.running ? s.localUrl : null)
+}
+
+/**
+ * 「把資料複製到手機」：**一律用區網位址**，不要中繼。
+ * 中繼會被電腦端剝掉 API Key（qr-entry-merge-plan.md §4.2），先給區網位址
+ * 直接對，不必依賴「掃到中繼再自動升級」那套只有第一次連線才會跑的機制。
+ */
+function pickBackupUrl(s: MobileStatus): string | null {
+  return s.running ? s.localUrl : null
+}
+
+function pickUrl(purpose: Purpose, s: MobileStatus): string | null {
+  return purpose === 'backup' ? pickBackupUrl(s) : pickRemoteUrl(s)
 }
 
 export default function QRCodeWindow() {
   const [status, setStatus] = useState<MobileStatus | null>(null)
+  const [purpose, setPurpose] = useState<Purpose | null>(null)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -29,10 +47,6 @@ export default function QRCodeWindow() {
     const refresh = async () => {
       const s = await window.api.invoke('mobile:get-status') as MobileStatus
       setStatus(s)
-
-      // 沒建置就不產碼——給一個掃了會 503 的 QR 比不給更難懂
-      const url = s.appAvailable ? pickUrl(s) : null
-      setQrDataUrl(url ? (await window.api.invoke('mobile:generate-qr', url) as string | null) : null)
     }
 
     refresh()
@@ -46,7 +60,17 @@ export default function QRCodeWindow() {
     }
   }, [])
 
-  const displayUrl = status ? pickUrl(status) : null
+  const displayUrl = status && purpose ? pickUrl(purpose, status) : null
+
+  useEffect(() => {
+    // 沒建置就不產碼——給一個掃了會 503 的 QR 比不給更難懂
+    if (!status?.appAvailable || !displayUrl) { setQrDataUrl(null); return }
+    let cancelled = false
+    void window.api.invoke('mobile:generate-qr', displayUrl).then((url) => {
+      if (!cancelled) setQrDataUrl(url as string | null)
+    })
+    return () => { cancelled = true }
+  }, [status?.appAvailable, displayUrl])
 
   const handleCopy = () => {
     if (!displayUrl) return
@@ -80,9 +104,32 @@ export default function QRCodeWindow() {
     )
   }
 
+  // 先問用途，再出對應的 QR（qr-entry-merge-plan.md §4.2）——
+  // 不要讓使用者自己搞懂中繼／區網的差別才知道該掃哪張。
+  if (!purpose) {
+    return (
+      <div style={styles.root}>
+        <button style={{ ...styles.closeBtn, ...noDrag }} onClick={handleClose}>✕</button>
+        <div style={{ ...styles.card, ...noDrag }}>
+          <div style={styles.blockTitle}>連接手機</div>
+          <button style={{ ...styles.purposeBtn, ...noDrag }} onClick={() => setPurpose('backup')}>
+            <span style={styles.purposeBtnTitle}>把資料複製到手機</span>
+            <span style={styles.purposeBtnHint}>需要手機和這台電腦連同一個 Wi-Fi。API Key 只會在這種連線下傳送。</span>
+          </button>
+          <button style={{ ...styles.purposeBtn, ...noDrag }} onClick={() => setPurpose('remote')}>
+            <span style={styles.purposeBtnTitle}>用手機遙控這台電腦</span>
+            <span style={styles.purposeBtnHint}>同一個 Wi-Fi 時速度最快；不在同一個網路時會透過中繼連線。</span>
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   const extStatus = status as MobileStatus & { tunnelStatus?: string }
   const firewallBlocked = extStatus.tunnelStatus === 'firewall-blocked'
-  const statusLabel = status.relayUrl && status.tunnelReady
+  const statusLabel = purpose === 'backup'
+    ? (status.running ? '✅ 已就緒' : '❌ 伺服器未啟動')
+    : status.relayUrl && status.tunnelReady
     ? `✅ 已就緒（${status.connectedCount} 支裝置連線中）`
     : firewallBlocked
     ? '🚫 防火牆可能阻擋了 Tunnel'
@@ -96,20 +143,27 @@ export default function QRCodeWindow() {
     <div style={styles.root}>
       <button style={{ ...styles.closeBtn, ...noDrag }} onClick={handleClose}>✕</button>
       <div style={{ ...styles.card, ...noDrag }}>
+        <button style={{ ...styles.backBtn, ...noDrag }} onClick={() => setPurpose(null)}>← 換個用途</button>
         <div style={styles.statusBadge}>
           {statusLabel}
         </div>
 
         <div style={styles.qrBlock}>
-          <div style={styles.blockTitle}>手機遠端</div>
-          <div style={styles.blockHint}>聊天、角色、設定、遙控</div>
+          <div style={styles.blockTitle}>{purpose === 'backup' ? '把資料複製到手機' : '用手機遙控這台電腦'}</div>
+          <div style={styles.blockHint}>
+            {purpose === 'backup'
+              ? '需要同一個 Wi-Fi，API Key 才會一起傳過去'
+              : '同一個 Wi-Fi 時速度最快，不同網路會自動走中繼'}
+          </div>
           {status.appAvailable ? (
             qrDataUrl ? (
               <img src={qrDataUrl} alt="手機遠端 QR Code" style={styles.qrImg} />
             ) : (
               <div style={styles.qrPlaceholder}>
                 <div style={styles.spinner}>⏳</div>
-                <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 8 }}>等待 Tunnel 就緒…</div>
+                <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 8 }}>
+                  {purpose === 'backup' ? '等待伺服器啟動…' : '等待 Tunnel 就緒…'}
+                </div>
               </div>
             )
           ) : (
@@ -124,7 +178,7 @@ export default function QRCodeWindow() {
           )}
         </div>
 
-        {firewallBlocked && (
+        {purpose === 'remote' && firewallBlocked && (
           <div style={styles.warnBox}>
             🚫 Tunnel 連線超時，可能是 Windows 防火牆阻擋。
             <button
@@ -136,14 +190,14 @@ export default function QRCodeWindow() {
           </div>
         )}
 
-        {!status.cloudflaredAvailable && (
+        {purpose === 'remote' && !status.cloudflaredAvailable && (
           <div style={styles.warnBox}>
             ⚠️ 找不到 cloudflared.exe，目前僅支援區域網路連線。
             請將 cloudflared.exe 放入 bin\ 資料夾（開發模式）或 cloudflared\ 資料夾（打包後）。
           </div>
         )}
 
-        {!status.tunnelReady && status.running && (
+        {purpose === 'remote' && !status.tunnelReady && status.running && (
           <div style={styles.localHint}>
             區域網路也可用：<br />
             <span style={{ fontWeight: 600 }}>{status.localUrl}</span>
@@ -205,6 +259,41 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: 6,
     width: '100%',
+  },
+  purposeBtn: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'flex-start',
+    gap: 4,
+    width: '100%',
+    textAlign: 'left' as const,
+    padding: '12px 14px',
+    borderRadius: 14,
+    border: '1px solid var(--color-border)',
+    background: 'var(--color-bg)',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  purposeBtnTitle: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: 'var(--color-text-primary)',
+  },
+  purposeBtnHint: {
+    fontSize: 11,
+    lineHeight: 1.5,
+    color: 'var(--color-text-secondary)',
+  },
+  backBtn: {
+    alignSelf: 'flex-start' as const,
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--color-text-secondary)',
+    fontSize: 12,
+    cursor: 'pointer',
+    padding: 0,
+    textDecoration: 'underline',
+    fontFamily: 'inherit',
   },
   blockTitle: {
     fontSize: 14,

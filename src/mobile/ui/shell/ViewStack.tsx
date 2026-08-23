@@ -58,7 +58,7 @@ const TITLES: Record<ViewKind, string> = {
   'widget-settings': '桌面小工具',
   'theme-picker': '色彩主題',
   'lorebook-editor': '編輯用語解說',
-  'sync-import': '從電腦匯入',
+  'sync-import': '複製電腦資料',
   remote: '遙控電腦',
   menu: '選單',
   about: '關於'
