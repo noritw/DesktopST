@@ -4360,3 +4360,91 @@ bitmap。底色圓一樣不吃底板透明度（臉要看得清楚就得有穩�
 兩個欄位（只加在飲食那邊），這次補齊，兩個 App 的色票欄位現在一致。
 
 typecheck／test（80 檔、1044 項）／APK 皆過，待驗項見計畫書 §17.1。
+
+---
+
+## 2026-08-23（續五）｜設定同步子集盤點：補兩個漏（對話新聞搜尋、memory 欄位漂移）
+
+owner 要求盤點「還有哪些模組子設定沒進同步」。起因是 2026-08-14 `weather.polish`
+那次遺漏——當時只補了那一個，沒有逐一排查完。這次對照
+`core/sync/settingsSnapshot.ts` 的子集定義、桌面 `mobileServer.ts` 與手機
+`syncManifest.ts` 兩端的組裝，找到兩個真的漏，都已修掉。
+
+### ① 新聞的 `conversationSearch` 沒進比對子集
+
+三欄（開關／觸發詞／查詢時效）2026-08-22 就加進 `NewsEditableSettings`，
+而且 owner 當時特別要求**手機端也能編輯**——但 `NewsSyncSubset` 到這天為止
+還是只有 `speakButton` 一欄。結果是兩台裝置永遠各自為政，而且**比對畫面上
+連一列都不會出現**，使用者不會意識到它沒被同步。
+
+跟 `weather.polish` 是完全同一個錯誤類別：**模組除了 `enabled` 之外還有自己的
+子設定，加欄位時沒有回頭看同步子集**。第二次踩到，所以這次在 `NewsSyncSubset`
+的註解裡把這個模式寫明，提醒下次加欄位要回頭看。
+
+修法：子集加三欄、兩端組裝對齊、`settingsPair.ts` 加三列、`syncSettingsApply.ts`
+加套用邏輯。兩個實作細節值得記：
+
+- **三欄逐一分開送，不合併成一包。** 送出去的雖然是同一個巢狀物件
+  `conversationSearch`，但使用者可能只想同步其中一欄。兩端的存檔路徑
+  （桌面 `modules/news/mobileRoutes.ts`、手機 `session.saveNewsEditableSettings`）
+  在 2026-08-22 都已經改成「先讀現況再疊 patch」，所以分開送不會把沒選到的
+  另外兩欄重置掉。為了少送一次請求而合併，會讓「只選一欄」的語意消失。
+- **觸發詞是陣列，但 `SettingsFieldRow` 的值只能是純量。** 存成串好的字串，
+  兩端一律走共用的 `joinTriggerWords()`／`splitTriggerWords()`，分隔符抽成
+  `SEP` 常數——分隔符只要兩邊不一致，雜湊就永遠對不起來。
+
+### ② `memory` 子集兩端欄位數不一樣，`settingsHash` 永遠對不起來
+
+手機 `syncManifest.ts` 直接寫 `memory: session.settings.memory`，而
+`settings.memory` 有**四**個欄位（多一個 `keepDebugPromptN`，桌面 Log 視窗專用、
+手機根本沒有對應 UI）；桌面 `getMemorySettingsDirect()` 只回**三**個。
+`settingsSnapshotHash()` 是對整個物件做雜湊，欄位數不同 → 雜湊永遠不相等。
+
+症狀相當隱蔽：**摘要那行一直說「設定不同步」，但點進去逐欄比對每一列都相同**。
+因為逐欄比對（`settingsPair.ts`）只挑那三欄，所以畫面上完全看不出原因。
+
+諷刺的是，`settingsSnapshot.ts` 檔頭那段警語就是在講這個錯誤類別（M4 時
+`contentHash.ts` 兩邊手打物件字面量漂移的教訓），結果 `memory` 這一欄自己踩了。
+教訓要更新一句：**「兩端 import 同一個型別」擋得住欄位名稱打錯，擋不住
+「其中一端多塞了東西」**——結構化型別對「多給幾個欄位」不會抱怨。
+修法是手機端明列三欄，並在 `MemorySyncSubset` 上加警語說明為什麼不能整包塞。
+
+### 測試與範圍
+
+新增 5 項守門測試（`settingsPair.test.ts` 2 項、`syncManifest.test.ts` 3 項），
+其中一項專門守「改 `keepDebugPromptN` 不該影響 `settingsHash`」。
+`npm run typecheck` 乾淨、`npm test` 80 檔 1049 項全過。**兩項都尚未真機驗證。**
+
+**照規則不該補的**（沿用 owner 2026-08-17 的「桌面限定不同步」）：日曆的
+`lookaheadHours`／`maxEvents`／`mentionWhenEmpty`、Spotify／日曆的 `enabled`、
+`ui.theme`／`unfocusedBubbleOpacity`／`hoverMenuOnHover`／`keepDebugPromptN`
+（桌面專用）、`llm.temperature`／`ui.chatFontSize`（手機沒 UI）。
+
+---
+
+## 2026-08-23（續六）｜文件對帳：把「做完但文件沒更新」的狀態補齊
+
+同一輪順手做的。owner 問「還有什麼沒做、有沒有文件沒更新」，盤出來的落差比
+預期多，重點是**幾乎全部都是「做完了但文件停在舊狀態」**，不是真的沒做：
+
+- `CLAUDE.md` 的現況表少了三項近期完工（對話新聞搜尋、手機表情、DeST 桌面小工具），
+  而且新聞那列還留著「**不做**：對話新聞搜尋（刻意不搬）」——那條 2026-08-21 就被
+  owner 推翻、08-22 做完並真機驗證過了，自相矛盾
+- S2 M4／M5／對話同步三列還寫著「尚未真機驗證」，但 TODO §1.1 記著 08-16 就在
+  Pixel 10a 實測完 23 條。**TODO 有更新、CLAUDE.md 沒有**——這正是「待辦唯一入口」
+  規矩要解決的問題，但反方向漏了：狀態從 TODO 回流到 CLAUDE.md 這一步沒人做
+- `docs/README.md` 落後最多：M3 那列還寫「尚未完成，勿當可驗收功能」（早被 M4 取代），
+  Health-lite 還寫「開工前有 3 個開放問題要問 owner」（已完工並真機驗證），
+  而且**有 9 份文件從來沒被索引**，包括 `mobile-sync-m4-compare.md` 這種現行主文件
+- 飲食模組的**本機報表頁其實 2026-08-20 就完成了**（`future-nutrition-module.md` §6.1
+  有落地筆記），TODO §3 卻還把它列為待辦——owner 因此以為還要做，回覆「可以先不用」
+
+另外釐清一個**容易誤判成 bug 的設計**：owner 問「情境切換後使用者設定有換、
+但對話沒換」。查證後確認是刻意的——`lastActiveConversationId` 跟桌面視窗座標同一類，
+屬**裝置本地狀態**，`syncApply.ts` 兩個方向都保留接收端原值不搬（兩台的對話 id
+本來就不同，搬過去會指到不存在的對話）。S1 初次匯入是另一回事，那裡有 id 對照表
+翻譯（`syncImport.ts`）。順手修掉 `syncApply.ts` 那行誤導的註解——原本寫
+「手機沒有對應概念」，實際上手機也有這個欄位，照著註解讀會誤判成漏翻譯。
+
+M4 第 6 條（電腦端 `scenes/*.json` 的 `activePersonaId` 是否正確翻譯）也在這輪
+由 owner 補驗通過，S2 的真機待驗清單至此清空。

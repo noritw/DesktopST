@@ -119,7 +119,28 @@ export function pairSettings(local: SettingsSnapshot, remote: SettingsSnapshot):
       local.weather.realtimeQueryForecastCounty,
       remote.weather.realtimeQueryForecastCounty
     ),
-    row('news.speakButton', 'modules', '新聞：陪聊頻率', local.news.speakButton, remote.news.speakButton)
+    row('news.speakButton', 'modules', '新聞：陪聊頻率', local.news.speakButton, remote.news.speakButton),
+    row(
+      'news.conversationSearchEnabled',
+      'modules',
+      '新聞：對話中搜尋新聞',
+      local.news.conversationSearchEnabled,
+      remote.news.conversationSearchEnabled
+    ),
+    row(
+      'news.conversationSearchTriggerWords',
+      'modules',
+      '新聞：對話搜尋觸發詞',
+      local.news.conversationSearchTriggerWords,
+      remote.news.conversationSearchTriggerWords
+    ),
+    row(
+      'news.conversationSearchMaxAgeHours',
+      'modules',
+      '新聞：對話搜尋時效（小時，0＝不限）',
+      local.news.conversationSearchMaxAgeHours,
+      remote.news.conversationSearchMaxAgeHours
+    )
   ]
 
   // 模組：以手機清單為主（兩邊模組集合理論上相同，是同一份程式碼算出來的），

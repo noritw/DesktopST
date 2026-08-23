@@ -1,5 +1,5 @@
 import { buildManifest } from '@core/sync/manifestBuild'
-import { settingsSnapshotHash, type SettingsSnapshot } from '@core/sync/settingsSnapshot'
+import { joinTriggerWords, settingsSnapshotHash, type SettingsSnapshot } from '@core/sync/settingsSnapshot'
 import type { Manifest } from '@core/sync/types'
 import type { StandaloneSession } from './session'
 import { getJson, type FetchImpl, type SyncSource } from './syncTransport'
@@ -51,7 +51,14 @@ export async function buildLocalSettingsSnapshot(session: StandaloneSession): Pr
       utilityProvider: llm.utilityProvider ?? llm.provider,
       utilityModels: { ...(llm.utilityModels ?? {}) }
     },
-    memory: session.settings.memory,
+    // ⚠️ 只挑三欄，**不要整包塞** `session.settings.memory`——它多一個
+    // `keepDebugPromptN`（桌面 Log 視窗專用），而桌面端只回三欄，多帶一欄
+    // 會讓 `settingsSnapshotHash()` 永遠對不起來（見 `MemorySyncSubset` 檔內說明）。
+    memory: {
+      keepRecentN: session.settings.memory.keepRecentN,
+      autoSummarizeAfter: session.settings.memory.autoSummarizeAfter,
+      autoSummarizeEnabled: session.settings.memory.autoSummarizeEnabled
+    },
     colorTheme: session.settings.ui.colorTheme ?? 'mint',
     modules: modules.map((m) => ({ id: m.id, label: m.label, enabled: m.enabled })),
     weather: {
@@ -59,7 +66,12 @@ export async function buildLocalSettingsSnapshot(session: StandaloneSession): Pr
       realtimeQueryEnabled: !!session.settings.weather?.realtimeQuery?.enabled,
       realtimeQueryForecastCounty: session.settings.weather?.realtimeQuery?.forecastCounty ?? ''
     },
-    news: { speakButton: newsEditable.speakButton },
+    news: {
+      speakButton: newsEditable.speakButton,
+      conversationSearchEnabled: !!newsEditable.conversationSearch?.enabled,
+      conversationSearchTriggerWords: joinTriggerWords(newsEditable.conversationSearch?.triggerWords),
+      conversationSearchMaxAgeHours: newsEditable.conversationSearch?.maxAgeHours ?? 0
+    },
     appearance: {
       showLlmBadge: session.settings.ui.showLlmBadge ?? true,
       showPersonaName: session.settings.ui.showPersonaName ?? true

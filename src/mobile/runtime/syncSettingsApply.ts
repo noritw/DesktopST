@@ -2,6 +2,7 @@ import { DEFAULT_MODEL_BY_PROVIDER } from '@core/llm/modelCatalog'
 import { SYNC_LLM_PROVIDERS } from '@core/sync/settingsSnapshot'
 import type { ColorTheme } from '@core/types'
 import type { SpeakMode } from '@core/news/types'
+import { splitTriggerWords } from '@core/sync/settingsSnapshot'
 import type { SettingsChoiceMap, SettingsFieldRow } from '@core/sync/settingsPair'
 import type { StandaloneSession } from './session'
 import { postJson, type FetchImpl, type SyncSource } from './syncTransport'
@@ -336,6 +337,39 @@ export async function applySettingsSync(
         // 電腦端那支同一個道理（見 mobileRoutes.ts 的說明）。
         await session.saveNewsEditableSettings({ speakButton: newsSpeakButtonRow.remoteValue as SpeakMode })
         result.pulled.push(newsSpeakButtonRow.label)
+      })
+    }
+  }
+
+  // ── 新聞：對話新聞搜尋（開關／觸發詞／時效）──
+  //
+  // 三欄各自一列（使用者可能只想同步其中一項），但送出去都是同一個巢狀物件
+  // `conversationSearch`。兩端的存檔路徑都會**先讀現況再疊 patch**
+  // （桌面 `modules/news/mobileRoutes.ts`、手機 `session.saveNewsEditableSettings`），
+  // 所以逐欄分開送不會把沒選到的另外兩欄重置掉——這是 2026-08-22 那次修過的坑，
+  // 不要為了「少送一次請求」把三欄合併成一包，那會讓「只選一欄」的語意消失。
+  const convSearchRows: { key: string; toPatch: (v: string | number | boolean) => Record<string, unknown> }[] = [
+    { key: 'news.conversationSearchEnabled', toPatch: (v) => ({ enabled: !!v }) },
+    { key: 'news.conversationSearchTriggerWords', toPatch: (v) => ({ triggerWords: splitTriggerWords(String(v)) }) },
+    { key: 'news.conversationSearchMaxAgeHours', toPatch: (v) => ({ maxAgeHours: Number(v) }) }
+  ]
+  for (const { key, toPatch } of convSearchRows) {
+    const r = byKey.get(key)
+    if (!r || !r.differs) continue
+    const choice = choiceOf(key)
+    if (choice === 'local') {
+      await track(r.label, async () => {
+        onProgress?.(`推送「${r.label}」⋯⋯`)
+        await postJson(src, '/api/news/settings', { conversationSearch: toPatch(r.localValue) }, fetchImpl)
+        result.pushed.push(r.label)
+      })
+    } else if (choice === 'remote') {
+      await track(r.label, async () => {
+        onProgress?.(`帶回「${r.label}」⋯⋯`)
+        await session.saveNewsEditableSettings({
+          conversationSearch: toPatch(r.remoteValue) as never
+        })
+        result.pulled.push(r.label)
       })
     }
   }

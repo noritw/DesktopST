@@ -15,7 +15,7 @@ import { getRemoteControlClientState, getRemoteControlClientStateForDevice } fro
 import { sha1Hex } from '../core/util/sha1'
 import { stableStringify } from '../core/util/stableJson'
 import { buildManifest } from '../core/sync/manifestBuild'
-import { settingsSnapshotHash, type SettingsSnapshot } from '../core/sync/settingsSnapshot'
+import { joinTriggerWords, settingsSnapshotHash, type SettingsSnapshot } from '../core/sync/settingsSnapshot'
 import { loadNewsModuleSettings } from './modules/news/settings'
 import { resolveDisplayImagePath } from '../core/character/displayImage'
 
@@ -549,7 +549,15 @@ function buildSettingsSnapshot(bridge: MobileBridge): SettingsSnapshot {
         realtimeQueryForecastCounty: w.realtimeQuery.forecastCounty
       }
     })(),
-    news: { speakButton: loadNewsModuleSettings().speakButton },
+    news: (() => {
+      const n = loadNewsModuleSettings()
+      return {
+        speakButton: n.speakButton,
+        conversationSearchEnabled: !!n.conversationSearch?.enabled,
+        conversationSearchTriggerWords: joinTriggerWords(n.conversationSearch?.triggerWords),
+        conversationSearchMaxAgeHours: n.conversationSearch?.maxAgeHours ?? 0
+      }
+    })(),
     appearance: { showLlmBadge: bridge.getShowLlmBadge(), showPersonaName: bridge.getShowPersonaName() }
   }
 }

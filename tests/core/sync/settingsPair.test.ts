@@ -25,7 +25,7 @@ function snapshot(over: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     colorTheme: 'mint',
     modules: [{ id: 'desktopst.weather', label: '天氣', enabled: true }],
     weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' },
-    news: { speakButton: 'sometimes' },
+    news: { speakButton: 'sometimes', conversationSearchEnabled: false, conversationSearchTriggerWords: '', conversationSearchMaxAgeHours: 48 },
     appearance: { showLlmBadge: true, showPersonaName: true },
     ...over
   }
@@ -148,5 +148,39 @@ describe('countSettingsPlan', () => {
     expect(counts.push).toBe(1)
     expect(counts.pull).toBe(1)
     expect(counts.untouched).toBe(rows.length - 2)
+  })
+})
+
+describe('新聞：對話新聞搜尋（2026-08-23 補進比對子集）', () => {
+  // 迴歸守門：這三欄 2026-08-22 就加進 `NewsEditableSettings` 且手機可編輯，
+  // 卻漏了進比對子集——症狀是兩台裝置永遠各自為政、畫面上連一列都看不到。
+  // 跟 `weather.polish` 是同一個錯誤類別（模組除了 enabled 還有自己的子設定）。
+  it('三欄都會產生比對列', () => {
+    const rows = pairSettings(snapshot(), snapshot())
+    for (const key of [
+      'news.conversationSearchEnabled',
+      'news.conversationSearchTriggerWords',
+      'news.conversationSearchMaxAgeHours'
+    ]) {
+      expect(rows.find((r) => r.key === key), `缺少比對列：${key}`).toBeTruthy()
+    }
+  })
+
+  it('開關／觸發詞／時效不同時各自 differs，其餘列不受影響', () => {
+    const local = snapshot()
+    const remote = snapshot({
+      news: {
+        speakButton: 'sometimes',
+        conversationSearchEnabled: true,
+        conversationSearchTriggerWords: '地震\n颱風',
+        conversationSearchMaxAgeHours: 12
+      }
+    })
+    const rows = pairSettings(local, remote)
+    expect(rows.find((r) => r.key === 'news.conversationSearchEnabled')!.differs).toBe(true)
+    expect(rows.find((r) => r.key === 'news.conversationSearchTriggerWords')!.differs).toBe(true)
+    expect(rows.find((r) => r.key === 'news.conversationSearchMaxAgeHours')!.differs).toBe(true)
+    // 同一個模組的其他欄位不該被牽連
+    expect(rows.find((r) => r.key === 'news.speakButton')!.differs).toBe(false)
   })
 })

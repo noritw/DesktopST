@@ -3,7 +3,7 @@ import type { PlatformAdapters } from '@core/adapters'
 import { createMemoryStorage } from '../../src/mobile/adapters/memoryStorage'
 import { unavailableSecrets } from '../../src/mobile/adapters/secretCrypto'
 import { bootStandaloneSession } from '../../src/mobile/runtime/session'
-import { buildLocalManifest, fetchRemoteManifest } from '../../src/mobile/runtime/syncManifest'
+import { buildLocalManifest, buildLocalSettingsSnapshot, fetchRemoteManifest } from '../../src/mobile/runtime/syncManifest'
 
 const SRC = { baseUrl: 'http://192.168.1.20:3721', token: 'tok' }
 
@@ -81,5 +81,38 @@ describe('fetchRemoteManifest', () => {
     expect(calledUrl).toBe('http://192.168.1.20:3721/api/sync-manifest')
     expect(manifest.characters).toEqual([{ id: 'rc1', name: '琉緋璃', updatedAt: 99 }])
     expect(manifest.settingsHash).toBe('abc')
+  })
+})
+
+describe('buildLocalSettingsSnapshot 的欄位子集（兩端必須一致）', () => {
+  // 迴歸守門：這裡 2026-08-23 之前直接寫 `memory: session.settings.memory`，
+  // 而 `settings.memory` 比子集多一個 `keepDebugPromptN`（桌面 Log 視窗專用）。
+  // 桌面端 `getMemorySettingsDirect()` 只回三欄，於是 `settingsSnapshotHash()`
+  // 永遠對不起來——摘要一直說「設定不同步」，但逐欄比對每一列都相同，
+  // 完全看不出原因。正是 `settingsSnapshot.ts` 檔頭警告的那個錯誤類別。
+  it('memory 只帶三欄，不含 keepDebugPromptN', async () => {
+    const session = await bootStandaloneSession(adapters(), { skipPackFetch: true })
+    const snap = await buildLocalSettingsSnapshot(session)
+    expect(Object.keys(snap.memory).sort()).toEqual([
+      'autoSummarizeAfter',
+      'autoSummarizeEnabled',
+      'keepRecentN'
+    ])
+  })
+
+  it('改 keepDebugPromptN 不該影響 settingsHash（它不在同步子集裡）', async () => {
+    const session = await bootStandaloneSession(adapters(), { skipPackFetch: true })
+    const before = await buildLocalManifest(session)
+    session.settings.memory.keepDebugPromptN = 99
+    const after = await buildLocalManifest(session)
+    expect(after.settingsHash).toBe(before.settingsHash)
+  })
+
+  it('對話新聞搜尋的三欄有進快照', async () => {
+    const session = await bootStandaloneSession(adapters(), { skipPackFetch: true })
+    const snap = await buildLocalSettingsSnapshot(session)
+    expect(snap.news).toHaveProperty('conversationSearchEnabled')
+    expect(snap.news).toHaveProperty('conversationSearchTriggerWords')
+    expect(snap.news).toHaveProperty('conversationSearchMaxAgeHours')
   })
 })

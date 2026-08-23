@@ -53,6 +53,14 @@ export interface LlmSyncSubset {
   utilityModels: Record<string, string>
 }
 
+/**
+ * ⚠️ **只有這三欄，不要把整包 `settings.memory` 塞進來**。
+ * `settings.memory` 還有第四個欄位 `keepDebugPromptN`（桌面 Log 視窗專用，手機沒有
+ * 對應 UI），而桌面端 `getMemorySettingsDirect()` 只回這三欄——手機那邊 2026-08-23
+ * 之前直接寫 `memory: session.settings.memory`，多帶一個欄位進來，於是
+ * `settingsSnapshotHash()` **永遠對不起來**，摘要一直說「設定不同步」但逐欄看每列都相同
+ * （逐欄比對只挑這三欄，所以畫面上看不出原因）。這正是本檔檔頭警告的那個錯誤類別。
+ */
 export interface MemorySyncSubset {
   keepRecentN: number
   autoSummarizeAfter: number
@@ -84,7 +92,7 @@ export interface WeatherSyncSubset {
 }
 
 /**
- * 新聞模組的子設定。**只有 `speakButton`**——其餘欄位（`langMode`／`replyModel`／
+ * 新聞模組的子設定。`speakButton` ＋ **對話新聞搜尋那三欄**——其餘欄位（`langMode`／`replyModel`／
  * `maxAgeDays`／`readerMaxItems` 等）手機端目前**沒有讀寫路徑**：
  * `NewsApi.getSettings()/saveSettings()`（`session.getNewsEditableSettings()`）
  * 本身就只認 `enabled`／`sources`／`keywordGroups`／`blacklist`／`speakButton`
@@ -94,6 +102,34 @@ export interface WeatherSyncSubset {
  */
 export interface NewsSyncSubset {
   speakButton: string
+  /**
+   * 對話新聞搜尋（2026-08-23 補進來）。這三欄是 2026-08-22 加的，而且**手機端本來就
+   * 可以編輯**（owner 當時特別要求開放），卻沒有一起進比對子集——症狀跟
+   * `weather.polish` 那次一模一樣：兩台裝置各自為政，比對畫面連一列都不會出現。
+   * 「模組除了 `enabled` 還有自己的子設定」這個坑第二次踩到，加欄位時記得回頭看這裡。
+   */
+  conversationSearchEnabled: boolean
+  /**
+   * 觸發詞清單。**`SettingsFieldRow` 的值只能是純量**（`settingsPair.ts`），
+   * 所以這裡存成串好的單一字串，兩端一律走 `joinTriggerWords()`／`splitTriggerWords()`，
+   * 不要有人自己 `join(',')`——分隔符一旦不一致，雜湊永遠對不起來。
+   */
+  conversationSearchTriggerWords: string
+  /** 查詢時效（小時）；0 ＝ 不限制。 */
+  conversationSearchMaxAgeHours: number
+}
+
+/** 觸發詞的串接分隔符。改這個會讓所有既有比對結果一次全變「不同」，不要隨手動。 */
+const SEP = '\n'
+
+/** 觸發詞陣列 → 比對用字串。兩端共用，見 `NewsSyncSubset.conversationSearchTriggerWords`。 */
+export function joinTriggerWords(words: readonly string[] | undefined): string {
+  return (words ?? []).map((w) => w.trim()).filter(Boolean).join(SEP)
+}
+
+/** 比對用字串 → 觸發詞陣列。`joinTriggerWords()` 的反向。 */
+export function splitTriggerWords(joined: string): string[] {
+  return joined.split(SEP).map((w) => w.trim()).filter(Boolean)
 }
 
 /**

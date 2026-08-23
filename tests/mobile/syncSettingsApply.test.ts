@@ -39,7 +39,7 @@ function snapshot(over: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     colorTheme: 'mint',
     modules: [],
     weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' },
-    news: { speakButton: 'sometimes' },
+    news: { speakButton: 'sometimes', conversationSearchEnabled: false, conversationSearchTriggerWords: '', conversationSearchMaxAgeHours: 48 },
     appearance: { showLlmBadge: true, showPersonaName: true },
     ...over
   }
@@ -383,8 +383,8 @@ describe('applySettingsSync 外觀（§2.2）', () => {
 describe('applySettingsSync 新聞陪聊頻率（§2.2）', () => {
   it("選 'local' 推送到電腦的 /api/news/settings，只帶 speakButton 這個欄位", async () => {
     const session = await bootSession()
-    const local = snapshot({ news: { speakButton: 'always' } })
-    const remote = snapshot({ news: { speakButton: 'off' } })
+    const local = snapshot({ news: { speakButton: 'always', conversationSearchEnabled: false, conversationSearchTriggerWords: '', conversationSearchMaxAgeHours: 48 } })
+    const remote = snapshot({ news: { speakButton: 'off', conversationSearchEnabled: false, conversationSearchTriggerWords: '', conversationSearchMaxAgeHours: 48 } })
     const rows = pairSettings(local, remote)
     const { fetchImpl, calls } = makeFakeDesktop()
 
@@ -396,8 +396,8 @@ describe('applySettingsSync 新聞陪聊頻率（§2.2）', () => {
 
   it("選 'remote' 寫回手機本地的新聞設定", async () => {
     const session = await bootSession()
-    const local = snapshot({ news: { speakButton: 'off' } })
-    const remote = snapshot({ news: { speakButton: 'always' } })
+    const local = snapshot({ news: { speakButton: 'off', conversationSearchEnabled: false, conversationSearchTriggerWords: '', conversationSearchMaxAgeHours: 48 } })
+    const remote = snapshot({ news: { speakButton: 'always', conversationSearchEnabled: false, conversationSearchTriggerWords: '', conversationSearchMaxAgeHours: 48 } })
     const rows = pairSettings(local, remote)
     const { fetchImpl } = makeFakeDesktop()
 

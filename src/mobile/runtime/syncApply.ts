@@ -281,7 +281,9 @@ async function pushOne(
     activeWorldId: maps.l2r.worlds.get(scene.activeWorldId) ?? existingRemote?.activeWorldId ?? '',
     desktopCharacters,
     lorebookIds: scene.lorebookIds === undefined ? undefined : translateIds(scene.lorebookIds, maps.l2r.lorebooks),
-    // 這兩個是電腦端的視窗狀態與對話指標，手機沒有對應概念，原樣保留電腦的
+    // 視窗狀態是電腦專屬；對話指標**兩邊都有**但是裝置本地狀態（對話 id 各自不同，
+    // 搬過去會指到不存在的對話），跟座標同一類：一律保留接收端原值、不跟著搬。
+    // ⚠️ 這是刻意的，不是漏翻譯——情境切換後「使用者設定會換、對話不會換」即為預期行為。
     lastActiveConversationId: existingRemote?.lastActiveConversationId,
     inputWindowBounds: existingRemote?.inputWindowBounds,
     logWindowBounds: existingRemote?.logWindowBounds
@@ -382,7 +384,7 @@ async function pullOne(
       return [{ ...dc, characterId: localCharId }]
     }),
     lorebookIds: remote.lorebookIds === undefined ? undefined : translateIds(remote.lorebookIds, maps.r2l.lorebooks),
-    // 對話指標是各自裝置的，不跟著搬
+    // 對話指標是各自裝置的，不跟著搬（同上：刻意保留接收端原值，非漏翻譯）
     lastActiveConversationId: existingLocal?.lastActiveConversationId,
     updatedAt: Date.now()
   }
