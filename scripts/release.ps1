@@ -223,13 +223,26 @@ if (-not (Test-Path $unpackedDir)) {
 # ══════════════════════════════════════════════════════════════
 #  [5/6] 手機 APK（可選）
 # ══════════════════════════════════════════════════════════════
+#  2026-08-24：有 android/keystore.properties 就自動改打正式簽章版
+#  （scripts/build-mobile-apk-release.mjs），沒有就照舊打 debug 版。
+#  這個判斷只影響「打哪一種」，不會自動幫你決定「要不要發」——
+#  keystore 不在，這裡就跟以前一樣印出 debug 版，不會擋住整個流程。
+# ══════════════════════════════════════════════════════════════
 Write-Host ""
 $apkRelease = $null
+$apkIsSigned = $false
 if (-not $buildApk) {
     Write-Host "[5/6] 略過手機 APK。" -ForegroundColor Gray
 } else {
-    Write-Host "[5/6] 打包手機 APK..." -ForegroundColor Cyan
-    node scripts\build-mobile-apk.mjs
+    $hasKeystore = Test-Path "android\keystore.properties"
+    if ($hasKeystore) {
+        Write-Host "[5/6] 打包手機 APK（找到 keystore，將輸出正式簽章版）..." -ForegroundColor Cyan
+        node scripts\build-mobile-apk-release.mjs
+    } else {
+        Write-Host "[5/6] 打包手機 APK（找不到 android\keystore.properties，輸出 debug 版）..." -ForegroundColor Cyan
+        Write-Host "      正式簽章設定：docs\pre-b3-work-assessment.md §9" -ForegroundColor Gray
+        node scripts\build-mobile-apk.mjs
+    }
     if ($LASTEXITCODE -ne 0) {
         # APK 失敗不該讓桌面版跟著陪葬 —— 桌面安裝檔這時已經好了
         Write-Host ""
@@ -240,10 +253,16 @@ if (-not $buildApk) {
             Read-Host "按 Enter 結束"; exit 1
         }
     } else {
-        $apkSrc = "out\apk\DeST-debug.apk"
+        if ($hasKeystore) {
+            $apkSrc = "out\apk\DeST-v$ver-release.apk"
+            $apkIsSigned = $true
+        } else {
+            $apkSrc = "out\apk\DeST-debug.apk"
+        }
         if (Test-Path $apkSrc) {
-            # 檔名帶版本號，Release 附件列表才看得出是哪一版
-            $apkRelease = "dist\DeST-v$ver-debug.apk"
+            # 檔名帶版本號與簽章類型，Release 附件列表才看得出是哪一種
+            $apkSuffix = if ($apkIsSigned) { "release" } else { "debug" }
+            $apkRelease = "dist\DeST-v$ver-$apkSuffix.apk"
             Copy-Item $apkSrc $apkRelease -Force
             $apkSizeMB = [math]::Round((Get-Item $apkRelease).Length / 1MB, 1)
             Write-Host "      APK：$apkRelease ($apkSizeMB MB)" -ForegroundColor Yellow
@@ -350,13 +369,25 @@ if (-not $shouldPush) {
             "- **ZIP版**（開啟速度較快）：``DesktopST-v$ver-full.zip``（解壓縮後直接執行 ``DesktopST.exe``）"
         )
         if ($apkRelease -and (Test-Path $apkRelease)) {
-            $notesLines += @(
-                "",
-                "## Android（測試版）",
-                "",
-                "- ``DeST-v$ver-debug.apk``　—　debug 簽章，安裝時需允許「未知來源」。",
-                "  可獨立使用，也可以掃電腦上的 QR 把角色與設定帶過去。"
-            )
+            if ($apkIsSigned) {
+                $notesLines += @(
+                    "",
+                    "## Android",
+                    "",
+                    "- ``DeST-v$ver-release.apk``　—　正式簽章版，可以直接覆蓋安裝更新舊版。",
+                    "  安裝時系統仍會提示「未知來源」（因為不是從 Play 商店下載），這是正常的，跟簽章無關。",
+                    "  可獨立使用，也可以掃電腦上的 QR 把角色與設定帶過去。"
+                )
+            } else {
+                $notesLines += @(
+                    "",
+                    "## Android（測試版）",
+                    "",
+                    "- ``DeST-v$ver-debug.apk``　—　debug 簽章，安裝時需允許「未知來源」。",
+                    "  ⚠️ debug 簽章之後換成正式簽章時無法直接覆蓋更新，屆時需要先解除安裝（會清空資料）。",
+                    "  可獨立使用，也可以掃電腦上的 QR 把角色與設定帶過去。"
+                )
+            }
         }
         # Set-Content -Encoding UTF8 在 PS 5.1 會加 BOM，gh 傳給 GitHub 後中文亂碼
         # 改用 .NET 直接寫 UTF-8 無 BOM

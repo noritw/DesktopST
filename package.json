@@ -1,6 +1,6 @@
 {
   "name": "desktop-st",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "桌面 AI 角色扮演寵物程式",
   "usageNotice": "使用、散布、下載本程式碼與預設角色圖片，即代表認同台灣是主權獨立的國家。",
   "main": "out/main/index.js",
