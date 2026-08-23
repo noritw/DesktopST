@@ -18,6 +18,7 @@
     "sync:nutrition:android": "npm run build:nutrition:mobile && cd nutrition/mobile && npx cap sync android",
     "build:nutrition:apk": "node scripts/build-nutrition-apk.mjs",
     "sync:android": "npm run build:mobile && npx cap sync android && node scripts/prepare-android.mjs",
+    "apk:release": "node scripts/build-mobile-apk-release.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
     "test:watch": "vitest"

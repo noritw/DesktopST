@@ -134,7 +134,11 @@ cd android && ./gradlew.bat assembleDebug
 
 ## 尚未做
 - S2 雙向同步的完整收尾（設定推送、對話同步與真機驗收）
-- 簽章 keystore（不要自行產生）
+- ~~簽章 keystore（不要自行產生）~~ → **repo 端自動化已接好**（2026-08-23）：
+  `keystore.properties` 放好之後 `npm run sync:android` 會自動接上、
+  `npm run apk:release` 建正式簽章 APK。金鑰本體與密碼**仍然要 owner 自己
+  在自己機器上產生**，AI 沒有也不會碰。怎麼產生、怎麼保管、repo 端怎麼接：
+  `docs/pre-b3-work-assessment.md` §9
 
 ## 原生層（提醒鬧鐘）
 

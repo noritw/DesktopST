@@ -49,3 +49,11 @@ assets/*.dstpack
 
 # 測試用 QR 圖（MobileST-*-test.bat 產生）
 mobile-test-qr.png
+
+# Android 正式簽章 keystore／密碼。`android/keystore.properties` 本來就落在
+# 上面 `/android/*` 的忽略範圍內，這裡是防呆——不管檔案放在哪一層，
+# 只要副檔名或檔名對到就一律不進版控。弄丟 keystore＝所有使用者都無法升級，
+# 但「不小心 commit 進去」風險更高更常見，見 docs/pre-b3-work-assessment.md §9。
+*.jks
+*.keystore
+keystore.properties

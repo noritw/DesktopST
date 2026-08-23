@@ -473,6 +473,39 @@ keytool -genkeypair -v -keystore dest-release.jks -keyalg RSA -keysize 4096 -val
 4. GitHub Actions 自動建置時，`.jks` 轉成 base64 存進 Secrets、密碼另存 Secret。
    ⚠️ **Secrets 只是 CI 用的副本，不是備份** —— 原始檔必須你自己另外保管
 
+### 9.5 repo 這邊怎麼接（2026-08-23 已做好，owner 只要放檔案）
+
+上面 §9.3 產生好 `.jks` 之後，在 `android/` 底下**手動建立**
+`android/keystore.properties`（純文字，四行）：
+
+```
+storeFile=D:/放金鑰的路徑/dest-release.jks
+storePassword=你的 keystore 密碼
+keyAlias=dest
+keyPassword=你的 key 密碼
+```
+
+這個檔案已經被 `.gitignore` 擋兩層（`/android/*` 整體忽略＋額外的
+`keystore.properties` 規則防呆），**不會進版控**。
+
+放好之後：
+
+- `npm run sync:android`（`scripts/prepare-android.mjs`）每次都會**自動**把
+  簽章設定接進 `android/app/build.gradle`——因為那個檔案整包 gitignored，
+  每次 `npx cap add android` 重建都會被打回預設，跟 manifest 權限、
+  版本號是同一個處理方式。**這支腳本本身不會讀出或印出密碼**，只是產生
+  一段引用 `keystore.properties` 的 Groovy 設定，密碼由 Gradle 自己去讀檔。
+- `npm run apk:release`（`scripts/build-mobile-apk-release.mjs`）建置**正式簽章**
+  的 release APK，輸出到 `out/apk/DeST-v<版本>-release.apk`。
+  **找不到 `keystore.properties` 會直接失敗**，不會悄悄退回成未簽章——
+  那樣裝起來看似沒事，其實是下次沒辦法覆蓋更新的地雷。
+- `npm run build:apk`／`MobileST.bat [1]` 那條路線**完全沒變**，還是
+  debug 簽章、還是自動 adb 裝機，兩條路線互不影響。
+
+第一次發布正式簽章版之前，建議先手動裝到一台真機驗證一輪——尤其
+「這把金鑰簽出來的 APK 能不能正常安裝、開啟、跑起來」這件事，
+第一次發布時還驗不到「覆蓋更新舊版」，那要等到下一次發版才驗得到。
+
 ### 9.5 什麼時候需要
 
 **不擋 B3、不擋任何開發。** 只有要**發布第一個公開 APK** 時才需要。

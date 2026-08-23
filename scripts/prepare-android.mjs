@@ -119,3 +119,96 @@ function syncGradleVersion() {
   fs.writeFileSync(gradlePath, after, 'utf8')
   console.log(`[prepare-android] ✅ 版本同步為 ${version}（versionCode ${code}）`)
 }
+
+syncSigningConfig()
+
+/**
+ * 把正式簽章接進 `build.gradle`（`assembleRelease` 才會用到；`assembleDebug`
+ * 完全不受影響，一直都是內建的 debug 簽章）。
+ *
+ * **keystore 本體與密碼絕對不在這支腳本裡出現、也絕對不由 AI 產生**——
+ * 見 `docs/pre-b3-work-assessment.md` §9（owner 自己在自己機器上用 `keytool`
+ * 產生，密碼進密碼管理器，檔案離線備份至少兩份）。這支腳本只做「如果 owner
+ * 已經把 `android/keystore.properties` 放好，就把 gradle 接上去；沒放就完全
+ * 不動 release 建置流程」。
+ *
+ * `keystore.properties` 是 owner 自己建立的四行純文字（不進版控，`.gitignore`
+ * 擋了兩層）：
+ * ```
+ * storeFile=D:/path/to/dest-release.jks
+ * storePassword=...
+ * keyAlias=dest
+ * keyPassword=...
+ * ```
+ *
+ * 跟前面兩個補丁（manifest 權限／版本號）同一個理由：`build.gradle` 整包
+ * gitignored，`npx cap add android` 一跑就打回預設，簽章設定不會活過重建。
+ * 冪等：用字串標記判斷「已經接過了」就不重複插入。
+ */
+function syncSigningConfig() {
+  if (!fs.existsSync(gradlePath)) return
+
+  let text = fs.readFileSync(gradlePath, 'utf8')
+  const before = text
+
+  if (!text.includes('keystorePropertiesFile = rootProject.file')) {
+    const header =
+      'def keystorePropertiesFile = rootProject.file("keystore.properties")\n' +
+      'def keystoreProperties = new Properties()\n' +
+      'if (keystorePropertiesFile.exists()) {\n' +
+      '    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\n' +
+      '}\n\n'
+    text = header + text
+  }
+
+  if (!text.includes('signingConfigs {')) {
+    const patched = text.replace(
+      /android \{/,
+      'android {\n' +
+        '    signingConfigs {\n' +
+        '        release {\n' +
+        '            if (keystorePropertiesFile.exists()) {\n' +
+        "                storeFile file(keystoreProperties['storeFile'])\n" +
+        "                storePassword keystoreProperties['storePassword']\n" +
+        "                keyAlias keystoreProperties['keyAlias']\n" +
+        "                keyPassword keystoreProperties['keyPassword']\n" +
+        '            }\n' +
+        '        }\n' +
+        '    }'
+    )
+    if (patched === text) {
+      console.error('[prepare-android] ⚠️ 找不到 `android {`，簽章設定沒接上')
+      return
+    }
+    text = patched
+  }
+
+  if (!text.includes('signingConfig signingConfigs.release')) {
+    const patched = text.replace(
+      /release \{\n(\s*)minifyEnabled false/,
+      'release {\n' +
+        '$1if (keystorePropertiesFile.exists()) {\n' +
+        '$1    signingConfig signingConfigs.release\n' +
+        '$1}\n' +
+        '$1minifyEnabled false'
+    )
+    if (patched === text) {
+      console.error('[prepare-android] ⚠️ 找不到 release buildType，簽章設定沒接上')
+      return
+    }
+    text = patched
+  }
+
+  if (text === before) {
+    console.log('[prepare-android] 簽章設定已接好，不動')
+    return
+  }
+  fs.writeFileSync(gradlePath, text, 'utf8')
+
+  const propsPath = path.resolve(root, 'android', 'keystore.properties')
+  if (fs.existsSync(propsPath)) {
+    console.log('[prepare-android] ✅ 簽章設定已接上，且找到 keystore.properties——release 建置會正式簽章')
+  } else {
+    console.log('[prepare-android] ✅ 簽章設定已接上，但還沒有 android/keystore.properties——release 建置目前仍是未簽章')
+  }
+}

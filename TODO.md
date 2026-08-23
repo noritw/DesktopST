@@ -248,7 +248,12 @@ owner 決定：提醒資料本身要同步（整份清單，比照角色／情�
 
 ## 3. 排程中／延後
 
-- [ ] **B3 階段 7：正式 APK ／散布**（需要簽章金鑰）——S2 驗完後的下一站
+- [ ] **B3 階段 7：正式 APK／散布**——**repo 端自動化已就緒**（2026-08-23），
+      卡點只剩 owner 自己產生 keystore 這一步（AI 不會、也不該代勞，見
+      `docs/pre-b3-work-assessment.md` §9）。放好 `android/keystore.properties`
+      後 `npm run apk:release` 就能出正式簽章 APK；之前用 `npm run build:apk`
+      裝過的 debug 版**升級不了**（簽章不同），第一次發正式版時使用者要先
+      解除安裝（會清資料，記得先在發布頁提醒），之後才能正常覆蓋更新
 - [ ] 角色印象（B8）
 - [ ] 系統通知（B5）
 - [x] 飲食記錄 App：Health 讀（B9-Health-lite）→ ✅ **已完成，真機驗證通過**
