@@ -28,6 +28,7 @@ import {
   nextFreeFoodPhotoIndex,
   parsePastedNutrition,
   requestPhotoEstimate,
+  resolveMealLogKcal,
   resolveStatsRange,
   suggestTodayKcalLimit,
   MAX_FOOD_PHOTOS,
@@ -70,7 +71,7 @@ import type { ColorTheme } from '@core/types'
 import { applyNutritionTheme, DEFAULT_NUTRITION_THEME } from './theme'
 import './styles.css'
 
-const DEFAULT_HEALTH_SETTINGS: NutritionHealthSettings = { connected: false, autoSync: true, useWatchCalorieLimit: false }
+const DEFAULT_HEALTH_SETTINGS: NutritionHealthSettings = { connected: false, autoSync: true, useWatchCalorieLimit: false, writeCalories: false }
 const DEFAULT_LLM_SETTINGS: NutritionLlmSettings = { provider: 'openai', apiKeys: {} }
 /**
  * 小工具外觀的預設值：薄荷、不透明——跟改版前寫死在 `colors_widget.xml` 的
@@ -567,6 +568,9 @@ function App(): React.JSX.Element {
   const [healthPermissionGranted, setHealthPermissionGranted] = React.useState(false)
   const [healthSyncing, setHealthSyncing] = React.useState(false)
   const [healthMessage, setHealthMessage] = React.useState<string | null>(null)
+  /** 開關 4（寫熱量回 Health）的忙碌狀態與訊息，跟讀取那邊的 healthSyncing／healthMessage 分開，避免兩件事互相蓋字。 */
+  const [healthWriteBusy, setHealthWriteBusy] = React.useState(false)
+  const [healthWriteMessage, setHealthWriteMessage] = React.useState<string | null>(null)
   /** 最近一次讀到的快照，餵給 suggestTodayKcalLimit() 算今日動態上限；重開 App 會重置，這是刻意的（見 §3.1：同步永遠由前景事件觸發）。 */
   const [healthSnapshot, setHealthSnapshot] = React.useState<HealthSnapshot | null>(null)
   /** 過去日期的當日總消耗熱量快取（開關 3 開啟時，翻歷史紀錄用）；`undefined`＝還沒查過，`null`＝查過但查無資料。重開 App 會重置，跟 healthSnapshot 一樣不需要持久化。 */
@@ -908,11 +912,71 @@ function App(): React.JSX.Element {
       // 存檔成功就順手推小工具重算（計畫書 §3 觸發點 1）——用「所有存檔動作都推」
       // 換取簡單可靠，比逐一分辨「這次存檔到底動到 MealLog 沒」便宜也不容易漏。
       void refreshNutritionWidget()
+      // 同一個理由：不逐一分辨這次存檔動到哪幾筆 MealLog，每次存檔後掃一遍
+      // 「還沒寫進 Health 的記錄」全部補推。開關關閉或沒有待寫記錄時是快速的 no-op。
+      void writeMealLogsToHealthIfNeeded(session)
     } catch (error: unknown) {
       setLoadError(error instanceof Error ? error.message : String(error))
     } finally {
       setSaving(false)
     }
+  }
+
+  /**
+   * 把還沒寫進 Health 的飲食記錄（`healthWrittenAt` 是 `undefined` 的那些）逐筆補推熱量。
+   * 這支同時扮演兩個角色：①開關 4 剛打開時，目前所有記錄都是「還沒寫過」，
+   * 這次掃描就是一次性的歷史補寫 ②之後每次存檔都會再掃一次，新記錄隨手補推。
+   * 不主動要權限——沒有寫入權限時安靜跳過，等使用者自己按「補寫」或重新開啟開關。
+   */
+  async function writeMealLogsToHealthIfNeeded(session: NutritionSession): Promise<void> {
+    const settings = session.settings.health
+    if (!settings?.connected || !settings.writeCalories) return
+    const pending = session.mealLogs.filter((mealLog) => mealLog.healthWrittenAt === undefined)
+    if (pending.length === 0) return
+    const available = await nutritionHealthAdapter.isAvailable()
+    if (!available) return
+    const hasPerm = await nutritionHealthAdapter.hasWritePermission()
+    if (!hasPerm) return
+
+    const foodItemMap = new Map(session.foodItems.map((foodItem) => [foodItem.id, foodItem]))
+    const patched = new Map<string, MealLog>()
+    let writtenCount = 0
+    for (const mealLog of pending) {
+      const kcal = resolveMealLogKcal(mealLog, foodItemMap.get(mealLog.foodItemId))
+      // 沒有熱量可算（例如食物庫項目已被刪除）也標記完成，避免每次存檔都重掃同一筆。
+      if (kcal === undefined || kcal <= 0) { patched.set(mealLog.id, { ...mealLog, healthWrittenAt: Date.now() }); continue }
+      const ok = await nutritionHealthAdapter.writeCalories(kcal, mealLog.eatenAt)
+      if (ok) { patched.set(mealLog.id, { ...mealLog, healthWrittenAt: Date.now() }); writtenCount++ }
+    }
+    if (patched.size === 0) return
+    await session.replaceSnapshot({
+      foodItems: [...session.foodItems],
+      mealLogs: session.mealLogs.map((mealLog) => patched.get(mealLog.id) ?? mealLog),
+      bodyProfile: session.bodyProfile,
+      settings: session.settings,
+      burnedKcalHistory: { ...session.burnedKcalHistory }
+    })
+    if (writtenCount > 0) setHealthWriteMessage(`已補寫 ${writtenCount} 筆熱量到 Health`)
+  }
+
+  function toggleHealthWriteCalories(writeCalories: boolean): void {
+    updateHealthSettings({ writeCalories })
+    if (!writeCalories) { setHealthWriteMessage(null); return }
+    setHealthWriteBusy(true)
+    setHealthWriteMessage(null)
+    void (async () => {
+      try {
+        const granted = await nutritionHealthAdapter.hasWritePermission()
+          || await nutritionHealthAdapter.requestWritePermission()
+        if (!granted) { setHealthWriteMessage('尚未授權寫入權限，先前記錄還沒補寫'); return }
+        const session = sessionRef.current
+        if (session) await writeMealLogsToHealthIfNeeded(session)
+      } catch (error: unknown) {
+        setHealthWriteMessage(`補寫失敗：${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        setHealthWriteBusy(false)
+      }
+    })()
   }
 
   /**
@@ -2620,6 +2684,37 @@ function App(): React.JSX.Element {
                   : '尚未同步過'}
               </p>
               {healthMessage && <p className="hint">{healthMessage}</p>}
+              <label className="toggle-row">
+                <input
+                  type="checkbox"
+                  checked={healthSettings.writeCalories}
+                  disabled={saving || healthWriteBusy}
+                  onChange={(event) => toggleHealthWriteCalories(event.target.checked)}
+                />
+                <span>把吃的熱量寫回 Health（只寫熱量，不含蛋白質／脂肪／碳水——外掛限制）</span>
+              </label>
+              {healthSettings.writeCalories && (
+                <>
+                  <p className="hint">
+                    開啟時已把當時的所有記錄補寫一次；之後新增或修改的記錄會自動補推，
+                    同一筆只會寫一次，不會因為編輯而重複。
+                  </p>
+                  <button
+                    type="button"
+                    disabled={healthWriteBusy}
+                    onClick={() => {
+                      const session = sessionRef.current
+                      if (!session) return
+                      setHealthWriteBusy(true)
+                      setHealthWriteMessage(null)
+                      void writeMealLogsToHealthIfNeeded(session).finally(() => setHealthWriteBusy(false))
+                    }}
+                  >
+                    {healthWriteBusy ? '補寫中...' : '手動補寫一次'}
+                  </button>
+                </>
+              )}
+              {healthWriteMessage && <p className="hint">{healthWriteMessage}</p>}
             </>
           )}
         </section>

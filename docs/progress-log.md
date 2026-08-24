@@ -4678,3 +4678,44 @@ Lorebook／情境）加第六個 kind `reminders`，同樣走「id／名稱配�
 `npm run typecheck`／`npm test`（81 檔、1060 項）皆過。**真機驗證留給
 owner**，這裡只到自動測試通過為止，`docs/reminder-sync-kickoff.md` §7 步驟
 10 講得很清楚不要自己假裝真機測過。
+
+---
+
+- [x] **飲食記錄 App：Health 寫營養（B9c 第一項）**（2026-08-25）。owner 決定
+  「只補寫歷史（一次性）」＋「先只寫熱量」——外掛 `@capgo/capacitor-health`
+  的 `saveSample`／`WriteSampleOptions` 只有單一 `value: number`，沒有蛋白質／
+  脂肪／碳水對應欄位，即使 Health Connect 的 `NutritionRecord` 原生支援也一樣，
+  這是外掛版本限制不是刻意省略。
+
+  設計：`MealLog` 新增 `healthWrittenAt?: number`（`src/core/nutrition/types.ts`）
+  標記「這筆熱量寫過 Health 了沒」——外掛沒有 update／delete API，一筆只能寫
+  一次，編輯已寫過的記錄不會補推新數字（避免同一筆在 Health 端留下重複紀錄）。
+  `NutritionHealthSettings` 新增開關 4 `writeCalories`（依賴 `connected`，跟
+  既有三個開關同一套依賴關係）。`HealthAdapter` 介面新增
+  `hasWritePermission`／`requestWritePermission`／`writeCalories`（獨立於既有
+  讀取權限，Health Connect 的寫入是另一個授權範圍），`nutrition/mobile/src/health.ts`
+  用 `Health.saveSample({ dataType: 'dietaryEnergyConsumed', ... })` 實作。
+
+  補寫邏輯故意不做成獨立按鈕＋額外流程，改成復用既有的「所有存檔動作都推」
+  哲學（`runAction` 裡本來就有「存檔後順手推小工具重算」這段，同一個理由：
+  逐一分辨這次存檔動到哪幾筆 MealLog 比整批掃一遍貴，也容易漏）：新增
+  `writeMealLogsToHealthIfNeeded()`，每次 `runAction` 結束都掃一遍
+  `healthWrittenAt === undefined` 的記錄补推，開關關閉或沒有待寫記錄時是
+  快速的 no-op。這支函式同時扮演兩個角色——①開關剛打開時，當下所有記錄都是
+  「還沒寫過」，這次掃描本身就是一次性歷史補寫 ②之後每次存檔再掃一次，
+  新記錄隨手補推——不用另外做「補寫」跟「增量同步」兩套邏輯。設定頁另外
+  留一顆「手動補寫一次」按鈕，供沒有觸發任何存檔動作、純粹想立刻補的情境。
+
+  `resolveMealLogKcal()` 從 `aggregation.ts` 的 `sumLogs()` 抽出來獨立匯出，
+  單筆記錄的熱量換算（`override.kcal ?? foodItem.perServing.kcal` 乘
+  `servings`）現在每日加總跟 Health 寫回共用同一份邏輯，不是各自算一次。
+
+  `src/core/nutrition/storage.ts` 的 `normalizeSettings()` 補上
+  `writeCalories: settings.health.writeCalories ?? false`——這正是
+  `settingsSnapshot.ts`／M4 那次教訓的同一個錯誤類別（新增巢狀設定欄位時
+  漏補正規化路徑），這次順手照著既有的三個欄位補齊，沒有踩坑。
+
+  `npm run typecheck`／`npm test`（81 檔、1063 項）皆過。**真機驗證留給
+  owner**——尤其是系統寫入權限對話框跳出、Health Connect 裡看得到熱量條目、
+  以及「開關剛打開時一次補寫多筆舊記錄」這幾件事沒有自動測試能驗證。
+10 講得很清楚不要自己假裝真機測過。

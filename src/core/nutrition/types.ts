@@ -101,6 +101,13 @@ export interface MealLog {
     kcal?: number
     proteinG?: number
   }
+  /**
+   * 這筆記錄的熱量已經寫進 Health Connect 的時間戳（App 端 `Date.now()`）；
+   * `undefined` 代表還沒寫。寫入是一次性的（外掛沒有 update／delete API，
+   * 見 `core/adapters/health.ts`），標記過就不會重寫，編輯這筆記錄不會補推
+   * 新數字——避免同一筆記錄在 Health 端留下多筆重複的熱量紀錄。
+   */
+  healthWrittenAt?: number
   createdAt: number
   updatedAt: number
 }
@@ -149,10 +156,9 @@ export interface NutritionLlmSettings {
 }
 
 /**
- * 三個開關有依賴關係（`docs/nutrition-health-lite-kickoff.md` §2）：
- * `connected` 關閉時，`autoSync`／`useWatchCalorieLimit` 完全不生效
- * （UI 上也應該隱藏，不是顯示成灰階不可按）。只有手機端會用到；
- * 桌面（`nutrition/desktop`）不應該讀寫這個欄位。
+ * 四個開關有依賴關係（`docs/nutrition-health-lite-kickoff.md` §2）：
+ * `connected` 關閉時，其餘三個完全不生效（UI 上也應該隱藏，不是顯示成
+ * 灰階不可按）。只有手機端會用到；桌面（`nutrition/desktop`）不應該讀寫這個欄位。
  */
 export interface NutritionHealthSettings {
   /** 開關 1：總開關，預設 false／未定義視為 false。 */
@@ -165,6 +171,14 @@ export interface NutritionHealthSettings {
    * 自動退回顯示 `dailyKcalLimit`，跟這個開關的開關狀態無關。
    */
   useWatchCalorieLimit: boolean
+  /**
+   * 開關 4（2026-08-25 新增）：把 App 記錄的飲食熱量寫回 Health Connect，
+   * 讓 Health 端也看得到吃了多少。**只寫熱量，不寫蛋白質／脂肪／碳水**——
+   * `@capgo/capacitor-health` 的 `saveSample` 沒有暴露這幾個欄位（外掛限制，
+   * 見 `core/adapters/health.ts` 檔頭）。開啟當下會把目前所有還沒寫過的舊記錄
+   * 一次補寫（`healthWrittenAt` 是 `undefined` 的那些），之後新記錄隨存檔自動補推。
+   */
+  writeCalories: boolean
 }
 
 export interface NutritionAppSettings {

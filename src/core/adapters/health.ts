@@ -39,4 +39,16 @@ export interface HealthAdapter {
    * 剩餘時間外推。查無資料或沒有權限時回傳 `undefined`，不要用 0 假裝有資料。
    */
   readDailyCaloriesBurned(dateIso: string): Promise<number | undefined>
+  /** 寫入權限（獨立於讀取權限，是不同的授權範圍）目前是否已經有（不會跳系統對話框）。 */
+  hasWritePermission(): Promise<boolean>
+  /** 跳系統寫入權限對話框；使用者拒絕時回傳 false，不要 throw。 */
+  requestWritePermission(): Promise<boolean>
+  /**
+   * 寫入一筆熱量攝取紀錄到 Health（Health Connect 的 `NutritionRecord`，
+   * `startDate`／`endDate` 都用 `atMs`）。**只能寫熱量**——外掛的 `saveSample`
+   * 沒有暴露蛋白質／脂肪／碳水欄位，不是這裡刻意省略。呼叫端負責避免重複寫入
+   * （這支只管寫一次，沒有 update／delete，寫兩次就是兩筆）。沒有權限或寫入失敗
+   * 回傳 `false`，不要 throw。
+   */
+  writeCalories(kcal: number, atMs: number): Promise<boolean>
 }

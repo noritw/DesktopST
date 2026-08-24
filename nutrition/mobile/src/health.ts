@@ -11,6 +11,12 @@ import { toIsoDateString, parseIsoDateToStartOfDayMs } from '@core/nutrition'
  */
 
 const READ_TYPES = ['weight', 'bodyFat', 'totalCalories'] as const
+/**
+ * 寫入只做熱量——外掛的 `WriteSampleOptions` 只有單一 `value: number`，
+ * 沒有蛋白質／脂肪／碳水對應欄位（即使 Health Connect 的 `NutritionRecord`
+ * 原生支援），不是這裡刻意省略，是外掛版本的限制。
+ */
+const WRITE_TYPES = ['dietaryEnergyConsumed'] as const
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 function roundToOneDecimal(value: number): number {
@@ -159,5 +165,55 @@ export const nutritionHealthAdapter: HealthAdapter = {
     })
     if (samples.length === 0) return undefined
     return samples.reduce((sum, sample) => sum + sample.value, 0)
+  },
+
+  async hasWritePermission(): Promise<boolean> {
+    const loaded = await loadPlugin()
+    if (!loaded) return false
+    try {
+      const status = await withTimeout(
+        loaded.Health.checkAuthorization({ write: [...WRITE_TYPES] }),
+        5_000,
+        { readAuthorized: [], readDenied: [], writeAuthorized: [], writeDenied: [...WRITE_TYPES] }
+      )
+      return WRITE_TYPES.every((type) => status.writeAuthorized.includes(type))
+    } catch {
+      return false
+    }
+  },
+
+  async requestWritePermission(): Promise<boolean> {
+    const loaded = await loadPlugin()
+    if (!loaded) return false
+    try {
+      const status = await withTimeout(
+        loaded.Health.requestAuthorization({ write: [...WRITE_TYPES] }),
+        60_000,
+        { readAuthorized: [], readDenied: [], writeAuthorized: [], writeDenied: [...WRITE_TYPES] }
+      )
+      return WRITE_TYPES.every((type) => status.writeAuthorized.includes(type))
+    } catch {
+      return false
+    }
+  },
+
+  async writeCalories(kcal: number, atMs: number): Promise<boolean> {
+    const loaded = await loadPlugin()
+    if (!loaded) return false
+    const iso = new Date(atMs).toISOString()
+    // withTimeout 逾時或 reject 都會安靜 resolve 成 onTimeout（見上面定義），不會拋出，
+    // 所以不能靠 try/catch 判斷成敗——用回傳值本身當結果（{ok:false} 涵蓋兩種失敗）。
+    const result = await withTimeout(
+      loaded.Health.saveSample({
+        dataType: 'dietaryEnergyConsumed',
+        value: kcal,
+        unit: 'kilocalorie',
+        startDate: iso,
+        endDate: iso
+      }).then(() => ({ ok: true })).catch(() => ({ ok: false })),
+      8_000,
+      { ok: false }
+    )
+    return result.ok
   }
 }

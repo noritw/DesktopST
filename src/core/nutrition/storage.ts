@@ -66,7 +66,8 @@ function normalizeSettings(settings: NutritionAppSettings): NutritionAppSettings
       ? {
           connected: settings.health.connected ?? false,
           autoSync: settings.health.autoSync ?? false,
-          useWatchCalorieLimit: settings.health.useWatchCalorieLimit ?? false
+          useWatchCalorieLimit: settings.health.useWatchCalorieLimit ?? false,
+          writeCalories: settings.health.writeCalories ?? false
         }
       : undefined,
     // 這個函式過去只手動列出 llm／health 兩個欄位，之後每加一個新的頂層設定

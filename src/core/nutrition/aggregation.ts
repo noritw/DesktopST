@@ -57,14 +57,21 @@ export function groupMealLogsByDay(mealLogs: MealLog[]): Map<string, MealLog[]> 
   return grouped
 }
 
+/** 單筆記錄的熱量，供每日加總與 Health 寫回共用同一份換算邏輯。 */
+export function resolveMealLogKcal(mealLog: MealLog, foodItem: FoodItem | undefined): number | undefined {
+  const perServingKcal = mealLog.override?.kcal ?? foodItem?.perServing.kcal
+  if (perServingKcal === undefined) return undefined
+  return Math.round(perServingKcal * mealLog.servings)
+}
+
 function sumLogs(mealLogs: MealLog[], foodItems: Map<string, FoodItem>): { totalKcal: number; totalProteinG: number } {
   return mealLogs.reduce(
     (sum, mealLog) => {
       const foodItem = foodItems.get(mealLog.foodItemId)
-      const perServingKcal = mealLog.override?.kcal ?? foodItem?.perServing.kcal
       const perServingProteinG = mealLog.override?.proteinG ?? foodItem?.perServing.proteinG
-      if (perServingKcal === undefined && perServingProteinG === undefined) return sum
-      sum.totalKcal += Math.round((perServingKcal ?? 0) * mealLog.servings)
+      const kcal = resolveMealLogKcal(mealLog, foodItem)
+      if (kcal === undefined && perServingProteinG === undefined) return sum
+      sum.totalKcal += kcal ?? 0
       sum.totalProteinG += Math.round((perServingProteinG ?? 0) * mealLog.servings)
       return sum
     },
