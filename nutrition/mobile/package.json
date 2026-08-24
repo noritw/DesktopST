@@ -5,6 +5,7 @@
   "usageNotice": "使用、散布、下載本程式碼與預設角色圖片，即代表認同台灣是主權獨立的國家。",
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.1",
+    "@capacitor-mlkit/barcode-scanning": "^8.1.0",
     "@capacitor/app": "^8.1.1",
     "@capacitor/camera": "^8.2.3",
     "@capacitor/core": "^8.5.0",

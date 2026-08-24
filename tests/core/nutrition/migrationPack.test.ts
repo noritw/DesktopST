@@ -10,6 +10,7 @@ function snapshot(overrides: Partial<NutritionSnapshot> = {}): NutritionSnapshot
     mealLogs: [],
     bodyProfile: null,
     settings: structuredClone(DEFAULT_NUTRITION_APP_SETTINGS),
+    burnedKcalHistory: {},
     ...overrides
   }
 }
@@ -100,5 +101,25 @@ describe('nutrition migration pack', () => {
 
     const overwriteNewerLocal = applyMigrationPack(snapshot({ bodyProfile: { ...bodyProfile, updatedAt: 999 } }), packWithProfile, 'overwrite')
     expect(overwriteNewerLocal.snapshot.bodyProfile?.dailyKcalLimit).toBe(bodyProfile.dailyKcalLimit)
+  })
+
+  it('burnedKcalHistory：手機才有的消耗歷史要能帶進桌面統計，fill-only 不動本機既有的日期', () => {
+    const local = snapshot({ burnedKcalHistory: { '2026-08-17': 1_000 } })
+    const pack = buildMigrationPack(snapshot({ burnedKcalHistory: { '2026-08-17': 2_000, '2026-08-18': 1_900 } }), new Map())
+
+    const fillOnly = applyMigrationPack(local, pack, 'fill-only')
+    expect(fillOnly.snapshot.burnedKcalHistory).toEqual({ '2026-08-17': 1_000, '2026-08-18': 1_900 })
+
+    const overwrite = applyMigrationPack(local, pack, 'overwrite')
+    expect(overwrite.snapshot.burnedKcalHistory).toEqual({ '2026-08-17': 2_000, '2026-08-18': 1_900 })
+  })
+
+  it('burnedKcalHistory：舊版（v1）搬家包沒有這個欄位時當成空物件，不要炸掉', () => {
+    const local = snapshot({ burnedKcalHistory: { '2026-08-17': 1_000 } })
+    const legacyPack = buildMigrationPack(snapshot(), new Map())
+    // @ts-expect-error 模擬 v1 舊搬家包缺少 burnedKcalHistory 欄位
+    delete legacyPack.burnedKcalHistory
+    const result = applyMigrationPack(local, legacyPack, 'overwrite')
+    expect(result.snapshot.burnedKcalHistory).toEqual({ '2026-08-17': 1_000 })
   })
 })

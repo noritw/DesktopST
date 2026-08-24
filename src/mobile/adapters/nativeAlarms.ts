@@ -33,6 +33,17 @@ export interface NativeAlarmSpec {
   inactiveBehavior?: 'skip' | 'notify_on_unlock'
 }
 
+/** {@link notifyNative} 送給原生外掛的參數。 */
+export interface NativeNotifySpec {
+  /** 提醒 id；原生用它算出通知 id，同一則提醒重複觸發時覆蓋自己而不是疊成一排。 */
+  id: string
+  title: string
+  body: string
+  summaryText?: string
+  /** 頭像圖檔的 base64（不含 `data:` 前綴）；沒有就不設大圖示。 */
+  avatarBase64?: string
+}
+
 interface DestRemindersPlugin {
   schedule(spec: NativeAlarmSpec): Promise<void>
   cancel(opts: { id: string }): Promise<void>
@@ -40,6 +51,7 @@ interface DestRemindersPlugin {
   takeDeferred(): Promise<{ ids: string[] }>
   canScheduleExact(): Promise<{ granted: boolean; applicable: boolean }>
   openExactAlarmSettings(): Promise<void>
+  notify(spec: NativeNotifySpec): Promise<void>
 }
 
 const plugin = registerPlugin<DestRemindersPlugin>('DestReminders')
@@ -104,6 +116,23 @@ export async function exactAlarmPermission(): Promise<{ granted: boolean; applic
     return await plugin.canScheduleExact()
   } catch {
     return { granted: true, applicable: false }
+  }
+}
+
+/**
+ * App 活著時發提醒通知，走原生外掛而非 `LocalNotifications`——
+ * 只有這樣才能塞角色頭像當大圖示（見 `reminderScheduler.ts` 呼叫端的說明）。
+ * 回 `false` 代表沒發成功（不在原生殼裡，或外掛呼叫失敗），呼叫端要自己退回
+ * `LocalNotifications`。
+ */
+export async function notifyNative(spec: NativeNotifySpec): Promise<boolean> {
+  if (!nativeAlarmsAvailable()) return false
+  try {
+    await plugin.notify(spec)
+    return true
+  } catch (e) {
+    console.warn('[Reminder] 原生通知失敗:', e)
+    return false
   }
 }
 

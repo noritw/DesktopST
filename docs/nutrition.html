@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>食記 — 拍張照就記下這餐</title>
+  <meta name="description" content="食記是一款 Android 飲食記錄 App，拍照就能估算熱量，可接手錶讀取體重與消耗熱量，桌面小工具隨時看今日進度。跟角色扮演無關，單純好用的記錄工具。">
+
+  <meta property="og:title" content="食記 — 拍張照就記下這餐">
+  <meta property="og:description" content="拍照估熱量、接手錶讀體重、桌面小工具看進度。飲食記錄 App。">
+  <meta property="og:image" content="https://raw.githubusercontent.com/noritw/DesktopST/main/assets/git_Repo_Banner.png">
+  <meta property="og:type" content="website">
+
+  <style>
+    :root {
+      --bg: #fffdf5;
+      --surface: #ffffff;
+      --surface-soft: #fff8e8;
+      --mint: #cbfbc4;
+      --teal: #aaeedd;
+      --sky: #aaeeff;
+      --yellow: #ffe8aa;
+      --pink: #ffbbbb;
+      --lavender: #f0bbff;
+      --text: #5a4d2f;
+      --muted: #96876a;
+      --border: #f5ecd8;
+      --strong: #a8791f;
+      --radius-xl: 32px;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --radius-sm: 12px;
+      --shadow-soft: 0 10px 30px rgba(255, 232, 170, 0.28);
+      --shadow-card: 0 6px 22px rgba(255, 232, 170, 0.2);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 12% 8%, rgba(255, 232, 170, 0.55), transparent 30rem),
+        radial-gradient(circle at 88% 0%, rgba(255, 208, 179, 0.4), transparent 32rem),
+        radial-gradient(circle at 50% 100%, rgba(203, 251, 196, 0.28), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+      font-family: "Noto Sans TC", "M PLUS Rounded 1c", "Microsoft JhengHei", system-ui, sans-serif;
+      line-height: 1.75;
+      letter-spacing: 0.01em;
+    }
+
+    .page { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 64px; }
+    a { color: var(--strong); font-weight: 700; text-decoration: none; }
+
+    .crumbs { margin: 0 0 8px; font-size: 0.9rem; color: var(--muted); font-weight: 700; }
+    .crumbs a { color: var(--muted); }
+    .crumbs a:hover { color: var(--strong); }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(240px, 0.85fr);
+      gap: 36px;
+      align-items: center;
+      padding: 56px 36px;
+      border-radius: var(--radius-xl);
+      background:
+        linear-gradient(160deg, rgba(255, 255, 255, 0.86), rgba(255, 248, 232, 0.78)),
+        var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft);
+      margin-top: 8px;
+    }
+
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: 999px;
+      background: rgba(255, 232, 170, 0.5);
+      color: var(--strong); font-size: 0.92rem; font-weight: 800;
+    }
+
+    h1 { margin: 14px 0 16px; font-size: clamp(2.1rem, 4.6vw, 3.2rem); line-height: 1.2; color: var(--text); }
+    .hero p.lead { margin: 0 0 22px; font-size: 1.08rem; color: #7a6a45; max-width: 520px; }
+
+    .cta-row { display: flex; flex-wrap: wrap; gap: 12px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      min-height: 48px; padding: 10px 22px; border-radius: 999px;
+      font-weight: 800; font-size: 1rem; border: 1px solid transparent;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-card); }
+    .btn-primary { background: linear-gradient(135deg, var(--yellow), #ffd0b3); color: var(--strong); }
+    .btn-ghost { background: rgba(255, 255, 255, 0.85); border-color: var(--border); color: var(--text); }
+
+    section { margin: 32px 0; padding: 36px; border-radius: var(--radius-xl); background: rgba(255, 255, 255, 0.88); border: 1px solid var(--border); box-shadow: var(--shadow-card); }
+    section h2 { margin: 0 0 8px; font-size: clamp(1.6rem, 3vw, 2.2rem); }
+    section .sub { margin: 0 0 24px; color: var(--muted); font-weight: 600; }
+
+    .quick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .quick .item { padding: 22px; border-radius: var(--radius-lg); background: var(--surface-soft); border: 1px solid var(--border); }
+    .quick .item .big {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 52px; height: 52px; border-radius: 50%; background: #fff; border: 1px solid var(--border);
+      font-size: 1.5rem; font-weight: 900; color: var(--strong); margin-bottom: 10px;
+    }
+    .quick .item h3 { margin: 0 0 6px; font-size: 1.1rem; }
+    .quick .item p { margin: 0; color: var(--muted); font-size: 0.96rem; }
+
+    .features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .feature { position: relative; padding: 26px; border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--border); overflow: hidden; }
+    .feature .tag { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 0.82rem; font-weight: 800; margin-bottom: 12px; }
+    .feature h3 { margin: 0 0 8px; font-size: 1.2rem; }
+    .feature p { margin: 0 0 10px; color: #7a6a45; }
+
+    .tag-mint { background: rgba(203, 251, 196, 0.5); color: #207a4e; }
+    .tag-peach { background: rgba(255, 208, 179, 0.55); color: #a05a1f; }
+    .tag-pink { background: rgba(255, 187, 187, 0.5); color: #a04a5a; }
+    .tag-yellow { background: rgba(255, 232, 170, 0.6); color: #8a6a25; }
+    .tag-lavender { background: rgba(240, 187, 255, 0.5); color: #7747a0; }
+    .tag-teal { background: rgba(170, 238, 221, 0.5); color: #20706a; }
+
+    .note {
+      margin-top: 14px; padding: 14px 16px; border-radius: var(--radius-md);
+      background: var(--surface-soft); border: 1px dashed var(--border);
+      font-size: 0.92rem; color: var(--muted);
+    }
+
+    .shot {
+      margin-top: 14px; border-radius: var(--radius-md);
+      border: 2px dashed rgba(255, 208, 130, 0.7);
+      background:
+        repeating-linear-gradient(135deg, rgba(255, 208, 130, 0.12) 0, rgba(255, 208, 130, 0.12) 12px,
+          rgba(255, 255, 255, 0.6) 12px, rgba(255, 255, 255, 0.6) 24px);
+      display: grid; place-items: center; color: var(--muted); font-weight: 700; text-align: center; padding: 18px;
+      aspect-ratio: 4 / 3;
+    }
+    .shot img { width: 100%; height: 100%; object-fit: contain; background: var(--surface-soft); }
+
+    .cta { text-align: center; padding: 48px 32px; border-radius: var(--radius-xl); background: linear-gradient(160deg, rgba(255, 232, 170, 0.55), rgba(255, 208, 179, 0.5)), #fff; border: 1px solid var(--border); box-shadow: var(--shadow-soft); margin: 32px 0; }
+    .cta h2 { margin: 0 0 10px; }
+    .cta p { margin: 0 0 22px; color: #7a6a45; }
+
+    footer { text-align: center; color: var(--muted); font-size: 0.9rem; padding-top: 8px; }
+    footer a { color: var(--strong); }
+
+    @media (max-width: 860px) {
+      .hero { grid-template-columns: 1fr; padding: 36px 24px; }
+      .quick { grid-template-columns: 1fr; }
+      .features { grid-template-columns: 1fr; }
+      section { padding: 26px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <p class="crumbs"><a href="hub.html">DeST 系列</a> · 食記</p>
+
+    <header class="hero">
+      <div>
+        <span class="eyebrow">Android 獨立 App</span>
+        <h1>拍張照，<br>就記下這一餐</h1>
+        <p class="lead">
+          食記是單純好用的飲食記錄 App，拍照就能估算熱量，
+          也可以接手錶讀取體重跟消耗，桌面小工具隨時看今天吃了多少。
+          跟 DeST 角色扮演完全無關，可以單獨安裝使用，不用先裝 DeST。
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/noritw/DesktopST/releases" target="_blank" rel="noopener">前往 GitHub Releases 下載</a>
+          <a class="btn btn-ghost" href="hub.html">看看其他版本</a>
+        </div>
+      </div>
+      <div class="shot">
+        食記介面截圖製作中
+        <br><small>近期會補上實機截圖</small>
+      </div>
+    </header>
+
+    <section>
+      <h2>這是什麼？</h2>
+      <p class="sub">用三句話講完。</p>
+      <div class="quick">
+        <div class="item">
+          <div class="big">1</div>
+          <h3>拍照記錄，不用手動查熱量</h3>
+          <p>吃東西前拍張照，AI 幫你估算大概的熱量，也可以手動快速輸入。</p>
+        </div>
+        <div class="item">
+          <div class="big">2</div>
+          <h3>接手錶自動抓數字</h3>
+          <p>連接 Android Health Connect，體重、體脂、手錶消耗的熱量都能自動同步進來。</p>
+        </div>
+        <div class="item">
+          <div class="big">3</div>
+          <h3>桌面小工具一眼看進度</h3>
+          <p>Android 主畫面小工具顯示今天吃了多少、還剩多少額度，不用打開 App。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>有什麼功能？</h2>
+      <p class="sub">挑幾個重點看。</p>
+
+      <div class="features">
+        <div class="feature">
+          <span class="tag tag-peach">01 · 拍照估熱量</span>
+          <h3>拍下這餐，AI 幫你估算</h3>
+          <p>不用自己查食物熱量表，拍張照片交給 AI 判斷大概吃了多少。</p>
+        </div>
+
+        <div class="feature">
+          <span class="tag tag-mint">02 · 快速記錄</span>
+          <h3>手動輸入也很快</h3>
+          <p>懶得拍照時可以直接快速輸入品項與熱量，記錄不拖泥帶水。</p>
+        </div>
+
+        <div class="feature">
+          <span class="tag tag-sky">03 · 接手錶讀數據</span>
+          <h3>體重、體脂、消耗熱量自動同步</h3>
+          <p>連接 Health Connect 後，體重計、手錶量到的數字會自動進來，今日可攝取額度還會依手錶動態消耗調整。</p>
+        </div>
+
+        <div class="feature">
+          <span class="tag tag-yellow">04 · 桌面小工具</span>
+          <h3>今天吃了多少，一眼就看到</h3>
+          <p>Android 主畫面小工具即時顯示今日記錄與剩餘額度，點一下直接進 App 補記錄。</p>
+        </div>
+      </div>
+
+      <div class="note">
+        跟 DeST 桌面版／手機版是各自獨立的 App，不需要先裝 DeST 才能用。目前 AI 服務金鑰要在食記裡自己填一次，跟 DeST 是分開存放的，換機或重灌都要重新填。
+      </div>
+    </section>
+
+    <section class="cta">
+      <h2>準備好開始記錄了嗎？</h2>
+      <p>食記<b>免費下載</b>使用，資料存在手機本機。</p>
+      <div class="cta-row" style="justify-content: center;">
+        <a class="btn btn-primary" href="https://github.com/noritw/DesktopST/releases" target="_blank" rel="noopener">前往 GitHub Releases 下載</a>
+        <a class="btn btn-ghost" href="hub.html">看看 DeST 系列其他版本</a>
+        <a class="btn btn-ghost" href="https://nori.tw/DeST/license.html" target="_blank" rel="noopener">授權條款</a>
+      </div>
+    </section>
+
+    <footer>
+      食記 · Made with 🌱 by <a href="https://nori.tw" target="_blank" rel="noopener">Nori</a>
+    </footer>
+  </div>
+</body>
+</html>

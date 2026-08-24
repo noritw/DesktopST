@@ -21,6 +21,9 @@ export interface HeadlessResult {
   notify: boolean
   title?: string
   body?: string
+  summaryText?: string
+  /** 頭像圖檔的 base64（不含 `data:` 前綴），給通知大圖示用；沒有就不設。 */
+  avatarBase64?: string
   /** 給 logcat 看的：success／offline_fallback／skipped_scene_mismatch… */
   reason: string
   /**

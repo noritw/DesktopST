@@ -44,6 +44,8 @@ const ITEMS: MenuItemDef[] = [
   // 桌面小工具：只有原生殼（APK）才有小工具這個東西，網頁版下面用 `.filter()` 拿掉。
   { kind: 'widget-settings', icon: 'pin', label: '桌面小工具', hint: '預覽小工具內容、管理釘選的對白' },
   { kind: 'settings', icon: 'settings', label: '設定', hint: 'API Key、模型、記憶與模組開關' },
+  // 匯出金鑰只有本機模式才有意義（見 exportLlmForNutrition 的說明），跟遙控電腦的 filter 同一套邏輯。
+  { kind: 'nutrition-export', icon: 'share', label: '匯出設定給食記', hint: '把 AI 服務金鑰匯出成 QR 或用分享傳給食記 App' },
   // 遙控電腦（清單 H1–H11，B6）：只在遙控模式（`RemoteDataSource`）才有意義，
   // 獨立模式的 `capabilities.remoteControl` 恆為 false，下面用 `.filter()` 整個拿掉這一項——
   // 不是渲染出來再 disabled，是「這台裝置根本沒有電腦可控」這件事在 UI 上不存在。
@@ -57,6 +59,8 @@ export function MainMenu(): JSX.Element {
     if (item.kind === 'remote') return isAttached() && getData().capabilities.remoteControl
     // 小工具是 Android 主畫面的東西，網頁版沒有可以設定的對象。
     if (item.kind === 'widget-settings') return Capacitor.isNativePlatform()
+    // 遙控模式下金鑰屬於電腦，exportLlmForNutrition 會直接擲 not-supported。
+    if (item.kind === 'nutrition-export') return standalone
     return true
   })
 

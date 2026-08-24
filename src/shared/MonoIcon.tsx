@@ -88,6 +88,8 @@ export type MonoIconName =
   | 'keyboard'
   | 'lock'
   | 'cursor'
+  // ── 食記金鑰匯出新增 ──
+  | 'share'
 
 export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIconName; className?: string }) {
   const common = {
@@ -524,6 +526,17 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
       )}
       {name === 'cursor' && (
         <path {...common} d="M5 3l6.5 16 2-6.7L20 10.5 5 3Z" />
+      )}
+
+      {/* ── 食記金鑰匯出新增 ─────────────────────────── */}
+      {name === 'share' && (
+        <>
+          <circle {...common} cx="6" cy="12" r="2.5" />
+          <circle {...common} cx="17.5" cy="5.5" r="2.5" />
+          <circle {...common} cx="17.5" cy="18.5" r="2.5" />
+          <path {...common} d="M8.2 10.8l7.1-4.3" />
+          <path {...common} d="M8.2 13.2l7.1 4.3" />
+        </>
       )}
     </svg>
   )

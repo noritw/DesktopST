@@ -41,6 +41,18 @@
                 <data android:scheme="@string/custom_url_scheme" />
             </intent-filter>
 
+            <!--
+              DeST 手機版「匯出設定給食記」走 Android 分享面板送過來（同一支手機，
+              不用開相機掃 QR），見 share/ShareReceiverPlugin.kt。這會讓食記在任何
+              App 分享純文字時都出現在分享面板選單裡——是預期行為，收到後 JS 端
+              會驗證格式，不是 DeST 匯出的內容就顯示「看不懂這段內容」。
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
         </activity>
 
         <receiver

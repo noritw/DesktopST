@@ -9,6 +9,7 @@ import {
 import {
   cancelAllNativeAlarms,
   cancelNativeAlarm,
+  notifyNative,
   scheduleNativeAlarm,
   takeDeferredNativeAlarms
 } from '../adapters/nativeAlarms'
@@ -34,6 +35,7 @@ import {
 type TriggerFn = (
   reminder: Reminder
 ) => Promise<{
+  characterId?: string
   characterName: string
   text: string
   status?: 'success' | 'offline_fallback' | 'offline_plain'
@@ -54,6 +56,11 @@ export interface ReminderSchedulerHooks {
    * 交給原生鬧鐘當「App 已經被劃掉時要發什麼」，沒有就回 null。
    */
   getCachedSpeech: (reminderId: string) => { title: string; body: string } | null
+  /**
+   * 這個角色的頭像，base64（不含 `data:` 前綴），拿不到就回 null。
+   * 通知展開時當大圖示用（標準 Android 版型固定畫在右邊，不是左邊，改不了）。
+   */
+  getAvatarBase64?: (characterId: string) => Promise<string | null>
   /**
    * 這一次的觸發是不是已經被別條路徑做過了（背景原生鬧鐘）。
    * 要讀**磁碟上最新的** `lastTriggeredAt`，記憶體裡那份是舊的。
@@ -388,22 +395,41 @@ async function fire(
 
     // 僅在 Web 環境發送本機通知
     if (typeof window !== 'undefined') {
-      const notifId = hashStringToNumber(reminder.id)
       console.log(`[Reminder] 發送通知: ${spoken.characterName}「${spoken.text.slice(0, 30)}…」`)
-      await LocalNotifications.schedule({
-        notifications: [
-          {
-            title: spoken.plainTitle ?? spoken.characterName,
-            body: spoken.text,
-            largeBody: spoken.text,
-            summaryText: reminder.label || '提醒',
-            id: notifId,
-            channelId: CHANNEL_ID,
-            smallIcon: 'ic_launcher_foreground',
-            autoCancel: true
-          }
-        ]
+      /*
+       * Capacitor `LocalNotifications` 的 `largeIcon` 只吃編譯進 APK 的
+       * drawable 資源名稱，塞不進角色頭像這種動態圖檔——所以能拿到頭像時
+       * 改走原生外掛（`DestReminders.notify`，底層是 `ReminderNotifier.notify()`，
+       * 跟原生鬧鐘、headless 那兩條路徑共用同一支）自己組通知；拿不到頭像
+       * 或不在原生殼裡（瀏覽器煙測）才退回 `LocalNotifications`。
+       */
+      const avatarBase64 = spoken.characterId
+        ? ((await hooks?.getAvatarBase64?.(spoken.characterId).catch(() => null)) ?? undefined)
+        : undefined
+      const postedNative = await notifyNative({
+        id: reminder.id,
+        title: spoken.plainTitle ?? spoken.characterName,
+        body: spoken.text,
+        summaryText: reminder.label || '提醒',
+        avatarBase64
       })
+      if (!postedNative) {
+        const notifId = hashStringToNumber(reminder.id)
+        await LocalNotifications.schedule({
+          notifications: [
+            {
+              title: spoken.plainTitle ?? spoken.characterName,
+              body: spoken.text,
+              largeBody: spoken.text,
+              summaryText: reminder.label || '提醒',
+              id: notifId,
+              channelId: CHANNEL_ID,
+              smallIcon: 'ic_launcher_foreground',
+              autoCancel: true
+            }
+          ]
+        })
+      }
       console.log(`[Reminder] 通知已發送`)
       hooks?.recordHistory(reminder, {
         status: spoken.status ?? 'success',

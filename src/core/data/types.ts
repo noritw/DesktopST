@@ -17,6 +17,7 @@ import type {
 import type { Lorebook, LoreEntry } from '../lore'
 import type { NewsItem, NewsKeywordGroup, NewsSource, SpeakMode } from '../news/types'
 import type { FaceCropRect } from '../character/displayImage'
+import type { LlmExportPayload } from '../llm/exportPayload'
 
 /**
  * 資料來源（B3 階段 0-③）。
@@ -508,6 +509,14 @@ export interface SettingsApi {
     maxImagesPerMessage: number
     temperature: number
   }): Promise<void>
+  /**
+   * 匯出 AI 服務設定給食記 App 用，走 QR 或 Android 分享，不經過網路。
+   * **帶走所有已經填金鑰的供應商**，不是只有目前使用中那一組（食記自己
+   * 也能切供應商）。只有本機模式支援——遙控模式下金鑰屬於電腦，透過手機
+   * 轉出等於繞過桌面 `isLanDirectRequest()` 那層信任邊界，直接回
+   * `DataError('not-supported')`。目前沒有可匯出的設定時回傳 `null`。
+   */
+  exportLlmForNutrition(): Promise<LlmExportPayload | null>
 
   getMemory(): Promise<MemorySettingsSnapshot>
   setMemory(settings: MemorySettingsSnapshot): Promise<void>

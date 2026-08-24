@@ -404,7 +404,7 @@ export function ModeSwitcher(): JSX.Element | null {
           >
             <span className="block text-sm font-medium text-[var(--text)]">遙控／同步這台電腦</span>
             <span className="mt-0.5 block text-[11px] leading-relaxed text-[var(--text-sub)]">
-              直接使用電腦上的資料，兩邊會保持同步
+              直接使用電腦上的資料，兩邊會保持同步。想把這支手機累積的角色、對話、提醒等資料備份回電腦，也是切來這個模式（逐項比對後再選）
             </span>
           </button>
         </div>

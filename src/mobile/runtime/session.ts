@@ -246,6 +246,7 @@ export class StandaloneSession {
           const c = this.reminderCache[id]
           return isCacheUsable(c) ? { title: c.characterName, body: c.text } : null
         },
+        getAvatarBase64: (characterId) => this.resolveAvatarBase64(characterId).then((b) => b ?? null),
         occurrenceHandled: async (id, fireAtMs) => {
           /*
            * 一定要**重讀磁碟**。背景那條（headless）跑完會把 lastTriggeredAt
@@ -1643,6 +1644,20 @@ export class StandaloneSession {
   }
 
   /**
+   * 角色頭像的 base64（不含 `data:` 前綴），給提醒通知的大圖示用。
+   * 拿不到（沒有角色、沒有圖）就回 undefined——呼叫端要能接受「沒有頭像」。
+   *
+   * 固定用預設表情（不帶 `emotion`）：通知發出時使用者不在畫面上，
+   * 沒有「目前看到哪張表情圖」這回事，用主圖最不會認錯人。
+   */
+  private async resolveAvatarBase64(characterId: string): Promise<string | undefined> {
+    const url = await this.characterDisplayImageUrl(characterId, undefined).catch(() => null)
+    if (!url || !url.startsWith('data:')) return undefined
+    const comma = url.indexOf(',')
+    return comma < 0 ? undefined : url.slice(comma + 1)
+  }
+
+  /**
    * 刷新桌面小工具（fire-and-forget：輔助功能，失敗不影響呼叫端的主要流程）。
    *
    * ⚠️ **不走 `getData()`/appStore**：這支唯一的呼叫端 `runReminderHeadless()`
@@ -2230,7 +2245,14 @@ export class StandaloneSession {
     reminderId: string,
     screenOn: boolean,
     occurrenceAtMs = 0
-  ): Promise<{ notify: boolean; title?: string; body?: string; reason: string }> {
+  ): Promise<{
+    notify: boolean
+    title?: string
+    body?: string
+    summaryText?: string
+    avatarBase64?: string
+    reason: string
+  }> {
     const reminder = this.reminders.find((r) => r.id === reminderId)
     if (!reminder) return { notify: false, reason: 'not-found' }
     if (!reminder.enabled) return { notify: false, reason: 'disabled' }
@@ -2286,6 +2308,8 @@ export class StandaloneSession {
       notify: true,
       title: spoken.characterName,
       body: spoken.text,
+      summaryText: reminder.label || '提醒',
+      avatarBase64: await this.resolveAvatarBase64(spoken.characterId).catch(() => undefined),
       reason: spoken.status
     }
   }

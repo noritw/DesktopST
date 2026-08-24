@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DeST 手機版 — 隨身帶著走的 AI 角色</title>
+  <meta name="description" content="DeST 手機版是 Android 獨立 App，不用開電腦也能單機跟自訂 AI 角色聊天，還能跟電腦版同步角色、對話與設定。內建天氣、提醒、個人新聞報。">
+
+  <meta property="og:title" content="DeST 手機版 — 隨身帶著走的 AI 角色">
+  <meta property="og:description" content="不用開電腦，手機上就能單機跟角色聊天；也能跟電腦版同步角色、對話與設定。">
+  <meta property="og:image" content="https://raw.githubusercontent.com/noritw/DesktopST/main/assets/git_Repo_Banner.png">
+  <meta property="og:type" content="website">
+
+  <style>
+    :root {
+      --bg: #f7fffc;
+      --surface: #ffffff;
+      --surface-soft: #effcf7;
+      --mint: #cbfbc4;
+      --teal: #aaeedd;
+      --sky: #aaeeff;
+      --yellow: #ffe8aa;
+      --pink: #ffbbbb;
+      --lavender: #f0bbff;
+      --text: #3d5a52;
+      --muted: #6f968a;
+      --border: #d8f5ec;
+      --strong: #267668;
+      --radius-xl: 32px;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --radius-sm: 12px;
+      --shadow-soft: 0 10px 30px rgba(170, 238, 221, 0.24);
+      --shadow-card: 0 6px 22px rgba(170, 238, 221, 0.18);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 12% 8%, rgba(170, 238, 255, 0.5), transparent 30rem),
+        radial-gradient(circle at 88% 0%, rgba(203, 251, 196, 0.45), transparent 32rem),
+        radial-gradient(circle at 50% 100%, rgba(240, 187, 255, 0.28), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+      font-family: "Noto Sans TC", "M PLUS Rounded 1c", "Microsoft JhengHei", system-ui, sans-serif;
+      line-height: 1.75;
+      letter-spacing: 0.01em;
+    }
+
+    .page { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 64px; }
+    a { color: var(--strong); font-weight: 700; text-decoration: none; }
+
+    .crumbs { margin: 0 0 8px; font-size: 0.9rem; color: var(--muted); font-weight: 700; }
+    .crumbs a { color: var(--muted); }
+    .crumbs a:hover { color: var(--strong); }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(240px, 0.85fr);
+      gap: 36px;
+      align-items: center;
+      padding: 56px 36px;
+      border-radius: var(--radius-xl);
+      background:
+        linear-gradient(160deg, rgba(255, 255, 255, 0.86), rgba(239, 252, 247, 0.78)),
+        var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft);
+      margin-top: 8px;
+    }
+
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: 999px;
+      background: rgba(170, 238, 255, 0.4);
+      color: #1f6e8c; font-size: 0.92rem; font-weight: 800;
+    }
+
+    h1 { margin: 14px 0 16px; font-size: clamp(2.1rem, 4.6vw, 3.2rem); line-height: 1.2; color: var(--text); }
+    .hero p.lead { margin: 0 0 22px; font-size: 1.08rem; color: #4d7168; max-width: 520px; }
+
+    .cta-row { display: flex; flex-wrap: wrap; gap: 12px; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      min-height: 48px; padding: 10px 22px; border-radius: 999px;
+      font-weight: 800; font-size: 1rem; border: 1px solid transparent;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-card); }
+    .btn-primary { background: linear-gradient(135deg, var(--sky), var(--teal)); color: #1f6e8c; }
+    .btn-ghost { background: rgba(255, 255, 255, 0.85); border-color: var(--border); color: var(--text); }
+
+    section { margin: 32px 0; padding: 36px; border-radius: var(--radius-xl); background: rgba(255, 255, 255, 0.88); border: 1px solid var(--border); box-shadow: var(--shadow-card); }
+    section h2 { margin: 0 0 8px; font-size: clamp(1.6rem, 3vw, 2.2rem); }
+    section .sub { margin: 0 0 24px; color: var(--muted); font-weight: 600; }
+
+    .quick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .quick .item { padding: 22px; border-radius: var(--radius-lg); background: var(--surface-soft); border: 1px solid var(--border); }
+    .quick .item .big {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 52px; height: 52px; border-radius: 50%; background: #fff; border: 1px solid var(--border);
+      font-size: 1.5rem; font-weight: 900; color: var(--strong); margin-bottom: 10px;
+    }
+    .quick .item h3 { margin: 0 0 6px; font-size: 1.1rem; }
+    .quick .item p { margin: 0; color: var(--muted); font-size: 0.96rem; }
+
+    .features { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .feature { position: relative; padding: 26px; border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--border); overflow: hidden; }
+    .feature .tag { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 0.82rem; font-weight: 800; margin-bottom: 12px; }
+    .feature h3 { margin: 0 0 8px; font-size: 1.2rem; }
+    .feature p { margin: 0 0 10px; color: #4d7168; }
+
+    .tag-mint { background: rgba(203, 251, 196, 0.5); color: #207a4e; }
+    .tag-sky { background: rgba(170, 238, 255, 0.5); color: #1f6e8c; }
+    .tag-pink { background: rgba(255, 187, 187, 0.5); color: #a04a5a; }
+    .tag-yellow { background: rgba(255, 232, 170, 0.6); color: #8a6a25; }
+    .tag-lavender { background: rgba(240, 187, 255, 0.5); color: #7747a0; }
+    .tag-teal { background: rgba(170, 238, 221, 0.5); color: #20706a; }
+
+    .note {
+      margin-top: 14px; padding: 14px 16px; border-radius: var(--radius-md);
+      background: var(--surface-soft); border: 1px dashed var(--border);
+      font-size: 0.92rem; color: var(--muted);
+    }
+
+    .shot {
+      margin-top: 14px; border-radius: var(--radius-md);
+      border: 2px dashed rgba(170, 238, 221, 0.9);
+      background:
+        repeating-linear-gradient(135deg, rgba(170, 238, 221, 0.10) 0, rgba(170, 238, 221, 0.10) 12px,
+          rgba(255, 255, 255, 0.6) 12px, rgba(255, 255, 255, 0.6) 24px);
+      display: grid; place-items: center; color: var(--muted); font-weight: 700; text-align: center; padding: 18px;
+      aspect-ratio: 4 / 3;
+    }
+    .shot img { width: 100%; height: 100%; object-fit: contain; background: var(--surface-soft); }
+
+    .cta { text-align: center; padding: 48px 32px; border-radius: var(--radius-xl); background: linear-gradient(160deg, rgba(170, 238, 255, 0.55), rgba(203, 251, 196, 0.55)), #fff; border: 1px solid var(--border); box-shadow: var(--shadow-soft); margin: 32px 0; }
+    .cta h2 { margin: 0 0 10px; }
+    .cta p { margin: 0 0 22px; color: #4d7168; }
+
+    footer { text-align: center; color: var(--muted); font-size: 0.9rem; padding-top: 8px; }
+    footer a { color: var(--strong); }
+
+    @media (max-width: 860px) {
+      .hero { grid-template-columns: 1fr; padding: 36px 24px; }
+      .quick { grid-template-columns: 1fr; }
+      .features { grid-template-columns: 1fr; }
+      section { padding: 26px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <p class="crumbs"><a href="hub.html">DeST 系列</a> · DeST 手機版</p>
+
+    <header class="hero">
+      <div>
+        <span class="eyebrow">Android 獨立 App</span>
+        <h1>把角色帶出門，<br>手機上照樣聊得起來</h1>
+        <p class="lead">
+          DeST 手機版是完整獨立的 Android App，不用連電腦就能跟自訂角色聊天。
+          有電腦版的話也可以互相同步角色、對話與設定，兩邊隨時切換都行。
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/noritw/DesktopST/releases" target="_blank" rel="noopener">前往 GitHub Releases 下載</a>
+          <a class="btn btn-ghost" href="hub.html">看看其他版本</a>
+        </div>
+      </div>
+      <div class="shot">
+        手機版介面截圖製作中
+        <br><small>近期會補上實機截圖</small>
+      </div>
+    </header>
+
+    <section>
+      <h2>這是什麼？</h2>
+      <p class="sub">用三句話講完。</p>
+      <div class="quick">
+        <div class="item">
+          <div class="big">1</div>
+          <h3>手機上單機就能聊</h3>
+          <p>不需要開電腦，資料存在手機本機，填 API Key 就能開始跟角色對話。</p>
+        </div>
+        <div class="item">
+          <div class="big">2</div>
+          <h3>跟電腦版可以同步</h3>
+          <p>如果同時有裝電腦版，可以掃 QR 匯入角色、對話與設定，之後也能隨時逐項比對同步兩邊資料。</p>
+        </div>
+        <div class="item">
+          <div class="big">3</div>
+          <h3>手機專屬的貼心功能</h3>
+          <p>天氣與地震颱風即時查詢、精準鬧鐘提醒、個人新聞報、桌面小工具，都是手機版才有的延伸。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>有什麼功能？</h2>
+      <p class="sub">挑六個重點看。</p>
+
+      <div class="features">
+        <div class="feature">
+          <span class="tag tag-mint">01 · 獨立單機聊天</span>
+          <h3>不用開電腦也能聊</h3>
+          <p>角色、對話、設定都存在手機本機，跟電腦版一樣可以自訂角色圖片、人設、世界觀，也支援匯入 SillyTavern 角色卡。</p>
+        </div>
+
+        <div class="feature">
+          <span class="tag tag-sky">02 · QR 配對與同步</span>
+          <h3>跟電腦版雙向同步</h3>
+          <p>第一次用掃 QR 就能把電腦上的角色、預設組、對話一次拉過來；之後每次切換模式都會逐項列出差異，讓你選要用手機還是電腦那邊的版本。</p>
+        </div>
+
+        <div class="feature">
+          <span class="tag tag-yellow">03 · 天氣與即時查詢</span>
+          <h3>角色會跟你聊天氣、報地震颱風</h3>
+          <p>定位抓天氣自動帶進聊天內容，問角色地震、颱風、天氣預報時還會即時查詢中央氣象署資料再回答。</p>
+        </div>
+
+        <div class="feature">
+          <span class="tag tag-pink">04 · 精準提醒</span>
+          <h3>就算滑掉 App 也會準時響</h3>
+          <p>提醒用角色的語氣提醒你，走原生鬧鐘機制，App 被劃掉、螢幕關閉都不影響準時觸發。</p>
+        </div>
+
+        <div class="feature">
+          <span class="tag tag-lavender">05 · 個人新聞報</span>
+          <h3>依關鍵字整理新聞，角色講給你聽</h3>
+          <p>設定關心的關鍵字，App 幫你抓新聞並用角色口吻整理摘要；聊天時也能直接問角色時事，會自動搜尋新聞回答。</p>
+        </div>
+
+        <div class="feature">
+          <span class="tag tag-teal">06 · 桌面小工具</span>
+          <h3>Android 主畫面小工具</h3>
+          <p>把目前對話釘選在手機桌面小工具上，隨時看角色最新一句話，不用打開 App。</p>
+        </div>
+      </div>
+
+      <div class="note">
+        本機也支援接 Ollama／LM Studio 等本機 LLM，不一定要用雲端 API；用手機遠端操作電腦鍵盤滑鼠、開電腦上的程式這類「遙控電腦」功能是桌面版限定，手機獨立模式沒有電腦可控，所以不支援——跟上面「跟電腦版同步」是兩回事，同步聊天不受影響。
+      </div>
+    </section>
+
+    <section class="cta">
+      <h2>準備好把角色帶出門了嗎？</h2>
+      <p>手機版<b>免費下載</b>使用，跟電腦版共用同一個角色卡格式，隨時互相匯入匯出。</p>
+      <div class="cta-row" style="justify-content: center;">
+        <a class="btn btn-primary" href="https://github.com/noritw/DesktopST/releases" target="_blank" rel="noopener">前往 GitHub Releases 下載</a>
+        <a class="btn btn-ghost" href="intro.html">看看桌面版</a>
+        <a class="btn btn-ghost" href="https://nori.tw/DeST/license.html" target="_blank" rel="noopener">授權條款</a>
+      </div>
+    </section>
+
+    <footer>
+      DeST 手機版 · Made with 🌱 by <a href="https://nori.tw" target="_blank" rel="noopener">Nori</a>
+    </footer>
+  </div>
+</body>
+</html>

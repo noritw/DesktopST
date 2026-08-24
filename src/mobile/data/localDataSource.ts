@@ -15,6 +15,8 @@ import type {
   SettingsApi
 } from '@core/data'
 import { DEFAULT_MODEL_BY_PROVIDER } from '@core/llm/modelCatalog'
+import { resolveEndpoint } from '@core/llm'
+import { providerNeedsApiKey } from '@core/prompt/promptUtils'
 import { testCwaApiKey } from '@core/weather'
 import { personaKey, worldKey } from '@core/store/keys'
 import type { StandaloneSession } from '../runtime/session'
@@ -260,6 +262,34 @@ export class LocalDataSource implements DataSource {
       this.session.settings.llm.temperature = limits.temperature
       await this.session.saveSettings()
       this.session.events.push({ kind: 'state-invalidated', reason: 'desktop' })
+    },
+    exportLlmForNutrition: async () => {
+      const llm = this.session.settings.llm
+      const keys: Record<string, string> = {}
+      for (const [provider, key] of Object.entries(llm.apiKeys ?? {})) {
+        const trimmed = key?.trim()
+        if (trimmed) keys[provider] = trimmed
+      }
+      // 目前使用中的供應商即使不需要金鑰（例如 local）也一定帶走，
+      // 這樣食記匯入後預設選取的那組才是可用的，不是空的。
+      if (providerNeedsApiKey(llm.provider) && !keys[llm.provider] && Object.keys(keys).length === 0) return null
+
+      const providers = new Set([llm.provider, ...Object.keys(keys)])
+      const models: Record<string, string> = {}
+      const endpoints: Record<string, string> = {}
+      for (const provider of providers) {
+        const model = llm.models?.[provider] || (provider === llm.provider ? llm.model : undefined)
+        if (model) models[provider] = model
+        const endpoint = resolveEndpoint(this.session.settings, provider)
+        if (endpoint) endpoints[provider] = endpoint
+      }
+
+      return {
+        provider: llm.provider,
+        keys,
+        models: Object.keys(models).length ? models : undefined,
+        endpoints: Object.keys(endpoints).length ? endpoints : undefined
+      }
     },
     getMemory: async () => ({
       keepRecentN: this.session.settings.memory.keepRecentN,

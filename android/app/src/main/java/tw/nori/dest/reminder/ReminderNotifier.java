@@ -6,7 +6,10 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Build;
+import android.util.Base64;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
@@ -42,13 +45,30 @@ public class ReminderNotifier {
     nm.createNotificationChannel(ch);
   }
 
+  /** 沒有頭像／不需要摘要時用的簡化版，行為與加欄位前完全一致。 */
+  public static void notify(Context context, String reminderId, String title, String body) {
+    notify(context, reminderId, title, body, null, null);
+  }
+
   /**
    * 發出提醒通知。點擊會打開 App。
    *
    * `notificationId` 由提醒 id 雜湊而來（與 JS 側 `hashStringToNumber` 同語意）：
    * 同一則提醒重複觸發時覆蓋自己，而不是在通知欄疊成一排。
+   *
+   * `avatarBytes` 有值時設成大圖示——標準 Android 版型固定畫在通知右側，
+   * 小圖示會疊成右下角一個徽章蓋在上面（系統範本，不能改成左邊）。
+   * 三條發通知路徑（App 活著＝`ReminderPlugin.notify`、headless 現場生成成功、
+   * App 被劃掉時的快取底線）都走這一支，行為才會一致。
    */
-  public static void notify(Context context, String reminderId, String title, String body) {
+  public static void notify(
+    Context context,
+    String reminderId,
+    String title,
+    String body,
+    String summaryText,
+    byte[] avatarBytes
+  ) {
     ensureChannel(context);
 
     Intent open = context
@@ -65,20 +85,46 @@ public class ReminderNotifier {
       );
     }
 
+    NotificationCompat.BigTextStyle style = new NotificationCompat.BigTextStyle().bigText(body);
+    if (summaryText != null && !summaryText.isEmpty()) style.setSummaryText(summaryText);
+
     NotificationCompat.Builder b = new NotificationCompat.Builder(context, CHANNEL_ID)
       .setSmallIcon(android.R.drawable.ic_popup_reminder)
       .setContentTitle(title)
       .setContentText(body)
-      .setStyle(new NotificationCompat.BigTextStyle().bigText(body))
+      .setStyle(style)
       .setPriority(NotificationCompat.PRIORITY_HIGH)
       .setCategory(Notification.CATEGORY_REMINDER)
       .setAutoCancel(true);
     if (pi != null) b.setContentIntent(pi);
 
+    Bitmap avatar = decodeAvatar(avatarBytes);
+    if (avatar != null) b.setLargeIcon(avatar);
+
     try {
       NotificationManagerCompat.from(context).notify(notificationIdFor(reminderId), b.build());
     } catch (SecurityException e) {
       // POST_NOTIFICATIONS 沒授權。這裡不能做什麼，前景時 JS 會再要一次權限。
+    }
+  }
+
+  /** 壞掉的圖檔不該讓整則通知發不出去，解不出來就當沒有頭像。 */
+  private static Bitmap decodeAvatar(byte[] bytes) {
+    if (bytes == null || bytes.length == 0) return null;
+    try {
+      return BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  /** base64（不含 `data:` 前綴）解成位元組；壞掉就回 null，呼叫端一律視為沒有頭像。 */
+  public static byte[] decodeAvatarBase64(String base64) {
+    if (base64 == null || base64.isEmpty()) return null;
+    try {
+      return Base64.decode(base64, Base64.DEFAULT);
+    } catch (Exception e) {
+      return null;
     }
   }
 

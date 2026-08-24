@@ -46,6 +46,7 @@ button:disabled { opacity: .6; cursor: wait; }
 .summary > div { background: white; border: 1px solid #d8ebe4; border-radius: 10px; padding: 20px; display: grid; gap: 6px; }
 .summary span, .summary small { color: #6d887f; font-size: 13px; }
 .summary strong { font-size: 26px; }
+.dynamic-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px; background: #eefaf5; color: #3f8f6b; font-weight: 700; font-size: 10px; vertical-align: middle; }
 .over { color: #c55656; }
 .good { color: #3f8f6b; }
 
@@ -181,7 +182,11 @@ label input, label select { margin-top: 0; font-weight: 400; }
 .stats-bars { display: grid; gap: 4px; }
 .stats-bar-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) 56px; align-items: center; gap: 8px; }
 .stats-bar-row time { color: #6d887f; font-size: 11px; }
-.stats-bar-track { position: relative; height: 12px; background: #eefaf5; border-radius: 999px; overflow: hidden; }
-.stats-bar { position: absolute; top: 0; height: 12px; border-radius: 999px; }
+.stats-bar-track { position: relative; height: 16px; background: #eefaf5; border-radius: 999px; overflow: hidden; }
+.stats-bar { position: absolute; top: 0; height: 8px; border-radius: 999px; }
 .stats-bar.intake { background: #4f9c8a; }
+.stats-bar.burned { top: 8px; background: #93c9b8; }
 .stats-bar-value { text-align: right; color: #3d5a52; font-size: 12px; }
+.toggle-row { display: flex; align-items: center; gap: 8px; font-weight: 400; cursor: pointer; }
+.toggle-row input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 auto; accent-color: #4f9c8a; }
+.toggle-row span { font-size: 14px; color: #3d5a52; }

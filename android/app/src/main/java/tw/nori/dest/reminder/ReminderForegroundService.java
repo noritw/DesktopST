@@ -187,7 +187,9 @@ public class ReminderForegroundService extends Service {
         Log.i(TAG, "headless 回了空台詞，不發通知: " + id);
         return;
       }
-      ReminderNotifier.notify(this, id, title, body);
+      String summaryText = o.optString("summaryText", null);
+      byte[] avatar = ReminderNotifier.decodeAvatarBase64(o.optString("avatarBase64", null));
+      ReminderNotifier.notify(this, id, title, body, summaryText, avatar);
       Log.i(TAG, "headless 生成成功並已發出通知: " + id);
     } catch (Exception e) {
       Log.e(TAG, "headless 結果解析失敗，改用快取台詞: " + e.getMessage());

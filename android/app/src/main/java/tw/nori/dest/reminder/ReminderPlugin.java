@@ -61,6 +61,29 @@ public class ReminderPlugin extends Plugin {
     call.resolve();
   }
 
+  /**
+   * App 活著時發提醒通知，供 JS 排程器（`reminderScheduler.ts`）呼叫。
+   *
+   * 不走 Capacitor 的 `LocalNotifications` plugin，是因為它的 `largeIcon`
+   * 只吃編譯進 APK 的 drawable 資源名稱，塞不進角色頭像這種動態圖檔——
+   * 這裡直接複用 {@link ReminderNotifier#notify}，跟原生鬧鐘、headless
+   * 現場生成兩條路徑共用同一支發通知的邏輯。
+   */
+  @PluginMethod
+  public void notify(PluginCall call) {
+    String id = call.getString("id");
+    if (id == null || id.isEmpty()) {
+      call.reject("id 為必填");
+      return;
+    }
+    String title = call.getString("title", "提醒");
+    String body = call.getString("body", "");
+    String summaryText = call.getString("summaryText");
+    byte[] avatar = ReminderNotifier.decodeAvatarBase64(call.getString("avatarBase64"));
+    ReminderNotifier.notify(getContext(), id, title, body, summaryText, avatar);
+    call.resolve();
+  }
+
   @PluginMethod
   public void cancel(PluginCall call) {
     String id = call.getString("id");

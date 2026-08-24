@@ -5,7 +5,8 @@ export const NUTRITION_STORAGE_KEYS = {
   bodyProfile: 'body-profile.json',
   foodItems: 'food-items.json',
   mealLogs: 'meal-logs.json',
-  settings: 'settings.json'
+  settings: 'settings.json',
+  burnedKcalHistory: 'burned-kcal-history.json'
 } as const
 
 export const DEFAULT_NUTRITION_APP_SETTINGS: NutritionAppSettings = {
@@ -20,20 +21,28 @@ export interface NutritionSnapshot {
   mealLogs: MealLog[]
   bodyProfile: BodyProfile | null
   settings: NutritionAppSettings
+  /**
+   * 每日總消耗（Health Connect／手錶），isoDate → kcal。只有手機會寫入
+   * （桌面沒有 Health Connect），但兩邊都要能讀寫這個欄位——桌面的統計頁
+   * 要靠搬家包把這份資料帶過去才有消耗可以算，不然永遠只有攝取。
+   */
+  burnedKcalHistory: Record<string, number>
 }
 
 export async function loadNutritionSnapshot(storage: StorageAdapter): Promise<NutritionSnapshot> {
-  const [foodItems, mealLogs, bodyProfile, settings] = await Promise.all([
+  const [foodItems, mealLogs, bodyProfile, settings, burnedKcalHistory] = await Promise.all([
     storage.readJson<Array<FoodItem & { store?: string }>>(NUTRITION_STORAGE_KEYS.foodItems),
     storage.readJson<MealLog[]>(NUTRITION_STORAGE_KEYS.mealLogs),
     storage.readJson<BodyProfile>(NUTRITION_STORAGE_KEYS.bodyProfile),
-    storage.readJson<NutritionAppSettings>(NUTRITION_STORAGE_KEYS.settings)
+    storage.readJson<NutritionAppSettings>(NUTRITION_STORAGE_KEYS.settings),
+    storage.readJson<Record<string, number>>(NUTRITION_STORAGE_KEYS.burnedKcalHistory)
   ])
   return {
     foodItems: Array.isArray(foodItems) ? foodItems.map(normalizeFoodItem) : [],
     mealLogs: Array.isArray(mealLogs) ? mealLogs : [],
     bodyProfile: bodyProfile ?? null,
-    settings: settings ? normalizeSettings(settings) : structuredClone(DEFAULT_NUTRITION_APP_SETTINGS)
+    settings: settings ? normalizeSettings(settings) : structuredClone(DEFAULT_NUTRITION_APP_SETTINGS),
+    burnedKcalHistory: burnedKcalHistory && typeof burnedKcalHistory === 'object' ? burnedKcalHistory : {}
   }
 }
 
@@ -90,6 +99,7 @@ export async function saveNutritionSnapshot(
     storage.writeJson(NUTRITION_STORAGE_KEYS.foodItems, snapshot.foodItems),
     storage.writeJson(NUTRITION_STORAGE_KEYS.mealLogs, snapshot.mealLogs),
     storage.writeJson(NUTRITION_STORAGE_KEYS.bodyProfile, snapshot.bodyProfile),
-    storage.writeJson(NUTRITION_STORAGE_KEYS.settings, snapshot.settings)
+    storage.writeJson(NUTRITION_STORAGE_KEYS.settings, snapshot.settings),
+    storage.writeJson(NUTRITION_STORAGE_KEYS.burnedKcalHistory, snapshot.burnedKcalHistory)
   ])
 }

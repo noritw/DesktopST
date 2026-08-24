@@ -412,9 +412,18 @@ export async function testNutritionLlmConnection(
   }
 }
 
-/** 1×1 透明像素 PNG，測讀圖用，體積接近零。 */
+/**
+ * 32×32 純紅色 PNG，測讀圖用，體積仍接近零（99 bytes）。
+ * 演變過兩次：①原本 1×1 透明像素——Grok 會直接拒收太小的圖片並回錯誤
+ * （`Image has 64 total pixels(8x8), which is below the minimum of 512
+ * pixels`，先改 8×8＝64 像素還是不夠，門檻是總像素數 512，改成 32×32＝1024）。
+ * ②改完像素數，換成全白色時 Grok 的回覆變成「看不到圖片內容」——純白色的圖
+ * 太像「什麼都沒有」，模型會照字面解讀「圖片內容」而回報沒看到，不是真的
+ * 讀不到圖。**改成有明確顏色特徵的純紅色**，這樣有具體、可驗證的內容能描述
+ * （owner 2026-08-25 兩次實測回報）。
+ */
 const TEST_PIXEL_PNG_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAKklEQVR42mO4IydHU8QwasGoBaMWjFowasGoBaMWjFowasGoBaMWDBULAJI2YD30P/0LAAAAAElFTkSuQmCC'
 
 export interface PhotoEstimateVisionTestResult {
   ok: boolean
@@ -444,7 +453,7 @@ export async function testPhotoEstimateVision(
   // 這裡不走 buildContentParts：測試圖片沒有 slot／份數的概念，不需要那些標註文字
   // （先前用字串比對把標註過濾掉，標註文案一改就默默失效——直接組兩個 part 更穩）。
   const trimmedContent: ChatContentPart[] = [
-    { type: 'text', text: '這是一張測試圖片。如果你能看到圖片內容，回覆「可以讀圖」；否則回覆「無法讀圖」。不要回其他文字。' },
+    { type: 'text', text: '這是一張純紅色色塊的測試圖片，用來確認你能不能讀取圖片。如果你看到的是紅色，回覆「可以讀圖」；如果看不到圖片、或顏色不是紅色，回覆「無法讀圖」。不要回其他文字。' },
     imagePart(TEST_PIXEL_PNG_BASE64, 'image/png', llmSettings.provider)
   ]
   const headers = buildRequestHeaders(llmSettings, apiKey)

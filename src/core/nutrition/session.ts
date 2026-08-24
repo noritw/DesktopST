@@ -19,6 +19,7 @@ export class NutritionSession {
       mealLogs: MealLog[]
       bodyProfile: BodyProfile | null
       settings: NutritionAppSettings
+      burnedKcalHistory: Record<string, number>
     }
   ) {}
 
@@ -40,6 +41,10 @@ export class NutritionSession {
 
   get settings(): NutritionAppSettings {
     return this.snapshot.settings
+  }
+
+  get burnedKcalHistory(): Readonly<Record<string, number>> {
+    return this.snapshot.burnedKcalHistory
   }
 
   subscribe(listener: NutritionStateListener): () => void {
@@ -127,6 +132,12 @@ export class NutritionSession {
     await this.persistAndInvalidate()
   }
 
+  /** 手機端 Health Connect 查到某一天的總消耗時記一筆，桌面沒有資料來源不會呼叫這個。 */
+  async saveBurnedKcal(isoDate: string, kcal: number): Promise<void> {
+    this.snapshot.burnedKcalHistory = { ...this.snapshot.burnedKcalHistory, [isoDate]: kcal }
+    await this.persistAndInvalidate()
+  }
+
   /**
    * 搬家包匯入用：一次寫入整份合併結果，只觸發一次 persist／通知，
    * 不要對每一筆記錄各別呼叫 saveXxx（那樣既慢、又會讓畫面在匯入過程中閃過中間狀態）。
@@ -136,8 +147,9 @@ export class NutritionSession {
     mealLogs: MealLog[]
     bodyProfile: BodyProfile | null
     settings: NutritionAppSettings
+    burnedKcalHistory?: Record<string, number>
   }): Promise<void> {
-    this.snapshot = snapshot
+    this.snapshot = { ...snapshot, burnedKcalHistory: snapshot.burnedKcalHistory ?? {} }
     await this.persistAndInvalidate()
   }
 

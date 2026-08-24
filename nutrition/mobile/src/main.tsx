@@ -63,6 +63,7 @@ import { compressImageFile } from './imageInput'
 import { isVoiceInputAvailable, startVoiceInput, type VoiceSession } from './voiceInput'
 import { nutritionMobileStorage } from './storage'
 import { refreshNutritionWidget, writeWidgetHealthState, writeWidgetTheme } from './widgetBridge'
+import { consumePendingShare, decodeLlmExportPayload, isScannerAvailable, scanQr } from './llmImport'
 import { THEMES, THEME_IDS, THEME_LABELS } from '@shared/colorThemes'
 import { DEFAULT_WIDGET_APPEARANCE } from '@shared/widgetAppearance'
 import type { ColorTheme } from '@core/types'
@@ -80,7 +81,7 @@ const DEFAULT_NUTRITION_WIDGET_APPEARANCE = { ...DEFAULT_WIDGET_APPEARANCE, them
 /** 最近／最常吃的食物名稱清單上限（§3.1，只送名稱不送營養數字）。 */
 const RECENT_FOOD_NAMES_LIMIT = 30
 
-type View = 'daily' | 'library' | 'foodForm' | 'mealEditor' | 'profile' | 'about' | 'transfer' | 'photoEstimate' | 'stats'
+type View = 'daily' | 'library' | 'foodForm' | 'mealEditor' | 'profile' | 'about' | 'photoEstimate' | 'stats'
 /** 新增／編輯食物表單是從哪裡打開的，返回時要回到同一個地方，而不是永遠回食物庫。 */
 type FoodFormOrigin = 'library' | 'quickEntry' | 'mealEditor'
 
@@ -575,6 +576,8 @@ function App(): React.JSX.Element {
   const [statsRangeKind, setStatsRangeKind] = React.useState<NutritionStatsRangeKind>('last-7')
   /** 手錶消耗資料通常比飲食紀錄記得久，兩邊分母不同步時平均值會失真——開了只算兩邊都有資料的交集天。 */
   const [statsOverlapOnly, setStatsOverlapOnly] = React.useState(false)
+  /** 今天還沒過完，預設不算進統計，避免看起來「吃得比平常少」；使用者可以自己勾選要不要含今天。 */
+  const [statsIncludeToday, setStatsIncludeToday] = React.useState(false)
   const [customRange, setCustomRange] = React.useState<NutritionStatsRange>(() => ({
     startIsoDate: toIsoDateString(Date.now()),
     endIsoDate: toIsoDateString(Date.now())
@@ -629,6 +632,16 @@ function App(): React.JSX.Element {
   const [connectionTestMessage, setConnectionTestMessage] = React.useState<{ ok: boolean; text: string } | null>(null)
   const [testingVision, setTestingVision] = React.useState(false)
   const [visionTestMessage, setVisionTestMessage] = React.useState<{ ok: boolean; text: string } | null>(null)
+  /** 從 DeST 匯入 AI 設定：QR／分享／貼上共用同一段解析與套用邏輯。 */
+  const [showImportPaste, setShowImportPaste] = React.useState(false)
+  const [importPasteText, setImportPasteText] = React.useState('')
+  const [importMessage, setImportMessage] = React.useState<{ ok: boolean; text: string } | null>(null)
+  const [scannerAvailable, setScannerAvailable] = React.useState(false)
+  React.useEffect(() => { void isScannerAvailable().then(setScannerAvailable) }, [])
+  // App 從背景恢復、或冷啟動時檢查一次有沒有 DeST 分享過來的內容，不用使用者自己點。
+  React.useEffect(() => {
+    void consumePendingShare().then((text) => { if (text) void applyLlmImport(text) })
+  }, [])
 
   React.useEffect(() => { viewRef.current = view }, [view])
   React.useEffect(() => { photoPreviewRef.current = photoPreview }, [photoPreview])
@@ -644,7 +657,7 @@ function App(): React.JSX.Element {
         const current = viewRef.current
         if (current === 'foodForm') { leaveFoodForm(); return }
         if (current === 'photoEstimate') { discardEstimate(); return }
-        if (current === 'library' || current === 'mealEditor' || current === 'profile' || current === 'about' || current === 'transfer' || current === 'stats') { setView('daily'); return }
+        if (current === 'library' || current === 'mealEditor' || current === 'profile' || current === 'about' || current === 'stats') { setView('daily'); return }
         void CapacitorApp.exitApp()
       }).catch(() => null)
       if (cancelled) void handle?.remove()
@@ -743,18 +756,7 @@ function App(): React.JSX.Element {
     void bootPromise.then((session) => {
       sessionRef.current = session
       unsubscribe = session.subscribe(() => applySnapshot(session))
-      if (session.bodyProfile) {
-        setProfileHeight(String(session.bodyProfile.heightCm))
-        setProfileWeight(String(session.bodyProfile.weightKg))
-        setProfileWeightTime(timeInputValue(session.bodyProfile.healthMeasuredAt ?? session.bodyProfile.updatedAt))
-        setProfileAge(String(session.bodyProfile.ageYears))
-        setProfileSex(session.bodyProfile.sex)
-        setProfileBodyFatPercent(session.bodyProfile.bodyFatPercent ? String(session.bodyProfile.bodyFatPercent) : '')
-        setProfileActivity(session.bodyProfile.activityLevel)
-        setProfileGoal(session.bodyProfile.goal)
-        setProfileKcal(String(session.bodyProfile.dailyKcalLimit))
-        setProfileProtein(String(session.bodyProfile.dailyProteinGoalG))
-      }
+      syncProfileFields(session.bodyProfile)
       if (session.settings.health) setHealthSettings(session.settings.health)
       setShowWeightBadge(session.settings.showWeightBadge ?? false)
       const theme = (session.settings.colorTheme as ColorTheme | undefined) ?? DEFAULT_NUTRITION_THEME
@@ -770,6 +772,9 @@ function App(): React.JSX.Element {
       setPhotoEstimateEnabled(session.settings.photoEstimate?.enabled ?? false)
       setScaleReference(session.settings.photoEstimate?.scaleReference ?? '')
       applySnapshot(session)
+      // 上次查過的消耗熱量已經存在磁碟（`saveBurnedKcal`），開機先讀出來墊底，
+      // 不用每次重開都重新打一輪 Health Connect 才能看到過去日子的消耗。
+      setHistoricalKcalCache({ ...session.burnedKcalHistory })
 
       // 開關 1／2 都開時，App 開啟本身就是「前景事件」，比照小工具顯示自動同步一次
       // （docs/nutrition-health-lite-kickoff.md §3.1）——只用 hasPermission() 確認，
@@ -825,6 +830,9 @@ function App(): React.JSX.Element {
     void nutritionHealthAdapter.readDailyCaloriesBurned(selectedDate).then((value) => {
       if (cancelled) return
       setHistoricalKcalCache((prev) => ({ ...prev, [selectedDate]: value ?? null }))
+      // 只存查得到的值：null 只代表「這次沒查到」，不代表那天真的沒消耗，
+      // 存下去反而會蓋掉之後查到的正確值，也會讓搬家包帶著一堆假的 0。
+      if (value !== undefined && value !== null) void sessionRef.current?.saveBurnedKcal(selectedDate, value)
     })
     return () => { cancelled = true }
   }, [selectedDate, healthSettings.connected, healthSettings.useWatchCalorieLimit, healthAvailable, healthPermissionGranted, historicalKcalCache])
@@ -851,6 +859,8 @@ function App(): React.JSX.Element {
         if (cancelled) return
         const value = await nutritionHealthAdapter.readDailyCaloriesBurned(iso).catch(() => undefined)
         fetched[iso] = value ?? null
+        // 同上：只有真的查到值才存進搬家包會帶走的那份歷史記錄。
+        if (value !== undefined && value !== null) void sessionRef.current?.saveBurnedKcal(iso, value)
       }
       if (cancelled) return
       setHistoricalKcalCache((prev) => ({ ...prev, ...fetched }))
@@ -859,12 +869,33 @@ function App(): React.JSX.Element {
     return () => { cancelled = true; setStatsBurnLoading(false) }
   }, [view, statsRange.startIsoDate, statsRange.endIsoDate, healthSettings.connected, healthAvailable, healthPermissionGranted, historicalKcalCache])
 
+  /**
+   * 搬家匯入等情境會讓 `session.bodyProfile` 在開機以後才變動，
+   * 「身體資料」頁的輸入框卻是各自獨立的 controlled state——不重新同步的話，
+   * 頁面會停在舊值（新裝置甚至是空白預設值），使用者按下儲存還會用舊值
+   * 把剛匯入的資料蓋掉。跟桌面版同一個坑（2026-08-24）。
+   */
+  function syncProfileFields(bodyProfile: BodyProfile | null): void {
+    if (!bodyProfile) return
+    setProfileHeight(String(bodyProfile.heightCm))
+    setProfileWeight(String(bodyProfile.weightKg))
+    setProfileWeightTime(timeInputValue(bodyProfile.healthMeasuredAt ?? bodyProfile.updatedAt))
+    setProfileAge(String(bodyProfile.ageYears))
+    setProfileSex(bodyProfile.sex)
+    setProfileBodyFatPercent(bodyProfile.bodyFatPercent ? String(bodyProfile.bodyFatPercent) : '')
+    setProfileActivity(bodyProfile.activityLevel)
+    setProfileGoal(bodyProfile.goal)
+    setProfileKcal(String(bodyProfile.dailyKcalLimit))
+    setProfileProtein(String(bodyProfile.dailyProteinGoalG))
+  }
+
   function applySnapshot(session: NutritionSession): void {
     setSnapshot({
       foodItems: [...session.foodItems],
       mealLogs: [...session.mealLogs],
       bodyProfile: session.bodyProfile,
-      settings: session.settings
+      settings: session.settings,
+      burnedKcalHistory: { ...session.burnedKcalHistory }
     })
   }
 
@@ -966,6 +997,58 @@ function App(): React.JSX.Element {
     void runAction(async (session) => {
       await session.saveSettings({ ...session.settings, llm: next })
     })
+  }
+
+  /**
+   * 套用從 DeST 掃 QR／分享／貼上拿到的設定字串。三種管道都收斂到這一支，
+   * 不是這個格式就顯示「看不懂」，不會安靜地什麼都不做。
+   *
+   * ⚠️ 一定要現拿 `sessionRef.current ?? await sessionReadyRef.current`、
+   * 用 `session.settings.llm` 當合併基準，**不能**走 `updateLlmSettings`／
+   * 讀 `llmSettings` state——冷啟動時分享面板送進來的內容會在 session 開機
+   * 完成前就被 `consumePendingShare()` 讀到，那時 `sessionRef.current`
+   * 還是 null，`runAction` 會直接靜默 return（見它的定義），畫面卻已經因為
+   * `setLlmSettings` 樂觀更新而顯示「已從 DeST 匯入」——金鑰其實沒有真的存進去，
+   * session 稍後開機完成又會用磁碟上（沒有金鑰）的舊設定蓋回來（實測回報：
+   * 2026-08-25 owner 用分享匯入，畫面顯示成功但 API Key 沒有真的過去）。
+   */
+  async function applyLlmImport(text: string): Promise<void> {
+    const payload = decodeLlmExportPayload(text)
+    if (!payload) {
+      setImportMessage({ ok: false, text: '看不懂這段內容，確認是從 DeST 手機版「匯出設定給食記」拿到的 QR 或分享內容。' })
+      return
+    }
+    const session = sessionRef.current ?? (await sessionReadyRef.current)
+    if (!session) {
+      setImportMessage({ ok: false, text: '匯入失敗：App 還沒準備好，稍後再試一次。' })
+      return
+    }
+    // 帶走所有 DeST 已經填過金鑰的供應商，不是只有它目前使用中那一組——
+    // 食記自己也能切供應商，只給一組的話其他家還是得手動填一次。
+    const base = session.settings.llm
+    const next: NutritionLlmSettings = {
+      ...base,
+      provider: payload.provider,
+      model: payload.models?.[payload.provider] ?? base.model,
+      endpoints: { ...base.endpoints, ...payload.endpoints },
+      apiKeys: { ...base.apiKeys, ...payload.keys }
+    }
+    setLocalModels([])
+    setConnectionTestMessage(null)
+    setLlmSettings(next)
+    await session.saveSettings({ ...session.settings, llm: next })
+    void refreshNutritionWidget()
+    setImportPasteText('')
+    setShowImportPaste(false)
+    const names = Object.keys(payload.keys).map((p) => PROVIDER_LABELS[p] ?? p)
+    const summary = names.length > 0 ? names.join('、') : (PROVIDER_LABELS[payload.provider] ?? payload.provider)
+    setImportMessage({ ok: true, text: `已從 DeST 匯入 ${summary} 的設定。` })
+  }
+
+  async function scanLlmImport(): Promise<void> {
+    setImportMessage(null)
+    const value = await scanQr().catch(() => null)
+    if (value) await applyLlmImport(value)
   }
 
   /** 切換供應商時自動帶出該家最便宜的預設模型，不留舊供應商的型號卡在欄位裡。 */
@@ -1844,12 +1927,20 @@ function App(): React.JSX.Element {
       if (!pack || !Array.isArray(pack.foodItems)) throw new Error('不是有效的搬家包')
       await runAction(async (session) => {
         const { snapshot: merged, photosToWrite } = applyMigrationPack(
-          { foodItems: [...session.foodItems], mealLogs: [...session.mealLogs], bodyProfile: session.bodyProfile, settings: session.settings },
+          {
+            foodItems: [...session.foodItems],
+            mealLogs: [...session.mealLogs],
+            bodyProfile: session.bodyProfile,
+            settings: session.settings,
+            burnedKcalHistory: { ...session.burnedKcalHistory }
+          },
           pack,
           mode
         )
         for (const { key, bytes } of photosToWrite) await nutritionMobileStorage.writeBinary(key, bytes)
         await session.replaceSnapshot(merged)
+        syncProfileFields(session.bodyProfile)
+        setLlmSettings(session.settings.llm)
       })
       setTransferMessage(mode === 'fill-only' ? '已補上本機沒有的資料。' : '已用匯入的資料覆蓋較舊的本機紀錄。')
     } catch (error) {
@@ -2376,6 +2467,30 @@ function App(): React.JSX.Element {
             const { normal, high } = splitModelsByPrice(modelOptions)
             return (
               <>
+                <div className="llm-import-box">
+                  <p className="hint">如果手機上有裝 DeST，可以直接把它的 AI 設定匯入，不用在這裡重填一次。</p>
+                  <div className="llm-import-actions">
+                    {scannerAvailable && (
+                      <button type="button" onClick={() => void scanLlmImport()}>掃描 DeST 的 QR</button>
+                    )}
+                    <button type="button" onClick={() => setShowImportPaste((v) => !v)}>貼上匯入文字</button>
+                  </div>
+                  {showImportPaste && (
+                    <div className="llm-import-paste">
+                      <textarea
+                        value={importPasteText}
+                        onChange={(event) => setImportPasteText(event.target.value)}
+                        placeholder="貼上 DeST「匯出設定給食記」分享出來的文字"
+                        rows={2}
+                      />
+                      <button type="button" onClick={() => void applyLlmImport(importPasteText)} disabled={!importPasteText.trim()}>匯入</button>
+                    </div>
+                  )}
+                  {importMessage && (
+                    <small className={importMessage.ok ? 'hint' : 'hint danger-text'}>{importMessage.text}</small>
+                  )}
+                </div>
+
                 <label>供應商
                   <select value={llmSettings.provider} onChange={(event) => changeLlmProvider(event.target.value)}>
                     <option value="openai">OpenAI</option>
@@ -2522,15 +2637,8 @@ function App(): React.JSX.Element {
           {info.detail && <small className="hint">{info.detail}</small>}
           <small className="hint">要看「更新了沒」看建置時間，不是版本號——debug 版重打幾次版本號也不會變。</small>
         </section>
-      </main>
-    )
-  }
-
-  if (view === 'transfer') {
-    return (
-      <main className="shell">
-        <Header title="搬家（匯出／匯入）" onBack={() => setView('daily')} />
         <section className="food-form">
+          <strong>搬家（匯出／匯入）</strong>
           <small className="hint">手機與電腦是各自獨立的兩份資料，不會自動同步。用搬家包手動讓兩邊資料一致，或換機時把資料帶過去。內容不含 API Key。</small>
           <button type="button" className="primary" disabled={transferBusy} onClick={() => void exportPack()}>
             <MonoIcon name="download" className="icon-sm" /> 匯出搬家包
@@ -2552,7 +2660,7 @@ function App(): React.JSX.Element {
 
   if (view === 'stats') {
     const todayIso = toIsoDateString(Date.now())
-    const statsOptions = { overlapOnly: statsOverlapOnly }
+    const statsOptions = { overlapOnly: statsOverlapOnly, excludeToday: !statsIncludeToday }
     const weekStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-week', todayIso), todayIso, historicalKcalCache, statsOptions)
     const monthStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-month', todayIso), todayIso, historicalKcalCache, statsOptions)
     const rangeStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, statsRange, todayIso, historicalKcalCache, statsOptions)
@@ -2641,6 +2749,10 @@ function App(): React.JSX.Element {
               <label>迄<input type="date" value={customRange.endIsoDate} onChange={(event) => setCustomRange((prev) => ({ ...prev, endIsoDate: event.target.value }))} /></label>
             </div>
           )}
+          <label className="toggle-row">
+            <input type="checkbox" checked={statsIncludeToday} onChange={(event) => setStatsIncludeToday(event.target.checked)} />
+            <span>包含今天（今天還沒過完，預設不算進總計／日均，避免看起來吃得比平常少）</span>
+          </label>
           {burnConnected && (
             <label className="toggle-row">
               <input type="checkbox" checked={statsOverlapOnly} onChange={(event) => setStatsOverlapOnly(event.target.checked)} />
@@ -2827,7 +2939,6 @@ function App(): React.JSX.Element {
         <>
           <button type="button" className="icon-button" aria-label="食物庫" onClick={() => setView('library')}><MonoIcon name="book" className="icon-md" /></button>
           <button type="button" className="icon-button" aria-label="身體資料與每日目標" onClick={() => setView('profile')}><MonoIcon name="user" className="icon-md" /></button>
-          <button type="button" className="icon-button" aria-label="搬家（匯出／匯入）" onClick={() => setView('transfer')}><MonoIcon name="folder" className="icon-md" /></button>
         </>
       } />
       <section className="date-row">

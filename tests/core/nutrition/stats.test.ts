@@ -79,6 +79,24 @@ describe('buildNutritionStats', () => {
     expect(stats.burnedDayCount).toBe(0)
   })
 
+  it('excludeToday 排除今天再算總計／日均，但 days 清單仍列出今天那一列', () => {
+    const stats = buildNutritionStats(
+      logs,
+      foods,
+      { startIsoDate: '2026-08-17', endIsoDate: '2026-08-19' },
+      '2026-08-19',
+      {},
+      { excludeToday: true }
+    )
+    expect(stats.excludeToday).toBe(true)
+    expect(stats.elapsedDayCount).toBe(2) // 17、18；19（今天）被排除
+    expect(stats.loggedDayCount).toBe(1) // 只有 17 有紀錄
+    expect(stats.totalKcal).toBe(1_200) // 不含今天的 400
+    expect(stats.averageKcalPerDay).toBe(600) // 1200 / 2
+    expect(stats.days).toHaveLength(3) // 今天那一列還在，供畫面照常顯示
+    expect(stats.days.find((day) => day.isoDate === '2026-08-19')?.kcal).toBe(400)
+  })
+
   it('單筆覆寫值優先於食物主檔', () => {
     const stats = buildNutritionStats(
       [mealLog({ id: 'm1', eatenAt: at(17), override: { kcal: 100, proteinG: 5 } })],

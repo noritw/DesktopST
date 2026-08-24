@@ -25,19 +25,15 @@ function snapshotPayload(session: NutritionSession): NutritionSnapshot {
     foodItems: [...session.foodItems],
     mealLogs: [...session.mealLogs],
     bodyProfile: session.bodyProfile,
-    settings: session.settings
+    settings: session.settings,
+    burnedKcalHistory: { ...session.burnedKcalHistory }
   }
 }
 
 function registerNutritionHandlers(): void {
   ipcMain.handle('nutrition:load', async () => {
     const session = await getSession()
-    return {
-      foodItems: [...session.foodItems],
-      mealLogs: [...session.mealLogs],
-      bodyProfile: session.bodyProfile,
-      settings: session.settings
-    }
+    return snapshotPayload(session)
   })
 
   ipcMain.handle('nutrition:log-meal', async (_event, foodItemId: string, eatenAt: number) => {
@@ -54,45 +50,25 @@ function registerNutritionHandlers(): void {
         updatedAt: now
       })
     }
-    return {
-      foodItems: [...session.foodItems],
-      mealLogs: [...session.mealLogs],
-      bodyProfile: session.bodyProfile,
-      settings: session.settings
-    }
+    return snapshotPayload(session)
   })
 
   ipcMain.handle('nutrition:remove-meal', async (_event, id: string) => {
     const session = await getSession()
     await session.removeMealLog(id)
-    return {
-      foodItems: [...session.foodItems],
-      mealLogs: [...session.mealLogs],
-      bodyProfile: session.bodyProfile,
-      settings: session.settings
-    }
+    return snapshotPayload(session)
   })
 
   ipcMain.handle('nutrition:save-food', async (_event, foodItem) => {
     const session = await getSession()
     await session.saveFoodItem(foodItem)
-    return {
-      foodItems: [...session.foodItems],
-      mealLogs: [...session.mealLogs],
-      bodyProfile: session.bodyProfile,
-      settings: session.settings
-    }
+    return snapshotPayload(session)
   })
 
   ipcMain.handle('nutrition:remove-food', async (_event, id: string) => {
     const session = await getSession()
     await session.removeFoodItem(id)
-    return {
-      foodItems: [...session.foodItems],
-      mealLogs: [...session.mealLogs],
-      bodyProfile: session.bodyProfile,
-      settings: session.settings
-    }
+    return snapshotPayload(session)
   })
 
   ipcMain.handle('nutrition:read-photo', async (_event, key: string) => {
@@ -121,23 +97,13 @@ function registerNutritionHandlers(): void {
         await session.saveMealLog({ ...current, servings: patch.servings, eatenAt: patch.eatenAt, override: { name: patch.name, kcal: patch.kcal, proteinG: patch.proteinG }, updatedAt: Date.now() })
       }
     }
-    return {
-      foodItems: [...session.foodItems],
-      mealLogs: [...session.mealLogs],
-      bodyProfile: session.bodyProfile,
-      settings: session.settings
-    }
+    return snapshotPayload(session)
   })
 
   ipcMain.handle('nutrition:save-profile', async (_event, profile) => {
     const session = await getSession()
     await session.saveBodyProfile(profile)
-    return {
-      foodItems: [...session.foodItems],
-      mealLogs: [...session.mealLogs],
-      bodyProfile: session.bodyProfile,
-      settings: session.settings
-    }
+    return snapshotPayload(session)
   })
 
   ipcMain.handle('nutrition:set-meal-photo', async (_event, id: string, photoKey: string | null) => {
@@ -146,12 +112,7 @@ function registerNutritionHandlers(): void {
     if (current) {
       await session.saveMealLog({ ...current, photoKey: photoKey ?? undefined, updatedAt: Date.now() })
     }
-    return {
-      foodItems: [...session.foodItems],
-      mealLogs: [...session.mealLogs],
-      bodyProfile: session.bodyProfile,
-      settings: session.settings
-    }
+    return snapshotPayload(session)
   })
 
   ipcMain.handle('nutrition:export-pack', async (event) => {

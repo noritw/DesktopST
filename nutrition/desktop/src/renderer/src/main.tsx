@@ -17,6 +17,7 @@ import {
   resolveStatsRange,
   MAX_FOOD_PHOTOS,
   toIsoDateString,
+  type BodyProfile,
   type FoodItem,
   type FoodUsage,
   type MealLog,
@@ -280,6 +281,8 @@ function App(): React.JSX.Element {
   const [libraryTag, setLibraryTag] = React.useState('all')
 
   const [statsRangeKind, setStatsRangeKind] = React.useState<NutritionStatsRangeKind>('last-7')
+  /** 今天還沒過完，預設不算進統計，避免看起來「吃得比平常少」；使用者可以自己勾選要不要含今天。 */
+  const [statsIncludeToday, setStatsIncludeToday] = React.useState(false)
   const [customRange, setCustomRange] = React.useState<NutritionStatsRange>(() => ({
     startIsoDate: toIsoDateString(Date.now()),
     endIsoDate: toIsoDateString(Date.now())
@@ -314,19 +317,27 @@ function App(): React.JSX.Element {
   const [transferBusy, setTransferBusy] = React.useState(false)
   const [transferMessage, setTransferMessage] = React.useState<string | null>(null)
 
+  /**
+   * 搬家匯入／覆蓋等情境會讓 `snapshot.bodyProfile` 在掛載後才變動，
+   * 「身體資料」頁的輸入框卻是各自獨立的 controlled state——不重新同步的話，
+   * 頁面會停在舊值，使用者按下儲存還會用舊值把剛匯入的資料蓋掉。
+   */
+  function syncProfileFields(bodyProfile: BodyProfile | null): void {
+    if (!bodyProfile) return
+    setProfileHeight(String(bodyProfile.heightCm))
+    setProfileWeight(String(bodyProfile.weightKg))
+    setProfileAge(String(bodyProfile.ageYears))
+    setProfileSex(bodyProfile.sex)
+    setProfileBodyFatPercent(bodyProfile.bodyFatPercent ? String(bodyProfile.bodyFatPercent) : '')
+    setProfileActivity(bodyProfile.activityLevel)
+    setProfileGoal(bodyProfile.goal)
+    setProfileKcal(String(bodyProfile.dailyKcalLimit))
+    setProfileProtein(String(bodyProfile.dailyProteinGoalG))
+  }
+
   React.useEffect(() => {
     void window.nutritionDesktop.load().then((next) => {
-      if (next.bodyProfile) {
-        setProfileHeight(String(next.bodyProfile.heightCm))
-        setProfileWeight(String(next.bodyProfile.weightKg))
-        setProfileAge(String(next.bodyProfile.ageYears))
-        setProfileSex(next.bodyProfile.sex)
-        setProfileBodyFatPercent(next.bodyProfile.bodyFatPercent ? String(next.bodyProfile.bodyFatPercent) : '')
-        setProfileActivity(next.bodyProfile.activityLevel)
-        setProfileGoal(next.bodyProfile.goal)
-        setProfileKcal(String(next.bodyProfile.dailyKcalLimit))
-        setProfileProtein(String(next.bodyProfile.dailyProteinGoalG))
-      }
+      syncProfileFields(next.bodyProfile)
       setSnapshot(next)
     })
   }, [])
@@ -586,6 +597,7 @@ function App(): React.JSX.Element {
       const result = await window.nutritionDesktop.importPack(mode)
       if (result.ok) {
         setSnapshot(result.snapshot)
+        syncProfileFields(result.snapshot.bodyProfile)
         setTransferMessage(mode === 'fill-only' ? '已補上本機沒有的資料。' : '已用匯入的資料覆蓋較舊的本機紀錄。')
       } else if (result.error === 'invalid-file') {
         setTransferMessage('匯入失敗：不是有效的搬家包檔案。')
@@ -603,6 +615,12 @@ function App(): React.JSX.Element {
 
   const daily = buildDailyView(snapshot.mealLogs, snapshot.foodItems, selectedDate)
   const bodyProfile = snapshot.bodyProfile
+  // 桌面沒有 Health Connect，不會有「今天即時外推」那一套（見 mobile 版），
+  // 這裡看到的消耗都是手機搬家包帶過來的快照——只要那天有資料就拿來當上限，
+  // 沒有就退回 `bodyProfile.dailyKcalLimit` 那個固定目標。
+  const burnedForSelectedDate = snapshot.burnedKcalHistory[selectedDate]
+  const dynamicKcalLimit = typeof burnedForSelectedDate === 'number' ? Math.round(burnedForSelectedDate) : null
+  const effectiveKcalLimit = dynamicKcalLimit ?? bodyProfile?.dailyKcalLimit
   const date = new Date(`${selectedDate}T12:00:00`)
   const dateLabel = date.toLocaleDateString('zh-TW', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' })
   const shiftDate = (days: number) => {
@@ -622,13 +640,15 @@ function App(): React.JSX.Element {
 
   if (view === 'stats') {
     const todayIso = toIsoDateString(Date.now())
-    // 桌面沒有 Health Connect（`NutritionHealthSettings` 只給手機用），
-    // 所以這裡只有攝取，消耗欄位一律留白，不做假資料。
+    // 桌面本身沒有 Health Connect（`NutritionHealthSettings` 只給手機用），
+    // 消耗資料完全靠搬家包從手機帶過來（`snapshot.burnedKcalHistory`），
+    // 沒匯入過的話這裡就是空物件，統計自然只剩攝取，不做假資料。
+    const statsOptions = { excludeToday: !statsIncludeToday }
     const statsRange: NutritionStatsRange = statsRangeKind === 'custom' ? customRange : resolveStatsRange(statsRangeKind, todayIso)
-    const weekStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-week', todayIso), todayIso)
-    const monthStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-month', todayIso), todayIso)
-    const rangeStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, statsRange, todayIso)
-    const maxKcal = Math.max(1, ...rangeStats.days.map((day) => day.kcal))
+    const weekStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-week', todayIso), todayIso, snapshot.burnedKcalHistory, statsOptions)
+    const monthStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-month', todayIso), todayIso, snapshot.burnedKcalHistory, statsOptions)
+    const rangeStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, statsRange, todayIso, snapshot.burnedKcalHistory, statsOptions)
+    const maxKcal = Math.max(1, ...rangeStats.days.map((day) => Math.max(day.kcal, day.burnedKcal ?? 0)))
     const rangeLabels: { kind: NutritionStatsRangeKind; label: string }[] = [
       { kind: 'last-7', label: '近 7 天' },
       { kind: 'last-30', label: '近 30 天' },
@@ -643,13 +663,28 @@ function App(): React.JSX.Element {
         <div className="stats-grid">
           <div><span>合計攝取</span><strong>{stats.totalKcal.toLocaleString('zh-TW')} kcal</strong></div>
           <div><span>日均攝取</span><strong>{stats.averageKcalPerDay.toLocaleString('zh-TW')} kcal</strong></div>
+          {stats.burnedDayCount > 0 && (
+            <>
+              <div><span>合計消耗</span><strong>{stats.totalBurnedKcal.toLocaleString('zh-TW')} kcal</strong></div>
+              <div><span>日均消耗</span><strong>{stats.averageBurnedPerDay.toLocaleString('zh-TW')} kcal</strong></div>
+            </>
+          )}
           <div><span>合計蛋白</span><strong>{stats.totalProteinG.toLocaleString('zh-TW')} g</strong></div>
           <div><span>日均蛋白</span><strong>{stats.averageProteinPerDay} g</strong></div>
+          {stats.averageNetKcalPerDay !== null && (
+            <div>
+              <span>日均淨值</span>
+              <strong className={stats.averageNetKcalPerDay > 0 ? 'over' : 'good'}>
+                {stats.averageNetKcalPerDay > 0 ? '+' : ''}{stats.averageNetKcalPerDay.toLocaleString('zh-TW')} kcal
+              </strong>
+            </div>
+          )}
         </div>
         <small className="hint">
           日均以「已過 {stats.elapsedDayCount} 天」為分母；其中有紀錄 {stats.loggedDayCount} 天
           {stats.loggedDayCount > 0 && stats.loggedDayCount < stats.elapsedDayCount
             && `（只算有紀錄的日子是 ${stats.averageKcalPerLoggedDay.toLocaleString('zh-TW')} kcal）`}
+          {stats.burnedDayCount > 0 && `，有消耗資料 ${stats.burnedDayCount} 天（手機搬家包帶過來的）`}
         </small>
       </section>
     )
@@ -676,6 +711,10 @@ function App(): React.JSX.Element {
               <label>迄<input type="date" value={customRange.endIsoDate} onChange={(event) => setCustomRange((prev) => ({ ...prev, endIsoDate: event.target.value }))} /></label>
             </div>
           )}
+          <label className="toggle-row">
+            <input type="checkbox" checked={statsIncludeToday} onChange={(event) => setStatsIncludeToday(event.target.checked)} />
+            <span>包含今天（今天還沒過完，預設不算進總計／日均，避免看起來吃得比平常少）</span>
+          </label>
         </section>
         {rangeStats.dayCount === 0
           ? <p className="empty">日期範圍顛倒了，請把「迄」設在「起」之後。</p>
@@ -691,10 +730,14 @@ function App(): React.JSX.Element {
                 <time>{day.isoDate.slice(5)}</time>
                 <div className="stats-bar-track">
                   <div className="stats-bar intake" style={{ width: `${(day.kcal / maxKcal) * 100}%` }} />
+                  {day.burnedKcal !== undefined && (
+                    <div className="stats-bar burned" style={{ width: `${(day.burnedKcal / maxKcal) * 100}%` }} />
+                  )}
                 </div>
                 <span className="stats-bar-value">{day.kcal || '—'}</span>
               </div>
             ))}
+            <small className="hint">深色＝攝取{rangeStats.burnedDayCount > 0 && '，淺色＝消耗（手機搬家包）'}</small>
           </section>
         )}
       </main>
@@ -1010,9 +1053,9 @@ function App(): React.JSX.Element {
       </section>
       <section className="summary">
         <div className="summary-tappable" role="button" tabIndex={0} onClick={() => setView('stats')} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setView('stats') }}>
-          <span>熱量</span>
-          <strong className={bodyProfile && daily.totalKcal > bodyProfile.dailyKcalLimit ? 'over' : ''}>{daily.totalKcal} kcal</strong>
-          <small>/ {bodyProfile?.dailyKcalLimit ?? '未設定'}</small>
+          <span>熱量{dynamicKcalLimit !== null && <small className="dynamic-tag">當日消耗（手機搬家包）</small>}</span>
+          <strong className={effectiveKcalLimit !== undefined && daily.totalKcal > effectiveKcalLimit ? 'over' : ''}>{daily.totalKcal} kcal</strong>
+          <small>/ {effectiveKcalLimit ?? '未設定'}</small>
         </div>
         <div><span>蛋白質</span><strong className={bodyProfile && daily.totalProteinG >= bodyProfile.dailyProteinGoalG ? 'good' : ''}>{daily.totalProteinG} g</strong><small>/ {bodyProfile?.dailyProteinGoalG ?? '未設定'}</small></div>
       </section>

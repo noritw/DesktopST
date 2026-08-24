@@ -49,6 +49,8 @@ export interface NutritionStats {
   netDayCount: number
   /** 是否套用了 `overlapOnly`（回傳值本身，方便呼叫端顯示提示文字用）。 */
   overlapOnly: boolean
+  /** 是否套用了 `excludeToday`（回傳值本身，方便呼叫端顯示提示文字用）。 */
+  excludeToday: boolean
 }
 
 /** 週起始固定為星期一（zh-TW 慣例）。 */
@@ -106,6 +108,10 @@ function round(value: number): number {
  * 飲食紀錄才剛開始記），兩邊分母不同步時「日均攝取」「日均消耗」放在一起看
  * 會失真。開啟後所有統計（含總計／日均）只算「當天攝取與消耗都有資料」的
  * 交集天數；預設關閉，維持原本以「已過天數」「有查到消耗的天數」各自為分母。
+ *
+ * `options.excludeToday`：今天還沒過完，攝取／消耗都還在累積，直接算進平均
+ * 會把數字往下拉、看起來像「吃得比平常少」；開啟後統計（含總計／日均／消耗／
+ * 淨值）一律不含今天，但 `days` 仍會列出今天那一列供畫面照常顯示當天進度。
  */
 export function buildNutritionStats(
   mealLogs: MealLog[],
@@ -113,7 +119,7 @@ export function buildNutritionStats(
   range: NutritionStatsRange,
   todayIso: string,
   burnedByDate: Record<string, number | null | undefined> = {},
-  options: { overlapOnly?: boolean } = {}
+  options: { overlapOnly?: boolean; excludeToday?: boolean } = {}
 ): NutritionStats {
   const foodById = new Map(foodItems.map((foodItem) => [foodItem.id, foodItem]))
   const grouped = groupMealLogsByDay(mealLogs)
@@ -136,9 +142,11 @@ export function buildNutritionStats(
     return stat
   })
 
-  const netDays = days.filter((day) => day.burnedKcal !== undefined && day.hasLog)
+  const excludeToday = options.excludeToday === true
+  const baseDays = excludeToday ? days.filter((day) => day.isoDate !== todayIso) : days
+  const netDays = baseDays.filter((day) => day.burnedKcal !== undefined && day.hasLog)
   const overlapOnly = options.overlapOnly === true
-  const pool = overlapOnly ? netDays : days
+  const pool = overlapOnly ? netDays : baseDays
 
   const elapsedDays = pool.filter((day) => day.isoDate <= todayIso)
   const loggedDays = pool.filter((day) => day.hasLog)
@@ -169,6 +177,7 @@ export function buildNutritionStats(
     averageBurnedPerDay: burnedDays.length > 0 ? round(totalBurnedKcal / burnedDays.length) : 0,
     averageNetKcalPerDay: netDays.length > 0 ? round(totalNet / netDays.length) : null,
     netDayCount: netDays.length,
-    overlapOnly
+    overlapOnly,
+    excludeToday
   }
 }

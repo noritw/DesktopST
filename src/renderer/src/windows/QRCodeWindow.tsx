@@ -118,7 +118,10 @@ export default function QRCodeWindow() {
           </button>
           <button style={{ ...styles.purposeBtn, ...noDrag }} onClick={() => setPurpose('remote')}>
             <span style={styles.purposeBtnTitle}>用手機遙控這台電腦</span>
-            <span style={styles.purposeBtnHint}>同一個 Wi-Fi 時速度最快；不在同一個網路時會透過中繼連線。</span>
+            <span style={styles.purposeBtnHint}>
+              同一個 Wi-Fi 時速度最快；不在同一個網路時會透過中繼連線。
+              也可以切換成這個模式，把手機獨立版累積的角色、對話、提醒等資料同步回這台電腦（雙向同步，逐項比對後再選）。
+            </span>
           </button>
         </div>
       </div>
@@ -153,7 +156,7 @@ export default function QRCodeWindow() {
           <div style={styles.blockHint}>
             {purpose === 'backup'
               ? '需要同一個 Wi-Fi，API Key 才會一起傳過去'
-              : '同一個 Wi-Fi 時速度最快，不同網路會自動走中繼'}
+              : '同一個 Wi-Fi 時速度最快，不同網路會自動走中繼；連上後可在手機「切換模式」把資料雙向同步回這台電腦'}
           </div>
           {status.appAvailable ? (
             qrDataUrl ? (

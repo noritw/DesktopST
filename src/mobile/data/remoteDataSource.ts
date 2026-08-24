@@ -319,6 +319,8 @@ export class RemoteDataSource implements DataSource {
         { provider, endpoint }
       ),
     setLlmChatLimits: async (limits) => { await this.http.post('/api/settings/llm-chat-limits', limits) },
+    // 遙控模式下金鑰屬於電腦；透過手機轉出等於繞過桌面 isLanDirectRequest() 那層信任邊界，不支援。
+    exportLlmForNutrition: async () => { throw new DataError('not-supported', '匯出給食記目前只支援本機模式') },
 
     getMemory: async () => (await this.http.get<{ memory: MemorySettingsSnapshot }>('/api/settings/memory')).memory,
     setMemory: async (m) => { await this.http.post('/api/settings/memory', m) },

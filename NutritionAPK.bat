@@ -12,7 +12,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-node "%~dp0scripts\build-nutrition-apk.mjs"
+node "%~dp0scripts\build-nutrition-apk-release-install.mjs"
 set "ERR=%ERRORLEVEL%"
 
 echo.

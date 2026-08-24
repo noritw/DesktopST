@@ -7,7 +7,7 @@ import { bytesToBase64, base64ToBytes } from '../util/base64'
  * 換機或想讓兩邊資料一致靠這份搬家包手動匯出／匯入，不是背景即時同步。
  * 不含 API Key（跟角色卡搬家包同一個原則）。
  */
-export const NUTRITION_PACK_VERSION = 1
+export const NUTRITION_PACK_VERSION = 2
 export const NUTRITION_PACK_EXTENSION = '.destnutrition'
 
 export type NutritionSettingsPack = Omit<NutritionLlmSettings, 'apiKeys'>
@@ -21,6 +21,12 @@ export interface NutritionMigrationPack {
   llmSettings: NutritionSettingsPack
   /** photoKey → base64 內容，涵蓋 foodItems／mealLogs 目前參照到的每一張照片。 */
   photos: Record<string, string>
+  /**
+   * 每日總消耗（Health Connect），isoDate → kcal（v1 的舊搬家包沒有這個欄位，
+   * 讀取端要當成 `{}` 處理，不要假設一定存在）。桌面沒有 Health Connect，
+   * 靠這個欄位才能在統計頁算出消耗與淨值。
+   */
+  burnedKcalHistory: Record<string, number>
 }
 
 export type MigrationMergeMode = 'fill-only' | 'overwrite'
@@ -44,7 +50,8 @@ export function buildMigrationPack(
     mealLogs: snapshot.mealLogs,
     bodyProfile: snapshot.bodyProfile,
     llmSettings: { provider: snapshot.settings.llm.provider, model: snapshot.settings.llm.model, endpoints: snapshot.settings.llm.endpoints },
-    photos
+    photos,
+    burnedKcalHistory: snapshot.burnedKcalHistory
   }
 }
 
@@ -117,8 +124,15 @@ export function applyMigrationPack(
     ? { llm: { ...pack.llmSettings, apiKeys: local.settings.llm.apiKeys } }
     : local.settings
 
+  // 逐日 kcal 沒有 updatedAt 可比，用「哪邊贏就整包蓋在另一邊底下」簡化：
+  // overwrite 讓匯入值贏、fill-only 讓本機值贏，兩種模式都不會漏掉另一邊獨有的日期。
+  const packBurnedKcalHistory = pack.burnedKcalHistory ?? {}
+  const burnedKcalHistory = mode === 'overwrite'
+    ? { ...local.burnedKcalHistory, ...packBurnedKcalHistory }
+    : { ...packBurnedKcalHistory, ...local.burnedKcalHistory }
+
   return {
-    snapshot: { foodItems, mealLogs, bodyProfile, settings },
+    snapshot: { foodItems, mealLogs, bodyProfile, settings, burnedKcalHistory },
     photosToWrite
   }
 }

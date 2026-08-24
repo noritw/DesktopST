@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DeST 系列 — 桌面版／手機版／食記</title>
+  <meta name="description" content="DeST 系列：桌面上的 AI 角色寵物、隨身的手機獨立版，以及飲食記錄 App「食記」。三個各自獨立、可以同時使用的小工具。">
+
+  <meta property="og:title" content="DeST 系列 — 桌面版／手機版／食記">
+  <meta property="og:description" content="桌面上的 AI 角色寵物、隨身的手機獨立版，以及飲食記錄 App「食記」。">
+  <meta property="og:image" content="https://raw.githubusercontent.com/noritw/DesktopST/main/assets/git_Repo_Banner.png">
+  <meta property="og:type" content="website">
+
+  <style>
+    :root {
+      --bg: #f7fffc;
+      --surface: #ffffff;
+      --surface-soft: #effcf7;
+      --mint: #cbfbc4;
+      --teal: #aaeedd;
+      --sky: #aaeeff;
+      --yellow: #ffe8aa;
+      --pink: #ffbbbb;
+      --lavender: #f0bbff;
+      --text: #3d5a52;
+      --muted: #6f968a;
+      --border: #d8f5ec;
+      --strong: #267668;
+      --radius-xl: 32px;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+      --radius-sm: 12px;
+      --shadow-soft: 0 10px 30px rgba(170, 238, 221, 0.24);
+      --shadow-card: 0 6px 22px rgba(170, 238, 221, 0.18);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 12% 8%, rgba(203, 251, 196, 0.55), transparent 30rem),
+        radial-gradient(circle at 88% 0%, rgba(170, 238, 255, 0.45), transparent 32rem),
+        radial-gradient(circle at 50% 100%, rgba(240, 187, 255, 0.28), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+      font-family: "Noto Sans TC", "M PLUS Rounded 1c", "Microsoft JhengHei", system-ui, sans-serif;
+      line-height: 1.75;
+      letter-spacing: 0.01em;
+    }
+
+    .page {
+      width: min(1080px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 64px;
+    }
+
+    a { color: var(--strong); font-weight: 700; text-decoration: none; }
+
+    .hero {
+      padding: 56px 36px;
+      border-radius: var(--radius-xl);
+      background:
+        linear-gradient(160deg, rgba(255, 255, 255, 0.86), rgba(239, 252, 247, 0.78)),
+        var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft);
+      margin-top: 16px;
+      text-align: center;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: rgba(170, 238, 221, 0.32);
+      color: var(--strong);
+      font-size: 0.92rem;
+      font-weight: 800;
+    }
+
+    h1 {
+      margin: 14px 0 16px;
+      font-size: clamp(2rem, 4.6vw, 3.2rem);
+      line-height: 1.24;
+      color: var(--text);
+    }
+
+    .hero p.lead {
+      margin: 0 auto;
+      font-size: 1.1rem;
+      color: #4d7168;
+      max-width: 620px;
+    }
+
+    section {
+      margin: 32px 0;
+      padding: 36px;
+      border-radius: var(--radius-xl);
+      background: rgba(255, 255, 255, 0.88);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-card);
+    }
+    section h2 { margin: 0 0 8px; font-size: clamp(1.6rem, 3vw, 2.2rem); }
+    section .sub { margin: 0 0 24px; color: var(--muted); font-weight: 600; }
+
+    /* ===== Product cards ===== */
+    .products {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 20px;
+    }
+    .product-card {
+      display: flex;
+      flex-direction: column;
+      padding: 26px;
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      border: 1px solid var(--border);
+    }
+    .product-card .tag {
+      display: inline-block;
+      align-self: flex-start;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 800;
+      margin-bottom: 12px;
+    }
+    .tag-mint { background: rgba(203, 251, 196, 0.5); color: #207a4e; }
+    .tag-sky { background: rgba(170, 238, 255, 0.5); color: #1f6e8c; }
+    .tag-yellow { background: rgba(255, 232, 170, 0.6); color: #8a6a25; }
+
+    .product-card h3 { margin: 0 0 8px; font-size: 1.25rem; }
+    .product-card p.desc { margin: 0 0 16px; color: #4d7168; flex-grow: 1; }
+    .product-card .platform { margin: 0 0 16px; color: var(--muted); font-size: 0.9rem; font-weight: 700; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 46px;
+      padding: 10px 20px;
+      border-radius: 999px;
+      font-weight: 800;
+      font-size: 0.98rem;
+      border: 1px solid transparent;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+    .btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-card); }
+    .btn-primary { background: linear-gradient(135deg, var(--mint), var(--teal)); color: var(--strong); }
+
+    /* ===== Screenshot placeholders ===== */
+    .shot {
+      margin-bottom: 16px;
+      border-radius: var(--radius-md);
+      border: 2px dashed rgba(170, 238, 221, 0.9);
+      background:
+        repeating-linear-gradient(135deg,
+          rgba(170, 238, 221, 0.10) 0,
+          rgba(170, 238, 221, 0.10) 12px,
+          rgba(255, 255, 255, 0.6) 12px,
+          rgba(255, 255, 255, 0.6) 24px);
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      font-weight: 700;
+      text-align: center;
+      padding: 18px;
+      aspect-ratio: 4 / 3;
+    }
+    .shot img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: var(--surface-soft);
+      border-radius: calc(var(--radius-md) - 2px);
+    }
+
+    /* ===== Comparison table ===== */
+    table.compare {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+    table.compare th, table.compare td {
+      text-align: left;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.96rem;
+    }
+    table.compare th {
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 0.88rem;
+    }
+    table.compare td:first-child, table.compare th:first-child { color: var(--strong); font-weight: 800; }
+    table.compare tr:last-child td { border-bottom: none; }
+
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding-top: 8px;
+    }
+    footer a { color: var(--strong); }
+
+    @media (max-width: 860px) {
+      .hero { padding: 36px 24px; }
+      .products { grid-template-columns: 1fr; }
+      section { padding: 26px; }
+      table.compare { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+
+    <header class="hero">
+      <span class="eyebrow">DeST 系列</span>
+      <h1>把 AI 角色帶在身邊，<br>也把三餐記下來</h1>
+      <p class="lead">
+        DeST 從桌面上的 AI 角色寵物開始，現在多了手機獨立版，
+        以及跟角色扮演無關、單純好用的飲食記錄 App「食記」。
+        三個各自獨立，也可以只挑一個用。
+      </p>
+    </header>
+
+    <section>
+      <h2>三個東西，怎麼選？</h2>
+      <p class="sub">點卡片看各自的完整介紹與下載方式。</p>
+
+      <div class="products">
+        <!-- 桌面版 -->
+        <div class="product-card">
+          <span class="tag tag-mint">Windows</span>
+          <div class="shot">
+            <img src="ScreenShot/Dialog01.jpg" alt="DeST 桌面版對話截圖">
+          </div>
+          <h3>DeST 桌面版</h3>
+          <p class="platform">Windows 桌面程式</p>
+          <p class="desc">角色站在你的電腦桌面上，填入 API Key 就能聊天。支援自訂角色、便利貼、提醒、多種色系。</p>
+          <a class="btn btn-primary" href="intro.html">查看桌面版介紹 →</a>
+        </div>
+
+        <!-- 手機版 -->
+        <div class="product-card">
+          <span class="tag tag-sky">Android</span>
+          <div class="shot">
+            手機版截圖製作中
+            <br><small>Android APK</small>
+          </div>
+          <h3>DeST 手機版</h3>
+          <p class="platform">Android 獨立 App</p>
+          <p class="desc">不用開電腦，手機上就能單機跟角色聊天；也能跟電腦版同步角色、對話與設定。內建天氣、提醒、個人新聞報。</p>
+          <a class="btn btn-primary" href="mobile.html">查看手機版介紹 →</a>
+        </div>
+
+        <!-- 食記 -->
+        <div class="product-card">
+          <span class="tag tag-yellow">Android</span>
+          <div class="shot">
+            食記截圖製作中
+            <br><small>Android APK</small>
+          </div>
+          <h3>食記</h3>
+          <p class="platform">Android 獨立 App</p>
+          <p class="desc">飲食記錄與熱量追蹤 App，拍照就能估熱量，可接手錶讀取體重與消耗熱量。跟 DeST 角色扮演無關，單純好用的記錄工具。</p>
+          <a class="btn btn-primary" href="nutrition.html">查看食記介紹 →</a>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>快速比一比</h2>
+      <table class="compare">
+        <thead>
+          <tr>
+            <th></th>
+            <th>DeST 桌面版</th>
+            <th>DeST 手機版</th>
+            <th>食記</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>平台</td>
+            <td>Windows</td>
+            <td>Android</td>
+            <td>Android</td>
+          </tr>
+          <tr>
+            <td>需要電腦嗎</td>
+            <td>本身就是電腦程式</td>
+            <td>不用，可單機獨立使用</td>
+            <td>不用，完全獨立</td>
+          </tr>
+          <tr>
+            <td>主要用途</td>
+            <td>桌面 AI 角色聊天寵物</td>
+            <td>隨身 AI 角色聊天</td>
+            <td>飲食記錄與熱量追蹤</td>
+          </tr>
+          <tr>
+            <td>跟角色扮演有關嗎</td>
+            <td>核心功能</td>
+            <td>核心功能</td>
+            <td>無關，獨立工具</td>
+          </tr>
+          <tr>
+            <td>費用</td>
+            <td>免費</td>
+            <td>免費</td>
+            <td>免費</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer>
+      DeST 系列 · Made with 🌱 by <a href="https://nori.tw" target="_blank" rel="noopener">Nori</a>
+    </footer>
+  </div>
+</body>
+</html>
