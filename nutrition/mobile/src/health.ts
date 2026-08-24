@@ -200,17 +200,26 @@ export const nutritionHealthAdapter: HealthAdapter = {
   async writeCalories(kcal: number, atMs: number): Promise<boolean> {
     const loaded = await loadPlugin()
     if (!loaded) return false
-    const iso = new Date(atMs).toISOString()
+    const startIso = new Date(atMs).toISOString()
+    // Health Connect 的 NutritionRecord 是 IntervalRecord，endTime 必須嚴格晚於
+    // startTime——相等會在原生端被拒絕（IllegalArgumentException）。錯開 1 秒，
+    // 反正這裡只在乎「哪一刻吃的」，不是真的有一段持續時間。
+    const endIso = new Date(atMs + 1_000).toISOString()
     // withTimeout 逾時或 reject 都會安靜 resolve 成 onTimeout（見上面定義），不會拋出，
     // 所以不能靠 try/catch 判斷成敗——用回傳值本身當結果（{ok:false} 涵蓋兩種失敗）。
+    // 失敗原因印一份到 console／logcat，否則失敗會完全沒有痕跡（2026-08-25 owner
+    // 真機回報「按了補寫，Health 完全沒資料」才發現這支之前連錯誤都吞得乾乾淨淨）。
     const result = await withTimeout(
       loaded.Health.saveSample({
         dataType: 'dietaryEnergyConsumed',
         value: kcal,
         unit: 'kilocalorie',
-        startDate: iso,
-        endDate: iso
-      }).then(() => ({ ok: true })).catch(() => ({ ok: false })),
+        startDate: startIso,
+        endDate: endIso
+      }).then(() => ({ ok: true })).catch((error: unknown) => {
+        console.error('[NutritionHealth] writeCalories failed', error)
+        return { ok: false }
+      }),
       8_000,
       { ok: false }
     )

@@ -4718,4 +4718,21 @@ owner**，這裡只到自動測試通過為止，`docs/reminder-sync-kickoff.md`
   `npm run typecheck`／`npm test`（81 檔、1063 項）皆過。**真機驗證留給
   owner**——尤其是系統寫入權限對話框跳出、Health Connect 裡看得到熱量條目、
   以及「開關剛打開時一次補寫多筆舊記錄」這幾件事沒有自動測試能驗證。
-10 講得很清楚不要自己假裝真機測過。
+
+  **2026-08-25 owner 真機回報：按了手動補寫，Health 完全沒看到資料。**
+  排查後找到兩個坑，都已修正：
+  1. **`writeCalories()` 的 `startDate`／`endDate` 給了同一個時間點**——
+     Health Connect 的 `NutritionRecord` 是 `IntervalRecord`，原生端要求
+     `endTime` 嚴格晚於 `startTime`，相等會直接丟
+     `IllegalArgumentException`。錯開 1 秒解決。
+  2. **失敗被吞得一乾二淨**：`saveSample()` 的 catch 只回傳 `{ ok: false }`，
+     沒有印任何東西，也沒有讓使用者看到；`writeMealLogsToHealthIfNeeded()`
+     在「沒有寫入權限」「偵測不到 Health Connect」「沒有待補寫記錄」這幾種
+     情況也是直接 `return`，完全沒有訊息——使用者按下「手動補寫一次」按鈕後
+     不管是哪種失敗都像沒反應一樣。補上：①`writeCalories()` 失敗時
+     `console.error` 一份給 `adb logcat` 看 ②新增 `verbose` 參數，使用者主動
+     觸發（開關打開／手動補寫按鈕）時才顯示這些「什麼都沒做」的原因，
+     `runAction` 每次存檔自動觸發的背景掃描維持安靜（否則使用者做其他不相干
+     操作也會無端跳字）③補上「補寫成功幾筆／失敗幾筆」的統計文字。
+     `npm run typecheck`／`npm test`（81 檔、1063 項）皆過。**這輪修正
+     同樣還沒真機覆驗**，下一步要請 owner 再測一次「手動補寫一次」。

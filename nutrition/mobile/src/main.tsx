@@ -927,36 +927,45 @@ function App(): React.JSX.Element {
    * 這支同時扮演兩個角色：①開關 4 剛打開時，目前所有記錄都是「還沒寫過」，
    * 這次掃描就是一次性的歷史補寫 ②之後每次存檔都會再掃一次，新記錄隨手補推。
    * 不主動要權限——沒有寫入權限時安靜跳過，等使用者自己按「補寫」或重新開啟開關。
+   *
+   * `verbose` 只在使用者主動觸發（開關剛打開／手動補寫按鈕）時給 `true`：
+   * `runAction` 每次存檔都會呼叫這支，若「沒權限」「沒待寫記錄」這類情況也跳訊息，
+   * 會在使用者做其他不相干操作時無端跳字；但使用者主動按按鈕卻完全沒反應
+   * 又會像壞掉一樣，所以兩種情境要分開處理。
    */
-  async function writeMealLogsToHealthIfNeeded(session: NutritionSession): Promise<void> {
+  async function writeMealLogsToHealthIfNeeded(session: NutritionSession, verbose = false): Promise<void> {
     const settings = session.settings.health
     if (!settings?.connected || !settings.writeCalories) return
     const pending = session.mealLogs.filter((mealLog) => mealLog.healthWrittenAt === undefined)
-    if (pending.length === 0) return
+    if (pending.length === 0) { if (verbose) setHealthWriteMessage('沒有待補寫的記錄'); return }
     const available = await nutritionHealthAdapter.isAvailable()
-    if (!available) return
+    if (!available) { if (verbose) setHealthWriteMessage('這台裝置偵測不到 Health Connect'); return }
     const hasPerm = await nutritionHealthAdapter.hasWritePermission()
-    if (!hasPerm) return
+    if (!hasPerm) { if (verbose) setHealthWriteMessage('尚未取得寫入權限，請重新開啟上面的開關授權'); return }
 
     const foodItemMap = new Map(session.foodItems.map((foodItem) => [foodItem.id, foodItem]))
     const patched = new Map<string, MealLog>()
     let writtenCount = 0
+    let failedCount = 0
     for (const mealLog of pending) {
       const kcal = resolveMealLogKcal(mealLog, foodItemMap.get(mealLog.foodItemId))
       // 沒有熱量可算（例如食物庫項目已被刪除）也標記完成，避免每次存檔都重掃同一筆。
       if (kcal === undefined || kcal <= 0) { patched.set(mealLog.id, { ...mealLog, healthWrittenAt: Date.now() }); continue }
       const ok = await nutritionHealthAdapter.writeCalories(kcal, mealLog.eatenAt)
       if (ok) { patched.set(mealLog.id, { ...mealLog, healthWrittenAt: Date.now() }); writtenCount++ }
+      else failedCount++
     }
-    if (patched.size === 0) return
-    await session.replaceSnapshot({
-      foodItems: [...session.foodItems],
-      mealLogs: session.mealLogs.map((mealLog) => patched.get(mealLog.id) ?? mealLog),
-      bodyProfile: session.bodyProfile,
-      settings: session.settings,
-      burnedKcalHistory: { ...session.burnedKcalHistory }
-    })
-    if (writtenCount > 0) setHealthWriteMessage(`已補寫 ${writtenCount} 筆熱量到 Health`)
+    if (patched.size > 0) {
+      await session.replaceSnapshot({
+        foodItems: [...session.foodItems],
+        mealLogs: session.mealLogs.map((mealLog) => patched.get(mealLog.id) ?? mealLog),
+        bodyProfile: session.bodyProfile,
+        settings: session.settings,
+        burnedKcalHistory: { ...session.burnedKcalHistory }
+      })
+    }
+    if (writtenCount > 0) setHealthWriteMessage(`已補寫 ${writtenCount} 筆熱量到 Health${failedCount > 0 ? `（${failedCount} 筆失敗，下次會重試）` : ''}`)
+    else if (verbose) setHealthWriteMessage(failedCount > 0 ? `補寫失敗 ${failedCount} 筆，詳情看 adb logcat` : '沒有需要補寫的記錄')
   }
 
   function toggleHealthWriteCalories(writeCalories: boolean): void {
@@ -970,7 +979,7 @@ function App(): React.JSX.Element {
           || await nutritionHealthAdapter.requestWritePermission()
         if (!granted) { setHealthWriteMessage('尚未授權寫入權限，先前記錄還沒補寫'); return }
         const session = sessionRef.current
-        if (session) await writeMealLogsToHealthIfNeeded(session)
+        if (session) await writeMealLogsToHealthIfNeeded(session, true)
       } catch (error: unknown) {
         setHealthWriteMessage(`補寫失敗：${error instanceof Error ? error.message : String(error)}`)
       } finally {
@@ -2707,7 +2716,7 @@ function App(): React.JSX.Element {
                       if (!session) return
                       setHealthWriteBusy(true)
                       setHealthWriteMessage(null)
-                      void writeMealLogsToHealthIfNeeded(session).finally(() => setHealthWriteBusy(false))
+                      void writeMealLogsToHealthIfNeeded(session, true).finally(() => setHealthWriteBusy(false))
                     }}
                   >
                     {healthWriteBusy ? '補寫中...' : '手動補寫一次'}
