@@ -22,11 +22,11 @@ function adapters(): PlatformAdapters {
 const bootSession = (): Promise<StandaloneSession> => bootStandaloneSession(adapters(), { skipPackFetch: true })
 
 function emptyTable(over: Partial<PairTable> = {}): PairTable {
-  return { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [], ...over }
+  return { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [], reminders: [], ...over }
 }
 
 function emptyChoices(over: Partial<ChoiceMap> = {}): ChoiceMap {
-  return { characters: {}, personas: {}, worlds: {}, scenes: {}, lorebooks: {}, ...over }
+  return { characters: {}, personas: {}, worlds: {}, scenes: {}, lorebooks: {}, reminders: {}, ...over }
 }
 
 /**

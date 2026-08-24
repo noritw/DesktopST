@@ -537,6 +537,8 @@ export interface Reminder {
   conversationId?: string
   lastTriggeredAt?: number
   createdAt: number
+  /** S2 提醒同步用的內容比對時間戳；跨裝置不可比，不能拿來判斷「誰比較新」 */
+  updatedAt?: number
 }
 
 /** 提醒觸發後的處置結果 */

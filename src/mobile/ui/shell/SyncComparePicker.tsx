@@ -90,7 +90,8 @@ const KIND_LABEL: Record<PairKind, string> = {
   personas: '使用者',
   worlds: '世界觀',
   scenes: '情境',
-  lorebooks: '用語解說'
+  lorebooks: '用語解說',
+  reminders: '提醒'
 }
 
 export function SyncComparePicker(): JSX.Element | null {

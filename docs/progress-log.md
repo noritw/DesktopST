@@ -4629,3 +4629,52 @@ client 而不是共用一個 helper，改一處漏三處的老問題又發生一
 （要真的打 Anthropic API 或攔截 SDK 內部的環境偵測），純粹是讀 SDK 原始碼
 ＋比對 `claude.ts` 既有寫法确认。owner 下次用 Claude 當主模型或輔助模型
 在手機獨立版測一次最準。
+
+---
+
+## 2026-08-24（續）｜S2 提醒同步（TODO §2.3，開工指令 `reminder-sync-kickoff.md`）
+
+照開工指令做完提醒跨裝置同步：現有 M4 逐項比對（角色／人設／世界觀／
+Lorebook／情境）加第六個 kind `reminders`，同樣走「id／名稱配對＋逐列選
+手機／電腦／不動」。跟其他 kind 不一樣的地方是這次唯一的難點——提醒物件
+裡 `notificationDevice`／`wakeMode`／`inactiveBehavior` 是裝置本地設定，
+同步時不能整包覆蓋。
+
+實作照 §3 開的清單，比照 `syncApply.ts` 情境案例（座標是電腦專屬，推送時
+保留接收端原值）的做法：`pushOne`／`pullOne` 遇到 `reminders` 時，若接收端
+已存在這筆（`row.remoteId`／`row.localId` 有值），先讀出接收端現有那筆，
+把 `notificationDevice`／`wakeMode`／`inactiveBehavior`／`allowOfflineFallback`／
+`lastTriggeredAt` 蓋回要送出的物件上，其餘欄位才用來源端的值；真的是新增
+時才整包用來源端值當初始值。`allowOfflineFallback` 依開工指令先當裝置本地
+處理（不進雜湊、不覆蓋），owner 之後若有不同意見這是最容易調的一個欄位。
+
+`characterId`／`sceneId` 借用既有的 `maps.l2r`／`maps.r2l` 對照表，所以
+`ORDER` 常數把 `'reminders'` 排在最後（等角色與情境都處理完才有對照表可用）；
+翻不過去就整欄位不推，不留死參照。`conversationId` 完全沒有對照表（對話
+同步是獨立的一套配對邏輯），這次同步當下一律不推，這是資料本質決定的
+限制、不是要修的 bug。
+
+內容雜湊 `reminderContentHash()`（`core/sync/contentHash.ts`）刻意排除上述
+裝置本地欄位與兩個跨端 id 參照，理由同 `characterContentHash` 那套邏輯——
+放進去的話每一筆永遠判定「不同」。手機／桌面共用同一份
+`core/sync/manifestBuild.ts` 的 `buildManifest()`，不是各自抄一份（避免
+`contentHash.ts` 檔頭警告過的「兩邊算法漂移」）。
+
+順手發現並補上：`Reminder` 型別原本沒有 `updatedAt` 欄位，但手機端
+`session.saveReminder()` 其實一直有在寫這個欄位（只是型別沒宣告），桌面端
+`saveReminderDirect()`／`createReminderDirect()` 則完全沒寫過。這次補上型別
+宣告，並讓桌面端也開始寫入（manifest 需要一個 `updatedAt` 顯示用，缺的話
+退回 `createdAt`；內容是否相同只看 `contentHash`，不受這個欄位影響）。
+
+新增測試 `tests/mobile/reminderSync.test.ts`（10 案例），涵蓋單邊獨有的
+推/拉、裝置本地欄位在推送與帶回時都不被覆蓋、新增時才用來源值當初始值、
+`characterId`/`sceneId` 翻譯成功與翻不過去兩種情況、`conversationId` 一律
+不推、以及刪除的兩個方向。連帶更新既有的 `pair.ts`／`contentHash.ts`／
+`manifestBuild.ts` 相關測試檔（`tests/core/sync/pair.test.ts`、
+`tests/core/sync/diff.test.ts`、`tests/ui/syncDiffMessage.test.ts`、
+`tests/mobile/syncApply.test.ts`）補上 `reminders` 欄位，否則 `KINDS`／
+`Manifest` 多一個必填欄位會讓這些檔案的既有 fixture 型別對不起來。
+
+`npm run typecheck`／`npm test`（81 檔、1060 項）皆過。**真機驗證留給
+owner**，這裡只到自動測試通過為止，`docs/reminder-sync-kickoff.md` §7 步驟
+10 講得很清楚不要自己假裝真機測過。

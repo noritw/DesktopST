@@ -1,10 +1,11 @@
 // 相對路徑的理由同 `contentHash.ts` 檔頭：主行程建置沒有 `@core` alias。
-import type { Character, PersonaPreset, ScenePreset, WorldPreset } from '../types'
+import type { Character, PersonaPreset, Reminder, ScenePreset, WorldPreset } from '../types'
 import type { Lorebook } from '../lore/types'
 import {
   characterContentHash,
   lorebookContentHash,
   personaContentHash,
+  reminderContentHash,
   sceneContentHash,
   worldContentHash
 } from './contentHash'
@@ -46,6 +47,7 @@ export interface ManifestInput {
   worlds: WorldPreset[]
   scenes: ScenePreset[]
   lorebooks: Lorebook[]
+  reminders: Reminder[]
   conversations: ManifestConversation[]
   settingsHash: string
 }
@@ -91,6 +93,14 @@ export function buildManifest(input: ManifestInput): Manifest {
       name: b.name,
       updatedAt: b.updatedAt,
       contentHash: lorebookContentHash(b)
+    })),
+    reminders: input.reminders.map((r) => ({
+      id: r.id,
+      name: r.label,
+      // 提醒沒有嚴格維護的 updatedAt（早期版本存檔沒寫入這欄），退回 createdAt——
+      // 這裡只影響顯示與同名多筆時的排序，內容是否相同一律看 contentHash
+      updatedAt: r.updatedAt ?? r.createdAt,
+      contentHash: reminderContentHash(r)
     })),
     conversations: input.conversations,
     settingsHash: input.settingsHash

@@ -88,6 +88,8 @@ export interface Manifest {
   worlds: ManifestEntity[]
   scenes: ManifestEntity[]
   lorebooks: ManifestEntity[]
+  /** S2 提醒同步：跟其餘 collection 同形狀，不進 M2/M3 的 `SyncDiff`（那套已被 M4 逐項比對取代）。 */
+  reminders: ManifestEntity[]
   conversations: ManifestConversation[]
   settingsHash: string
 }

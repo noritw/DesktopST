@@ -1823,6 +1823,8 @@ async function handleRequest(
       worlds: b.getWorldPresets(),
       scenes: b.getScenes(),
       lorebooks: books,
+      // S2 提醒同步：跟其餘 collection 同一套 buildManifest，桌面／手機不各自算
+      reminders: b.listReminders(),
       // S2 對話同步：多帶訊息 id 指紋，手機才判得出「這則兩邊完全一樣」。
       // 算法在 `core/sync/manifestBuild.ts`，跟手機共用同一支。
       conversations: b.getConversationsManifest(),

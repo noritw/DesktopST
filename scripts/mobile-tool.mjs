@@ -5,13 +5,16 @@
  * （打包／重開 QR／HMR 預覽／防火牆），每次都要想一下該點哪個。
  * 併成一個選單，預設就是最常用的「打包並裝到手機」，直接 Enter 即可。
  *
- * 四條路徑：
+ * 五條路徑：
  *   [1] 打包 APK 裝到手機：防火牆 → 打包 → USB 直裝 → 開桌面 DeST → 區網 QR
  *   [2] 只開下載 QR：APK 沒重打，只是要再裝一次（省掉 gradle 那一分鐘）
  *   [3] 手機 UI 即時預覽：改版面用的 HMR，不產 APK
  *   [4] 打包正式簽章 APK 並裝到手機：跟 [1] 是姊妹選項，差在簽章跟已發布的
  *       版本一致，能直接覆蓋安裝、不必先解除安裝清資料（2026-08-24 加，
  *       QR 配對合併那次順手補的——debug 簽章裝不上已經裝過正式版的手機）
+ *   [5] 產生 App 圖示：改完 assets/AppIcon-android.png 後重出五種密度的資源。
+ *       有「預覽」子選項，因為構圖被圓形遮罩裁到、單色版亮度沒壓夠這兩件事
+ *       都要看到圖才知道，而裝機驗證一輪要好幾分鐘（2026-08-24 加）
  *
  * 埠：DeST mobileServer 3721、APK 下載頁 8731、手機 UI HMR 5180 起。
  */
@@ -260,6 +263,67 @@ async function actionUiPreview(rl) {
   return true
 }
 
+/**
+ * 產生 App 圖示。實際工作在 scripts/gen-android-icons.ps1（要 System.Drawing，
+ * Node 這邊沒有影像處理，不想為了縮圖多裝一個 sharp）。
+ *
+ * 為什麼需要「預覽」這一步：Android 的圓形遮罩只露出畫布中央 66.6%，
+ * 方形構圖的角色圖放進去下襬會被裁掉；而桌布主題化的單色版是啟動器
+ * 自己取暗部生成的，亮度沒壓夠就只會剩輪廓。這兩件事都要看到圖才知道，
+ * 但「打包→裝機→等轉場動畫」一輪要好幾分鐘，所以先在電腦上看。
+ */
+async function actionIcons(rl) {
+  console.log('')
+  console.log('=== 產生 App 圖示 ===')
+  console.log('來源圖：assets\\AppIcon-android.png（改圖就是改這張）')
+  console.log('')
+  console.log('  [1] 預覽        （改完圖先看，不寫入專案）')
+  console.log('  [2] 正式產生    （寫入 android 資源，之後再打包）')
+  console.log('  [3] 分析亮度    （改色前參考：哪些顏色在單色版會實心）')
+  console.log('')
+  const pick = (await rl.question('選擇 (1/2/3，預設 1)：')).trim() || '1'
+
+  // 路徑用正斜線：runStep 是 shell:true，反斜線會被當成跳脫字元吃掉
+  // （`scripts\gen-...` 會變成 `scriptsgen-...`）。PowerShell 吃正斜線沒問題。
+  const args = ['-ExecutionPolicy', 'Bypass', '-File', 'scripts/gen-android-icons.ps1']
+
+  if (pick === '3') {
+    args.push('-Analyze')
+  } else if (pick === '1' || pick === '2') {
+    const scaleIn = (await rl.question('角色縮放（0.40～0.70，直接 Enter = 0.55）：')).trim()
+    if (scaleIn) {
+      const n = Number(scaleIn)
+      if (!Number.isFinite(n) || n < 0.2 || n > 1) {
+        console.error(`縮放值「${scaleIn}」不合理，要是 0.2～1 之間的小數。`)
+        return false
+      }
+      args.push('-Scale', String(n))
+    }
+    if (pick === '1') args.push('-Preview')
+  } else {
+    console.error(`不認得的選項「${pick}」。`)
+    return false
+  }
+
+  if (!runStep('powershell', args)) {
+    console.error('')
+    console.error('產生失敗，上面有錯誤訊息。')
+    return false
+  }
+
+  if (pick === '1') {
+    // 預覽圖直接開起來，省得使用者自己去翻檔案
+    const preview = path.join(root, 'icon-preview.png')
+    if (fs.existsSync(preview)) {
+      spawn('cmd.exe', ['/c', 'start', '', preview], { detached: true, stdio: 'ignore' }).unref()
+    }
+    console.log('滿意的話回到這個選單選 [2] 正式產生，再用 [4] 打包。')
+  } else if (pick === '2') {
+    console.log('接著用 [4] 打包正式簽章 APK（或 [1] 打 debug）。')
+  }
+  return true
+}
+
 // ── 選單 ──────────────────────────────────────────────────
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
@@ -271,6 +335,7 @@ console.log('  [1] 打包 APK 並裝到手機   （USB 直裝，或掃 QR 下載
 console.log('  [2] 只開下載 QR           （APK 已經打好，省掉重新打包）')
 console.log('  [3] 手機 UI 即時預覽      （改版面用，不產 APK）')
 console.log('  [4] 打包正式簽章 APK      （手機上已裝正式版時用這個才裝得上去）')
+console.log('  [5] 產生 App 圖示         （改完 AppIcon-android.png 後跑這個）')
 console.log('')
 
 const choice = (await rl.question('請選擇（直接 Enter = 1）：')).trim() || '1'
@@ -288,6 +353,9 @@ switch (choice) {
     break
   case '3':
     ok = await actionUiPreview(rl)
+    break
+  case '5':
+    ok = await actionIcons(rl)
     break
   default:
     console.error(`不認得的選項「${choice}」。`)

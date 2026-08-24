@@ -79,7 +79,7 @@ export type PairChoice =
   /** 這列不動（兩邊各自維持原狀） */
   | 'keep'
 
-export const KINDS = ['characters', 'personas', 'worlds', 'scenes', 'lorebooks'] as const
+export const KINDS = ['characters', 'personas', 'worlds', 'scenes', 'lorebooks', 'reminders'] as const
 export type PairKind = (typeof KINDS)[number]
 
 /** 每個 collection 一組列。 */
@@ -171,7 +171,9 @@ export function pairCollection(local: PairEntity[], remote: PairEntity[]): PairR
 export function pairManifests(local: Manifest, remote: Manifest): PairTable {
   const out = {} as PairTable
   for (const kind of KINDS) {
-    out[kind] = pairCollection(local[kind] as PairEntity[], remote[kind] as PairEntity[])
+    // `?? []`：舊桌面端還沒升級到支援 reminders 之前，回應裡根本沒有這個欄位
+    // （同 `contentHash.ts` 對缺 `contentHash` 欄位的相容處理）
+    out[kind] = pairCollection((local[kind] ?? []) as PairEntity[], (remote[kind] ?? []) as PairEntity[])
   }
   return out
 }

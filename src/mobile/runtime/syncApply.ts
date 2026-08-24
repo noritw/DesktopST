@@ -1,6 +1,6 @@
 import * as keys from '@core/store/keys'
 import { KINDS, actionFor, type ChoiceMap, type PairAction, type PairKind, type PairRow, type PairTable } from '@core/sync/pair'
-import type { Character, PersonaPreset, ScenePreset, WorldPreset } from '@core/types'
+import type { Character, PersonaPreset, Reminder, ScenePreset, WorldPreset } from '@core/types'
 import type { Lorebook } from '@core/lore/types'
 import { importCharactersFromDstPack } from './seedDefaults'
 import type { StandaloneSession } from './session'
@@ -86,14 +86,17 @@ const KIND_LABEL: Record<PairKind, string> = {
   personas: '使用者設定',
   worlds: '世界觀',
   scenes: '情境',
-  lorebooks: '用語解說'
+  lorebooks: '用語解說',
+  reminders: '提醒'
 }
 
 /**
  * 執行順序：被參照的先做，情境最後。
  * 用語解說排最前面是因為角色與世界觀都會參照它。
+ * 提醒排在最後：它的 `characterId`／`sceneId` 要靠這一趟累積出來的
+ * `maps.l2r.characters`／`maps.l2r.scenes` 翻譯，必須等角色與情境都處理完。
  */
-const ORDER: PairKind[] = ['lorebooks', 'characters', 'personas', 'worlds', 'scenes']
+const ORDER: PairKind[] = ['lorebooks', 'characters', 'personas', 'worlds', 'scenes', 'reminders']
 
 export async function applySync(
   src: SyncSource,
@@ -102,7 +105,7 @@ export async function applySync(
   fetchImpl: FetchImpl = globalThis.fetch
 ): Promise<ApplyResult> {
   const maps = buildMaps(opts.table)
-  const empty = (): Record<PairKind, string[]> => ({ characters: [], personas: [], worlds: [], scenes: [], lorebooks: [] })
+  const empty = (): Record<PairKind, string[]> => ({ characters: [], personas: [], worlds: [], scenes: [], lorebooks: [], reminders: [] })
   const result: ApplyResult = {
     pushed: empty(),
     pulled: empty(),
@@ -242,6 +245,40 @@ async function pushOne(
     return
   }
 
+  if (kind === 'reminders') {
+    const local = session.reminders.find((r) => r.id === localId)
+    if (!local) throw new Error('本機找不到這個提醒')
+
+    /*
+     * `notificationDevice`／`wakeMode`／`inactiveBehavior`／`allowOfflineFallback`／
+     * `lastTriggeredAt` 是裝置本地設定或衍生狀態（`docs/reminder-sync-kickoff.md` §3），
+     * 已存在電腦上的那筆先讀出來，把這些欄位蓋回去，不能整包覆蓋。
+     */
+    let existingRemote: Reminder | undefined
+    if (row.remoteId) {
+      const list = await getJson<{ reminders?: Reminder[] }>(src, '/api/reminders', fetchImpl)
+      existingRemote = list.reminders?.find((r) => r.id === row.remoteId)
+    }
+
+    const reminder: Reminder = {
+      ...local,
+      id: row.remoteId ?? local.id,
+      characterId: local.characterId ? maps.l2r.characters.get(local.characterId) : undefined,
+      sceneId: local.sceneId ? maps.l2r.scenes.get(local.sceneId) : undefined,
+      // 對話同步是完全獨立的一套配對，這裡沒有對照表可翻——對不到就整欄位不推，
+      // 死參照比「這筆提醒暫時沒綁對話」糟得多（`docs/reminder-sync-kickoff.md` §5）
+      conversationId: undefined,
+      notificationDevice: existingRemote?.notificationDevice ?? local.notificationDevice,
+      wakeMode: existingRemote?.wakeMode ?? local.wakeMode,
+      inactiveBehavior: existingRemote?.inactiveBehavior ?? local.inactiveBehavior,
+      allowOfflineFallback: existingRemote?.allowOfflineFallback ?? local.allowOfflineFallback,
+      lastTriggeredAt: existingRemote?.lastTriggeredAt
+    }
+    const out = await postJson<{ reminder?: Reminder }>(src, '/api/reminders/save', { reminder }, fetchImpl)
+    recordPair(maps, kind, localId, out.reminder?.id ?? reminder.id)
+    return
+  }
+
   // ── 情境 ──
   const scene = session.scenes.find((s) => s.id === localId)
   if (!scene) throw new Error('本機找不到這個情境')
@@ -366,6 +403,30 @@ async function pullOne(
     return
   }
 
+  if (kind === 'reminders') {
+    const list = await getJson<{ reminders?: Reminder[] }>(src, '/api/reminders', fetchImpl)
+    const remote = list.reminders?.find((r) => r.id === remoteId)
+    if (!remote) throw new Error('電腦上找不到這個提醒')
+    const targetId = row.localId ?? remote.id
+    const existingLocal = session.reminders.find((r) => r.id === targetId)
+
+    const next: Reminder = {
+      ...remote,
+      id: targetId,
+      characterId: remote.characterId ? maps.r2l.characters.get(remote.characterId) : undefined,
+      sceneId: remote.sceneId ? maps.r2l.scenes.get(remote.sceneId) : undefined,
+      conversationId: undefined,
+      notificationDevice: existingLocal?.notificationDevice ?? remote.notificationDevice,
+      wakeMode: existingLocal?.wakeMode ?? remote.wakeMode,
+      inactiveBehavior: existingLocal?.inactiveBehavior ?? remote.inactiveBehavior,
+      allowOfflineFallback: existingLocal?.allowOfflineFallback ?? remote.allowOfflineFallback,
+      lastTriggeredAt: existingLocal?.lastTriggeredAt
+    }
+    await session.saveReminder(next)
+    recordPair(maps, kind, targetId, remoteId)
+    return
+  }
+
   // ── 情境 ──
   const out = await getJson<{ preset?: ScenePreset }>(src, `/api/presets/scene/${encodeURIComponent(remoteId)}`, fetchImpl)
   const remote = out.preset ?? (out as unknown as ScenePreset)
@@ -409,6 +470,7 @@ async function deleteLocal(session: StandaloneSession, kind: PairKind, id: strin
     case 'worlds': return session.removeWorld(id)
     case 'scenes': return session.removeScene(id)
     case 'lorebooks': return session.removeLorebook(id)
+    case 'reminders': return session.removeReminder(id)
   }
 }
 
@@ -417,7 +479,8 @@ async function deleteRemote(src: SyncSource, kind: PairKind, id: string, fetchIm
   const path =
     kind === 'characters' ? '/api/characters/delete'
       : kind === 'lorebooks' ? '/api/lorebooks/delete'
-        : `/api/presets/${kind === 'personas' ? 'persona' : kind === 'worlds' ? 'world' : 'scene'}/delete`
+        : kind === 'reminders' ? '/api/reminders/delete'
+          : `/api/presets/${kind === 'personas' ? 'persona' : kind === 'worlds' ? 'world' : 'scene'}/delete`
   await postJson<unknown>(src, path, { id }, fetchImpl)
 }
 

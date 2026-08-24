@@ -50,6 +50,9 @@ assets/*.dstpack
 # 測試用 QR 圖（MobileST-*-test.bat 產生）
 mobile-test-qr.png
 
+# 圖示預覽圖（scripts/gen-android-icons.ps1 -Preview 產生，看完即可刪）
+icon-preview.png
+
 # Android 正式簽章 keystore／密碼。`android/keystore.properties` 本來就落在
 # 上面 `/android/*` 的忽略範圍內，這裡是防呆——不管檔案放在哪一層，
 # 只要副檔名或檔名對到就一律不進版控。弄丟 keystore＝所有使用者都無法升級，

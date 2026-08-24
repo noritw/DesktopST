@@ -103,6 +103,7 @@ export async function buildLocalManifest(session: StandaloneSession): Promise<Ma
     worlds: session.worlds,
     scenes: session.scenes,
     lorebooks: books,
+    reminders: session.reminders,
     conversations: session.listConversationsManifest(),
     settingsHash: settingsSnapshotHash(settingsSnapshot)
   })

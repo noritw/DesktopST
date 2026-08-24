@@ -4,7 +4,7 @@
 // 模組一律走相對路徑，不要用 `@core/…`，否則桌面端建置會直接解析失敗。
 import { sha1Hex } from '../util/sha1'
 import { stableStringify } from '../util/stableJson'
-import type { Character, PersonaPreset, ScenePreset, WorldPreset } from '../types'
+import type { Character, PersonaPreset, Reminder, ScenePreset, WorldPreset } from '../types'
 import type { Lorebook } from '../lore/types'
 
 /**
@@ -107,6 +107,29 @@ export function sceneContentHash(s: ScenePreset, r: SceneResolvers): string {
     // undefined（跟隨疊加）與 []（一本都不用）語意不同，要分得出來
     lorebooks: s.lorebookIds === undefined ? null : resolveNames(s.lorebookIds, r.lorebookName),
     moduleOverrides: s.moduleOverrides ?? {}
+  })
+}
+
+/**
+ * 提醒同步（S2 新分類）：跟角色／情境不同，這裡故意排除一批「裝置本地」欄位——
+ * `notificationDevice`／`wakeMode`／`inactiveBehavior`／`allowOfflineFallback`／
+ * `lastTriggeredAt` 是各裝置自己的設定或衍生狀態，同步時不覆蓋，見
+ * `docs/reminder-sync-kickoff.md` §3。`characterId`／`conversationId` 是跨端 id
+ * 參照，兩端 id 本來就不同，放進雜湊只會讓每一筆永遠判定「不同」。
+ */
+export function reminderContentHash(r: Reminder): string {
+  return hash({
+    label: r.label,
+    prompt: r.prompt,
+    schedule: r.schedule,
+    enabled: r.enabled,
+    injectPinnedNotes: !!r.injectPinnedNotes,
+    injectConversationContext: !!r.injectConversationContext,
+    injectWeather: !!r.injectWeather,
+    injectNews: !!r.injectNews,
+    injectCalendar: !!r.injectCalendar,
+    sceneId: r.sceneId ?? '',
+    sceneConstraint: r.sceneConstraint ?? 'any_scene'
   })
 }
 

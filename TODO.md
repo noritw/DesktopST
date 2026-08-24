@@ -198,18 +198,26 @@ owner 決定「能同步的盡量同步」，逐項處理結果：
 - `llm.temperature`、`ui.chatFontSize` —— 手機 UI 目前**沒有**讓使用者調這兩個
   的地方，同步了也沒東西可看／可改，等手機哪天做出對應 UI 再一起補
 
-### 2.3 提醒要不要同步 → 方向已決定，**開工指令已寫好，尚未實作**（2026-08-17；開工指令 2026-08-22）
+### 2.3 提醒要不要同步 → ✅ **已完成**（2026-08-17 方向決定；開工指令 2026-08-22；實作 2026-08-24，`npm run typecheck`／`npm test` 皆過，真機待驗）
 
 owner 決定：提醒資料本身要同步（整份清單，比照角色／情境走逐項比對），
 但**「哪台裝置響」跟裝置本地的細節設定（例如螢幕關閉時要不要響）留在各自
 裝置、不同步**。
 
-這是一個新的同步類別（現有 M4 比對範圍只有角色／人設／世界觀／Lorebook／
-情境，沒有提醒）。**開工指令已寫成 `docs/reminder-sync-kickoff.md`**（整份，
-照著做就能開工）：核心難點不是「多加一個 kind」，而是提醒物件裡
-`notificationDevice`／`wakeMode`／`inactiveBehavior` 這幾個欄位是裝置本地
-設定，同步時不能整包覆蓋，要比照 `syncApply.ts` 情境案例的「座標是電腦專屬，
-推送時保留接收端原值」做法。
+新增為 M4 逐項比對的第六個 kind（現有範圍原本是角色／人設／世界觀／
+Lorebook／情境）。`core/sync/pair.ts` 的 `KINDS` 加 `'reminders'`；內容雜湊
+`core/sync/contentHash.ts` 的 `reminderContentHash()` 刻意排除
+`notificationDevice`／`wakeMode`／`inactiveBehavior`／`allowOfflineFallback`／
+`lastTriggeredAt`（裝置本地／衍生狀態）與 `characterId`／`conversationId`（跨端
+id 參照）。`mobile/runtime/syncApply.ts` 的 `pushOne`／`pullOne` 比照情境案例：
+有 `remoteId`／`localId` 時先讀接收端現有那筆，把裝置本地欄位蓋回去，只有
+真的新增時才用來源端值當初始值；`characterId`／`sceneId` 走既有的 id 對照表
+（`reminders` 排在 `ORDER` 最後，等角色與情境都推完才翻譯），`conversationId`
+沒有對照表可翻、一律不推（避免死參照）。`docs/reminder-sync-kickoff.md`
+留著當設計依據，不用再看，做法完全照那份走。新增測試
+`tests/mobile/reminderSync.test.ts`（10 案例，含「裝置本地欄位不被覆蓋」與
+「新增時才用來源值當初始值」兩個最容易漏測的情境）。**真機驗證留給
+owner**，這裡只到自動測試通過。
 
 ### 2.5 資安／免責警語（2026-08-22 owner 決定：以警語為主，不做額外機制）→ ✅ 已完成（同日）
 

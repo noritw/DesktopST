@@ -1553,7 +1553,8 @@ export function createReminderDirect(): Reminder {
     prompt: '',
     schedule: { type: 'daily', hour: now.getHours(), minute: now.getMinutes() },
     enabled: true,
-    createdAt: Date.now()
+    createdAt: Date.now(),
+    updatedAt: Date.now()
   }
   const list = fileStore.loadReminders()
   list.push(reminder)
@@ -1564,6 +1565,7 @@ export function createReminderDirect(): Reminder {
 }
 
 export function saveReminderDirect(reminder: Reminder): Reminder {
+  reminder.updatedAt = Date.now()
   const list = fileStore.loadReminders()
   const idx = list.findIndex(r => r.id === reminder.id)
   if (idx >= 0) list[idx] = reminder

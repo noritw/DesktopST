@@ -3,7 +3,7 @@ import { computeDiff, isDiffEmpty } from '../../../src/core/sync/diff'
 import type { Manifest, SyncBaseline } from '../../../src/core/sync/types'
 
 function emptyManifest(settingsHash = 'h0'): Manifest {
-  return { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [], conversations: [], settingsHash }
+  return { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [], reminders: [], conversations: [], settingsHash }
 }
 
 function emptyBaseline(settingsHash = 'h0'): SyncBaseline {
