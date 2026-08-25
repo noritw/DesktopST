@@ -63,7 +63,7 @@ import { nutritionMobileHttp } from './http'
 import { compressImageFile } from './imageInput'
 import { isVoiceInputAvailable, startVoiceInput, type VoiceSession } from './voiceInput'
 import { nutritionMobileStorage } from './storage'
-import { refreshNutritionWidget, writeWidgetHealthState, writeWidgetTheme } from './widgetBridge'
+import { refreshNutritionWidget, writeWidgetHealthState, writeWidgetTheme, WIDGET_HEALTH_STATE_KEY, type WidgetHealthState } from './widgetBridge'
 import { consumePendingShare, decodeLlmExportPayload, isScannerAvailable, scanQr } from './llmImport'
 import { THEMES, THEME_IDS, THEME_LABELS } from '@shared/colorThemes'
 import { DEFAULT_WIDGET_APPEARANCE } from '@shared/widgetAppearance'
@@ -738,7 +738,11 @@ function App(): React.JSX.Element {
       // App 離開前景（背景或被關閉前）時推一次小工具重算（計畫書 §3 觸發點 2）；
       // 系統直接殺掉 App 時這個事件不一定觸發，那種情況靠觸發點 1（存檔時）兜底。
       const stateHandle = await CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-        if (!isActive) void refreshNutritionWidget()
+        if (!isActive) { void refreshNutritionWidget(); return }
+        // 回到前景時順手撿一次小工具剛查到的 Health Connect 數字（見
+        // loadWidgetHealthCache 說明）——不是主動打 Health Connect，只是讀
+        // 小工具已經寫好的檔案，所以不受「自動同步」開關限制。
+        void loadWidgetHealthCache()
       }).catch(() => null)
       if (cancelled) {
         void urlHandle?.remove()
@@ -779,6 +783,11 @@ function App(): React.JSX.Element {
       // 上次查過的消耗熱量已經存在磁碟（`saveBurnedKcal`），開機先讀出來墊底，
       // 不用每次重開都重新打一輪 Health Connect 才能看到過去日子的消耗。
       setHistoricalKcalCache({ ...session.burnedKcalHistory })
+
+      // 冷啟動先撿一次小工具（可能剛剛才在桌面按過「重新整理」）已經查到的
+      // Health Connect 數字，讓使用者不用進 App 又手動按一次「立即同步」
+      // 才看得到跟小工具一致的數字（owner 2026-08-25 回報要按兩次）。
+      void loadWidgetHealthCache()
 
       // 開關 1／2 都開時，App 開啟本身就是「前景事件」，比照小工具顯示自動同步一次
       // （docs/nutrition-health-lite-kickoff.md §3.1）——只用 hasPermission() 確認，
@@ -1193,6 +1202,27 @@ function App(): React.JSX.Element {
     } finally {
       setTestingVision(false)
     }
+  }
+
+  /**
+   * 小工具「重新整理」按鈕（原生層，見 `NutritionWidgetProvider.kt` 的
+   * `refreshHealthCaloriesIfNeeded`）點下去會直接問 Health Connect、把結果寫進
+   * `widget-health.json`，但那份資料 App 這邊本來完全不會去讀——使用者在桌面
+   * 按過小工具的重新整理之後，回到 App 畫面看到的還是舊數字，得再按一次
+   * App 內的「立即同步」，等於同一件事按兩次（owner 2026-08-25 回報）。
+   *
+   * 這支只是讀那個檔案、把 `caloriesBurnedSoFarToday`／`measuredAt` 併入
+   * `healthSnapshot`——**不會**主動打 Health Connect，所以跟「自動同步」開關
+   * 無關，兩者都可以呼叫。只在讀到的數字比目前手上的新時才套用，避免拿
+   * 舊快取蓋掉剛剛才查到的更新結果。
+   */
+  async function loadWidgetHealthCache(): Promise<void> {
+    const cached = await nutritionMobileStorage.readJson<WidgetHealthState>(WIDGET_HEALTH_STATE_KEY)
+    if (!cached) return
+    setHealthSnapshot((prev) => {
+      if (prev && prev.measuredAt >= cached.measuredAt) return prev
+      return { ...(prev ?? {}), caloriesBurnedSoFarToday: cached.burnedSoFarToday, measuredAt: cached.measuredAt }
+    })
   }
 
   /**
@@ -2682,11 +2712,9 @@ function App(): React.JSX.Element {
                   尚未授權，點一下開啟權限
                 </button>
               )}
-              {!healthSettings.autoSync && (
-                <button type="button" disabled={healthSyncing} onClick={() => void runHealthSync()}>
-                  {healthSyncing ? '同步中...' : '立即同步'}
-                </button>
-              )}
+              <button type="button" disabled={healthSyncing} onClick={() => void runHealthSync()}>
+                {healthSyncing ? '同步中...' : '立即同步'}
+              </button>
               <p className="hint">
                 上次同步：{bodyProfile?.healthSyncedAt
                   ? new Date(bodyProfile.healthSyncedAt).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })

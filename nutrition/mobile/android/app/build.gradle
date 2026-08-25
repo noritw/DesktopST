@@ -57,6 +57,12 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    // 小工具「重新整理」按鈕要在原生層直接查 Health Connect（不開 App），見
+    // NutritionWidgetProvider.kt 的 refreshHealthCaloriesIfNeeded()。這兩個依賴
+    // capgo-capacitor-health 模組宣告的是 `implementation`，不會透出給 app 模組，
+    // 要在這裡重複宣告一次（版本對齊該模組 android/build.gradle）。
+    implementation 'androidx.health.connect:connect-client:1.1.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0'
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

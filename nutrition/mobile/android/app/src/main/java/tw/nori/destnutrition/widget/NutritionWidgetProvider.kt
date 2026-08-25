@@ -18,6 +18,18 @@ import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
 import androidx.core.content.ContextCompat
+import androidx.health.connect.client.HealthConnectClient
+import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
+import androidx.health.connect.client.request.ReadRecordsRequest
+import androidx.health.connect.client.time.TimeRangeFilter
+import java.io.File
+import java.time.Instant
+import java.util.Calendar
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import org.json.JSONObject
 import tw.nori.destnutrition.MainActivity
 import tw.nori.destnutrition.R
 import kotlin.math.roundToInt
@@ -49,12 +61,84 @@ class NutritionWidgetProvider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action == ACTION_REFRESH) {
-            updateAll(context)
+            // 查 Health Connect 是 suspend／IO 動作，onReceive 本身跑在主執行緒、
+            // 一結束系統就可能回收這個 BroadcastReceiver——用 goAsync() 換一段
+            // 延長的存活時間，做完（或失敗）才 finish()。
+            val pendingResult = goAsync()
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    refreshHealthCaloriesIfNeeded(context)
+                } catch (e: Exception) {
+                    Log.w(TAG, "health refresh on widget tap failed", e)
+                } finally {
+                    updateAll(context)
+                    pendingResult.finish()
+                }
+            }
         }
     }
 
     companion object {
         const val ACTION_REFRESH = "tw.nori.destnutrition.widget.ACTION_NUTRITION_WIDGET_REFRESH"
+
+        /** 小工具讀得到的「手錶動態上限」原料，檔名對齊 `mobile/src/widgetBridge.ts`。 */
+        private const val WIDGET_HEALTH_FILE = "widget-health.json"
+
+        /**
+         * 小工具「重新整理」按鈕點下去時，直接在原生層問一次 Health Connect
+         * 今天累計消耗了多少熱量，不開 App（owner 2026-08-25 回報按重新整理
+         * 小工具數字跟手錶對不起來——這支按鈕之前只是重讀舊快取重繪，
+         * Health Connect 完全沒被碰過）。
+         *
+         * ⚠️ **刻意只重算 `burnedSoFarToday`，不重算 `restingKcalPerHour`**：
+         * 後者要算 BMR，公式在 `core/nutrition/tdee.ts`（Katch-McArdle／
+         * Mifflin-St Jeor 兩套），在 Kotlin 這邊重寫一份會製造跨語言漂移
+         * （`NutritionWidgetDataReader.kt` 檔頭已經在警告同一件事）。
+         * `restingKcalPerHour` 沿用 App 上次前景時算好、寫進這個檔案的值，
+         * 這裡只補上「這一刻查到的已消耗量」。
+         *
+         * 沒有這個檔案（使用者沒開「手錶消耗熱量當上限」）就整段跳過——
+         * 那種情況下小工具本來就不顯示動態上限，沒有什麼好重新整理的。
+         */
+        private suspend fun refreshHealthCaloriesIfNeeded(context: Context) {
+            val file = File(context.filesDir, WIDGET_HEALTH_FILE)
+            if (!file.exists()) return
+            val state = try { JSONObject(file.readText(Charsets.UTF_8)) } catch (_: Exception) { return }
+            if (!state.has("restingKcalPerHour")) return
+
+            if (HealthConnectClient.getSdkStatus(context) != HealthConnectClient.SDK_AVAILABLE) return
+            val client = HealthConnectClient.getOrCreate(context)
+            val permission = HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class)
+            val granted = client.permissionController.getGrantedPermissions()
+            if (permission !in granted) return
+
+            val now = Instant.now()
+            val calendar = Calendar.getInstance()
+            calendar.set(Calendar.HOUR_OF_DAY, 0)
+            calendar.set(Calendar.MINUTE, 0)
+            calendar.set(Calendar.SECOND, 0)
+            calendar.set(Calendar.MILLISECOND, 0)
+            val todayStart = Instant.ofEpochMilli(calendar.timeInMillis)
+
+            var burned = 0.0
+            var pageToken: String? = null
+            do {
+                val response = client.readRecords(
+                    ReadRecordsRequest(
+                        recordType = TotalCaloriesBurnedRecord::class,
+                        timeRangeFilter = TimeRangeFilter.between(todayStart, now),
+                        pageSize = 500,
+                        pageToken = pageToken
+                    )
+                )
+                response.records.forEach { burned += it.energy.inKilocalories }
+                pageToken = response.pageToken
+            } while (pageToken != null)
+
+            state.put("burnedSoFarToday", burned)
+            state.put("measuredAt", now.toEpochMilli())
+            file.writeText(state.toString(), Charsets.UTF_8)
+        }
 
         /** 真機除錯：`adb logcat -s NutritionWidget` 可以看到每次挑了哪個版面、容器多大。 */
         private const val TAG = "NutritionWidget"
