@@ -64,6 +64,8 @@ import {
   isCalendarAuthenticated, invalidateCalendarCache, DEFAULT_CALENDAR_SETTINGS, readClientSecret,
   peekCalendar
 } from './calendar'
+import { listUpcomingWithReminders } from './calendar/googleProvider'
+import { diffCalendarReminders } from './calendar/reminderScanner'
 import { encrypt } from './secureStore'
 import { isDevToolsAllowed, toggleDevToolsForWindow } from './devTools'
 import {
@@ -76,7 +78,7 @@ import {
 } from './modules/news'
 import { getConversationSearchContext } from './modules/news/conversationSearch'
 import { collectModuleContext, listRegisteredModules } from './modules/moduleHost'
-import { pushRemoteControlState, pushThinking as mobilePushThinking, pushThinkingDone as mobilePushThinkingDone, isServerRunning as isMobileServerRunning } from './mobileServer'
+import { pushRemoteControlState, pushThinking as mobilePushThinking, pushThinkingDone as mobilePushThinkingDone, isServerRunning as isMobileServerRunning, getConnectedCount, pushRemindersSyncAvailable } from './mobileServer'
 
 /**
  * 桌面思考動畫 ＋ 手機推播，一次做完。
@@ -1602,6 +1604,148 @@ export function toggleReminderDirect(id: string, enabled: boolean): void {
   broadcastToAll('reminders:updated', null)
 }
 
+// ── 日曆驅動提醒（Google Calendar → DeST 提醒，桌面限定）─────────
+// 設計：docs/calendar-driven-reminders-design.md
+// 開工指令：docs/calendar-driven-reminders-kickoff.md
+
+let calendarSyncNagTimer: ReturnType<typeof setTimeout> | null = null
+
+export function getCalendarSyncFlagDirect(): boolean {
+  return fileStore.loadCalendarSyncFlag()
+}
+
+/** §5 掃描器造成任何新增/更新/刪除時呼叫：標記旗標、（若剛從已同步變成未同步）排一個延遲幾分鐘的提醒 */
+function markCalendarChangedDirect(): void {
+  const wasUnsynced = fileStore.loadCalendarSyncFlag()
+  fileStore.saveCalendarSyncFlag(true)
+  if (!wasUnsynced) scheduleCalendarSyncNag(5 * 60 * 1000)
+}
+
+/** §7／模式切換同步完成、且涵蓋 reminders 這個 kind 時呼叫：清旗標、停掉排程中的提醒 */
+export function markCalendarSyncedDirect(): void {
+  fileStore.saveCalendarSyncFlag(false)
+  if (calendarSyncNagTimer) { clearTimeout(calendarSyncNagTimer); calendarSyncNagTimer = null }
+}
+
+const CALENDAR_SYNC_NAG_INTERVAL_MS = 24 * 3600_000
+
+/**
+ * 開機時呼叫：旗標還是 true（上次的變動一直沒同步到手機）就把每日提醒接回去。
+ *
+ * 少了這支的話 §6.2「旗標為 true 期間每天提醒一次」只在**同一次執行期間**成立——
+ * 排程是記憶體裡的 `setTimeout`，關掉程式就沒了，而重開後只有「旗標從 false 變
+ * true 的那一刻」會重新排，已經是 true 的情況不會有人叫它。
+ */
+export function initCalendarSyncNag(): void {
+  if (!fileStore.loadCalendarSyncFlag()) return
+  scheduleCalendarSyncNag(5 * 60 * 1000)
+}
+
+function scheduleCalendarSyncNag(delayMs: number): void {
+  if (calendarSyncNagTimer) clearTimeout(calendarSyncNagTimer)
+  calendarSyncNagTimer = setTimeout(() => {
+    calendarSyncNagTimer = null
+    void fireCalendarSyncNag()
+  }, delayMs)
+}
+
+/**
+ * 桌面限定的一次性系統提醒：跟使用者說該去同步了。
+ * 刻意不進 `reminders.json`（不是 `source: 'calendar'`，也不是手動提醒），
+ * 直接借用 `triggerReminderSpeak()` 現場發話，見 §6.2。
+ */
+async function fireCalendarSyncNag(): Promise<void> {
+  if (!fileStore.loadCalendarSyncFlag()) return
+  if (settings.calendar?.notifyOnUnsyncedChanges === false) return
+  try {
+    await triggerReminderSpeak({
+      id: '__calendar-sync-nag__',
+      label: '',
+      prompt: '跟使用者說：Google 日曆有更新，記得同步到手機才會收到最新提醒。',
+      schedule: { type: 'once', at: Date.now() },
+      enabled: true,
+      notificationDevice: 'desktop',
+      createdAt: Date.now()
+    })
+  } catch (e) {
+    console.error('[calendar] sync nag failed:', e)
+  }
+  // 還沒同步就每天再提醒一次，直到旗標被清掉為止
+  if (fileStore.loadCalendarSyncFlag()) scheduleCalendarSyncNag(CALENDAR_SYNC_NAG_INTERVAL_MS)
+}
+
+/**
+ * §5 掃描器：抓 Google Calendar 的提醒設定 → 比對 → 套用到本機提醒清單。
+ * 未啟用或未授權時直接跳過（回傳 null），呼叫端據此判斷不用顯示「同步完成」。
+ */
+export async function runCalendarReminderScanDirect(): Promise<
+  { created: number; updated: number; deleted: number } | { error: string } | null
+> {
+  const c = settings.calendar
+  if (!c?.enabled || !c.clientId || !isCalendarAuthenticated()) return null
+
+  const scanDays = c.reminderScanDays && c.reminderScanDays > 0
+    ? c.reminderScanDays
+    : (DEFAULT_CALENDAR_SETTINGS.reminderScanDays ?? 90)
+  const now = Date.now()
+  const events = await listUpcomingWithReminders(
+    { clientId: c.clientId, clientSecret: readClientSecret(c) },
+    { fromMs: now, toMs: now + scanDays * 86400_000, max: 250 }
+  )
+  if (!events) return { error: '讀取失敗（可能離線、授權過期或 API 未啟用）' }
+
+  const existing = fileStore.loadReminders()
+  const diff = diffCalendarReminders(events, existing)
+  if (diff.toUpsert.length === 0 && diff.toDeleteIds.length === 0) {
+    return { created: 0, updated: 0, deleted: 0 }
+  }
+
+  const existingIds = new Set(existing.map(r => r.id))
+  let created = 0
+  let updated = 0
+  const byId = new Map(existing.map(r => [r.id, r] as const))
+  for (const r of diff.toUpsert) {
+    if (existingIds.has(r.id)) updated++
+    else created++
+    byId.set(r.id, r)
+  }
+  for (const id of diff.toDeleteIds) byId.delete(id)
+
+  fileStore.saveReminders(Array.from(byId.values()))
+  reloadReminders()
+  broadcastToAll('reminders:updated', null)
+  markCalendarChangedDirect()
+
+  return { created, updated, deleted: diff.toDeleteIds.length }
+}
+
+/**
+ * §7「推到手機」按鈕：手機在線就走即時事件通道自動同步，
+ * 不在線就退回 QR（比照現有「把資料複製到手機」QR，多加 `action=sync-reminders`）。
+ */
+export async function pushRemindersToMobileDirect(): Promise<
+  { mode: 'live' } | { mode: 'qr'; dataUrl: string } | { error: string }
+> {
+  if (getConnectedCount() > 0) {
+    pushRemindersSyncAvailable()
+    return { mode: 'live' }
+  }
+  const status = _getMobileStatusFn?.() as { running?: boolean; localUrl?: string } | undefined
+  if (!status?.running || !status.localUrl) return { error: '手機遠端伺服器未啟動，請至「設定 → 介面」開啟' }
+  const url = `${status.localUrl}&action=sync-reminders`
+  try {
+    const qrcode = await import('qrcode')
+    const dataUrl = await qrcode.toDataURL(url, {
+      width: 200,
+      margin: 2,
+      color: { dark: '#3D5A52', light: '#FFFFFF' }
+    })
+    return { mode: 'qr', dataUrl }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
 /** mobile:get-status IPC 的 status 查詢函式（由 index.ts 注入）*/
 let _getMobileStatusFn: (() => unknown) | null = null
 export function setGetMobileStatusFn(fn: () => unknown): void { _getMobileStatusFn = fn }
@@ -2852,7 +2996,10 @@ export async function triggerReminderSpeak(reminder: Reminder): Promise<void> {
 
   // 發話重點：有提醒內容＝優先；沒有＝從候選素材挑一個聊（design：優先/候選）
   if (reminder.prompt?.trim()) {
-    ctxParts.push('[發話重點]\n這次主要是要把上面的「提醒指令」用你自己的個性講出來；天氣／便利貼／新聞如果有，只是順帶提及、別喧賓奪主。換個新鮮的開場，別跟你最近說過的雷同。')
+    // 「行程」原本漏在這串清單外（owner 2026-08-25 實測）：`[Calendar]` 區塊的
+    // 說明句是 "You may bring them up naturally"，沒有這句壓制的話，角色會把
+    // 整份行程連不相關的待辦一起唸出來，而不是只講這次要提醒的那一件事。
+    ctxParts.push('[發話重點]\n這次主要是要把上面的「提醒指令」用你自己的個性講出來；天氣／便利貼／新聞／行程如果有，只是順帶提及、別喧賓奪主，尤其不要把行程表整串列出來。換個新鮮的開場，別跟你最近說過的雷同。')
   } else {
     const hasNotes = !!reminderNoteBlock?.titles?.length
     if (reminderNewsDirective && !hasNotes) {
@@ -3959,13 +4106,16 @@ export function registerIpcHandlers() {
   })
 
   /** 設定視窗調整區間／筆數後呼叫，讓下一次注入立刻反映新設定 */
-  ipcMain.handle('calendar:save-options', (_, opts: { lookaheadHours?: number; maxEvents?: number; mentionWhenEmpty?: boolean }) => {
+  ipcMain.handle('calendar:save-options', (_, opts: {
+    lookaheadHours?: number; maxEvents?: number; mentionWhenEmpty?: boolean; notifyOnUnsyncedChanges?: boolean
+  }) => {
     settings.calendar = {
       ...DEFAULT_CALENDAR_SETTINGS,
       ...(settings.calendar ?? {}),
       ...(opts.lookaheadHours ? { lookaheadHours: Math.max(1, Math.min(opts.lookaheadHours, 168)) } : {}),
       ...(opts.maxEvents ? { maxEvents: Math.max(1, Math.min(opts.maxEvents, 20)) } : {}),
-      ...(opts.mentionWhenEmpty !== undefined ? { mentionWhenEmpty: opts.mentionWhenEmpty } : {})
+      ...(opts.mentionWhenEmpty !== undefined ? { mentionWhenEmpty: opts.mentionWhenEmpty } : {}),
+      ...(opts.notifyOnUnsyncedChanges !== undefined ? { notifyOnUnsyncedChanges: opts.notifyOnUnsyncedChanges } : {})
     }
     invalidateCalendarCache()
     fileStore.saveSettings(settings)
@@ -5549,6 +5699,11 @@ export function registerIpcHandlers() {
   ipcMain.handle('reminder:delete', (_, id: string) => deleteReminderDirect(id))
   ipcMain.handle('reminder:toggle', (_, id: string, enabled: boolean) => toggleReminderDirect(id, enabled))
 
+  // ── 日曆驅動提醒（§9 步驟 6）───────────────────────────────
+  ipcMain.handle('calendar:scan-reminders-now', () => runCalendarReminderScanDirect())
+  ipcMain.handle('calendar:get-sync-flag', () => getCalendarSyncFlagDirect())
+  ipcMain.handle('calendar:push-reminders-to-mobile', () => pushRemindersToMobileDirect())
+
   ipcMain.handle('shell:open-external', (_, url: string) => {
     return shell.openExternal(url)
   })
@@ -5953,11 +6108,26 @@ export function registerIpcHandlers() {
     return true
   })
 
-  ipcMain.handle('reminder:open-manager-new', () => {
+  /**
+   * 開提醒管理視窗，並在它**真的載入完成之後**才送一個事件過去。
+   *
+   * ⚠️ 不能開完就直接 `win.webContents.send()`：`openRemindersManager()` 在
+   * `loadURL()` 之後立刻回傳，新視窗的 renderer 這時候還沒掛載、還沒註冊任何
+   * 監聽器，送過去的事件會直接掉在地上（視窗已經開著時才會剛好成功——
+   * `reminder:open-manager-new` 原本就是這樣寫的，第一次開會靜靜失效）。
+   */
+  function openRemindersManagerWith(channel: string): boolean {
     const win = openRemindersManager()
-    win.webContents.send('reminder:trigger-new')
+    const send = (): void => { if (!win.isDestroyed()) win.webContents.send(channel) }
+    if (win.webContents.isLoading()) win.webContents.once('did-finish-load', send)
+    else send()
     return true
-  })
+  }
+
+  ipcMain.handle('reminder:open-manager-new', () => openRemindersManagerWith('reminder:trigger-new'))
+
+  /** 日曆設定頁的「開啟提醒清單」：直接落在「日曆同步」分頁，不用自己再切一次 */
+  ipcMain.handle('reminder:open-manager-calendar', () => openRemindersManagerWith('reminder:focus-calendar-tab'))
 
   ipcMain.handle('audio:select-notification-sound', async () => {
     const result = await dialog.showOpenDialog({

@@ -71,6 +71,12 @@ export const CHARACTER_DISPLAY_CONFIG_KEY = 'character-display-config.json'
  * `widget-cache/state.json`——檔名改動時要順手確認那邊。
  */
 export const WIDGET_CONFIG_KEY = 'widget-config.json'
+/**
+ * 「本機日曆衍生提醒有變動，但還沒推送到手機」旗標（桌面限定，
+ * `docs/calendar-driven-reminders-kickoff.md` §6）。純粹是裝置本地狀態，
+ * 不進 S2 同步、不進搬家包——換一台電腦不該帶著走，而且手機端完全用不到它。
+ */
+export const CALENDAR_SYNC_FLAG_KEY = 'calendar-sync-flag.json'
 
 export const MODULES_DIR = 'modules'
 export const CHARACTERS_DIR = 'characters'

@@ -41,6 +41,13 @@ export type AppEvent =
    * 不會汙染獨立模式，UI 也不必為它寫任何特例（§3 決議③ 對 G6 的要求）。
    */
   | { kind: 'state-invalidated'; reason: 'desktop' | 'remote-control' | 'reconnect' | 'foreground' }
+  /**
+   * 桌面日曆驅動提醒有變動，且桌面偵測到手機當下在線
+   * （`docs/calendar-driven-reminders-kickoff.md` §7 情況 A）。
+   * 手機收到後自動跑一次 `reminders` 這個 kind 的同步，完成後跳 toast。
+   * 獨立模式沒有「桌面」可以推這個事件，只有遙控模式的 `RemoteEventSource` 會發。
+   */
+  | { kind: 'reminders-sync-available' }
 
 /**
  * 連線狀態。

@@ -130,7 +130,10 @@ export function reminderContentHash(r: Reminder): string {
     injectNews: !!r.injectNews,
     injectCalendar: !!r.injectCalendar,
     sceneId: r.sceneId ?? '',
-    sceneConstraint: r.sceneConstraint ?? 'any_scene'
+    sceneConstraint: r.sceneConstraint ?? 'any_scene',
+    source: r.source ?? 'manual',
+    sourceEventId: r.sourceEventId ?? '',
+    sourceOverrideIndex: r.sourceOverrideIndex ?? -1
   })
 }
 

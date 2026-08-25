@@ -377,6 +377,23 @@ function handleEvent(e: AppEvent, set: Setter, get: () => AppState): void {
       useUiStore.getState().toast(e.content || '收到提醒')
       return
 
+    case 'reminders-sync-available':
+      // 只有遙控模式的 `RemoteEventSource` 會發這個事件，見 core/events/types.ts 的說明。
+      void (async () => {
+        const { useConnectionStore } = await import('./connectionStore')
+        const conn = useConnectionStore.getState().conn
+        if (!conn || conn.mode !== 'remote') return
+        const { getLocalSessionForSync, runRemindersQuickSync } = await import('../../runtime/remindersQuickSync')
+        const session = await getLocalSessionForSync()
+        const result = await runRemindersQuickSync({ baseUrl: conn.baseUrl, token: conn.token }, session)
+        if (result.ok && result.changed > 0) {
+          useUiStore.getState().toast('已同步最新提醒')
+        } else if (!result.ok) {
+          console.warn('[appStore] reminders quick sync failed:', result.error)
+        }
+      })()
+      return
+
     case 'state-invalidated':
       void get().refresh()
       // 新聞報有自己的快取（`newsStore`），不會因為這個事件自動重抓——

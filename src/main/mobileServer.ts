@@ -264,6 +264,8 @@ export interface MobileBridge {
   saveReminder: (reminder: import('./types').Reminder) => import('./types').Reminder
   deleteReminder: (id: string) => void
   toggleReminder: (id: string, enabled: boolean) => void
+  // ── 日曆驅動提醒（§6.1）：手機端完成一次涵蓋 reminders 的同步後呼叫，清掉「未推送」旗標 ──
+  markCalendarSynced: () => void
   // ── 角色顯示裁切（faceCrop，2026-08-25 起雙端同步）──
   getCharacterDisplayConfig: () => import('../core/character/displayImage').CharacterDisplayConfigMap
   setCharacterDisplayConfig: (characterId: string, rect: import('../core/character/displayImage').FaceCropRect | null) => void
@@ -352,6 +354,14 @@ export function pushRemoteControlState(): void {
     randomToolsEnabled: bridge.getRandomToolsEnabled(),
     remoteControl: getRemoteControlClientState(bridge.getRemoteControlSettings())
   })
+  for (const ws of clients) {
+    if (ws.readyState === WebSocket.OPEN) ws.send(payload)
+  }
+}
+
+/** §7 情況 A：手機在線，通知它自己跑一次 reminders 這個 kind 的同步 */
+export function pushRemindersSyncAvailable(): void {
+  const payload = JSON.stringify({ type: 'reminders-sync-available' })
   for (const ws of clients) {
     if (ws.readyState === WebSocket.OPEN) ws.send(payload)
   }
@@ -2172,6 +2182,14 @@ async function handleRequest(
     const payload = await readJson<{ id?: string; enabled?: boolean }>(req, res)
     if (!payload?.id) { jsonError(res, 400, 'id required'); return }
     bridge.toggleReminder(payload.id, !!payload.enabled)
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  // 日曆驅動提醒（§6.1／§7）：手機端完成一次涵蓋 reminders 的同步後呼叫
+  if (method === 'POST' && url === '/api/reminders/sync-complete') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    bridge.markCalendarSynced()
     jsonOk(res, { ok: true })
     return
   }

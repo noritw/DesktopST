@@ -312,6 +312,43 @@ owner 換裝正式簽章 APK 後要匯回資料，連續撞到三件事：從「
 
 ---
 
+## 2.7 Google 日曆驅動提醒（2026-08-25 實作，**桌面已完成並初步實測正常；手機版未做**）
+
+Google Calendar 事件自帶的提醒設定（`reminders.overrides`）直接轉成 DeST 提醒，
+一個 override 建一筆、完全唯讀跟隨 Google 端。設計 `docs/calendar-driven-reminders-design.md`，
+開工指令 `docs/calendar-driven-reminders-kickoff.md`（§5.2 已依實測修訂過）。
+
+**桌面已完成**：掃描器（開機＋每 8 小時＋手動）、提醒清單分頁化（日曆同步／手動建立）
+＋週月分組、日曆衍生提醒的欄位鎖定、「未推送到手機」每日提醒＋全域開關、
+「推到手機」（在線走 WS 事件、不在線退回 QR）。
+
+**上線當天實測炸開，修掉的四件事**（細節見 `CLAUDE.md` §5 新增那條）：
+1. **`setTimeout` 24.85 天溢位**——超過 32-bit 上限會**立刻觸發**而不是等。
+   29 筆日曆提醒裡超過上限的 24 筆開機幾秒內全部觸發、各打一次 LLM 刷滿螢幕；
+   而 `once` 觸發後自動 `enabled=false`，等於那 24 個行程真正到日期時反而不會響。
+   **這是既有 bug**（以前沒人手動建超過 24 天的一次性提醒）。已抽成
+   `core/reminder/nextFire.ts` 的 `nextTimeoutStep()`（純函式、有測試、桌面手機共用）。
+2. `injectCalendar` 預設從 `true` 改成 **`false`**——prompt 已含事件資訊，
+   再灌整份行程是重複＋每則多花 200–400 token，而且角色會把不相關的待辦一起唸出來。
+3. prompt **不放地點**——Google 的 `location` 多半是「場地名, 完整郵遞區號地址」。
+4. 日期改**絕對日期**——`dayLabel()` 的相對標籤會漂移，害每次掃描都誤判「有變動」。
+
+**後續**：owner 2026-08-25 初步實測正常，但要**多用幾次**才能確認排程真的沒問題
+（判斷方式：開機不再刷屏、且提醒真的在該響的時間響）。
+
+### 2.7b 手機版 → **開工指令：`docs/calendar-reminders-mobile-kickoff.md`**
+
+手機端目前只做了「接收端必須在手機」的那兩處（`RemoteEventSource` 的新事件種類、
+QR `action=sync-reminders` 深連結）。**分頁／分組／欄位鎖定、以及手機自己的
+`setTimeout` 溢位**都還沒做。
+
+⚠️ **最大的坑先寫在這裡**：手機的分頁顯示條件**不能照抄桌面**的
+`settings.calendar.enabled && isCalendarAuthenticated()`——§2.2 已決定
+**日曆的 `enabled` 不進設定同步**（授權只接桌面），所以手機端它永遠是 `false`，
+照抄的話同步過去的日曆提醒會**永遠看不到分頁**。
+
+---
+
 ## 3. 排程中／延後
 
 - [x] **B3 階段 7：正式 APK／散布** → ✅ **已完成**（2026-08-25）。owner 已

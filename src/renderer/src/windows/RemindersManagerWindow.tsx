@@ -68,6 +68,69 @@ function makeDefault(): Reminder {
   }
 }
 
+// ── 日曆同步分頁：分組（§8.2）────────────────────────────────
+
+interface CalendarGroup {
+  label: string
+  reminders: Reminder[]
+}
+
+/** 週一為每週起始日（owner 個人習慣，不用系統 locale 判斷）。回傳當週週一 00:00。 */
+function mondayOf(d: Date): Date {
+  const day = d.getDay()
+  const diffToMonday = day === 0 ? 6 : day - 1
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - diffToMonday)
+  monday.setHours(0, 0, 0, 0)
+  return monday
+}
+
+function groupCalendarReminders(reminders: Reminder[], nowMs: number): CalendarGroup[] {
+  const now = new Date(nowMs)
+  const thisMonday = mondayOf(now).getTime()
+  const nextMonday = thisMonday + 7 * 86400_000
+  const afterNextMonday = nextMonday + 7 * 86400_000
+
+  const expired: Reminder[] = []
+  const thisWeek: Reminder[] = []
+  const nextWeek: Reminder[] = []
+  const byMonth = new Map<string, Reminder[]>()
+
+  for (const r of reminders) {
+    if (r.schedule.type !== 'once') continue
+    const at = r.schedule.at
+    if (at < nowMs && !r.lastTriggeredAt) {
+      expired.push(r)
+      continue
+    }
+    if (at >= thisMonday && at < nextMonday) { thisWeek.push(r); continue }
+    if (at >= nextMonday && at < afterNextMonday) { nextWeek.push(r); continue }
+    const d = new Date(at)
+    const key = `${d.getFullYear()}-${d.getMonth()}`
+    if (!byMonth.has(key)) byMonth.set(key, [])
+    byMonth.get(key)!.push(r)
+  }
+
+  const sortByAt = (list: Reminder[]) =>
+    [...list].sort((a, b) => (a.schedule as { at: number }).at - (b.schedule as { at: number }).at)
+
+  const groups: CalendarGroup[] = []
+  if (expired.length > 0) groups.push({ label: '已過期', reminders: sortByAt(expired) })
+  if (thisWeek.length > 0) groups.push({ label: '本週', reminders: sortByAt(thisWeek) })
+  if (nextWeek.length > 0) groups.push({ label: '下週', reminders: sortByAt(nextWeek) })
+
+  const monthKeys = [...byMonth.keys()].sort((a, b) => {
+    const [ay, am] = a.split('-').map(Number)
+    const [by, bm] = b.split('-').map(Number)
+    return ay !== by ? ay - by : am - bm
+  })
+  for (const key of monthKeys) {
+    const [, m] = key.split('-').map(Number)
+    groups.push({ label: `${m + 1}月`, reminders: sortByAt(byMonth.get(key)!) })
+  }
+
+  return groups
+}
+
 // ── Form component ────────────────────────────────────────
 
 function ReminderForm({
@@ -75,13 +138,16 @@ function ReminderForm({
   characters,
   onSave,
   onCancel,
-  desktopCharacterIds
+  desktopCharacterIds,
+  readOnlyCore = false
 }: {
   initial: Reminder
   characters: Character[]
   onSave: (r: Reminder) => void
   onCancel: () => void
   desktopCharacterIds: string[]
+  /** 日曆衍生提醒：label／prompt／schedule 唯讀跟隨 Google 端（§3.6、§8.3） */
+  readOnlyCore?: boolean
 }) {
   const settings = useAppStore(s => s.settings)
   // 本機供應商不需要金鑰，這裡只是「能不能生成風格化台詞」的判斷，別誤報成離線模式
@@ -197,14 +263,21 @@ function ReminderForm({
           {error}
         </div>
       )}
+      {readOnlyCore && (
+        <div className="text-xs text-secondary bg-mint-20 border border-border rounded-lg px-3 py-2">
+          這筆提醒跟著 Google 日曆走，名稱／時間唯讀；要改請回 Google 日曆設定。
+        </div>
+      )}
+
       <div>
         <label className={labelCls}>提醒名稱</label>
         <input
-          className={inputCls}
+          className={`${inputCls} ${readOnlyCore ? 'opacity-60 cursor-not-allowed' : ''}`}
           value={label}
           onChange={e => setLabel(e.target.value)}
           placeholder="例：早安問候、喝水提醒、運動提醒"
           maxLength={40}
+          disabled={readOnlyCore}
         />
       </div>
 
@@ -218,22 +291,31 @@ function ReminderForm({
         </select>
       </div>
 
-      <div>
-        <label className={labelCls}>觸發時機</label>
-        <select
-          className={inputCls}
-          value={schedType}
-          onChange={e => handleSchedTypeChange(e.target.value as ReminderSchedule['type'])}
-        >
-          <option value="startup">每次啟動程式</option>
-          <option value="daily">每天固定時間</option>
-          <option value="weekly">每週固定星期與時間</option>
-          <option value="interval">間隔時間</option>
-          <option value="once">一次性</option>
-        </select>
-      </div>
+      {!readOnlyCore && (
+        <div>
+          <label className={labelCls}>觸發時機</label>
+          <select
+            className={inputCls}
+            value={schedType}
+            onChange={e => handleSchedTypeChange(e.target.value as ReminderSchedule['type'])}
+          >
+            <option value="startup">每次啟動程式</option>
+            <option value="daily">每天固定時間</option>
+            <option value="weekly">每週固定星期與時間</option>
+            <option value="interval">間隔時間</option>
+            <option value="once">一次性</option>
+          </select>
+        </div>
+      )}
 
-      {schedType === 'daily' && (
+      {readOnlyCore && (
+        <div>
+          <label className={labelCls}>觸發時機</label>
+          <div className={`${inputCls} opacity-60`}>{scheduleLabel(initial.schedule)}</div>
+        </div>
+      )}
+
+      {!readOnlyCore && schedType === 'daily' && (
         <div>
           <label className={labelCls}>每天幾點</label>
           <input
@@ -246,7 +328,7 @@ function ReminderForm({
         </div>
       )}
 
-      {schedType === 'weekly' && (
+      {!readOnlyCore && schedType === 'weekly' && (
         <div className="space-y-2">
           <label className={labelCls}>每週哪幾天</label>
           <div className="flex flex-wrap gap-1.5">
@@ -276,7 +358,7 @@ function ReminderForm({
         </div>
       )}
 
-      {schedType === 'interval' && (
+      {!readOnlyCore && schedType === 'interval' && (
         <div>
           <label className={labelCls}>每隔幾分鐘（最少 5 分鐘）</label>
           <input
@@ -290,7 +372,7 @@ function ReminderForm({
         </div>
       )}
 
-      {schedType === 'once' && (
+      {!readOnlyCore && schedType === 'once' && (
         <div>
           <label className={labelCls}>在什麼時候</label>
           <input
@@ -303,15 +385,16 @@ function ReminderForm({
       )}
 
       <div>
-        <label className={labelCls}>自訂指令（選填）</label>
+        <label className={labelCls}>{readOnlyCore ? '提醒內容（跟隨 Google 日曆自動產生）' : '自訂指令（選填）'}</label>
         <textarea
-          className={`${inputCls} resize-none`}
+          className={`${inputCls} resize-none ${readOnlyCore ? 'opacity-60 cursor-not-allowed' : ''}`}
           rows={3}
           value={prompt}
           onChange={e => setPrompt(e.target.value)}
           placeholder="例：提醒我喝水"
+          disabled={readOnlyCore}
         />
-        {hasApiKey ? (
+        {readOnlyCore ? null : hasApiKey ? (
           <p className="text-[11px] text-secondary mt-1">角色說話前會收到這段指令，空白則自然發話。</p>
         ) : (
           <p className="text-[11px] text-orange-600 mt-1">
@@ -464,6 +547,9 @@ function ReminderCard({
           <div className="text-sm font-semibold text-primary truncate">{reminder.label}</div>
           <div className="text-xs text-secondary mt-0.5">{scheduleLabel(reminder.schedule)}</div>
           <div className="text-xs text-secondary">角色：{charName}</div>
+          {reminder.source === 'calendar' && (
+            <div className="text-[11px] text-secondary opacity-80 mt-0.5">Google 端刪除這個行程時，這筆還是會被移除</div>
+          )}
           {(reminder.injectPinnedNotes || reminder.injectConversationContext || reminder.injectWeather || reminder.injectNews || reminder.injectCalendar) && (
             <div className="text-[11px] text-teal mt-0.5 space-x-2">
               {reminder.injectPinnedNotes && <span>✦ 便利貼</span>}
@@ -524,18 +610,50 @@ export default function RemindersManagerWindow() {
   const [adding, setAdding] = useState(false)
   const desktopCharacters = useAppStore(s => s.desktopCharacters ?? [])
 
+  // 「日曆同步」分頁只在日曆同步已啟用且已授權時才存在（§8.1）
+  const [calendarAvailable, setCalendarAvailable] = useState(false)
+  const [tab, setTab] = useState<'calendar' | 'manual'>('manual')
+  /**
+   * 從日曆設定頁跳過來、要求落在「日曆同步」分頁。
+   *
+   * 不能收到事件就直接 `setTab('calendar')` 了事：`calendarAvailable` 要等
+   * `calendar:get-status` 這支非同步 IPC 回來才會是 true，事件通常比它早到，
+   * 下面那個守衛會立刻把分頁打回 `manual`。所以先記著要求，等狀態確定再套用。
+   */
+  const [wantCalendarTab, setWantCalendarTab] = useState(false)
+  const [syncBusy, setSyncBusy] = useState(false)
+  const [syncMessage, setSyncMessage] = useState('')
+
   const reload = async () => {
     const list = await window.api.invoke('reminder:list') as Reminder[]
     setReminders(list ?? [])
   }
 
+  const reloadCalendarStatus = async () => {
+    const status = await window.api.invoke('calendar:get-status') as { connected: boolean; enabled: boolean }
+    setCalendarAvailable(!!status?.connected && !!status?.enabled)
+  }
+
   useEffect(() => {
     reload()
+    reloadCalendarStatus()
     window.api.invoke('characters:list').then(list => setCharacters((list as Character[]) ?? []))
     const unsubUpdated = window.api.on('reminders:updated', () => reload())
     const unsubNew = window.api.on('reminder:trigger-new', () => setAdding(true))
-    return () => { unsubUpdated(); unsubNew() }
+    const unsubSettings = window.api.on('settings:updated', () => reloadCalendarStatus())
+    const unsubCalTab = window.api.on('reminder:focus-calendar-tab', () => setWantCalendarTab(true))
+    return () => { unsubUpdated(); unsubNew(); unsubSettings(); unsubCalTab() }
   }, [])
+
+  useEffect(() => {
+    // 日曆設定頁要求跳過來，且日曆同步確定可用了 → 這時候切才不會被下面打回去
+    if (wantCalendarTab && calendarAvailable) {
+      setTab('calendar')
+      setWantCalendarTab(false)
+      return
+    }
+    if (!calendarAvailable && tab === 'calendar') setTab('manual')
+  }, [calendarAvailable, tab, wantCalendarTab])
 
   const handleToggle = async (id: string, enabled: boolean) => {
     await window.api.invoke('reminder:toggle', id, enabled)
@@ -556,8 +674,47 @@ export default function RemindersManagerWindow() {
 
   const handleClose = () => window.api.invoke('window:close-self').catch(console.error)
 
+  const showFlash = (msg: string) => {
+    setSyncMessage(msg)
+    setTimeout(() => setSyncMessage(''), 4000)
+  }
+
+  const handleScanNow = async () => {
+    setSyncBusy(true)
+    try {
+      const result = await window.api.invoke('calendar:scan-reminders-now') as
+        { created: number; updated: number; deleted: number } | { error: string } | null
+      if (!result) showFlash('日曆同步未啟用')
+      else if ('error' in result) showFlash(`同步失敗：${result.error}`)
+      else showFlash(`同步完成：新增 ${result.created}、更新 ${result.updated}、刪除 ${result.deleted}`)
+      await reload()
+    } finally {
+      setSyncBusy(false)
+    }
+  }
+
+  const handlePushToMobile = async () => {
+    setSyncBusy(true)
+    try {
+      const result = await window.api.invoke('calendar:push-reminders-to-mobile') as
+        { mode: 'live' } | { mode: 'qr'; dataUrl: string } | { error: string }
+      if ('error' in result) showFlash(result.error)
+      else if (result.mode === 'live') showFlash('已通知手機同步（手機需在線）')
+      else showFlash('已產生 QR，請開啟「手機遠端」視窗顯示的碼另行掃描')
+      // 目前 QR 沿用既有「手機遠端」視窗顯示流程，這裡先只回饋文字狀態；
+      // 若要在本視窗內直接顯示 QR 圖片，可再擴充一個小 modal。
+    } finally {
+      setSyncBusy(false)
+    }
+  }
+
   const showForm = adding || editing !== null
   const formData = editing ?? makeDefault()
+
+  const calendarReminders = reminders.filter(r => r.source === 'calendar')
+  const manualReminders = reminders.filter(r => r.source !== 'calendar')
+  const activeList = calendarAvailable && tab === 'calendar' ? calendarReminders : manualReminders
+  const calendarGroups = calendarAvailable && tab === 'calendar' ? groupCalendarReminders(calendarReminders, Date.now()) : []
 
   return (
     <div className="relative w-full h-full flex flex-col bg-bg border border-border rounded-2xl overflow-hidden shadow-panel">
@@ -584,16 +741,62 @@ export default function RemindersManagerWindow() {
         </button>
       </div>
 
+      {/* Tabs：只有開啟日曆同步的人才看得到分頁列（§8.1），沒開的人畫面跟以前完全一樣 */}
+      {!showForm && calendarAvailable && (
+        <div className="no-drag flex items-center gap-1 px-3 pt-2 border-b border-border shrink-0">
+          {(['calendar', 'manual'] as const).map(t => (
+            <button
+              key={t}
+              type="button"
+              className={`px-3 py-1.5 text-xs font-semibold rounded-t-lg border-b-2 transition-colors ${
+                tab === t ? 'border-teal text-primary' : 'border-transparent text-secondary hover:text-primary'
+              }`}
+              onClick={() => setTab(t)}
+            >
+              {t === 'calendar' ? '日曆同步' : '手動建立'}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Toolbar */}
       {!showForm && (
-        <div className="no-drag flex items-center gap-2 px-3 py-2 border-b border-border bg-surface-45 shrink-0">
-          <button
-            type="button"
-            className="rounded-full border border-border bg-surface-85 px-3 py-1 text-xs font-semibold text-primary hover:bg-mint transition-colors"
-            onClick={() => setAdding(true)}
-          >
-            新增提醒
-          </button>
+        <div className="no-drag flex flex-col gap-1.5 px-3 py-2 border-b border-border bg-surface-45 shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            {(!calendarAvailable || tab === 'manual') && (
+              <button
+                type="button"
+                className="rounded-full border border-border bg-surface-85 px-3 py-1 text-xs font-semibold text-primary hover:bg-mint transition-colors"
+                onClick={() => setAdding(true)}
+              >
+                新增提醒
+              </button>
+            )}
+            {calendarAvailable && tab === 'calendar' && (
+              <>
+                <button
+                  type="button"
+                  disabled={syncBusy}
+                  className="rounded-full border border-border bg-surface-85 px-3 py-1 text-xs font-semibold text-primary hover:bg-mint transition-colors disabled:opacity-50"
+                  onClick={handleScanNow}
+                >
+                  立即同步
+                </button>
+                <button
+                  type="button"
+                  disabled={syncBusy}
+                  className="rounded-full border border-border bg-surface-85 px-3 py-1 text-xs font-semibold text-primary hover:bg-mint transition-colors disabled:opacity-50"
+                  onClick={handlePushToMobile}
+                >
+                  推到手機
+                </button>
+              </>
+            )}
+          </div>
+          {calendarAvailable && tab === 'calendar' && (
+            <p className="text-[11px] text-secondary">這裡的提醒跟著 Google 日曆走，要新增或取消請回 Google 日曆設定。</p>
+          )}
+          {syncMessage && <p className="text-[11px] text-teal">{syncMessage}</p>}
         </div>
       )}
 
@@ -609,6 +812,7 @@ export default function RemindersManagerWindow() {
             onSave={handleSave}
             onCancel={() => { setAdding(false); setEditing(null) }}
             desktopCharacterIds={desktopCharacters.map(d => d.characterId)}
+            readOnlyCore={editing?.source === 'calendar'}
           />
         </div>
       )}
@@ -616,23 +820,42 @@ export default function RemindersManagerWindow() {
       {/* List view */}
       {!showForm && (
         <div className="no-drag flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2">
-          {reminders.length === 0 && (
+          {activeList.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-secondary py-12">
               <MonoIcon name="notes" className="w-10 h-10 opacity-30" />
-              <p className="text-sm">目前沒有提醒</p>
-              <p className="text-xs opacity-70">點選「新增提醒」來設定角色定時說話。</p>
+              <p className="text-sm">{calendarAvailable && tab === 'calendar' ? '目前沒有日曆提醒' : '目前沒有提醒'}</p>
+              {(!calendarAvailable || tab === 'manual') && (
+                <p className="text-xs opacity-70">點選「新增提醒」來設定角色定時說話。</p>
+              )}
             </div>
           )}
-          {reminders.map(r => (
-            <ReminderCard
-              key={r.id}
-              reminder={r}
-              characters={characters}
-              onToggle={handleToggle}
-              onEdit={r => setEditing(r)}
-              onDelete={handleDelete}
-            />
-          ))}
+
+          {calendarAvailable && tab === 'calendar'
+            ? calendarGroups.map(group => (
+              <div key={group.label} className="space-y-2">
+                <div className="text-xs font-semibold text-secondary px-1 pt-1">{group.label}</div>
+                {group.reminders.map(r => (
+                  <ReminderCard
+                    key={r.id}
+                    reminder={r}
+                    characters={characters}
+                    onToggle={handleToggle}
+                    onEdit={r => setEditing(r)}
+                    onDelete={handleDelete}
+                  />
+                ))}
+              </div>
+            ))
+            : manualReminders.map(r => (
+              <ReminderCard
+                key={r.id}
+                reminder={r}
+                characters={characters}
+                onToggle={handleToggle}
+                onEdit={r => setEditing(r)}
+                onDelete={handleDelete}
+              />
+            ))}
         </div>
       )}
     </div>

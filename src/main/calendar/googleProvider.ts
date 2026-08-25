@@ -344,6 +344,11 @@ async function apiGet<T>(url: string, accessToken: string): Promise<T | null> {
   }
 }
 
+interface GoogleReminders {
+  useDefault?: boolean
+  overrides?: Array<{ method?: string; minutes?: number }>
+}
+
 interface GoogleEventsResponse {
   items?: Array<{
     id: string
@@ -352,6 +357,7 @@ interface GoogleEventsResponse {
     status?: string
     start?: { dateTime?: string; date?: string }
     end?: { dateTime?: string; date?: string }
+    reminders?: GoogleReminders
   }>
 }
 
@@ -447,6 +453,96 @@ async function fetchTasks(
     }
   }
   return out
+}
+
+// ── 日曆預設提醒（`reminders.useDefault === true` 時使用）─────
+// 同一顆日曆的預設提醒設定不常變，快取起來，不用每個事件各打一次。
+
+const DEFAULT_REMINDERS_CACHE_TTL = 10 * 60 * 1000
+let defaultRemindersCache: { calendarId: string; minutes: number[]; fetchedAt: number } | null = null
+
+async function fetchDefaultReminderMinutes(accessToken: string, calendarId: string): Promise<number[]> {
+  if (
+    defaultRemindersCache &&
+    defaultRemindersCache.calendarId === calendarId &&
+    Date.now() - defaultRemindersCache.fetchedAt < DEFAULT_REMINDERS_CACHE_TTL
+  ) {
+    return defaultRemindersCache.minutes
+  }
+  const data = await apiGet<{ defaultReminders?: Array<{ method?: string; minutes?: number }> }>(
+    `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}`, accessToken
+  )
+  const minutes = (data?.defaultReminders ?? [])
+    .map(r => r.minutes)
+    .filter((m): m is number => typeof m === 'number')
+  defaultRemindersCache = { calendarId, minutes, fetchedAt: Date.now() }
+  return minutes
+}
+
+/** §5 掃描器用的中介資料：事件本身 + 這個事件實際會用到的提醒分鐘數（已展開日曆預設值） */
+export interface CalendarEventWithReminders extends CalendarEvent {
+  reminderMinutes: number[]
+}
+
+/**
+ * 給日曆驅動提醒掃描器用：抓事件並展開每個事件實際的提醒分鐘數。
+ * 跟 `CalendarProvider.listUpcoming()` 是平行的兩條路徑，不共用同一個型別
+ * ——`CalendarEvent` 是給「顯示行程摘要」用的既有型別，不塞 reminders 資料進去。
+ * 只回傳一般行程（`kind: 'event'`），不含 Google Tasks（待辦沒有 reminders 概念）。
+ */
+export async function listUpcomingWithReminders(
+  creds: GoogleCredentials,
+  opts: CalendarFetchOptions
+): Promise<CalendarEventWithReminders[] | null> {
+  try {
+    if (!creds.clientId) return null
+    const accessToken = await ensureValidToken(creds)
+    if (!accessToken) return null
+
+    const params = new URLSearchParams({
+      timeMin: new Date(opts.fromMs).toISOString(),
+      timeMax: new Date(opts.toMs).toISOString(),
+      singleEvents: 'true',
+      orderBy: 'startTime',
+      maxResults: String(Math.max(1, Math.min(opts.max, 250)))
+    })
+    const data = await apiGet<GoogleEventsResponse>(
+      `${CALENDAR_API}/calendars/primary/events?${params}`, accessToken
+    )
+    if (!data?.items) return null
+
+    const out: CalendarEventWithReminders[] = []
+    for (const item of data.items) {
+      if (item.status === 'cancelled') continue
+      const start = parseGoogleTime(item.start)
+      if (!start) continue
+      const end = parseGoogleTime(item.end)
+
+      let minutes: number[]
+      if (item.reminders?.useDefault || !item.reminders) {
+        minutes = await fetchDefaultReminderMinutes(accessToken, 'primary')
+      } else {
+        minutes = (item.reminders.overrides ?? [])
+          .map(o => o.minutes)
+          .filter((m): m is number => typeof m === 'number')
+      }
+      if (minutes.length === 0) continue
+
+      out.push({
+        id: item.id,
+        title: item.summary?.trim() || '（無標題）',
+        start: start.ms,
+        end: end?.ms ?? start.ms,
+        allDay: start.allDay,
+        location: item.location?.trim() || undefined,
+        kind: 'event',
+        reminderMinutes: minutes
+      })
+    }
+    return out
+  } catch {
+    return null
+  }
 }
 
 export function createGoogleCalendarProvider(creds: GoogleCredentials): CalendarProvider {

@@ -288,6 +288,10 @@ export interface CalendarSettings {
   maxEvents: number
   /** 沒有行程時也告訴角色（預設關，省 token） */
   mentionWhenEmpty: boolean
+  /** 日曆驅動提醒掃描器：往前掃幾天內的事件（預設 90，跟 lookaheadHours 無關，是提醒掃描專用的較長範圍） */
+  reminderScanDays?: number
+  /** 本機日曆有變動但還沒推到手機時，是否由角色每天主動提醒使用者去同步（預設開） */
+  notifyOnUnsyncedChanges?: boolean
 }
 
 export interface MobileSettings {
@@ -539,6 +543,12 @@ export interface Reminder {
   createdAt: number
   /** S2 提醒同步用的內容比對時間戳；跨裝置不可比，不能拿來判斷「誰比較新」 */
   updatedAt?: number
+  /** 這筆提醒的來源：手動建立，或某個日曆事件衍生。決定它出現在哪個分頁。未設定視同 'manual' */
+  source?: 'manual' | 'calendar'
+  /** source==='calendar' 時，對應的 Google 事件 id（用來比對新增/更新/刪除） */
+  sourceEventId?: string
+  /** source==='calendar' 時，對應事件本身第幾筆 reminders.overrides（同一事件多筆時用來對應） */
+  sourceOverrideIndex?: number
 }
 
 /** 提醒觸發後的處置結果 */

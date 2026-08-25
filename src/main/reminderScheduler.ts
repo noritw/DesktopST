@@ -1,6 +1,6 @@
 import { powerMonitor } from 'electron'
 import * as fileStore from './fileStore'
-import { nextDailyMs, nextWeeklyMs, nextIntervalMs, validWeeklyDays, MIN_INTERVAL_MS } from '../core/reminder/nextFire'
+import { nextDailyMs, nextWeeklyMs, nextIntervalMs, validWeeklyDays, nextTimeoutStep, MIN_INTERVAL_MS } from '../core/reminder/nextFire'
 import type { Reminder } from './types'
 
 /**
@@ -54,29 +54,26 @@ function scheduleOne(r: Reminder): void {
     return
   }
 
+  // 以下四種都走 `scheduleAt()`（絕對目標時間＋分段等待），不要直接 setTimeout(delay)：
+  // 超過 24.8 天會溢位並立刻觸發，見 `scheduleAt` 的說明。
   if (s.type === 'once') {
-    const delay = s.at - Date.now()
-    if (delay <= 0) return
-    const t = setTimeout(() => {
-      timers.delete(r.id)
+    if (s.at - Date.now() <= 0) return
+    scheduleAt(r.id, s.at, () => {
       void fire(r)
       // Disable after firing
       const idx = reminders.findIndex(x => x.id === r.id)
       if (idx >= 0) { reminders[idx].enabled = false; fileStore.saveReminders(reminders) }
-    }, delay)
-    timers.set(r.id, t)
+    })
     return
   }
 
   if (s.type === 'daily') {
     const scheduleNextDaily = () => {
       const delay = nextDailyMs(s.hour, s.minute)
-      const t = setTimeout(() => {
-        timers.delete(r.id)
+      scheduleAt(r.id, Date.now() + delay, () => {
         void fire(r)
         if (r.enabled) scheduleNextDaily()
-      }, delay)
-      timers.set(r.id, t)
+      })
     }
     scheduleNextDaily()
     return
@@ -88,12 +85,10 @@ function scheduleOne(r: Reminder): void {
     const scheduleNextWeekly = () => {
       const delay = nextWeeklyMs(days, s.hour, s.minute)
       if (!Number.isFinite(delay) || delay <= 0) return
-      const t = setTimeout(() => {
-        timers.delete(r.id)
+      scheduleAt(r.id, Date.now() + delay, () => {
         void fire(r)
         if (r.enabled) scheduleNextWeekly()
-      }, delay)
-      timers.set(r.id, t)
+      })
     }
     scheduleNextWeekly()
     return
@@ -103,12 +98,10 @@ function scheduleOne(r: Reminder): void {
     const intervalMs = Math.max(MIN_INTERVAL_MS, s.intervalMs)
     const firstDelay = nextIntervalMs(s.intervalMs, r.lastTriggeredAt)
     const scheduleNextInterval = (delay: number) => {
-      const t = setTimeout(() => {
-        timers.delete(r.id)
+      scheduleAt(r.id, Date.now() + delay, () => {
         void fire(r)
         if (r.enabled) scheduleNextInterval(intervalMs)
-      }, delay)
-      timers.set(r.id, t)
+      })
     }
     scheduleNextInterval(firstDelay)
   }
@@ -117,6 +110,27 @@ function scheduleOne(r: Reminder): void {
 function clearTimerFor(id: string): void {
   const t = timers.get(id)
   if (t !== undefined) { clearTimeout(t); timers.delete(id) }
+}
+
+/**
+ * 在「絕對目標時間」觸發，自動處理 `setTimeout` 的 24.85 天上限
+ * （超過會溢位並立刻觸發——判斷邏輯與完整來龍去脈在 `core/reminder/nextFire.ts`
+ * 的 `nextTimeoutStep()`，桌面與手機共用同一份）。
+ *
+ * 這裡只負責平台的部分：setTimeout 與計時器表。
+ */
+function scheduleAt(id: string, targetMs: number, fn: () => void): void {
+  const { delay, final } = nextTimeoutStep(targetMs)
+  const t = setTimeout(() => {
+    if (final) {
+      timers.delete(id)
+      fn()
+    } else {
+      // 還沒到，睡滿一段再用絕對目標時間重算（誤差不累積）
+      scheduleAt(id, targetMs, fn)
+    }
+  }, delay)
+  timers.set(id, t)
 }
 
 async function fire(r: Reminder): Promise<void> {

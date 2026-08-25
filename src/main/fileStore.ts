@@ -202,6 +202,22 @@ export function saveReminders(reminders: Reminder[]): void {
   }
 }
 
+// ── 日曆驅動提醒：未推送到手機旗標（§6，桌面限定裝置本地狀態）─────
+
+export function loadCalendarSyncFlag(): boolean {
+  const raw = electronStorage.readJsonSync<unknown>(keys.CALENDAR_SYNC_FLAG_KEY)
+  return !!(raw && typeof raw === 'object' && (raw as { unsynced?: boolean }).unsynced)
+}
+
+export function saveCalendarSyncFlag(unsynced: boolean): void {
+  ensureDirs()
+  try {
+    electronStorage.writeJsonSync(keys.CALENDAR_SYNC_FLAG_KEY, { unsynced })
+  } catch (e) {
+    console.error('[fileStore] saveCalendarSyncFlag failed:', e)
+  }
+}
+
 // ── 角色顯示裁切（faceCrop，2026-08-25 起雙端同步，見 `core/store/keys.ts` 附註）──
 
 export function loadCharacterDisplayConfig(): CharacterDisplayConfigMap {

@@ -57,6 +57,38 @@ export function nextIntervalMs(intervalMs: number, lastTriggeredAt?: number, now
   return Math.max(MIN_INTERVAL_MS, clamped - elapsed)
 }
 
+/**
+ * `setTimeout` 的延遲上限：32-bit signed int，`2147483647` ms ≈ **24.85 天**。
+ *
+ * 超過這個值不會等那麼久，而是**溢位後立刻觸發**。2026-08-25 日曆驅動提醒上線
+ * 當天實測炸開：owner 的 29 筆日曆提醒裡超過上限的 24 筆在開機後幾秒內全部觸發，
+ * 各打一次 LLM 刷滿螢幕；而 `once` 觸發後會自動 `enabled = false`，等於那 24 個
+ * 行程真正到日期時反而不會提醒。細節見 `CLAUDE.md` §5。
+ */
+export const MAX_TIMEOUT_MS = 2_147_483_647
+
+/**
+ * 分段等待：算出「要走到 `targetMs`，這一輪該睡多久」。
+ *
+ * 距離超過 `MAX_TIMEOUT_MS` 時先睡滿上限、`final: false`（醒來要再問一次）；
+ * 在上限內才 `final: true`（睡完就是目標時間，可以真的觸發）。
+ *
+ * ⚠️ **一定要傳「絕對目標時間」反覆重算，不要用「剩餘時間相減」**：
+ * 每睡一段就會有一點排程誤差，相減會把誤差累積下去；用絕對時間每次重算，
+ * 誤差不會累積。
+ *
+ * 平台端負責的只有 setTimeout 與計時器表（桌面 `main/reminderScheduler.ts` 的
+ * `scheduleAt()`）；要不要再睡一輪這件事在這裡決定，兩邊才不會各算各的。
+ */
+export function nextTimeoutStep(
+  targetMs: number,
+  nowMs: number = Date.now()
+): { delay: number; final: boolean } {
+  const remaining = targetMs - nowMs
+  if (remaining <= MAX_TIMEOUT_MS) return { delay: Math.max(0, remaining), final: true }
+  return { delay: MAX_TIMEOUT_MS, final: false }
+}
+
 /** 星期陣列正規化：只留 0–6。 */
 export function validWeeklyDays(days: unknown): number[] {
   return Array.isArray(days) ? days.filter((d): d is number => typeof d === 'number' && d >= 0 && d <= 6) : []

@@ -21,9 +21,12 @@ export default function CalendarSettingsWindow() {
   const [lookahead, setLookahead] = useState(24)
   const [maxEvents, setMaxEvents] = useState(5)
   const [mentionWhenEmpty, setMentionWhenEmpty] = useState(false)
+  const [notifyOnUnsyncedChanges, setNotifyOnUnsyncedChanges] = useState(true)
   const [waiting, setWaiting] = useState(false)
   const [peek, setPeek] = useState<CalendarPeek | null>(null)
   const [peekLoading, setPeekLoading] = useState(false)
+  /** 日曆行程 → 提醒的掃描狀態（`null` ＝ 還沒掃或模組未啟用） */
+  const [reminderSync, setReminderSync] = useState<{ busy: boolean; text: string } | null>(null)
   const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
 
   const cal = settings?.calendar
@@ -35,7 +38,8 @@ export default function CalendarSettingsWindow() {
     if (cal?.lookaheadHours) setLookahead(cal.lookaheadHours)
     if (cal?.maxEvents) setMaxEvents(cal.maxEvents)
     setMentionWhenEmpty(cal?.mentionWhenEmpty ?? false)
-  }, [cal?.clientId, cal?.lookaheadHours, cal?.maxEvents, cal?.mentionWhenEmpty])
+    setNotifyOnUnsyncedChanges(cal?.notifyOnUnsyncedChanges ?? true)
+  }, [cal?.clientId, cal?.lookaheadHours, cal?.maxEvents, cal?.mentionWhenEmpty, cal?.notifyOnUnsyncedChanges])
 
   // 掛載時補抓一次狀態，避免錯過授權完成的事件
   useEffect(() => {
@@ -122,7 +126,46 @@ export default function CalendarSettingsWindow() {
     if (connected) void refreshPeek()
   }, [connected, refreshPeek])
 
-  async function saveOptions(next: Partial<{ lookaheadHours: number; maxEvents: number; mentionWhenEmpty: boolean }>) {
+  /**
+   * 把日曆行程掃成提醒（跟上面的 `refreshPeek` 是兩件完全不同的事）。
+   *
+   * owner 2026-08-25 實測踩到：他先來這個視窗按了「重新讀取」，以為提醒就同步好了，
+   * 結果那顆只是重抓「聊天時要附給角色的行程摘要」，提醒的掃描在另一個視窗，
+   * 等他想到要去按的時候第一筆提醒的時間已經過了。設計文件 §3.3 本來就警告過
+   * 「抓取行程」與「產生提醒」是兩個動作、按鈕文案要能區分，實際上還是混淆了。
+   *
+   * 而且更早的問題是：**授權成功後根本沒有人掃過**——新使用者連好 Google 日曆，
+   * 要等下一次開機或 8 小時後的定時掃描才會有提醒。
+   */
+  const scanReminders = useCallback(async () => {
+    setReminderSync({ busy: true, text: '' })
+    try {
+      const r = await window.api.invoke('calendar:scan-reminders-now') as
+        { created: number; updated: number; deleted: number } | { error: string } | null
+      // null ＝ 模組沒啟用或沒授權，這時候不該顯示「同步完成」誤導人
+      if (!r) { setReminderSync(null); return }
+      if ('error' in r) { setReminderSync({ busy: false, text: `同步失敗：${r.error}` }); return }
+      const total = r.created + r.updated + r.deleted
+      setReminderSync({
+        busy: false,
+        text: total === 0
+          ? '已是最新，沒有需要變更的提醒'
+          : `已更新：新增 ${r.created}、修改 ${r.updated}、移除 ${r.deleted}`
+      })
+    } catch (e) {
+      setReminderSync({ busy: false, text: `同步失敗：${String(e)}` })
+    }
+  }, [])
+
+  // 一進到這個視窗就掃一次；`connected` 從 false 翻 true 也會觸發，
+  // 所以「剛授權完成」那一刻同樣涵蓋到了，不必另外接授權完成的事件。
+  useEffect(() => {
+    if (connected) void scanReminders()
+  }, [connected, scanReminders])
+
+  async function saveOptions(next: Partial<{
+    lookaheadHours: number; maxEvents: number; mentionWhenEmpty: boolean; notifyOnUnsyncedChanges: boolean
+  }>) {
     await window.api.invoke('calendar:save-options', next)
     // 區間／筆數會改變抓取結果，存完立刻重查
     void refreshPeek()
@@ -174,6 +217,40 @@ export default function CalendarSettingsWindow() {
             <p className="text-sm text-secondary">未連結</p>
           )}
         </div>
+
+        {/* 日曆提醒：跟下面的「目前讀到的內容」是兩件事，所以獨立一塊放在最上面 */}
+        {connected && (
+          <div className="rounded-xl bg-mint-40 border border-border p-4 space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-medium text-secondary">日曆提醒</p>
+              <button
+                type="button"
+                className="text-[11px] px-3 py-1 rounded-full border border-border text-secondary hover:bg-mint transition-all disabled:opacity-50"
+                disabled={reminderSync?.busy}
+                onClick={() => void scanReminders()}
+                title="重新把日曆行程自帶的提醒設定轉成 DeST 提醒"
+              >
+                {reminderSync?.busy ? '同步中…' : '再同步一次'}
+              </button>
+            </div>
+            <p className="text-sm text-primary">
+              {reminderSync?.busy ? '正在把日曆行程轉成提醒…' : reminderSync?.text || '—'}
+            </p>
+            <p className="text-[11px] text-secondary">
+              每次開啟這個視窗都會自動同步一次。要新增或取消提醒請回 Google 日曆設定。
+            </p>
+            <button
+              type="button"
+              className="w-full text-xs px-4 py-2 mt-1 rounded-xl bg-surface border border-border text-primary font-medium hover:bg-mint transition-all"
+              onClick={() => void window.api.invoke('reminder:open-manager-calendar')}
+            >
+              開啟提醒清單 →
+              <span className="block text-[11px] text-secondary font-normal mt-0.5">
+                直接跳到「日曆同步」分頁，看有哪些提醒、分別排在什麼時候
+              </span>
+            </button>
+          </div>
+        )}
 
         {/* Credentials */}
         {!connected && (
@@ -273,6 +350,17 @@ export default function CalendarSettingsWindow() {
               />
               <span className="text-xs text-secondary">沒有行程時也告訴角色（會多花一點 token）</span>
             </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={notifyOnUnsyncedChanges}
+                onChange={e => {
+                  setNotifyOnUnsyncedChanges(e.target.checked)
+                  saveOptions({ notifyOnUnsyncedChanges: e.target.checked })
+                }}
+              />
+              <span className="text-xs text-secondary">行事曆有更新時提醒我同步到手機</span>
+            </label>
           </div>
         )}
 
@@ -280,17 +368,21 @@ export default function CalendarSettingsWindow() {
         {connected && (
           <div className="border-t border-border pt-4 space-y-2">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-xs font-medium text-secondary">目前讀到的內容</p>
+              <p className="text-xs font-medium text-secondary">聊天時附給角色的行程摘要</p>
               <button
                 type="button"
                 className="text-[11px] px-3 py-1 rounded-full border border-border text-secondary hover:bg-mint-40 transition-all disabled:opacity-50"
                 disabled={peekLoading}
                 onClick={() => void refreshPeek()}
-                title="略過快取重新向日曆查詢"
+                title="略過快取重新向日曆查詢，只影響下面這段預覽"
               >
                 {peekLoading ? '讀取中…' : '重新讀取'}
               </button>
             </div>
+            {/* 這行是為了不要再跟上面的「日曆提醒」搞混（owner 2026-08-25 實測踩過） */}
+            <p className="text-[11px] text-secondary">
+              這是聊天時會附給角色參考的行程，跟上面的「日曆提醒」是兩回事，不會產生任何提醒。
+            </p>
 
             {peekLoading && !peek && <p className="text-xs text-secondary">讀取中…</p>}
 

@@ -166,6 +166,10 @@ export interface CalendarSettings {
   maxEvents: number
   /** 沒有行程時也告訴角色（預設關，省 token） */
   mentionWhenEmpty: boolean
+  /** 日曆驅動提醒掃描器：往前掃幾天內的事件（預設 90） */
+  reminderScanDays?: number
+  /** 本機日曆有變動但還沒推到手機時，是否由角色每天主動提醒使用者去同步（預設開） */
+  notifyOnUnsyncedChanges?: boolean
 }
 
 export interface MobileSettings {
@@ -265,8 +269,22 @@ export interface Reminder {
   injectWeather?: boolean
   injectNews?: boolean
   injectCalendar?: boolean
+  notificationDevice?: 'desktop' | 'mobile' | 'both'
+  wakeMode?: 'always' | 'screen_on_only'
+  inactiveBehavior?: 'skip' | 'notify_on_unlock'
+  allowOfflineFallback?: boolean
+  sceneId?: string
+  sceneConstraint?: 'any_scene' | 'match_scene_only'
+  conversationId?: string
   lastTriggeredAt?: number
   createdAt: number
+  updatedAt?: number
+  /** 這筆提醒的來源：手動建立，或某個日曆事件衍生。未設定視同 'manual' */
+  source?: 'manual' | 'calendar'
+  /** source==='calendar' 時，對應的 Google 事件 id */
+  sourceEventId?: string
+  /** source==='calendar' 時，對應事件本身第幾筆 reminders.overrides */
+  sourceOverrideIndex?: number
 }
 
 export interface PersonaPreset {

@@ -14,7 +14,9 @@ export const DEFAULT_CALENDAR_SETTINGS: CalendarSettings = {
   clientId: '',
   lookaheadHours: 24,
   maxEvents: 5,
-  mentionWhenEmpty: false
+  mentionWhenEmpty: false,
+  reminderScanDays: 90,
+  notifyOnUnsyncedChanges: true
 }
 
 /** clientSecret 以加密字串存放，用之前要解密（比照 weather 的 cwaApiKey） */
@@ -58,7 +60,14 @@ function startOfDay(ms: number): number {
   return d.getTime()
 }
 
-/** 相對日期標籤：今天 / 明天 / 後天 / M月D日 */
+/**
+ * 相對日期標籤：今天 / 明天 / 後天 / M月D日。
+ *
+ * ⚠️ 只給「當下要注入 prompt 的行程摘要」用。**不要拿去組會晚點才觸發的
+ * 提醒台詞**——那是以呼叫當下為基準算的，等到提醒真的響時標籤已經過時，
+ * 而且它會隨日期漂移，讓任何拿字串做比對的地方每天都判定「內容有變」
+ * （日曆驅動提醒因此改用絕對日期，見 `reminderScanner.ts` 的 `buildPrompt`）。
+ */
 function dayLabel(eventMs: number, nowMs: number): string {
   const diffDays = Math.round((startOfDay(eventMs) - startOfDay(nowMs)) / 86400000)
   if (diffDays === 0) return '今天'

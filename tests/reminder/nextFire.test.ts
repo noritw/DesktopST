@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  nextDailyMs, nextWeeklyMs, nextIntervalMs, validWeeklyDays, nextFireDelayMs, MIN_INTERVAL_MS
+  nextDailyMs, nextWeeklyMs, nextIntervalMs, validWeeklyDays, nextFireDelayMs,
+  nextTimeoutStep, MIN_INTERVAL_MS, MAX_TIMEOUT_MS
 } from '@core/reminder/nextFire'
 import type { ReminderSchedule } from '@core/types'
 
@@ -123,5 +124,70 @@ describe('nextFireDelayMs', () => {
 
   it('未知型別 → null', () => {
     expect(nextFireDelayMs({ type: 'startup' } as ReminderSchedule, undefined, noonSunday)).toBeNull()
+  })
+})
+
+/**
+ * setTimeout 24.85 天上限的分段等待（2026-08-25 日曆驅動提醒實測炸開後補的）。
+ *
+ * 這組測試守的是一個**沉默的**失敗：延遲超過 32-bit 上限時 setTimeout 不會報錯，
+ * 只會立刻觸發。一旦回歸，症狀是「一開程式狂噴提醒，然後該響的都不響」。
+ */
+describe('分段等待（setTimeout 上限）', () => {
+  const now = noonSunday.getTime()
+
+  it('上限之內 → 直接排到底，delay 就是剩餘時間', () => {
+    expect(nextTimeoutStep(now + 90 * 1000, now)).toEqual({ delay: 90 * 1000, final: true })
+  })
+
+  it('剛好等於上限 → 仍算上限之內（邊界不能落在溢位側）', () => {
+    expect(nextTimeoutStep(now + MAX_TIMEOUT_MS, now)).toEqual({ delay: MAX_TIMEOUT_MS, final: true })
+  })
+
+  it('超過上限一毫秒 → 改成先睡滿上限，且標記還沒到', () => {
+    expect(nextTimeoutStep(now + MAX_TIMEOUT_MS + 1, now)).toEqual({ delay: MAX_TIMEOUT_MS, final: false })
+  })
+
+  it('目標時間已過 → delay 夾成 0，不給負數（負數會被當成立刻，但語意要明確）', () => {
+    expect(nextTimeoutStep(now - 5000, now)).toEqual({ delay: 0, final: true })
+  })
+
+  it('90 天後的提醒：反覆套用會剛好走到目標，中途每一段都不超過上限', () => {
+    const target = now + 90 * DAY
+    let clock = now
+    let steps = 0
+
+    for (;;) {
+      const { delay, final } = nextTimeoutStep(target, clock)
+      // 這是整組測試的重點：任何一段都不能超過 setTimeout 撐得住的長度
+      expect(delay).toBeLessThanOrEqual(MAX_TIMEOUT_MS)
+      clock += delay
+      steps++
+      if (final) break
+      expect(steps).toBeLessThan(10) // 防呆：不該無限迴圈
+    }
+
+    // 分段睡完之後正好落在目標時間，沒有提早也沒有累積誤差
+    expect(clock).toBe(target)
+    // 90 天 ÷ 24.85 天 → 3 段滿的 + 最後一段
+    expect(steps).toBe(4)
+  })
+
+  it('中途排程有誤差時用絕對目標重算，誤差不會累積', () => {
+    // 30 天：一段睡滿上限（24.85 天）後剩約 5.1 天，第二段就能到底
+    const target = now + 30 * DAY
+    let clock = now
+
+    const first = nextTimeoutStep(target, clock)
+    expect(first.final).toBe(false)
+    // 模擬系統排程晚了 250ms 才叫醒我們
+    clock += first.delay + 250
+
+    const second = nextTimeoutStep(target, clock)
+    expect(second.final).toBe(true)
+    clock += second.delay
+
+    // 仍然精準落在目標，那 250ms 沒有被帶進最終時間
+    expect(clock).toBe(target)
   })
 })

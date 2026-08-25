@@ -350,6 +350,38 @@ export function App(): JSX.Element {
     return () => clearTimeout(timer)
   }, [offlineSince, switchToStandalone])
 
+  /**
+   * §7 情況 B：桌面「推到手機」在手機不在線時退回 QR，QR 網址帶
+   * `?action=sync-reminders`。掃碼開啟後偵測到這個參數就直接跑一次
+   * reminders 同步，不用使用者自己再找同步按鈕（見
+   * `docs/calendar-driven-reminders-kickoff.md` §7）。
+   */
+  const remindersSyncActionRanRef = useRef(false)
+  useEffect(() => {
+    if (!ready || remindersSyncActionRanRef.current) return
+    if (conn?.mode !== 'remote') return
+    const params = new URLSearchParams(location.search)
+    if (params.get('action') !== 'sync-reminders') return
+    remindersSyncActionRanRef.current = true
+    // 掃完就處理掉，重新整理／回到這頁不會再觸發一次。
+    params.delete('action')
+    history.replaceState(null, '', `${location.pathname}${params.toString() ? `?${params}` : ''}`)
+
+    void (async () => {
+      const { getLocalSessionForSync, runRemindersQuickSync } = await import('../runtime/remindersQuickSync')
+      const session = await getLocalSessionForSync()
+      const result = await runRemindersQuickSync(
+        { baseUrl: conn.baseUrl || location.origin, token: conn.token },
+        session
+      )
+      if (result.ok) {
+        useUiStore.getState().toast(result.changed > 0 ? '已同步最新提醒' : '提醒已經是最新的')
+      } else {
+        useUiStore.getState().toast(`同步失敗：${result.error ?? ''}`, 'error')
+      }
+    })()
+  }, [ready, conn])
+
   // 桌面小工具：開機讀一次設定（釘選／顯示頭像），並把快照補寫一次——
   // 上次關 App 之後電腦端可能改過東西，開起來時對一次帳最省事。
   useEffect(() => {

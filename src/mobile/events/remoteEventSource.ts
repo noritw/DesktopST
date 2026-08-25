@@ -222,6 +222,9 @@ export class RemoteEventSource implements EventSource {
       case 'remote-control-state':
         this.hub.emit({ kind: 'state-invalidated', reason: 'remote-control' })
         return
+      case 'reminders-sync-available':
+        this.hub.emit({ kind: 'reminders-sync-available' })
+        return
       default:
         return
     }
