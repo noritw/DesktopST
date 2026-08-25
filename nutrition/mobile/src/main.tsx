@@ -575,6 +575,8 @@ function App(): React.JSX.Element {
   const [healthSnapshot, setHealthSnapshot] = React.useState<HealthSnapshot | null>(null)
   /** 過去日期的當日總消耗熱量快取（開關 3 開啟時，翻歷史紀錄用）；`undefined`＝還沒查過，`null`＝查過但查無資料。重開 App 會重置，跟 healthSnapshot 一樣不需要持久化。 */
   const [historicalKcalCache, setHistoricalKcalCache] = React.useState<Record<string, number | null>>({})
+  /** 「重新查一次」按鈕的忙碌狀態，見 refetchHistoricalBurn。 */
+  const [historicalRefreshBusy, setHistoricalRefreshBusy] = React.useState(false)
 
   // --- 統計頁（週／月平均與合計，日期範圍可切換）---
   const [statsRangeKind, setStatsRangeKind] = React.useState<NutritionStatsRangeKind>('last-7')
@@ -855,14 +857,25 @@ function App(): React.JSX.Element {
     ? customRange
     : resolveStatsRange(statsRangeKind, toIsoDateString(Date.now()))
 
-  // 統計頁的「消耗」逐日補齊：只查還沒查過、且已經到了的日子，查到的結果沿用
-  // 跟翻日曆同一份快取（historicalKcalCache），翻回同一天不會再打一次
+  // 統計頁的「消耗」逐日補齊：只查還沒查過、且已經**過完**的日子，查到的結果
+  // 沿用跟翻日曆同一份快取（historicalKcalCache），翻回同一天不會再打一次
   // Health Connect。沒連接／沒授權就整段跳過，不主動幫使用者要權限。
+  //
+  // ⚠️ **今天絕對不能走這條快取路徑**（2026-08-26 owner 回報「8/25 的上限數字
+  // 跑掉」抓到的根因）。`readDailyCaloriesBurned()` 對今天會刻意把查詢區間
+  // 砍到「現在」，回傳的只是「目前為止」的消耗量——這是給當下即時顯示用的，
+  // 不是那天的最終總量。這支 effect 原本用 `iso <= todayIso` 把今天也當成
+  // 「已經過完可以永久快取」的日子，一旦當天打開過統計頁，就把那個「當下
+  // 為止」的半天數字寫進 `historicalKcalCache`／`burnedKcalHistory` 永久存檔；
+  // `!(iso in historicalKcalCache)` 這個門檻之後再也不會重查，隔天那天變成
+  // 「過去」，翻回去看到的還是當初那個腰斬的數字。今天的即時消耗量已經有
+  // `healthSnapshot.caloriesBurnedSoFarToday` 這條路在追蹤，這裡改成只快取
+  // 「昨天以前」真正結束的日子。
   React.useEffect(() => {
     if (view !== 'stats') return
     if (!healthSettings.connected || !healthAvailable || !healthPermissionGranted) return
     const todayIso = toIsoDateString(Date.now())
-    const missing = listRangeDates(statsRange).filter((iso) => iso <= todayIso && !(iso in historicalKcalCache))
+    const missing = listRangeDates(statsRange).filter((iso) => iso < todayIso && !(iso in historicalKcalCache))
     if (missing.length === 0) return
     let cancelled = false
     setStatsBurnLoading(true)
@@ -1223,6 +1236,29 @@ function App(): React.JSX.Element {
       if (prev && prev.measuredAt >= cached.measuredAt) return prev
       return { ...(prev ?? {}), caloriesBurnedSoFarToday: cached.burnedSoFarToday, measuredAt: cached.measuredAt }
     })
+  }
+
+  /**
+   * 手動強制重查某一天的手錶總消耗，覆蓋掉 `historicalKcalCache`／磁碟上已有的舊值。
+   *
+   * 平常這個快取「查過就不再查」（見上面 stats effect 的說明），正常情況下夠用——
+   * 一個已經過完的日子，Health Connect 的總量不會再變。但 2026-08-25 那次
+   * bug（今天被誤當成過去、把「查詢當下為止」的半天數字永久存了下來）已經
+   * 讓某天的快取存了錯的值，而程式自己判斷不出「這筆是不是被污染過」，
+   * 只能靠使用者發現數字不對時手動戳一下重查——查到的新值一律覆蓋舊的。
+   */
+  async function refetchHistoricalBurn(iso: string): Promise<void> {
+    if (historicalRefreshBusy) return
+    setHistoricalRefreshBusy(true)
+    try {
+      const value = await nutritionHealthAdapter.readDailyCaloriesBurned(iso).catch(() => undefined)
+      if (value !== undefined) {
+        setHistoricalKcalCache((prev) => ({ ...prev, [iso]: value }))
+        void sessionRef.current?.saveBurnedKcal(iso, value)
+      }
+    } finally {
+      setHistoricalRefreshBusy(false)
+    }
   }
 
   /**
@@ -2793,9 +2829,15 @@ function App(): React.JSX.Element {
   if (view === 'stats') {
     const todayIso = toIsoDateString(Date.now())
     const statsOptions = { overlapOnly: statsOverlapOnly, excludeToday: !statsIncludeToday }
-    const weekStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-week', todayIso), todayIso, historicalKcalCache, statsOptions)
-    const monthStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-month', todayIso), todayIso, historicalKcalCache, statsOptions)
-    const rangeStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, statsRange, todayIso, historicalKcalCache, statsOptions)
+    // 今天的消耗量只能是「目前為止」，不能跟真正過完的日子共用同一份永久快取
+    // （見上面 historicalKcalCache effect 的說明）——這裡臨時併一個活的今日數字
+    // 進去給統計頁顯示，不寫回 historicalKcalCache／磁碟。
+    const burnedByDateForStats = healthSnapshot?.caloriesBurnedSoFarToday !== undefined && toIsoDateString(healthSnapshot.measuredAt) === todayIso
+      ? { ...historicalKcalCache, [todayIso]: healthSnapshot.caloriesBurnedSoFarToday }
+      : historicalKcalCache
+    const weekStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-week', todayIso), todayIso, burnedByDateForStats, statsOptions)
+    const monthStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, resolveStatsRange('this-month', todayIso), todayIso, burnedByDateForStats, statsOptions)
+    const rangeStats = buildNutritionStats(snapshot.mealLogs, snapshot.foodItems, statsRange, todayIso, burnedByDateForStats, statsOptions)
     const burnConnected = healthSettings.connected && healthAvailable && healthPermissionGranted
     const maxKcal = Math.max(1, ...rangeStats.days.map((day) => Math.max(day.kcal, day.burnedKcal ?? 0)))
     const rangeLabels: { kind: NutritionStatsRangeKind; label: string }[] = [
@@ -3086,6 +3128,15 @@ function App(): React.JSX.Element {
         </div>
         <div><span>蛋白質</span><strong className={bodyProfile && daily.totalProteinG >= bodyProfile.dailyProteinGoalG ? 'good' : ''}>{daily.totalProteinG} g</strong><small>/ {bodyProfile?.dailyProteinGoalG ?? '未設定'}</small></div>
       </section>
+      {!isViewingToday && healthSettings.connected && healthSettings.useWatchCalorieLimit && healthAvailable && healthPermissionGranted && (
+        <button
+          type="button"
+          disabled={historicalRefreshBusy}
+          onClick={() => void refetchHistoricalBurn(selectedDate)}
+        >
+          {historicalRefreshBusy ? '重新查詢中...' : '這天的手錶消耗看起來不對？重新查一次'}
+        </button>
+      )}
       <section className="home-actions">
         {photoEstimateEnabled && (
           <div className="home-action-col">
