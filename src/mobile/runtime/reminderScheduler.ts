@@ -19,6 +19,7 @@ import {
   nextIntervalMs,
   validWeeklyDays,
   nextFireDelayMs,
+  nextTimeoutStep,
   MIN_INTERVAL_MS
 } from '@core/reminder/nextFire'
 
@@ -193,7 +194,28 @@ function scheduleOne(r: Reminder): void {
   console.log(`[Reminder] 排程 "${r.label}" - ${delay}ms 後 (${new Date(Date.now() + delay).toLocaleTimeString()})`)
 
   const fireAtMs = Date.now() + delay
+  armTimerTo(r, fireAtMs)
+  armNativeAlarm(r, fireAtMs)
+}
+
+/**
+ * 分段等待到絕對目標時間 `fireAtMs`，處理 `setTimeout` 24.85 天上限。
+ *
+ * 跟桌面 `main/reminderScheduler.ts` 的 `scheduleAt()` 同一套算法
+ * （`core/reminder/nextFire.ts` 的 `nextTimeoutStep()`）：超過上限就先睡滿
+ * 上限、醒來用**絕對目標時間**重算剩餘，不要用「剩餘時間相減」，誤差會累積。
+ *
+ * 手機一定會踩到這個坑：日曆提醒預設 `notificationDevice: 'both'`，桌面
+ * 掃描範圍預設 90 天，同步過來就有一大批超過 24.85 天上限的一次性提醒——
+ * 沒有這段分段等待，開機後幾秒內會全部溢位觸發（`CLAUDE.md` §5）。
+ */
+function armTimerTo(r: Reminder, fireAtMs: number): void {
+  const { delay, final } = nextTimeoutStep(fireAtMs)
   const t = setTimeout(() => {
+    if (!final) {
+      armTimerTo(r, fireAtMs)
+      return
+    }
     timers.delete(r.id)
     console.log(`[Reminder] 觸發 "${r.label}"`)
     void fire(r, { fireAtMs })
@@ -204,9 +226,7 @@ function scheduleOne(r: Reminder): void {
       scheduleOne(r)
     }
   }, delay)
-
   timers.set(r.id, t)
-  armNativeAlarm(r, fireAtMs)
 }
 
 /**

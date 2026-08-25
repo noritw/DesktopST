@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import MonoIcon from '@shared/MonoIcon'
 import { getStandaloneSession } from '../../runtime/sessionHolder'
 import { pullSettingsFromDesktop, SyncError, type SyncSource } from '../../runtime/syncImport'
+import { runRemindersQuickSync } from '../../runtime/remindersQuickSync'
 import { isScannerAvailable, parsePairingUrl, scanQr } from '../../adapters/scannerAdapter'
 import { useUiStore } from '../stores/uiStore'
 import { useAppStore } from '../stores/appStore'
@@ -26,6 +27,8 @@ export function DesktopPullSection(): JSX.Element | null {
   const [scannerOk, setScannerOk] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [remindersBusy, setRemindersBusy] = useState(false)
+  const [remindersMsg, setRemindersMsg] = useState<string | null>(null)
 
   const session = getStandaloneSession()
 
@@ -103,6 +106,52 @@ export function DesktopPullSection(): JSX.Element | null {
     }
   }
 
+  /*
+   * 日曆提醒同步：跟上面的設定拉取共用同一組 baseUrl／token（電腦端的 QR
+   * 就是同一台「手機連線」伺服器發的），只是這裡只跑 reminders 這個 kind，
+   * 不會動到設定。原本這條路徑只有遙控模式在用（`App.tsx` 的
+   * `?action=sync-reminders` 深連結要求 `conn.mode==='remote'`），
+   * owner 2026-08-25 回報獨立版使用者得先切模式再切回來太累——
+   * 這裡直接在獨立模式呼叫 `runRemindersQuickSync`，不必假裝連了遙控。
+   */
+  const syncReminders = async (src: SyncSource): Promise<void> => {
+    setRemindersBusy(true)
+    setRemindersMsg(null)
+    try {
+      const result = await runRemindersQuickSync(src, session)
+      setRemindersMsg(
+        result.ok
+          ? result.changed > 0
+            ? `已同步 ${result.changed} 筆提醒異動`
+            : '提醒已經是最新的'
+          : `同步失敗：${result.error ?? ''}`
+      )
+    } finally {
+      setRemindersBusy(false)
+    }
+  }
+
+  const syncRemindersFromHost = async (): Promise<void> => {
+    const memo = await session.getSyncHost()
+    if (!memo) return
+    await syncReminders({ baseUrl: memo.baseUrl, token: memo.token })
+  }
+
+  const syncRemindersViaScan = async (): Promise<void> => {
+    try {
+      const out = await scanQr()
+      if (!out) return
+      const parsed = parsePairingUrl(out.value)
+      if (!parsed) {
+        toast('這不是 DeST 的連線碼。請掃電腦上「手機連線」或「提醒 → 推到手機」顯示的那一張。', 'error')
+        return
+      }
+      await syncReminders(parsed)
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'error')
+    }
+  }
+
   return (
     <div className="space-y-2">
       <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
@@ -148,6 +197,37 @@ export function DesktopPullSection(): JSX.Element | null {
       )}
 
       {msg && <p className="text-[12px] text-[var(--mint2)]">{msg}</p>}
+
+      <div className="mt-4 space-y-2 border-t border-[var(--border)] pt-3">
+        <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
+          電腦上的日曆提醒（Google 日曆行程）也可以直接拉過來，不必先切到遙控模式。
+        </p>
+
+        {host && (
+          <button
+            type="button"
+            disabled={remindersBusy}
+            onClick={() => void syncRemindersFromHost()}
+            className="min-h-[40px] w-full rounded-full bg-[var(--mint)] px-4 text-sm text-[var(--text)] disabled:opacity-50"
+          >
+            {remindersBusy ? '處理中…' : '同步日曆提醒'}
+          </button>
+        )}
+
+        {scannerOk && (
+          <button
+            type="button"
+            disabled={remindersBusy}
+            onClick={() => void syncRemindersViaScan()}
+            className="flex min-h-[40px] w-full items-center justify-center gap-2 rounded-full border border-[var(--border)] px-4 text-sm text-[var(--text)] disabled:opacity-50"
+          >
+            <MonoIcon name="qr" className="h-[18px] w-[18px]" />
+            {host ? '改掃 QR 同步提醒' : '掃電腦上的 QR 同步提醒'}
+          </button>
+        )}
+
+        {remindersMsg && <p className="text-[12px] text-[var(--mint2)]">{remindersMsg}</p>}
+      </div>
     </div>
   )
 }

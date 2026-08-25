@@ -4,7 +4,7 @@ import type { Reminder, ReminderSchedule } from '@core/types'
 import { getData } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { describeSettingsError } from './settingsErrors'
-import { formatRelative } from './reminderFormat'
+import { formatRelative, scheduleLabel } from './reminderFormat'
 import { getStandaloneSession } from '../../runtime/sessionHolder'
 
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const
@@ -169,6 +169,13 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
 
   if (!draft) return <div className="py-8 text-center text-sm text-[var(--text-sub)]">載入中⋯⋯</div>
 
+  /*
+   * 日曆衍生提醒：名稱／指令／時間唯讀，跟隨 Google 端
+   * （`docs/calendar-reminders-mobile-kickoff.md` §5，對齊桌面 §8.3）。
+   * 角色、裝置、進階選項仍可編輯。
+   */
+  const readOnlyCore = draft.source === 'calendar'
+
   const set = <K extends keyof Reminder>(key: K, value: Reminder[K]): void => {
     setDraft((prev) => (prev ? { ...prev, [key]: value } : prev))
     markDirty()
@@ -200,14 +207,21 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
 
   return (
     <div className="pb-2">
+      {readOnlyCore && (
+        <div className="mb-4 rounded-2xl border border-[var(--border)] bg-[var(--mint)]/20 px-3.5 py-2.5 text-[11px] leading-relaxed text-[var(--text-sub)]">
+          這則提醒跟著電腦上的 Google 日曆走，名稱／時間唯讀；要改請回 Google 日曆設定。
+        </div>
+      )}
+
       <Field label="提醒名稱">
         <input
           type="text"
           maxLength={40}
-          className="field"
+          className="field disabled:opacity-60"
           value={draft.label}
           onChange={(e) => set('label', e.target.value)}
           placeholder="例：早安問候、喝水提醒"
+          disabled={readOnlyCore}
         />
       </Field>
 
@@ -240,17 +254,23 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
         </Field>
       )}
 
-      <Field label="觸發時機">
-        <select className="field" value={draft.schedule.type} onChange={(e) => setScheduleType(e.target.value as ReminderSchedule['type'])}>
-          <option value="startup">每次啟動程式</option>
-          <option value="daily">每天固定時間</option>
-          <option value="weekly">每週固定星期與時間</option>
-          <option value="interval">間隔時間</option>
-          <option value="once">一次性</option>
-        </select>
-      </Field>
+      {readOnlyCore ? (
+        <Field label="觸發時機">
+          <div className="field opacity-60">{scheduleLabel(draft.schedule)}</div>
+        </Field>
+      ) : (
+        <Field label="觸發時機">
+          <select className="field" value={draft.schedule.type} onChange={(e) => setScheduleType(e.target.value as ReminderSchedule['type'])}>
+            <option value="startup">每次啟動程式</option>
+            <option value="daily">每天固定時間</option>
+            <option value="weekly">每週固定星期與時間</option>
+            <option value="interval">間隔時間</option>
+            <option value="once">一次性</option>
+          </select>
+        </Field>
+      )}
 
-      {(draft.schedule.type === 'daily' || draft.schedule.type === 'weekly') && (
+      {!readOnlyCore && (draft.schedule.type === 'daily' || draft.schedule.type === 'weekly') && (
         <Field label={draft.schedule.type === 'daily' ? '每天幾點' : '幾點'}>
           {draft.schedule.type === 'weekly' && (
             <div className="mb-2 flex flex-wrap gap-1.5">
@@ -274,7 +294,7 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
         </Field>
       )}
 
-      {draft.schedule.type === 'interval' && (
+      {!readOnlyCore && draft.schedule.type === 'interval' && (
         <Field label="每隔幾分鐘（最少 5 分鐘）">
           <input
             type="number"
@@ -287,7 +307,7 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
         </Field>
       )}
 
-      {draft.schedule.type === 'once' && (
+      {!readOnlyCore && draft.schedule.type === 'once' && (
         <Field
           label="在什麼時候"
           hint={
@@ -305,8 +325,14 @@ export function ReminderEditor({ reminderId }: { reminderId: string }): JSX.Elem
         </Field>
       )}
 
-      <Field label="自訂指令（選填）" hint="角色說話前會收到這段指令，空白則自然發話。">
-        <textarea className="field min-h-[64px]" value={draft.prompt} onChange={(e) => set('prompt', e.target.value)} placeholder="例：提醒我喝水" />
+      <Field label={readOnlyCore ? '提醒內容（跟隨 Google 日曆自動產生）' : '自訂指令（選填）'} hint={readOnlyCore ? undefined : '角色說話前會收到這段指令，空白則自然發話。'}>
+        <textarea
+          className="field min-h-[64px] disabled:opacity-60"
+          value={draft.prompt}
+          onChange={(e) => set('prompt', e.target.value)}
+          placeholder="例：提醒我喝水"
+          disabled={readOnlyCore}
+        />
       </Field>
 
       {/*

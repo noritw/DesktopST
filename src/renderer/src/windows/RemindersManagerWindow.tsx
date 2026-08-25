@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import type { Reminder, ReminderSchedule, Character } from '../types'
 import { useAppStore } from '../stores/useAppStore'
 import MonoIcon from '../components/MonoIcon'
+import { groupCalendarReminders } from '@core/reminder/calendarGroups'
 
 const WEEKDAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'] as const
 
@@ -66,69 +67,6 @@ function makeDefault(): Reminder {
     injectCalendar: false,
     createdAt: Date.now()
   }
-}
-
-// ── 日曆同步分頁：分組（§8.2）────────────────────────────────
-
-interface CalendarGroup {
-  label: string
-  reminders: Reminder[]
-}
-
-/** 週一為每週起始日（owner 個人習慣，不用系統 locale 判斷）。回傳當週週一 00:00。 */
-function mondayOf(d: Date): Date {
-  const day = d.getDay()
-  const diffToMonday = day === 0 ? 6 : day - 1
-  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - diffToMonday)
-  monday.setHours(0, 0, 0, 0)
-  return monday
-}
-
-function groupCalendarReminders(reminders: Reminder[], nowMs: number): CalendarGroup[] {
-  const now = new Date(nowMs)
-  const thisMonday = mondayOf(now).getTime()
-  const nextMonday = thisMonday + 7 * 86400_000
-  const afterNextMonday = nextMonday + 7 * 86400_000
-
-  const expired: Reminder[] = []
-  const thisWeek: Reminder[] = []
-  const nextWeek: Reminder[] = []
-  const byMonth = new Map<string, Reminder[]>()
-
-  for (const r of reminders) {
-    if (r.schedule.type !== 'once') continue
-    const at = r.schedule.at
-    if (at < nowMs && !r.lastTriggeredAt) {
-      expired.push(r)
-      continue
-    }
-    if (at >= thisMonday && at < nextMonday) { thisWeek.push(r); continue }
-    if (at >= nextMonday && at < afterNextMonday) { nextWeek.push(r); continue }
-    const d = new Date(at)
-    const key = `${d.getFullYear()}-${d.getMonth()}`
-    if (!byMonth.has(key)) byMonth.set(key, [])
-    byMonth.get(key)!.push(r)
-  }
-
-  const sortByAt = (list: Reminder[]) =>
-    [...list].sort((a, b) => (a.schedule as { at: number }).at - (b.schedule as { at: number }).at)
-
-  const groups: CalendarGroup[] = []
-  if (expired.length > 0) groups.push({ label: '已過期', reminders: sortByAt(expired) })
-  if (thisWeek.length > 0) groups.push({ label: '本週', reminders: sortByAt(thisWeek) })
-  if (nextWeek.length > 0) groups.push({ label: '下週', reminders: sortByAt(nextWeek) })
-
-  const monthKeys = [...byMonth.keys()].sort((a, b) => {
-    const [ay, am] = a.split('-').map(Number)
-    const [by, bm] = b.split('-').map(Number)
-    return ay !== by ? ay - by : am - bm
-  })
-  for (const key of monthKeys) {
-    const [, m] = key.split('-').map(Number)
-    groups.push({ label: `${m + 1}月`, reminders: sortByAt(byMonth.get(key)!) })
-  }
-
-  return groups
 }
 
 // ── Form component ────────────────────────────────────────
@@ -623,6 +561,8 @@ export default function RemindersManagerWindow() {
   const [wantCalendarTab, setWantCalendarTab] = useState(false)
   const [syncBusy, setSyncBusy] = useState(false)
   const [syncMessage, setSyncMessage] = useState('')
+  /** 「推到手機」在手機不在線時退回的 QR（直接顯示在本視窗，不要求使用者另開別的視窗找） */
+  const [pushQrDataUrl, setPushQrDataUrl] = useState('')
 
   const reload = async () => {
     const list = await window.api.invoke('reminder:list') as Reminder[]
@@ -700,9 +640,7 @@ export default function RemindersManagerWindow() {
         { mode: 'live' } | { mode: 'qr'; dataUrl: string } | { error: string }
       if ('error' in result) showFlash(result.error)
       else if (result.mode === 'live') showFlash('已通知手機同步（手機需在線）')
-      else showFlash('已產生 QR，請開啟「手機遠端」視窗顯示的碼另行掃描')
-      // 目前 QR 沿用既有「手機遠端」視窗顯示流程，這裡先只回饋文字狀態；
-      // 若要在本視窗內直接顯示 QR 圖片，可再擴充一個小 modal。
+      else setPushQrDataUrl(result.dataUrl)
     } finally {
       setSyncBusy(false)
     }
@@ -856,6 +794,23 @@ export default function RemindersManagerWindow() {
                 onDelete={handleDelete}
               />
             ))}
+        </div>
+      )}
+
+      {pushQrDataUrl && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 p-4" onClick={() => setPushQrDataUrl('')}>
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-surface p-5" onClick={e => e.stopPropagation()}>
+            <p className="text-sm font-semibold text-primary">用手機掃描這張碼</p>
+            <img src={pushQrDataUrl} alt="同步提醒 QR" className="h-[200px] w-[200px] rounded-lg bg-white" />
+            <p className="text-xs text-secondary">手機沒連上區網，掃碼會直接把日曆提醒推過去</p>
+            <button
+              type="button"
+              className="mt-1 rounded-full bg-teal px-4 py-1.5 text-xs font-semibold text-white"
+              onClick={() => setPushQrDataUrl('')}
+            >
+              關閉
+            </button>
+          </div>
         </div>
       )}
     </div>
