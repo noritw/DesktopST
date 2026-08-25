@@ -13,7 +13,7 @@
 | 平台 | 狀態 | 說明 |
 |---|---|---|
 | **Windows 桌面版** | ✅ 穩定發布 | Electron；角色浮在桌面、點擊輸入 |
-| **Android 手機版** | 🔧 開發中 | 不依賴電腦的獨立版；APK 尚未正式發布 |
+| **Android 手機版** | ✅ 0.5.0 起可下載 | 不依賴電腦、可單機使用的獨立版；也能與電腦版雙向同步 |
 
 ---
 
@@ -41,19 +41,22 @@
 
 ## Android 手機版特色
 
-> 手機版目前為開發中版本，APK 尚未正式對外發布。
-
 - **完全獨立運作**：不需要連接電腦，直接在手機上與角色聊天
-- **無須付費訂閱**：使用自己的 API Key，費用直接與 AI 供應商往來
-- **資料留在裝置上**：角色卡、設定、對話記錄全存在手機本地
-- **S1 資料匯入**：掃描 QR 一次從桌面電腦拉入角色卡、設定組、API Key 及對話記錄
-- **天氣感知對話**：GPS 定位或 IP 定位，自動帶入即時天氣資訊
+- **無須付費訂閱**：使用自己的 API Key（或自架本機 LLM），費用直接與 AI 供應商往來，作者不介入金流
+- **資料留在裝置上**：角色卡、設定、對話記錄全存在手機本地，沒有雲端備份
+- **與電腦版雙向同步**：掃 QR 一次匯入角色卡、設定組、API Key 及對話記錄；之後每次切換模式都會逐項列出差異，讓你選要用手機還是電腦的版本，對話則是雙邊合併補齊而非二選一
+- **精準提醒**：走原生鬧鐘機制，App 被劃掉、螢幕關閉都不影響準時觸發，提醒台詞用角色口吻現場生成
+- **天氣與即時查詢**：GPS 或 IP 定位自動帶入即時天氣；問角色地震、颱風、天氣預報時會即時查詢中央氣象署最新資料
+- **個人新聞報／對話新聞搜尋**：依關鍵字整理新聞讓角色聊給你聽，聊天中直接問時事也會自動搜尋回答
+- **角色表情自訂**：可手動指定訊息要顯示的表情圖，也能在手機上新增表情圖片並框選臉部範圍
+- **Android 桌面小工具**：把目前對話釘選在手機主畫面上，不用打開 App 就看得到
+- **本機 LLM 供應商**：可接 Ollama、LM Studio 等自己架的 OpenAI 相容端點，不一定要用雲端 API
 - **Lorebook 用語解說編輯**：可在手機上直接建立與管理用語解說本
 - **擲骰系統**：與桌面版相同的 D&D 風格骰子，TRPG 玩家同樣可用
 - **主題配色**：多組主題（春夏粉彩、森林、復古、賽博、黑白等）
 - **多 LLM 供應商**：支援 OpenAI、Gemini、Claude、Grok，可自訂 endpoint
 
-手機版尚未實作的功能：定時提醒（開發中）、新聞陪聊、Spotify 音樂感知、日曆整合。
+手機版尚未實作的功能：Spotify 音樂感知、Google 日曆授權整合（日曆驅動提醒目前僅桌面版）。遙控電腦功能為桌面版限定，手機獨立模式沒有電腦可控，設計上不支援。
 
 ---
 
@@ -78,7 +81,17 @@
 初次使用說明請見 <a href="https://nori.tw/DeST/getting-started.html" target="_blank" rel="noopener noreferrer">docs/getting-started.html</a>。
 
 ### Android 手機版
-手機版 APK 尚未正式對外發布，開發進度請關注本 repo。
+前往 [Releases](../../releases) 頁面下載最新版 APK，安裝後開啟即可（需自行允許「安裝未知來源 App」）。
+
+介紹頁：<a href="https://nori.tw/DeST/mobile.html" target="_blank" rel="noopener noreferrer">docs/mobile.html</a>。
+
+---
+
+## 飲食記錄 App「食記」
+
+跟 DeST 角色扮演無關、單純好用的飲食記錄與熱量追蹤 App，與 DeST 分開安裝、分開運作：拍照估熱量、手動記錄、Health Connect 讀取體重與手錶消耗熱量、Android 桌面小工具。作業系統需求 Android 8.0 以上。
+
+APK 一樣在 [Releases](../../releases) 頁面下載；介紹頁：<a href="https://nori.tw/DeST/nutrition.html" target="_blank" rel="noopener noreferrer">docs/nutrition.html</a>；三個產品的總覽：<a href="https://nori.tw/DeST/hub.html" target="_blank" rel="noopener noreferrer">docs/hub.html</a>。
 
 ---
 
