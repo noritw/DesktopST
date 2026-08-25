@@ -1,8 +1,10 @@
 // 相對路徑的理由同 `contentHash.ts` 檔頭：主行程建置沒有 `@core` alias。
 import type { Character, PersonaPreset, Reminder, ScenePreset, WorldPreset } from '../types'
 import type { Lorebook } from '../lore/types'
+import type { CharacterDisplayConfigMap } from '../character/displayImage'
 import {
   characterContentHash,
+  characterDisplayContentHash,
   lorebookContentHash,
   personaContentHash,
   reminderContentHash,
@@ -48,6 +50,8 @@ export interface ManifestInput {
   scenes: ScenePreset[]
   lorebooks: Lorebook[]
   reminders: Reminder[]
+  /** 角色顯示裁切（`character-display-config.json`），key 是 characterId。 */
+  characterDisplayConfig: CharacterDisplayConfigMap
   conversations: ManifestConversation[]
   settingsHash: string
 }
@@ -101,6 +105,15 @@ export function buildManifest(input: ManifestInput): Manifest {
       // 這裡只影響顯示與同名多筆時的排序，內容是否相同一律看 contentHash
       updatedAt: r.updatedAt ?? r.createdAt,
       contentHash: reminderContentHash(r)
+    })),
+    // 只收錄實際存在紀錄的角色（框選過或明確清除過）——沒碰過這個功能的角色
+    // 不會出現在這裡，見 `core/store/keys.ts` 的 `CHARACTER_DISPLAY_CONFIG_KEY`
+    // 附註「清除也要留痕跡」那條決策。
+    characterDisplay: Object.entries(input.characterDisplayConfig).map(([characterId, entry]) => ({
+      id: characterId,
+      name: characterName(characterId) ?? characterId,
+      updatedAt: entry.updatedAt ?? 0,
+      contentHash: characterDisplayContentHash(entry)
     })),
     conversations: input.conversations,
     settingsHash: input.settingsHash

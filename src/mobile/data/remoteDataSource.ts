@@ -216,6 +216,8 @@ export class RemoteDataSource implements DataSource {
     remove: async (id) => { await this.http.post('/api/characters/delete', { id }) },
     create: async (name) =>
       (await this.http.post<{ character: Character }>('/api/characters/create', { name })).character,
+    duplicate: async (id, name) =>
+      (await this.http.post<{ character: Character }>('/api/characters/duplicate', { id, name })).character,
 
     saveAvatar: async (id, image) =>
       (await this.http.post<{ avatar: string }>('/api/characters/avatar', {

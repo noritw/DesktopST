@@ -90,6 +90,13 @@ export interface Manifest {
   lorebooks: ManifestEntity[]
   /** S2 提醒同步：跟其餘 collection 同形狀，不進 M2/M3 的 `SyncDiff`（那套已被 M4 逐項比對取代）。 */
   reminders: ManifestEntity[]
+  /**
+   * 角色顯示裁切同步（2026-08-25）：跟提醒一樣不進 M2/M3 的 `SyncDiff`，只走
+   * M4 逐項比對。每一列的 `id` 就是 characterId 本身（不是另一個獨立實體），
+   * 只收錄 `character-display-config.json` 裡實際存在紀錄的角色——沒框選過、
+   * 也沒清除過的角色不會出現在這裡。
+   */
+  characterDisplay: ManifestEntity[]
   conversations: ManifestConversation[]
   settingsHash: string
 }

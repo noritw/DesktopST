@@ -2,60 +2,32 @@ import * as keys from '@core/store/keys'
 import type { CharacterDisplayConfigMap, FaceCropRect } from '@core/character/displayImage'
 import { capacitorAdapters } from '../adapters'
 
+export { cropImageToFace } from '../../shared/faceCrop'
+
 /**
- * 框選的臉部顯示範圍（`docs/mobile-character-expression-plan.md` §3.1）。
+ * 框選的臉部顯示範圍（`docs/mobile-character-expression-plan.md` §3.1，
+ * 2026-08-25 起雙端同步，見該節附註與 `docs/reminder-sync-kickoff.md` 同一類
+ * 落地模式）。
  *
- * ⚠️ **這是裝置偏好，不是「獨立模式」或「遙控模式」的資料**——不管手機當下
- * 連的是哪一種模式，這份設定永遠讀寫同一份 `character-display-config.json`
- * （`capacitorAdapters.storage`，跟 `MODE_PREF_KEY` 同一類：見
- * `mobile/ui/stores/connectionStore.ts`）。`LocalDataSource` 與
- * `RemoteDataSource` 都呼叫這裡的函式，不要各自維護一份邏輯。
+ * ⚠️ **手機這一份讀寫仍然是裝置本地檔案**，不管手機當下連的是哪一種模式，
+ * 都讀寫同一份 `character-display-config.json`（`capacitorAdapters.storage`，
+ * 跟 `MODE_PREF_KEY` 同一類）。`LocalDataSource` 與 `RemoteDataSource` 都呼叫
+ * 這裡的函式，不要各自維護一份邏輯。**要讓桌面也看到這份設定得靠 S2
+ * `characterDisplay` 同步種類**（`core/sync/`），不是這支檔案自己連電腦。
  */
 export async function getFaceCrop(characterId: string): Promise<FaceCropRect | null> {
   const map = (await capacitorAdapters.storage.readJson<CharacterDisplayConfigMap>(keys.CHARACTER_DISPLAY_CONFIG_KEY)) ?? {}
   return map[characterId]?.faceCrop ?? null
 }
 
+/**
+ * `rect` 是 `null` 時**不會整筆刪掉這個角色的紀錄**，而是保留
+ * `{ updatedAt }`（`faceCrop` 消失）——這樣「已清除」本身也是能被同步比對
+ * 出來的狀態，不會在跟電腦比對時被誤判成「本地沒有、電腦端還留著舊框選」
+ * 而把舊框選拉回來。
+ */
 export async function setFaceCrop(characterId: string, rect: FaceCropRect | null): Promise<void> {
   const map = { ...((await capacitorAdapters.storage.readJson<CharacterDisplayConfigMap>(keys.CHARACTER_DISPLAY_CONFIG_KEY)) ?? {}) }
-  if (rect) {
-    map[characterId] = { ...map[characterId], faceCrop: rect }
-  } else if (map[characterId]) {
-    const { faceCrop: _drop, ...rest } = map[characterId]
-    void _drop
-    if (Object.keys(rest).length === 0) delete map[characterId]
-    else map[characterId] = rest
-  }
+  map[characterId] = { faceCrop: rect ?? undefined, updatedAt: Date.now() }
   await capacitorAdapters.storage.writeJson(keys.CHARACTER_DISPLAY_CONFIG_KEY, map)
-}
-
-/**
- * 依比例矩形（0–1）裁切一張圖片（`data:` 或同源 `blob:` URL 皆可），輸出正方形
- * PNG data URL。`rect` 是對「來源圖」框選當下算出的比例，套到不同尺寸的圖片
- * （例如另一張表情圖）會依該圖片自己的寬高重新換算——構圖差異大時可能會歪，
- * 這是 MVP 已知風險（見計畫書 §7），不是 bug。
- */
-export function cropImageToFace(imageSrc: string, rect: FaceCropRect): Promise<string> {
-  const OUTPUT_SIZE = 512
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => {
-      try {
-        const sx = rect.x * img.naturalWidth
-        const sy = rect.y * img.naturalHeight
-        const sSize = rect.size * Math.min(img.naturalWidth, img.naturalHeight)
-        const canvas = document.createElement('canvas')
-        canvas.width = OUTPUT_SIZE
-        canvas.height = OUTPUT_SIZE
-        const ctx = canvas.getContext('2d')
-        if (!ctx) { reject(new Error('no-2d-context')); return }
-        ctx.drawImage(img, sx, sy, sSize, sSize, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE)
-        resolve(canvas.toDataURL('image/png'))
-      } catch (e) {
-        reject(e instanceof Error ? e : new Error(String(e)))
-      }
-    }
-    img.onerror = () => reject(new Error('decode-failed'))
-    img.src = imageSrc
-  })
 }

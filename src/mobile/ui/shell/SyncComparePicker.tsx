@@ -91,7 +91,8 @@ const KIND_LABEL: Record<PairKind, string> = {
   worlds: '世界觀',
   scenes: '情境',
   lorebooks: '用語解說',
-  reminders: '提醒'
+  reminders: '提醒',
+  characterDisplay: '角色顯示裁切'
 }
 
 export function SyncComparePicker(): JSX.Element | null {

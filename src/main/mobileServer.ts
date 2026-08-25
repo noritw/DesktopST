@@ -136,6 +136,8 @@ export interface MobileBridge {
   // 同一批 `*Direct`（`ipcHandlers.ts`），不另寫一份。
   getCharacterCard: (id: string) => import('./types').Character | null
   createCharacter: (name?: string) => import('./types').Character
+  /** 複製角色（含頭像／表情圖檔），id 全新，名稱預設「原名 副本」。 */
+  duplicateCharacter: (id: string, name?: string) => import('./types').Character | { error: string }
   saveCharacter: (char: import('./types').Character) => void
   deleteCharacter: (id: string) => { ok: true } | { error: 'last-character' | 'not-found' }
   saveCharacterAvatar: (id: string, buffer: ArrayBuffer, ext: string) => { path: string } | { error: string }
@@ -262,6 +264,9 @@ export interface MobileBridge {
   saveReminder: (reminder: import('./types').Reminder) => import('./types').Reminder
   deleteReminder: (id: string) => void
   toggleReminder: (id: string, enabled: boolean) => void
+  // ── 角色顯示裁切（faceCrop，2026-08-25 起雙端同步）──
+  getCharacterDisplayConfig: () => import('../core/character/displayImage').CharacterDisplayConfigMap
+  setCharacterDisplayConfig: (characterId: string, rect: import('../core/character/displayImage').FaceCropRect | null) => void
 }
 
 export interface MobileRouteContext {
@@ -1467,6 +1472,17 @@ async function handleRequest(
     return
   }
 
+  if (method === 'POST' && url === '/api/characters/duplicate') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ id?: string; name?: string }>(req, res)
+    if (!payload) return
+    if (!payload.id) { jsonError(res, 400, 'id required'); return }
+    const result = bridge.duplicateCharacter(payload.id, payload.name)
+    if ('error' in result) { jsonError(res, 400, result.error); return }
+    jsonOk(res, { character: result })
+    return
+  }
+
   if (method === 'POST' && url === '/api/characters/delete') {
     if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
     const payload = await readJson<{ id?: string }>(req, res)
@@ -1825,6 +1841,8 @@ async function handleRequest(
       lorebooks: books,
       // S2 提醒同步：跟其餘 collection 同一套 buildManifest，桌面／手機不各自算
       reminders: b.listReminders(),
+      // S2 角色顯示裁切同步（2026-08-25）：同上，不各自算
+      characterDisplayConfig: b.getCharacterDisplayConfig(),
       // S2 對話同步：多帶訊息 id 指紋，手機才判得出「這則兩邊完全一樣」。
       // 算法在 `core/sync/manifestBuild.ts`，跟手機共用同一支。
       conversations: b.getConversationsManifest(),
@@ -2154,6 +2172,29 @@ async function handleRequest(
     const payload = await readJson<{ id?: string; enabled?: boolean }>(req, res)
     if (!payload?.id) { jsonError(res, 400, 'id required'); return }
     bridge.toggleReminder(payload.id, !!payload.enabled)
+    jsonOk(res, { ok: true })
+    return
+  }
+
+  /*
+   * ── 角色顯示裁切（faceCrop，S2 `characterDisplay` 種類的 push/pull 目標）──
+   *
+   * 這兩支端點純粹是給同步引擎打的，本來完全不存在（`docs/mobile-character-
+   * expression-plan.md` §3.1 舊決策：桌面沒有這個概念）。裁切運算永遠在手機端
+   * 做，這裡只負責存/取比例矩形本身，跟 `/api/avatar/:id` 只負責給原圖是
+   * 同一種分工。
+   */
+  if (method === 'GET' && url === '/api/character-display-config') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, { config: bridge.getCharacterDisplayConfig() })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/character-display-config/save') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ characterId?: string; faceCrop?: import('../core/character/displayImage').FaceCropRect | null }>(req, res)
+    if (!payload?.characterId) { jsonError(res, 400, 'characterId required'); return }
+    bridge.setCharacterDisplayConfig(payload.characterId, payload.faceCrop ?? null)
     jsonOk(res, { ok: true })
     return
   }

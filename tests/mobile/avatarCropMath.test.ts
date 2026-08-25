@@ -3,6 +3,7 @@ import {
   clampOffset,
   computeCropRect,
   coverScale,
+  cropDisplayTransform,
   imageScreenOrigin,
   type CropLayout
 } from '../../src/mobile/ui/characters/avatarCropMath'
@@ -104,5 +105,29 @@ describe('computeCropRect', () => {
     expect(sx).toBeCloseTo(0)
     // 高度方向：置中裁切，(2000-1000)/2 = 500
     expect(sy).toBeCloseTo(500)
+  })
+})
+
+describe('cropDisplayTransform（桌面角色庫縮圖：反過來把既有的 rect 塞滿容器）', () => {
+  it('正方形圖、rect 覆蓋全圖時，剛好貼齊容器（scale=1，無位移）', () => {
+    const { left, top, scale } = cropDisplayTransform(1000, 1000, 300, { x: 0, y: 0, size: 1 })
+    expect(scale).toBeCloseTo(300 / 1000)
+    expect(left).toBeCloseTo(0)
+    expect(top).toBeCloseTo(0)
+  })
+
+  it('rect 只取中間一半時，scale 加倍，且位移對齊 rect 左上角', () => {
+    const { left, top, scale } = cropDisplayTransform(1000, 1000, 300, { x: 0.25, y: 0.25, size: 0.5 })
+    // 裁切框邊長 = 0.5*1000 = 500（原圖像素），要填滿 300 容器 → scale = 300/500 = 0.6
+    expect(scale).toBeCloseTo(0.6)
+    // left = -x*naturalW*scale = -0.25*1000*0.6 = -150
+    expect(left).toBeCloseTo(-150)
+    expect(top).toBeCloseTo(-150)
+  })
+
+  it('非正方形圖片：size 是相對短邊算的，跟 computeCropRect 的定義對稱', () => {
+    // 1000x2000，rect.size=1 應該對應短邊 1000（不是長邊 2000）
+    const { scale } = cropDisplayTransform(1000, 2000, 300, { x: 0, y: 0.5, size: 1 })
+    expect(scale).toBeCloseTo(300 / 1000)
   })
 })

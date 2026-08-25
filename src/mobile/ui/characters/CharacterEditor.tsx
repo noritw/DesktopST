@@ -29,6 +29,7 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
   const toast = useUiStore((s) => s.toast)
   const confirm = useUiStore((s) => s.confirm)
   const pop = useUiStore((s) => s.pop)
+  const push = useUiStore((s) => s.push)
   const setCloseGuard = useUiStore((s) => s.setCloseGuard)
   const openAvatarCrop = useUiStore((s) => s.openAvatarCrop)
   const openFaceCrop = useUiStore((s) => s.openFaceCrop)
@@ -240,6 +241,22 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
     }
   }
 
+  /** 複製這張卡當模板改（新手上手最快的路：先複製、只改名字，其他慢慢填）。 */
+  const duplicate = async (): Promise<void> => {
+    if (!draft) return
+    setBusy(true)
+    try {
+      const char = await getData().characters.duplicate(draft.id)
+      await refresh()
+      toast(`已複製為「${char.name}」`)
+      push('character-editor', char.id)
+    } catch (e) {
+      toast(describeCharacterError(e, '複製'), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const remove = async (): Promise<void> => {
     if (!draft) return
     const ok = await confirm({
@@ -419,6 +436,10 @@ export function CharacterEditor({ characterId }: { characterId: string }): JSX.E
               匯出 JSON
             </button>
           </div>
+
+          <button type="button" disabled={busy} onClick={() => void duplicate()} className="btn-ghost mt-2 w-full">
+            複製這個角色
+          </button>
 
           <button
             type="button"

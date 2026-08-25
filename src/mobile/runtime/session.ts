@@ -1299,6 +1299,45 @@ export class StandaloneSession {
     this.events.push({ kind: 'state-invalidated', reason: 'desktop' })
   }
 
+  /** 複製角色（拷貝整份角色資料夾＋所有圖檔，id 全新）。給「從預設模板改」用。 */
+  async duplicateCharacter(id: string, name?: string): Promise<Character> {
+    const source = this.characters.find((c) => c.id === id)
+    if (!source) throw new DataError('not-found', id)
+    const srcDirKey = keys.characterDirKey(source.id)
+    const newIdValue = newId()
+    const destDirKey = keys.characterDirKey(newIdValue)
+
+    const remap = (key: string): string => {
+      if (!key) return key
+      const rel = relativeToCharacterDir(srcDirKey, key)
+      return `${destDirKey}/${rel}`
+    }
+
+    for (const { relPath, bytes } of await this.collectCharacterFiles(srcDirKey)) {
+      await this.adapters.storage.writeBinary(`${destDirKey}/${relPath}`, bytes)
+    }
+
+    const now = Date.now()
+    const char: Character = {
+      ...source,
+      id: newIdValue,
+      name: name?.trim() || `${source.name} 副本`,
+      avatar: remap(source.avatar || ''),
+      emotions: Object.fromEntries(
+        Object.entries(source.emotions ?? {}).map(([k, v]) => [k, remap(v)])
+      ),
+      spriteIds: source.spriteIds
+        ? Object.fromEntries(
+            Object.entries(source.spriteIds).map(([k, v]) => [remap(k), v])
+          )
+        : undefined,
+      createdAt: now,
+      updatedAt: now
+    }
+    await this.saveCharacter(char)
+    return char
+  }
+
   async createCharacter(name: string): Promise<Character> {
     const char = blankCharacter(name?.trim() || '新角色')
     await this.saveCharacter(char)
@@ -1602,9 +1641,11 @@ export class StandaloneSession {
     return path
   }
 
-  // ── 顯示設定（框選臉部範圍，mobile-only，§3.1）────────────
-  // 這是裝置偏好，不是模式資料——邏輯共用 `faceCropConfig.ts`
+  // ── 顯示設定（框選臉部範圍，§3.1）────────────
+  // 這支手機讀寫的仍然是自己的本地檔案——邏輯共用 `faceCropConfig.ts`
   // （`RemoteDataSource` 也直接呼叫同一份，不透過 session／伺服器）。
+  // 2026-08-25 起這份設定會透過 S2 `characterDisplay` 種類跟電腦同步，
+  // 桌面角色庫縮圖也套用同一套框選——見 `core/store/keys.ts` 的附註。
 
   async getFaceCrop(id: string): Promise<FaceCropRect | null> {
     return getFaceCropConfig(id)

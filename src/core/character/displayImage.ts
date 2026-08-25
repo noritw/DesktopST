@@ -69,4 +69,4 @@ export interface FaceCropRect {
   size: number
 }
 
-export type CharacterDisplayConfigMap = Record<string, { faceCrop?: FaceCropRect }>
+export type CharacterDisplayConfigMap = Record<string, { faceCrop?: FaceCropRect; updatedAt?: number }>

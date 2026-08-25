@@ -21,7 +21,8 @@ const emptyChoiceMap = (): ChoiceMap => ({
   worlds: {},
   scenes: {},
   lorebooks: {},
-  reminders: {}
+  reminders: {},
+  characterDisplay: {}
 })
 import type { Manifest } from '../../../src/core/sync/types'
 
@@ -123,6 +124,7 @@ function table(rows: Partial<PairTable>): PairTable {
     scenes: [],
     lorebooks: [],
     reminders: [],
+    characterDisplay: [],
     ...rows
   }
 }
@@ -247,15 +249,16 @@ describe('pairManifests', () => {
     scenes: [],
     lorebooks: [],
     reminders: [],
+    characterDisplay: [],
     conversations: [],
     settingsHash: 'h',
     ...over
   })
 
-  it('六個 collection 都會被配對，對話不在其中（M4 不同步對話）', () => {
+  it('七個 collection 都會被配對，對話不在其中（M4 不同步對話）', () => {
     const t = pairManifests(m({ characters: [e('a', 'A')] }), m({ personas: [e('b', 'B')] }))
     expect(t.characters).toHaveLength(1)
     expect(t.personas).toHaveLength(1)
-    expect(Object.keys(t)).toEqual(['characters', 'personas', 'worlds', 'scenes', 'lorebooks', 'reminders'])
+    expect(Object.keys(t)).toEqual(['characters', 'personas', 'worlds', 'scenes', 'lorebooks', 'reminders', 'characterDisplay'])
   })
 })

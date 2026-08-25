@@ -15,6 +15,7 @@ import { isActiveSceneDirty } from '../core/scene/dirty'
 import { buildConversationManifestEntry } from '../core/sync/manifestBuild'
 import { mergeMessages, pickSummary } from '../core/sync/convHash'
 import type { ManifestConversation } from '../core/sync/types'
+import type { CharacterDisplayConfigMap, FaceCropRect } from '../core/character/displayImage'
 import { applySceneSettings } from '../core/scene/apply'
 import { normalizeForCompare, escapeRegExp } from '../core/util/text'
 import { safeJsonParse } from '../core/util/json'
@@ -1774,6 +1775,65 @@ export function saveCharacterDirect(char: Character): true {
   fileStore.saveCharacter(char)
   broadcastToAll('characters:updated', characters)
   return true
+}
+
+/** 複製角色（拷貝整份角色資料夾＋所有圖檔，id 全新）。給「從模板改」流程用，桌面／手機共用。 */
+export function duplicateCharacterDirect(payload: { id: string; name?: string }): Character | { error: string } {
+  const source = characters.find(c => c.id === payload.id)
+  if (!source) return { error: '找不到這個角色' }
+  try {
+    const newId = uuidv4()
+    const srcDir = path.join(fileStore.getDataDir(), 'characters', payload.id)
+    const destDir = path.join(fileStore.getDataDir(), 'characters', newId)
+    if (fs.existsSync(srcDir)) {
+      fs.cpSync(srcDir, destDir, { recursive: true, force: true })
+    } else {
+      fs.mkdirSync(destDir, { recursive: true })
+    }
+    const srcDirResolved = path.resolve(srcDir)
+    const remap = (p: string): string => {
+      if (!p) return p
+      const resolved = path.resolve(p)
+      if (resolved === srcDirResolved || resolved.startsWith(`${srcDirResolved}${path.sep}`)) {
+        return path.join(destDir, path.relative(srcDir, resolved))
+      }
+      return p
+    }
+    const now = Date.now()
+    const newChar: Character = {
+      ...source,
+      id: newId,
+      name: payload.name?.trim() || `${source.name} 副本`,
+      avatar: remap(source.avatar || ''),
+      emotions: Object.fromEntries(Object.entries(source.emotions ?? {}).map(([k, v]) => [k, remap(v)])),
+      spriteIds: source.spriteIds
+        ? Object.fromEntries(Object.entries(source.spriteIds).map(([k, v]) => [remap(k), v]))
+        : undefined,
+      createdAt: now,
+      updatedAt: now
+    }
+    characters.push(newChar)
+    fileStore.saveCharacter(newChar)
+    broadcastToAll('characters:updated', characters)
+    return newChar
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/**
+ * 角色顯示裁切（faceCrop）——桌面這一份，讀寫走 `fileStore.ts`。
+ * 桌面／手機各自存自己的本地檔案，靠 S2 `characterDisplay` 同步種類對齊，
+ * 不是共用同一個實體檔案，見 `core/store/keys.ts` 的
+ * `CHARACTER_DISPLAY_CONFIG_KEY` 附註。
+ */
+export function getCharacterDisplayConfigDirect(): CharacterDisplayConfigMap {
+  return fileStore.loadCharacterDisplayConfig()
+}
+
+export function setCharacterDisplayConfigDirect(characterId: string, rect: FaceCropRect | null): { ok: true } {
+  fileStore.saveCharacterDisplayConfig(characterId, rect)
+  return { ok: true }
 }
 
 export function deleteCharacterDirect(id: string): { ok: true } | { error: 'last-character' | 'not-found' } {
@@ -3919,6 +3979,11 @@ export function registerIpcHandlers() {
   ipcMain.handle('character:save', (_, char: Character) => saveCharacterDirect(char))
 
   ipcMain.handle('character:delete', (_, id: string) => deleteCharacterDirect(id))
+
+  ipcMain.handle('character:duplicate', (_, payload: { id: string; name?: string }) => duplicateCharacterDirect(payload))
+  ipcMain.handle('character:get-face-crop', () => getCharacterDisplayConfigDirect())
+  ipcMain.handle('character:set-face-crop', (_, payload: { characterId: string; rect: FaceCropRect | null }) =>
+    setCharacterDisplayConfigDirect(payload.characterId, payload.rect))
 
   ipcMain.handle('character-library:open', (_, payload?: { mode?: 'home' | 'edit'; characterId?: string }) => {
     try {

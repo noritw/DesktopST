@@ -2,6 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder } from './types'
+import type { CharacterDisplayConfigMap, FaceCropRect } from '../core/character/displayImage'
 import { type Lorebook, normalizeLorebook } from '../core/lore'
 import { DEFAULT_SETTINGS } from './types'
 import { isPinnedNote } from '../core/store/normalize'
@@ -198,6 +199,30 @@ export function saveReminders(reminders: Reminder[]): void {
     electronStorage.writeJsonSync(keys.REMINDERS_KEY, reminders)
   } catch (e) {
     console.error('[fileStore] saveReminders failed:', e)
+  }
+}
+
+// ── 角色顯示裁切（faceCrop，2026-08-25 起雙端同步，見 `core/store/keys.ts` 附註）──
+
+export function loadCharacterDisplayConfig(): CharacterDisplayConfigMap {
+  ensureDirs()
+  const raw = electronStorage.readJsonSync<unknown>(keys.CHARACTER_DISPLAY_CONFIG_KEY)
+  return raw && typeof raw === 'object' ? (raw as CharacterDisplayConfigMap) : {}
+}
+
+/**
+ * `rect` 是 `null` 時**不刪掉這個角色的紀錄**，只清掉 `faceCrop`（保留
+ * `updatedAt`）——理由跟手機端 `faceCropConfig.ts` 的 `setFaceCrop` 一致：
+ * 「已清除」本身要能被 S2 同步比對出來，見那支檔案的檔頭說明。
+ */
+export function saveCharacterDisplayConfig(characterId: string, rect: FaceCropRect | null): void {
+  ensureDirs()
+  const map = loadCharacterDisplayConfig()
+  map[characterId] = { faceCrop: rect ?? undefined, updatedAt: Date.now() }
+  try {
+    electronStorage.writeJsonSync(keys.CHARACTER_DISPLAY_CONFIG_KEY, map)
+  } catch (e) {
+    console.error('[fileStore] saveCharacterDisplayConfig failed:', e)
   }
 }
 

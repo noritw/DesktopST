@@ -6,6 +6,8 @@ interface Props {
   position: { x: number; y: number }
   onClose: () => void
   onEdit: () => void
+  onDuplicate: () => void
+  onFaceCrop: () => void
   onDelete: () => void
   onExportJson: () => void
   onExportPng: () => void
@@ -19,6 +21,8 @@ export default function ContextMenu({
   position,
   onClose,
   onEdit,
+  onDuplicate,
+  onFaceCrop,
   onDelete,
   onExportJson,
   onExportPng,
@@ -85,6 +89,12 @@ export default function ContextMenu({
       <div className="py-1">
         <button type="button" className="w-full text-left text-sm px-3 py-2 text-primary hover:bg-mint-40" onClick={() => { onEdit(); onClose() }}>
           編輯
+        </button>
+        <button type="button" className="w-full text-left text-sm px-3 py-2 text-primary hover:bg-mint-40" onClick={() => { onDuplicate(); onClose() }}>
+          複製角色
+        </button>
+        <button type="button" className="w-full text-left text-sm px-3 py-2 text-primary hover:bg-mint-40" onClick={() => { onFaceCrop(); onClose() }}>
+          框選顯示縮圖範圍
         </button>
       </div>
       <div className="border-t border-border my-0" />

@@ -1,16 +1,46 @@
+import { useEffect, useRef, useState } from 'react'
 import type { Character } from '../types'
+import type { FaceCropRect } from '@core/character/displayImage'
+import { cropDisplayTransform } from '@shared/avatarCropMath'
 import MonoIcon from './MonoIcon'
 
 interface Props {
   character: Character
   isOnDesktop: boolean
+  /** 框選的臉部顯示範圍（`character:get-face-crop`），沒有就顯示原圖。 */
+  faceCrop?: FaceCropRect | null
   onClick: (e: React.MouseEvent) => void
   onContextMenu: (e: React.MouseEvent) => void
   onSummonToDesktop?: () => void
 }
 
-export default function CharacterCard({ character, isOnDesktop, onClick, onContextMenu, onSummonToDesktop }: Props) {
+/** 縮圖容器邊長（`h-20 w-20`）。裁切位移公式需要這個當目標容器尺寸。 */
+const AVATAR_BOX_PX = 80
+
+export default function CharacterCard({ character, isOnDesktop, faceCrop, onClick, onContextMenu, onSummonToDesktop }: Props) {
   const avatarSrc = character.avatar ? `local://${encodeURIComponent(character.avatar)}` : ''
+  const imgRef = useRef<HTMLImageElement>(null)
+  const [cropTransform, setCropTransform] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!avatarSrc || !faceCrop) {
+      setCropTransform(null)
+      return
+    }
+    const img = imgRef.current
+    if (!img) return
+    const apply = (): void => {
+      const { left, top, scale } = cropDisplayTransform(img.naturalWidth, img.naturalHeight, AVATAR_BOX_PX, faceCrop)
+      setCropTransform(`translate(${left}px, ${top}px) scale(${scale})`)
+    }
+    if (img.complete && img.naturalWidth > 0) {
+      apply()
+      return
+    }
+    setCropTransform(null)
+    img.addEventListener('load', apply)
+    return () => img.removeEventListener('load', apply)
+  }, [avatarSrc, faceCrop])
 
   return (
     <div className="relative flex h-[160px] min-w-[120px] flex-col rounded-2xl border border-border bg-surface-90 shadow-soft transition-transform hover:scale-[1.02] hover:border-teal-40">
@@ -21,9 +51,20 @@ export default function CharacterCard({ character, isOnDesktop, onClick, onConte
         onContextMenu={onContextMenu}
       >
         <div className="mb-1 flex shrink-0 justify-center">
-          <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-mint">
+          <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-mint">
             {avatarSrc ? (
-              <img src={avatarSrc} alt="" className="h-full w-full object-cover" draggable={false} />
+              faceCrop ? (
+                <img
+                  ref={imgRef}
+                  src={avatarSrc}
+                  alt=""
+                  draggable={false}
+                  className="absolute left-0 top-0 max-w-none"
+                  style={{ transformOrigin: '0 0', transform: cropTransform ?? undefined, visibility: cropTransform ? 'visible' : 'hidden' }}
+                />
+              ) : (
+                <img ref={imgRef} src={avatarSrc} alt="" className="h-full w-full object-cover" draggable={false} />
+              )
             ) : (
               <MonoIcon name="user" className="h-10 w-10 text-primary" />
             )}

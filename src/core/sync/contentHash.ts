@@ -6,6 +6,7 @@ import { sha1Hex } from '../util/sha1'
 import { stableStringify } from '../util/stableJson'
 import type { Character, PersonaPreset, Reminder, ScenePreset, WorldPreset } from '../types'
 import type { Lorebook } from '../lore/types'
+import type { FaceCropRect } from '../character/displayImage'
 
 /**
  * S2 M4：跨裝置的「內容是不是同一份」雜湊。
@@ -131,6 +132,15 @@ export function reminderContentHash(r: Reminder): string {
     sceneId: r.sceneId ?? '',
     sceneConstraint: r.sceneConstraint ?? 'any_scene'
   })
+}
+
+/**
+ * 角色顯示裁切同步（2026-08-25，`docs/mobile-character-expression-plan.md`
+ * §3.1 附註）：只雜湊 `faceCrop` 本身，不含 `updatedAt`——理由跟其他種類一樣，
+ * 推送本身會把接收端的 `updatedAt` 洗成現在，放進雜湊沒有意義。
+ */
+export function characterDisplayContentHash(entry: { faceCrop?: FaceCropRect }): string {
+  return hash({ faceCrop: entry.faceCrop ?? null })
 }
 
 export function lorebookContentHash(b: Lorebook): string {

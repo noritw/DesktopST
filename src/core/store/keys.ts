@@ -47,17 +47,25 @@ export const MODE_PREF_KEY = 'mode-pref.json'
 export const SYNC_BASELINE_KEY = 'sync-baseline.json'
 /**
  * 框選的臉部顯示範圍（`docs/mobile-character-expression-plan.md` §3.1），
- * key 是 characterId。**mobile-only 裝置偏好，不進同步／搬家包**——理由與
- * `MODE_PREF_KEY` 同一類：這是「這支手機想怎麼呈現」，換一台手機該重框，
- * 桌面版沒有這個概念（全身圖，不需要臉部特寫）。
+ * key 是 characterId。
+ *
+ * ⚠️ **2026-08-25 起雙端都有一份、且走 S2 `characterDisplay` 種類同步**
+ * （`core/sync/pair.ts` 的 `KINDS`）——這推翻了本檔案原本「mobile-only 裝置
+ * 偏好」的舊決策：桌面角色庫縮圖現在也套用這份框選。手機端仍然只讀寫自己
+ * 這一份本地檔案（見 `mobile/runtime/faceCropConfig.ts` 檔頭），桌面端另有
+ * 自己的一份（`main/ipcHandlers.ts` 的 `getCharacterDisplayConfigDirect`/
+ * `setCharacterDisplayConfigDirect`）——**兩邊各自存本地檔案，靠同步引擎
+ * 對齊內容，不是共用同一個實體檔案**，跟 `CHARACTERS_DIR` 那種本來就同步的
+ * 資料是同一種模式，只是這份設定當初沒被算進「一般角色卡內容」。
  */
 export const CHARACTER_DISPLAY_CONFIG_KEY = 'character-display-config.json'
 /**
  * Android 桌面小工具的設定（釘選的對白＋要不要顯示頭像，
  * `docs/mobile-android-widget-plan.md` §2.2 A 層）。**全域一份，不以角色分群**
  * ——小工具跟著「目前這個對話」走，見 `core/character/widgetSnapshot.ts` 檔頭。
- * 同樣是 mobile-only 裝置偏好，理由與 `CHARACTER_DISPLAY_CONFIG_KEY` 一致：
- * 不進同步／搬家包，桌面版沒有這個小工具。
+ * 同樣是 mobile-only 裝置偏好，理由與 `MODE_PREF_KEY` 一致：
+ * 不進同步／搬家包，桌面版沒有這個小工具（跟 `CHARACTER_DISPLAY_CONFIG_KEY`
+ * 不同——那個 2026-08-25 起已改成雙端同步，這個沒有）。
  *
  * ⚠️ 原生層（`DeSTWidgetProvider.kt`）**不讀這一份**，只讀 Bridge 產出的
  * `widget-cache/state.json`——檔名改動時要順手確認那邊。

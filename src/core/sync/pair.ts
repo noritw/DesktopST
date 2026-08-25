@@ -79,7 +79,7 @@ export type PairChoice =
   /** 這列不動（兩邊各自維持原狀） */
   | 'keep'
 
-export const KINDS = ['characters', 'personas', 'worlds', 'scenes', 'lorebooks', 'reminders'] as const
+export const KINDS = ['characters', 'personas', 'worlds', 'scenes', 'lorebooks', 'reminders', 'characterDisplay'] as const
 export type PairKind = (typeof KINDS)[number]
 
 /** 每個 collection 一組列。 */

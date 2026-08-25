@@ -2,6 +2,7 @@ import * as keys from '@core/store/keys'
 import { KINDS, actionFor, type ChoiceMap, type PairAction, type PairKind, type PairRow, type PairTable } from '@core/sync/pair'
 import type { Character, PersonaPreset, Reminder, ScenePreset, WorldPreset } from '@core/types'
 import type { Lorebook } from '@core/lore/types'
+import type { CharacterDisplayConfigMap } from '@core/character/displayImage'
 import { importCharactersFromDstPack } from './seedDefaults'
 import type { StandaloneSession } from './session'
 import { getJson, postJson, type FetchImpl, type SyncSource } from './syncTransport'
@@ -87,7 +88,8 @@ const KIND_LABEL: Record<PairKind, string> = {
   worlds: '世界觀',
   scenes: '情境',
   lorebooks: '用語解說',
-  reminders: '提醒'
+  reminders: '提醒',
+  characterDisplay: '角色顯示裁切'
 }
 
 /**
@@ -95,8 +97,11 @@ const KIND_LABEL: Record<PairKind, string> = {
  * 用語解說排最前面是因為角色與世界觀都會參照它。
  * 提醒排在最後：它的 `characterId`／`sceneId` 要靠這一趟累積出來的
  * `maps.l2r.characters`／`maps.l2r.scenes` 翻譯，必須等角色與情境都處理完。
+ * `characterDisplay` 也排在 `characters` 之後：它的「id」本身就是
+ * characterId，第一次推送（本地獨有）時要靠 `maps.l2r.characters`／
+ * `maps.r2l.characters` 把 id 換成對面的角色 id，見下面 `pushOne`/`pullOne`。
  */
-const ORDER: PairKind[] = ['lorebooks', 'characters', 'personas', 'worlds', 'scenes', 'reminders']
+const ORDER: PairKind[] = ['lorebooks', 'characters', 'personas', 'worlds', 'scenes', 'reminders', 'characterDisplay']
 
 export async function applySync(
   src: SyncSource,
@@ -105,7 +110,9 @@ export async function applySync(
   fetchImpl: FetchImpl = globalThis.fetch
 ): Promise<ApplyResult> {
   const maps = buildMaps(opts.table)
-  const empty = (): Record<PairKind, string[]> => ({ characters: [], personas: [], worlds: [], scenes: [], lorebooks: [], reminders: [] })
+  const empty = (): Record<PairKind, string[]> => ({
+    characters: [], personas: [], worlds: [], scenes: [], lorebooks: [], reminders: [], characterDisplay: []
+  })
   const result: ApplyResult = {
     pushed: empty(),
     pulled: empty(),
@@ -242,6 +249,20 @@ async function pushOne(
     )
     // 電腦端可能發了一顆新 id（送空 id 時必然如此），一定要用回應裡那個
     if (out.preset?.id) recordPair(maps, kind, localId, out.preset.id)
+    return
+  }
+
+  if (kind === 'characterDisplay') {
+    /*
+     * 這個種類的「id」本身就是 characterId。row 已配對到時 `row.remoteId`
+     * 直接就是對面的角色 id；第一次推送（本地獨有）時沒有這個，要靠角色本身
+     * 那趟同步累積出來的 `maps.l2r.characters` 翻譯——翻不到代表角色還沒
+     * 同步過去，帶框選範圍過去沒有意義。
+     */
+    const remoteCharId = row.remoteId ?? maps.l2r.characters.get(localId)
+    if (!remoteCharId) throw new Error('角色還沒同步到電腦，無法帶框選範圍過去')
+    const rect = await session.getFaceCrop(localId)
+    await postJson(src, '/api/character-display-config/save', { characterId: remoteCharId, faceCrop: rect }, fetchImpl)
     return
   }
 
@@ -403,6 +424,15 @@ async function pullOne(
     return
   }
 
+  if (kind === 'characterDisplay') {
+    const localCharId = row.localId ?? maps.r2l.characters.get(remoteId)
+    if (!localCharId) throw new Error('角色還沒同步到手機，無法帶框選範圍回來')
+    const { config } = await getJson<{ config?: CharacterDisplayConfigMap }>(src, '/api/character-display-config', fetchImpl)
+    const rect = config?.[remoteId]?.faceCrop ?? null
+    await session.setFaceCrop(localCharId, rect)
+    return
+  }
+
   if (kind === 'reminders') {
     const list = await getJson<{ reminders?: Reminder[] }>(src, '/api/reminders', fetchImpl)
     const remote = list.reminders?.find((r) => r.id === remoteId)
@@ -471,11 +501,18 @@ async function deleteLocal(session: StandaloneSession, kind: PairKind, id: strin
     case 'scenes': return session.removeScene(id)
     case 'lorebooks': return session.removeLorebook(id)
     case 'reminders': return session.removeReminder(id)
+    // 「刪除」對這個種類的意思是清除框選，不是刪角色本身——見 `setFaceCrop(id, null)`
+    // 那條「清除也要留痕跡」的設計決策。
+    case 'characterDisplay': return session.setFaceCrop(id, null)
   }
 }
 
 /** 從電腦刪掉一筆（使用者選了「手機」，而手機上沒有這筆）。 */
 async function deleteRemote(src: SyncSource, kind: PairKind, id: string, fetchImpl: FetchImpl): Promise<void> {
+  if (kind === 'characterDisplay') {
+    await postJson<unknown>(src, '/api/character-display-config/save', { characterId: id, faceCrop: null }, fetchImpl)
+    return
+  }
   const path =
     kind === 'characters' ? '/api/characters/delete'
       : kind === 'lorebooks' ? '/api/lorebooks/delete'

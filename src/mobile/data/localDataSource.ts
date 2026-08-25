@@ -93,6 +93,7 @@ export class LocalDataSource implements DataSource {
     save: (character) => this.session.saveCharacter(character),
     remove: (id) => this.session.removeCharacter(id),
     create: (name) => this.session.createCharacter(name),
+    duplicate: (id, name) => this.session.duplicateCharacter(id, name),
     saveAvatar: (id, image) => this.session.saveAvatar(id, image),
     importCard: (file) => this.session.importCard(file),
     exportCard: (id, kind) => this.session.exportCard(id, kind),

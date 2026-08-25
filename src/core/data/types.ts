@@ -253,6 +253,12 @@ export interface CharactersApi {
   create(name: string): Promise<Character>
 
   /**
+   * 複製一張既有角色卡（含頭像／表情圖檔），回傳新角色（新 id、名稱預設「原名 副本」）。
+   * 給「從模板改」流程用：使用者先複製一份，再慢慢編輯，不動到原始模板。
+   */
+  duplicate(id: string, name?: string): Promise<Character>
+
+  /**
    * 換主圖。回傳新的 `avatar` 欄位值（平台自訂：桌面是檔案路徑、手機是沙箱路徑）。
    *
    * 呼叫端拿到之後要寫回草稿再 `save()` —— 與桌面版 `character:save-avatar` 同語意：

@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Character } from '../types'
+import type { CharacterDisplayConfigMap, FaceCropRect } from '@core/character/displayImage'
 import { useAppStore } from '../stores/useAppStore'
 import { useCharacterLibraryStore } from '../stores/useCharacterLibraryStore'
 import CharacterCard from '../components/CharacterCard'
 import ContextMenu from '../components/ContextMenu'
 import CharacterEditor from '../components/CharacterEditor'
+import FaceCropModal from '../components/FaceCropModal'
 
 type CharacterLibraryNavigatePayload = {
   mode?: 'home' | 'edit'
@@ -42,6 +44,27 @@ export default function CharacterLibraryWindow() {
   const [includeGlobalInPack, setIncludeGlobalInPack] = useState(true)
   // 用語解說多為個人專案名稱與真實人名，屬私人資料 → 預設不勾（docs/future-lorebook.md §7.3）
   const [includeLorebooksInPack, setIncludeLorebooksInPack] = useState(false)
+
+  // 角色顯示裁切（faceCrop，2026-08-25 起雙端同步）：整包載入，數量不多，
+  // 裁切彈窗 confirm 後重新整包抓一次即可，不做複雜的 per-character invalidate。
+  const [faceCropConfig, setFaceCropConfig] = useState<CharacterDisplayConfigMap>({})
+  const [faceCropTarget, setFaceCropTarget] = useState<Character | null>(null)
+
+  const reloadFaceCropConfig = useCallback(async () => {
+    const res = (await window.api.invoke('character:get-face-crop')) as CharacterDisplayConfigMap | undefined
+    setFaceCropConfig(res ?? {})
+  }, [])
+
+  useEffect(() => {
+    void reloadFaceCropConfig()
+  }, [reloadFaceCropConfig])
+
+  const saveFaceCrop = async (rect: FaceCropRect | null) => {
+    if (!faceCropTarget) return
+    await window.api.invoke('character:set-face-crop', { characterId: faceCropTarget.id, rect })
+    setFaceCropTarget(null)
+    await reloadFaceCropConfig()
+  }
 
   const navigate = useCallback((payload?: CharacterLibraryNavigatePayload) => {
     if (payload?.mode === 'edit' && payload.characterId) {
@@ -161,6 +184,16 @@ export default function CharacterLibraryWindow() {
     } catch (err) {
       setToast(err instanceof Error ? err.message : '匯入失敗')
     }
+  }
+
+  const handleDuplicate = async (char: Character) => {
+    const res = (await window.api.invoke('character:duplicate', { id: char.id })) as Character | { error: string }
+    if (res && 'error' in res) {
+      setToast(res.error)
+      return
+    }
+    const newChar = res as Character
+    openEditor(newChar.id)
   }
 
   const openMenuFromEvent = (characterId: string, e: React.MouseEvent) => {
@@ -319,6 +352,7 @@ export default function CharacterLibraryWindow() {
                   key={char.id}
                   character={char}
                   isOnDesktop={onDesktop}
+                  faceCrop={faceCropConfig[char.id]?.faceCrop}
                   onClick={e => openMenuFromEvent(char.id, e)}
                   onContextMenu={e => openMenuFromEvent(char.id, e)}
                   onSummonToDesktop={() => {
@@ -338,6 +372,14 @@ export default function CharacterLibraryWindow() {
           position={{ x: contextMenu.x, y: contextMenu.y }}
           onClose={closeContextMenu}
           onEdit={() => openEditor(contextMenu.characterId)}
+          onDuplicate={() => void handleDuplicate(ctxChar)}
+          onFaceCrop={() => {
+            if (!ctxChar.avatar) {
+              setToast('請先上傳主圖再框選顯示範圍')
+              return
+            }
+            setFaceCropTarget(ctxChar)
+          }}
           onDelete={() => void deleteCharacter(contextMenu.characterId)}
           onExportJson={() => void exportJson(ctxChar)}
           onExportPng={() => void exportPng(ctxChar)}
@@ -435,6 +477,16 @@ export default function CharacterLibraryWindow() {
 
       {editingCharacterId && (
         <CharacterEditor characterId={editingCharacterId} onClose={closeEditor} />
+      )}
+
+      {faceCropTarget && (
+        <FaceCropModal
+          imageUrl={`local://${encodeURIComponent(faceCropTarget.avatar)}`}
+          hasExistingCrop={!!faceCropConfig[faceCropTarget.id]?.faceCrop}
+          onConfirm={rect => void saveFaceCrop(rect)}
+          onClear={() => void saveFaceCrop(null)}
+          onClose={() => setFaceCropTarget(null)}
+        />
       )}
 
       {toast && (

@@ -65,7 +65,17 @@
 
 ## 3. 資料模型
 
-### 3.1 框選臉部範圍（mobile-only，對話記錄與小工具共用）
+### 3.1 框選臉部範圍（對話記錄與小工具共用）
+
+> ⚠️ **2026-08-25 附註：本節「mobile-only」推翻**。owner 要求桌面角色庫縮圖
+> 也套用同一套框選範圍，而且要真的跨裝置同步——`faceCrop` 現在雙端各自存一份
+> 本地檔案（手機仍是 `character-display-config.json`，桌面是
+> `main/fileStore.ts` 的 `loadCharacterDisplayConfig`/`saveCharacterDisplayConfig`），
+> 靠 S2 新同步種類 `characterDisplay`（`core/sync/pair.ts` 的 `KINDS`）對齊內容，
+> 走法比照 `docs/reminder-sync-kickoff.md` 的提醒同步。下面「為什麼是
+> mobile-only」那條理由**已經不成立**，看到時不要照舊決策行事——細節見
+> `core/store/keys.ts` 的 `CHARACTER_DISPLAY_CONFIG_KEY` 附註與
+> `core/sync/` 的 `characterDisplayContentHash()`／`characterDisplay` 種類。
 
 新檔：`character-display-config.json`（單一檔案，key 是 characterId）：
 

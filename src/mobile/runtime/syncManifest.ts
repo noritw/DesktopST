@@ -1,6 +1,8 @@
+import * as keys from '@core/store/keys'
 import { buildManifest } from '@core/sync/manifestBuild'
 import { joinTriggerWords, settingsSnapshotHash, type SettingsSnapshot } from '@core/sync/settingsSnapshot'
 import type { Manifest } from '@core/sync/types'
+import type { CharacterDisplayConfigMap } from '@core/character/displayImage'
 import type { StandaloneSession } from './session'
 import { getJson, type FetchImpl, type SyncSource } from './syncTransport'
 
@@ -83,9 +85,10 @@ export async function buildLocalSettingsSnapshot(session: StandaloneSession): Pr
  * 把手機本地資料組成跟 `/api/sync-manifest` 一樣的輕量清單，供 `computeDiff` 比對。
  */
 export async function buildLocalManifest(session: StandaloneSession): Promise<Manifest> {
-  const [lorebooks, settingsSnapshot] = await Promise.all([
+  const [lorebooks, settingsSnapshot, characterDisplayConfig] = await Promise.all([
     session.listLorebooksManifest(),
-    buildLocalSettingsSnapshot(session)
+    buildLocalSettingsSnapshot(session),
+    session.adapters.storage.readJson<CharacterDisplayConfigMap>(keys.CHARACTER_DISPLAY_CONFIG_KEY)
   ])
 
   /*
@@ -104,6 +107,7 @@ export async function buildLocalManifest(session: StandaloneSession): Promise<Ma
     scenes: session.scenes,
     lorebooks: books,
     reminders: session.reminders,
+    characterDisplayConfig: characterDisplayConfig ?? {},
     conversations: session.listConversationsManifest(),
     settingsHash: settingsSnapshotHash(settingsSnapshot)
   })

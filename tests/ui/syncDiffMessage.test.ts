@@ -4,7 +4,7 @@ import type { Manifest, SyncDiff } from '../../src/core/sync/types'
 import type { PushSummary } from '../../src/mobile/runtime/syncPush'
 
 function emptyManifest(): Manifest {
-  return { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [], reminders: [], conversations: [], settingsHash: 'h' }
+  return { characters: [], personas: [], worlds: [], scenes: [], lorebooks: [], reminders: [], characterDisplay: [], conversations: [], settingsHash: 'h' }
 }
 
 const EMPTY_COLLECTION = {
