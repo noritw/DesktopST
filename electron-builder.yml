@@ -4,6 +4,7 @@ directories:
   output: dist
 files:
   - out/**/*
+  - '!**/node_modules/**/android/**/*'
 extraFiles:
   - from: assets
     to: assets
