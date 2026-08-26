@@ -1,5 +1,5 @@
 /**
- * DeST 飲食記錄：建置**正式簽章** release APK。
+ * 食記：建置**正式簽章** release APK。
  *
  * 跟 `build-nutrition-apk.mjs`（debug、隨手裝機測試用）是姊妹腳本，差異只有：
  * ①要求 `nutrition/mobile/android/keystore.properties` 一定要存在，不存在就
@@ -46,7 +46,7 @@ function run(command, args, opts = {}) {
 }
 
 console.log('')
-console.log('=== DeST 飲食記錄 正式簽章 release APK ===')
+console.log('=== 食記 正式簽章 release APK ===')
 console.log('')
 
 if (!fs.existsSync(jdk21)) {
@@ -101,7 +101,7 @@ if (!fs.existsSync(apkSrc)) {
 
 const pkg = JSON.parse(fs.readFileSync(path.join(mobileRoot, 'package.json'), 'utf8'))
 fs.mkdirSync(outDir, { recursive: true })
-const apkDst = path.join(outDir, `DeST飲食記錄-v${pkg.version}-release.apk`)
+const apkDst = path.join(outDir, `食記-v${pkg.version}-release.apk`)
 fs.copyFileSync(apkSrc, apkDst)
 const sizeMb = (fs.statSync(apkDst).size / (1024 * 1024)).toFixed(1)
 
