@@ -101,13 +101,24 @@ if (!fs.existsSync(apkSrc)) {
 
 const pkg = JSON.parse(fs.readFileSync(path.join(mobileRoot, 'package.json'), 'utf8'))
 fs.mkdirSync(outDir, { recursive: true })
-const apkDst = path.join(outDir, `食記-v${pkg.version}-release.apk`)
+// 檔名刻意用英文（不用「食記」）：GitHub Release 上傳非 ASCII 檔名會被吃成亂碼檔名。
+const apkDst = path.join(outDir, `DeSTNutrition-v${pkg.version}-release.apk`)
 fs.copyFileSync(apkSrc, apkDst)
 const sizeMb = (fs.statSync(apkDst).size / (1024 * 1024)).toFixed(1)
 
+// 固定檔名副本：行銷頁用 GitHub 的 releases/latest/download/<檔名> 直連，
+// 那個網址只認檔名、不認版本號，所以每次發版都要連這份一起上傳，
+// 否則舊版本號的直連死掉、行銷頁的「直接下載」按鈕會 404。
+const apkLatest = path.join(outDir, 'DeSTNutrition-latest.apk')
+fs.copyFileSync(apkSrc, apkLatest)
+
 console.log('')
 console.log(`[4/4] 完成：${apkDst}  (${sizeMb} MB)`)
+console.log(`      以及固定檔名副本：${apkLatest}`)
 console.log('')
 console.log('這是正式簽章的檔案，可以直接發布。發布前建議先手動裝到一台')
 console.log('（或多台）真機驗證一輪，尤其是「能不能蓋掉舊版正常升級」這件事——')
 console.log('第一次發正式簽章版時沒有舊版可蓋，這條之後才驗得到。')
+console.log('')
+console.log('⚠️ 上傳 GitHub Release 時，這兩個檔案都要傳：版本號檔名（存檔用）')
+console.log('   跟 DeSTNutrition-latest.apk（行銷頁直連用，檔名必須固定不變）。')
