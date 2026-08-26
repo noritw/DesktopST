@@ -136,6 +136,12 @@
       aspect-ratio: 4 / 3;
     }
     .shot img { width: 100%; height: 100%; object-fit: contain; background: var(--surface-soft); }
+    .shot.filled { border-style: solid; background: var(--surface-soft); padding: 0; }
+
+    .gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 18px; margin-top: 6px; }
+    .gallery figure { margin: 0; border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-card); }
+    .gallery img { display: block; width: 100%; aspect-ratio: 9 / 19.5; object-fit: cover; object-position: top; background: var(--surface-soft); }
+    .gallery figcaption { padding: 12px 14px; font-size: 0.9rem; font-weight: 700; color: var(--strong); }
 
     .cta { text-align: center; padding: 48px 32px; border-radius: var(--radius-xl); background: linear-gradient(160deg, rgba(255, 232, 170, 0.55), rgba(255, 208, 179, 0.5)), #fff; border: 1px solid var(--border); box-shadow: var(--shadow-soft); margin: 32px 0; }
     .cta h2 { margin: 0 0 10px; }
@@ -171,9 +177,8 @@
           <a class="btn btn-ghost" href="hub.html">看看其他版本</a>
         </div>
       </div>
-      <div class="shot">
-        食記介面截圖製作中
-        <br><small>近期會補上實機截圖</small>
+      <div class="shot filled">
+        <img src="ScreenShot/nutrition-daily-main.png" alt="食記今日紀錄畫面，顯示熱量、蛋白質進度與餐點清單">
       </div>
     </header>
 
@@ -231,6 +236,29 @@
 
       <div class="note">
         跟 DeST 桌面版／手機版是各自獨立的 App，不需要先裝 DeST 才能用。目前 AI 服務金鑰要在食記裡自己填一次，跟 DeST 是分開存放的，換機或重灌都要重新填。
+      </div>
+    </section>
+
+    <section>
+      <h2>畫面速覽</h2>
+      <p class="sub">實機截圖，不是示意圖。</p>
+      <div class="gallery">
+        <figure>
+          <img src="ScreenShot/nutrition-add-food-top.png" alt="新增食物畫面，含分類標籤選擇">
+          <figcaption>新增食物，分類標籤一鍵套用</figcaption>
+        </figure>
+        <figure>
+          <img src="ScreenShot/nutrition-add-food-paste.png" alt="貼上營養資訊自動填欄位的功能說明">
+          <figcaption>貼上營養標示文字，自動填熱量與蛋白質</figcaption>
+        </figure>
+        <figure>
+          <img src="ScreenShot/nutrition-settings-colors.png" alt="目標設定與 12 組介面配色選擇">
+          <figcaption>目標熱量、蛋白質，跟 12 組配色都能自訂</figcaption>
+        </figure>
+        <figure>
+          <img src="ScreenShot/widget-home.png" alt="Android 主畫面小工具，顯示今日熱量與蛋白質進度">
+          <figcaption>桌面小工具，一眼看今天吃了多少</figcaption>
+        </figure>
       </div>
     </section>
 

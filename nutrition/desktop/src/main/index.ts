@@ -126,10 +126,10 @@ function registerNutritionHandlers(): void {
     }
     const pack = buildMigrationPack(snapshot, photoBytes)
     const window = BrowserWindow.fromWebContents(event.sender)
-    const defaultName = `飲食記錄搬家包-${new Date().toISOString().slice(0, 10)}${NUTRITION_PACK_EXTENSION}`
+    const defaultName = `食記搬家包-${new Date().toISOString().slice(0, 10)}${NUTRITION_PACK_EXTENSION}`
     const dialogOptions = {
       defaultPath: defaultName,
-      filters: [{ name: '飲食記錄搬家包', extensions: [NUTRITION_PACK_EXTENSION.slice(1)] }]
+      filters: [{ name: '食記搬家包', extensions: [NUTRITION_PACK_EXTENSION.slice(1)] }]
     }
     const result = window ? await dialog.showSaveDialog(window, dialogOptions) : await dialog.showSaveDialog(dialogOptions)
     if (result.canceled || !result.filePath) return { ok: false as const }
@@ -141,7 +141,7 @@ function registerNutritionHandlers(): void {
     const window = BrowserWindow.fromWebContents(event.sender)
     const dialogOptions = {
       properties: ['openFile'] as Array<'openFile'>,
-      filters: [{ name: '飲食記錄搬家包', extensions: [NUTRITION_PACK_EXTENSION.slice(1), 'json'] }]
+      filters: [{ name: '食記搬家包', extensions: [NUTRITION_PACK_EXTENSION.slice(1), 'json'] }]
     }
     const result = window ? await dialog.showOpenDialog(window, dialogOptions) : await dialog.showOpenDialog(dialogOptions)
     if (result.canceled || result.filePaths.length === 0) return { ok: false as const }

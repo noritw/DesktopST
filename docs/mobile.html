@@ -136,6 +136,12 @@
       aspect-ratio: 4 / 3;
     }
     .shot img { width: 100%; height: 100%; object-fit: contain; background: var(--surface-soft); }
+    .shot.filled { border-style: solid; background: var(--surface-soft); padding: 0; }
+
+    .gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 18px; margin-top: 6px; }
+    .gallery figure { margin: 0; border-radius: var(--radius-lg); overflow: hidden; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-card); }
+    .gallery img { display: block; width: 100%; aspect-ratio: 9 / 19.5; object-fit: cover; object-position: top; background: var(--surface-soft); }
+    .gallery figcaption { padding: 12px 14px; font-size: 0.9rem; font-weight: 700; color: var(--strong); }
 
     .cta { text-align: center; padding: 48px 32px; border-radius: var(--radius-xl); background: linear-gradient(160deg, rgba(170, 238, 255, 0.55), rgba(203, 251, 196, 0.55)), #fff; border: 1px solid var(--border); box-shadow: var(--shadow-soft); margin: 32px 0; }
     .cta h2 { margin: 0 0 10px; }
@@ -170,9 +176,8 @@
           <a class="btn btn-ghost" href="hub.html">看看其他版本</a>
         </div>
       </div>
-      <div class="shot">
-        手機版介面截圖製作中
-        <br><small>近期會補上實機截圖</small>
+      <div class="shot filled">
+        <img src="ScreenShot/mobile-chat-light.png" alt="DeST 手機版聊天畫面，兩位角色一起討論明天要不要去拿包裹">
       </div>
     </header>
 
@@ -242,6 +247,41 @@
 
       <div class="note">
         本機也支援接 Ollama／LM Studio 等本機 LLM，不一定要用雲端 API；用手機遠端操作電腦鍵盤滑鼠、開電腦上的程式這類「遙控電腦」功能是桌面版限定，手機獨立模式沒有電腦可控，所以不支援——跟上面「跟電腦版同步」是兩回事，同步聊天不受影響。
+      </div>
+    </section>
+
+    <section>
+      <h2>畫面速覽</h2>
+      <p class="sub">實機截圖，不是示意圖。</p>
+      <div class="gallery">
+        <figure>
+          <img src="ScreenShot/mobile-chat-dark-trpg.png" alt="深色主題下的聊天畫面，正在跑一場 TRPG 骰子檢定">
+          <figcaption>12 組配色，聊天也能拿來跑 TRPG</figcaption>
+        </figure>
+        <figure>
+          <img src="ScreenShot/mobile-group-presence.png" alt="這次對話有誰在場的角色管理清單">
+          <figcaption>多角色群組，隨時調整誰在場</figcaption>
+        </figure>
+        <figure>
+          <img src="ScreenShot/mobile-scene-list.png" alt="情境與設定組清單，可切換不同對話情境">
+          <figcaption>情境與設定組，一鍵切換對話模式</figcaption>
+        </figure>
+        <figure>
+          <img src="ScreenShot/mobile-emotion-edit.png" alt="編輯角色的表情圖片清單">
+          <figcaption>28 種表情，換表情、自訂表情圖（非必填，可共用同一張或留白）</figcaption>
+        </figure>
+        <figure>
+          <img src="ScreenShot/mobile-reminder.png" alt="提醒清單，可切換日曆同步或手動建立">
+          <figcaption>提醒：日曆同步、手動建立都支援</figcaption>
+        </figure>
+        <figure>
+          <img src="ScreenShot/mobile-news-list.png" alt="個人新聞報依關鍵字整理的新聞清單">
+          <figcaption>個人新聞報，依關鍵字幫你整理新聞</figcaption>
+        </figure>
+        <figure>
+          <img src="ScreenShot/widget-home.png" alt="Android 主畫面小工具，顯示角色最新一句話">
+          <figcaption>桌面小工具，不開 App 也能看一眼</figcaption>
+        </figure>
       </div>
     </section>
 

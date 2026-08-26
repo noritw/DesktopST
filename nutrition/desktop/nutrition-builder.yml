@@ -1,5 +1,5 @@
 appId: tw.nori.destnutrition
-productName: 飲食記錄
+productName: 食記
 electronVersion: 34.3.4
 asar: true
 directories:

@@ -165,20 +165,39 @@
           rgba(170, 238, 221, 0.10) 12px,
           rgba(255, 255, 255, 0.6) 12px,
           rgba(255, 255, 255, 0.6) 24px);
-      display: grid;
-      place-items: center;
+      display: flex;
+      align-items: stretch;
+      justify-content: center;
       color: var(--muted);
       font-weight: 700;
       text-align: center;
       padding: 18px;
-      aspect-ratio: 4 / 3;
+      aspect-ratio: 1080 / 2199;
     }
     .shot img {
+      flex: 1 1 0;
+      min-height: 0;
+      min-width: 0;
       width: 100%;
       height: 100%;
       object-fit: contain;
       background: var(--surface-soft);
       border-radius: calc(var(--radius-md) - 2px);
+    }
+    .shot.stack {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 6px;
+      aspect-ratio: 1080 / 2199;
+    }
+    .shot.stack img {
+      flex: 1 1 0;
+      min-height: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: calc(var(--radius-sm) - 2px);
     }
 
     /* ===== Comparison table ===== */
@@ -238,8 +257,9 @@
         <!-- 桌面版 -->
         <div class="product-card">
           <span class="tag tag-mint">Windows</span>
-          <div class="shot">
+          <div class="shot stack">
             <img src="ScreenShot/Dialog01.jpg" alt="DeST 桌面版對話截圖">
+            <img src="ScreenShot/ManyPeople.png" alt="多角色擺放在桌面上">
           </div>
           <h3>DeST 桌面版</h3>
           <p class="platform">Windows 桌面程式</p>
@@ -251,8 +271,7 @@
         <div class="product-card">
           <span class="tag tag-sky">Android</span>
           <div class="shot">
-            手機版截圖製作中
-            <br><small>Android APK</small>
+            <img src="ScreenShot/mobile-chat-light-hub.png" alt="DeST 手機版聊天畫面">
           </div>
           <h3>DeST 手機版</h3>
           <p class="platform">Android 獨立 App</p>
@@ -264,8 +283,7 @@
         <div class="product-card">
           <span class="tag tag-yellow">Android</span>
           <div class="shot">
-            食記截圖製作中
-            <br><small>Android APK</small>
+            <img src="ScreenShot/nutrition-daily-main-hub.png" alt="食記今日紀錄畫面">
           </div>
           <h3>食記</h3>
           <p class="platform">Android 獨立 App</p>

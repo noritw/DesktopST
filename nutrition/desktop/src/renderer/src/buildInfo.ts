@@ -18,7 +18,7 @@ export function formatBuildTime(iso: string = BUILD_TIME): string {
 
 /** 「關於」要顯示的兩行字。第二行可能是空的（沒有 git、時間壞掉）。 */
 export function buildInfoLines(): { title: string; detail: string } {
-  const title = `飲食記錄 v${APP_VERSION}`
+  const title = `食記 v${APP_VERSION}`
   const parts: string[] = []
   const time = formatBuildTime()
   if (time) parts.push(`建置 ${time}`)

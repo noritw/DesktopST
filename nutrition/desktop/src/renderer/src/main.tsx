@@ -260,7 +260,7 @@ function Header({ title, onBack, onEyebrowClick, actions }: { title: string; onB
       <div className="app-header-left">
         {onBack
           ? <button type="button" className="icon-button" aria-label="返回" onClick={onBack}><MonoIcon name="chevron-left" className="icon-md" /></button>
-          : <button type="button" className="eyebrow-button" onClick={onEyebrowClick}><p className="eyebrow">飲食記錄</p></button>}
+          : <button type="button" className="eyebrow-button" onClick={onEyebrowClick}><p className="eyebrow">食記</p></button>}
         <h1>{title}</h1>
       </div>
       {actions && <div className="app-header-actions">{actions}</div>}

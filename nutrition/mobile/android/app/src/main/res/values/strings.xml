@@ -1,11 +1,11 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">飲食記錄</string>
-    <string name="title_activity_main">飲食記錄</string>
+    <string name="app_name">食記</string>
+    <string name="title_activity_main">食記</string>
     <string name="package_name">tw.nori.destnutrition</string>
     <string name="custom_url_scheme">tw.nori.destnutrition</string>
 
-    <string name="widget_description">飲食記錄小工具</string>
+    <string name="widget_description">食記小工具</string>
     <string name="widget_placeholder">讀取中…</string>
     <string name="widget_refresh">重新整理</string>
     <string name="widget_action_camera">拍照記錄</string>
