@@ -499,8 +499,8 @@
           <tr>
             <td><strong>OpenAI</strong></td>
             <td>想要穩定、通用、中文英文都常用的人。</td>
-            <td>依帳號 Billing 頁面為準；若有 free credits 會先扣免費額度。許多帳號需要先購買最低預付點數才能繼續使用。</td>
-            <td>建議設定使用上限，並用便宜模型先測試。</td>
+            <td>依帳號 Billing 頁面為準；若有 free credits 會先扣免費額度。亦可選擇在 Data Controls 開啟「分享 API 輸入與輸出」，換取每日一定免費 token（額度依帳號 tier 與模型而異，以 Console 顯示為準）。許多帳號仍需先購買最低預付點數才能開始使用。</td>
+            <td>建議設定使用上限，並用便宜模型先測試。開啟資料分享後，對話內容可能被用於改進模型，不適合處理敏感或私人資訊。</td>
           </tr>
           <tr>
             <td><strong>Gemini</strong></td>
@@ -558,6 +558,9 @@
       </ol>
       <div class="success">
         新手測試建議：先問一句很短的話，例如「請用一句話自我介紹」。確認成功後，再開始長篇角色對話。
+      </div>
+      <div class="note">
+        省錢提示：到 <a href="https://platform.openai.com/settings/organization/data-controls/sharing" target="_blank" rel="noreferrer">Data Controls → Sharing</a> 開啟「Share inputs and outputs with OpenAI」（分享輸入與輸出），符合資格者可每日獲得一定免費 token 額度，超出部分才依一般費率計費。這是自願加入的方案，隨時可關閉；但開啟後 API 對話可能被用於改進模型，請勿用於不想被分享的內容。詳見 <a href="https://help.openai.com/en/articles/10306912-sharing-feedback-evals-and-api-data-with-openai" target="_blank" rel="noreferrer">OpenAI 資料分享說明</a>。
       </div>
       <p>OpenAI 官方文件提醒 API Key 是秘密，不應分享或放在前端程式碼中；API 請求會用 <code>Authorization: Bearer</code> 的方式帶上 Key。</p>
     </section>
@@ -744,6 +747,7 @@
         <li><a href="https://platform.openai.com/docs/quickstart" target="_blank" rel="noreferrer">OpenAI Developer Quickstart</a></li>
         <li><a href="https://platform.openai.com/docs/api-reference/authentication" target="_blank" rel="noreferrer">OpenAI API Authentication</a></li>
         <li><a href="https://help.openai.com/en/articles/8264778-what-is-prepaid-billing" target="_blank" rel="noreferrer">OpenAI Prepaid Billing 說明</a></li>
+        <li><a href="https://help.openai.com/en/articles/10306912-sharing-feedback-evals-and-api-data-with-openai" target="_blank" rel="noreferrer">OpenAI 資料分享與免費 token 說明</a></li>
         <li><a href="https://ai.google.dev/gemini-api/docs/api-key" target="_blank" rel="noreferrer">Gemini API Key 官方文件</a></li>
         <li><a href="https://ai.google.dev/gemini-api/docs/pricing" target="_blank" rel="noreferrer">Gemini API Pricing</a></li>
         <li><a href="https://ai.google.dev/gemini-api/docs/rate-limits" target="_blank" rel="noreferrer">Gemini Rate Limits</a></li>
