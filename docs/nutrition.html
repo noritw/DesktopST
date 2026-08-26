@@ -156,6 +156,32 @@
       .features { grid-template-columns: 1fr; }
       section { padding: 26px; }
     }
+
+    .shot img, .gallery img { cursor: zoom-in; }
+
+    .lightbox-overlay {
+      position: fixed; inset: 0; z-index: 999;
+      background: rgba(40, 30, 12, 0.86);
+      display: none; align-items: center; justify-content: center;
+      padding: 24px;
+      cursor: zoom-out;
+    }
+    .lightbox-overlay.open { display: flex; }
+    .lightbox-overlay img {
+      max-width: min(92vw, 480px);
+      max-height: 90vh;
+      border-radius: var(--radius-lg);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+      cursor: default;
+    }
+    .lightbox-close {
+      position: absolute; top: 20px; right: 24px;
+      width: 44px; height: 44px; border-radius: 50%;
+      background: rgba(255, 255, 255, 0.16); color: #fff; border: none;
+      font-size: 1.3rem; font-weight: 800; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .lightbox-close:hover { background: rgba(255, 255, 255, 0.3); }
   </style>
 </head>
 <body>
@@ -279,5 +305,42 @@
       食記 · Made with 🌱 by <a href="https://nori.tw" target="_blank" rel="noopener">Nori</a>
     </footer>
   </div>
+
+  <div class="lightbox-overlay" id="lightbox" role="dialog" aria-modal="true" aria-label="圖片預覽">
+    <button type="button" class="lightbox-close" aria-label="關閉預覽">✕</button>
+    <img id="lightboxImg" src="" alt="">
+  </div>
+
+  <script>
+    (function () {
+      var overlay = document.getElementById('lightbox');
+      var img = document.getElementById('lightboxImg');
+      var closeBtn = overlay.querySelector('.lightbox-close');
+
+      function openLightbox(src, alt) {
+        img.src = src;
+        img.alt = alt || '';
+        overlay.classList.add('open');
+      }
+      function closeLightbox() {
+        overlay.classList.remove('open');
+        img.src = '';
+      }
+
+      document.querySelectorAll('.shot img, .gallery img').forEach(function (el) {
+        el.addEventListener('click', function () {
+          openLightbox(el.src, el.alt);
+        });
+      });
+
+      overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) closeLightbox();
+      });
+      closeBtn.addEventListener('click', closeLightbox);
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeLightbox();
+      });
+    })();
+  </script>
 </body>
 </html>
