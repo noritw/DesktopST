@@ -24,14 +24,21 @@ export function LorebookSection({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [books, setBooks] = useState<Lorebook[]>([])
+  const booksRef = useRef<Lorebook[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // 正在編輯的草稿，跟 `books`（清單顯示用）分開存 —— 自己剛存檔後的
+  // `lorebooks:updated` 廣播會觸發 reload() 整包換新，若草稿跟清單共用同一份
+  // state，打字打到一半（尤其中文輸入法組字中）就會被自己這輪 debounce 存檔
+  // 觸發的重灌蓋掉。做法比照 SettingsWindow.tsx 的 worldDraft/personaDraft。
+  const [draft, setDraft] = useState<Lorebook | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
   const reload = useCallback(async () => {
-    const list = await window.api.invoke('lorebook:list') as Lorebook[]
-    setBooks(list ?? [])
-    return list ?? []
+    const list = (await window.api.invoke('lorebook:list') as Lorebook[]) ?? []
+    booksRef.current = list
+    setBooks(list)
+    return list
   }, [])
 
   useEffect(() => {
@@ -41,9 +48,17 @@ export function LorebookSection({
     return off
   }, [open, reload])
 
+  // 只在「切換到另一本」時才用最新清單覆蓋草稿，不要把 books 整包列進 deps
+  useEffect(() => {
+    const b = booksRef.current.find(b => b.id === selectedId)
+    setDraft(b ? { ...b } : null)
+  }, [selectedId])
+
   // 未存檔的變更在關閉視窗前也要落地，故改用 debounce 後直接寫檔
   const queueSave = useCallback((book: Lorebook) => {
-    setBooks(prev => prev.map(b => b.id === book.id ? book : b))
+    setDraft(book)
+    booksRef.current = booksRef.current.map(b => b.id === book.id ? book : b)
+    setBooks(booksRef.current)
     clearTimeout(saveTimers.current[book.id])
     saveTimers.current[book.id] = setTimeout(() => {
       window.api.invoke('lorebook:save', book).catch(() => {})
@@ -54,7 +69,7 @@ export function LorebookSection({
     for (const t of Object.values(saveTimers.current)) clearTimeout(t)
   }, [])
 
-  const selected = books.find(b => b.id === selectedId) ?? null
+  const selected = draft
 
   const editEntry = (entryId: string, fn: (e: LoreEntry) => LoreEntry) => {
     if (!selected) return
