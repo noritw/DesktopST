@@ -35,7 +35,7 @@ const build = spawnSync('node', ['scripts/build-nutrition-apk-release.mjs'], { c
 if (build.status !== 0) fail('建置失敗，上面有錯誤訊息。', build.status ?? 1)
 
 const pkg = JSON.parse(fs.readFileSync(path.join(mobileRoot, 'package.json'), 'utf8'))
-const apkPath = path.join(root, 'out', 'apk', `DeST飲食記錄-v${pkg.version}-release.apk`)
+const apkPath = path.join(root, 'out', 'apk', `DeSTNutrition-v${pkg.version}-release.apk`)
 if (!fs.existsSync(apkPath)) fail(`建置完成但找不到 APK：${apkPath}`)
 
 console.log('')

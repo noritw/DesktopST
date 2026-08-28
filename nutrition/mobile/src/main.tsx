@@ -1353,7 +1353,7 @@ function App(): React.JSX.Element {
 
   /** 依照打開表單時記下的 foodFormOrigin，回到「進來的地方」而不是永遠回食物庫。 */
   function returnFromFoodForm(): void {
-    if (foodFormOrigin === 'quickEntry') { setView('daily'); setQuickEntryOpen(true) }
+    if (foodFormOrigin === 'quickEntry') { setView('daily'); setQuickEntryOpen(true); setQuickEntryTime(timeInputValue(Date.now())) }
     else if (foodFormOrigin === 'mealEditor') { setView('mealEditor') }
     else { setView('library') }
   }
@@ -3135,6 +3135,15 @@ function App(): React.JSX.Element {
           onClick={() => void refetchHistoricalBurn(selectedDate)}
         >
           {historicalRefreshBusy ? '重新查詢中...' : '這天的手錶消耗看起來不對？重新查一次'}
+        </button>
+      )}
+      {isViewingToday && healthSettings.connected && healthSettings.useWatchCalorieLimit && healthAvailable && healthPermissionGranted && (
+        <button
+          type="button"
+          disabled={healthSyncing}
+          onClick={() => void runHealthSync()}
+        >
+          {healthSyncing ? '重新查詢中...' : '今天的手錶消耗看起來沒更新？重新查一次'}
         </button>
       )}
       <section className="home-actions">
