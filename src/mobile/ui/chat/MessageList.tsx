@@ -183,7 +183,7 @@ function LlmBadge({ message }: { message: MessageSnapshot }): JSX.Element | null
         type="button"
         // 視覺是 14px 的小圓，但點擊區用 padding 撐到能按得到（小圓本身太小按不準）
         className="-m-1 inline-flex items-center justify-center p-1"
-        aria-label={`生成模型：${formatLlmHoverTitle(provider, model)}`}
+        aria-label={`生成模型：${formatLlmHoverTitle(provider, model, message.timestamp)}`}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
@@ -193,7 +193,7 @@ function LlmBadge({ message }: { message: MessageSnapshot }): JSX.Element | null
       </button>
       {open && (
         <span className="min-w-0 truncate text-[11px] text-[var(--text-sub)]">
-          {formatLlmHoverTitle(provider, model)}
+          {formatLlmHoverTitle(provider, model, message.timestamp)}
         </span>
       )}
     </>

@@ -402,7 +402,7 @@ export default function LogWindow() {
     if (!provider && !model) return null
     return (
       <span
-        title={formatLlmHoverTitle(provider, model)}
+        title={formatLlmHoverTitle(provider, model, msg.timestamp)}
         className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full border border-border bg-surface text-[9px] text-secondary select-none"
       >
         {llmBadgeGlyph(provider)}

@@ -238,12 +238,13 @@ export async function speakStandaloneReminder(opts: {
     }
   }
 
+  // 只用於 lore 關鍵字掃描（buildLoreBlockFor），不會整包塞進 prompt 當對話紀錄——
+  // 提醒觸發本來就該輕量：真的要語境就交給下面的 memorySummary（既有的濃縮摘要），
+  // 把 keepRecentN 則原始訊息整段複製進去只會把「提醒指令」稀釋掉（owner 2026-08-29 回報，
+  // 與桌面 `ipcHandlers.ts` 的 `triggerReminderSpeak` 對齊）。
   const reminderMessages = reminder.injectConversationContext
     ? contextMessages(conv.messages, settings.memory.keepRecentN)
     : []
-  if (reminder.injectConversationContext && reminderMessages.length > 0) {
-    ctxParts.push('[近期對話紀錄]\n以下僅供參考語境；不要長篇接續聊天。')
-  }
 
   // 發話重點：有提醒內容＝優先；沒有內容但抽到新聞＝直接用新聞指令（和「說點什麼」一致）。
   if (reminder.prompt?.trim()) {
@@ -276,7 +277,8 @@ export async function speakStandaloneReminder(opts: {
       {
         settings,
         character: char,
-        messages: reminderMessages,
+        // 不塞原始對話紀錄——見上面 reminderMessages 的說明；語境交給 memorySummary。
+        messages: [],
         speakerNameById: Object.fromEntries(opts.characters.map((c) => [c.id, c.name])),
         persona: opts.getPersona(),
         world,
