@@ -226,6 +226,23 @@ export interface RemoteControlSettings {
 /** 見 `core/types.ts` 的同名型別；`gps` 只有手機端會寫入。 */
 export type WeatherLocationSource = 'ip' | 'gps' | 'manual' | ''
 
+/** 見 `core/types.ts` 的同名型別 `WeatherProactiveSettings`。 */
+export interface WeatherProactiveSettings {
+  enabled: boolean
+  earthquake: boolean
+  earthquakeMinIntensity: number
+  typhoon: boolean
+  rainTomorrow: boolean
+  rainThreshold: number
+  tempSwing: boolean
+  tempSwingThreshold: number
+  niceDay: boolean
+  niceDayMinIntervalDays: number
+  dailyLimit: number
+  quietHours: { start: number; end: number }
+  shadowMode: boolean
+}
+
 export interface WeatherSettings {
   enabled: boolean
   polish: boolean
@@ -238,6 +255,7 @@ export interface WeatherSettings {
     cwaApiKey: string
     forecastCounty: string
   }
+  proactive?: WeatherProactiveSettings
 }
 
 export type OmikujiTier = '大吉' | '中吉' | '小吉' | '吉' | '末吉' | '凶' | '大凶'

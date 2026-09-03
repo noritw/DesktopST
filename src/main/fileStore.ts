@@ -2,6 +2,8 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { v4 as uuidv4 } from 'uuid'
 import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder } from './types'
+import type { WeatherWatchSnapshot } from '../core/weather'
+import { normalizeWeatherWatchSnapshot } from '../core/weather'
 import type { CharacterDisplayConfigMap, FaceCropRect } from '../core/character/displayImage'
 import { type Lorebook, normalizeLorebook } from '../core/lore'
 import { DEFAULT_SETTINGS } from './types'
@@ -199,6 +201,22 @@ export function saveReminders(reminders: Reminder[]): void {
     electronStorage.writeJsonSync(keys.REMINDERS_KEY, reminders)
   } catch (e) {
     console.error('[fileStore] saveReminders failed:', e)
+  }
+}
+
+// ── 天氣主動發話：上次觀測快照（桌面限定，見 `core/store/keys.ts` 附註）─
+
+export function loadWeatherWatchSnapshot(): WeatherWatchSnapshot {
+  const raw = electronStorage.readJsonSync<unknown>(keys.WEATHER_WATCH_SNAPSHOT_KEY)
+  return normalizeWeatherWatchSnapshot(raw)
+}
+
+export function saveWeatherWatchSnapshot(snapshot: WeatherWatchSnapshot): void {
+  ensureDirs()
+  try {
+    electronStorage.writeJsonSync(keys.WEATHER_WATCH_SNAPSHOT_KEY, snapshot)
+  } catch (e) {
+    console.error('[fileStore] saveWeatherWatchSnapshot failed:', e)
   }
 }
 

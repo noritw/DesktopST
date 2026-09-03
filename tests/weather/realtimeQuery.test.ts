@@ -79,7 +79,7 @@ describe('fetchCwaData', () => {
     expect(result.injectionText).toContain('降雨機率：今晚 30%，明天白天 60%')
   })
 
-  it('earthquake：有地震記錄時組出注入字串', async () => {
+  it('earthquake：有地震記錄時組出注入字串（震度取自使用者設定的縣市，不是寫死台北）', async () => {
     const deps = {
       http: http({
         'E-A0016-001': {
@@ -92,17 +92,39 @@ describe('fetchCwaData', () => {
                 EpicenterLocation: '花蓮縣近海',
                 EarthquakeMagnitude: { MagnitudeValue: 5.2 },
                 FocalDepth: 10,
-                Intensity: { ShakingArea: [{ areaName: '臺北市', areaIntensity: '2' }] }
+                Intensity: { ShakingArea: [{ areaName: '臺北市', areaIntensity: '2級' }, { areaName: '高雄市', areaIntensity: '1級' }] }
               }
             ]
           }
         }
       })
     }
-    const result = await fetchCwaData(deps, 'earthquake', 'test-key', '')
+    const result = await fetchCwaData(deps, 'earthquake', 'test-key', '台北市')
     expect(result.injectionText).toContain('最近一次顯著有感地震')
     expect(result.injectionText).toContain('規模 M5.2')
-    expect(result.injectionText).toContain('台北市震度：2 級')
+    expect(result.injectionText).toContain('臺北市震度：2級')
+  })
+
+  it('earthquake：沒設定縣市時不附震度那行（不再預設猜台北）', async () => {
+    const deps = {
+      http: http({
+        'E-A0016-001': {
+          success: 'true',
+          records: {
+            Earthquake: [{
+              EarthquakeNo: 2,
+              OriginTime: '2026-08-22 10:00:00',
+              EpicenterLocation: '花蓮縣近海',
+              EarthquakeMagnitude: { MagnitudeValue: 5.2 },
+              FocalDepth: 10,
+              Intensity: { ShakingArea: [{ areaName: '臺北市', areaIntensity: '2級' }] }
+            }]
+          }
+        }
+      })
+    }
+    const result = await fetchCwaData(deps, 'earthquake', 'test-key', '')
+    expect(result.injectionText).not.toContain('震度：')
   })
 
   it('earthquake：無記錄時回沒有地震的訊息', async () => {

@@ -15,7 +15,9 @@ import {
   geocodeCity as coreGeocodeCity,
   getRealtimeQueryContextString as coreGetRealtimeQueryContextString,
   getWeatherContextString as coreGetWeatherContextString,
+  observeWeather as coreObserveWeather,
   polishWeatherDescription as corePolishWeatherDescription,
+  type ObservedWeather,
   type RealtimeQueryContextResult,
   type WeatherData
 } from '../core/weather'
@@ -78,4 +80,9 @@ export function getRealtimeQueryContextString(
   settings: AppSettings
 ): Promise<RealtimeQueryContextResult> {
   return coreGetRealtimeQueryContextString(userMessage, settings, deps)
+}
+
+/** 天氣主動發話：觀測地震／颱風／預報的當下狀態，供 `weatherWatcher.ts` 比對轉變。 */
+export function observeWeather(apiKey: string, county: string): Promise<ObservedWeather> {
+  return coreObserveWeather(deps, apiKey, county)
 }

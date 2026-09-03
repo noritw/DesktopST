@@ -255,6 +255,34 @@ export interface ScenePreset {
  */
 export type WeatherLocationSource = 'ip' | 'gps' | 'manual' | ''
 
+/**
+ * 天氣主動發話（地震／颱風／變天／好天氣邀約），見
+ * `docs/weather-proactive-speech-kickoff.md`。全部欄位皆可選——缺欄位時
+ * `defaultProactiveWeatherSettings()`（`core/weather/proactive.ts`）補預設值。
+ *
+ * ⚠️ 這是模組底下的子設定：S2 M5 同步子集（`core/sync/settingsSnapshot.ts`）
+ * 要一起加，別重演 `weather.polish` 那次的遺漏。
+ */
+export interface WeatherProactiveSettings {
+  /** 總開關，預設 false */
+  enabled: boolean
+  earthquake: boolean
+  earthquakeMinIntensity: number
+  typhoon: boolean
+  rainTomorrow: boolean
+  rainThreshold: number
+  tempSwing: boolean
+  tempSwingThreshold: number
+  /** 好天氣邀約：即使總開關開了也要再打開一次，預設 false */
+  niceDay: boolean
+  niceDayMinIntervalDays: number
+  /** 一天最多主動發話幾則（好天氣邀約不佔額度，見 kickoff §7.6） */
+  dailyLimit: number
+  quietHours: { start: number; end: number }
+  /** 影子模式：判斷照跑但不真的發話，只寫 log。預設 true，見 kickoff §10.3 */
+  shadowMode: boolean
+}
+
 export interface WeatherSettings {
   enabled: boolean
   polish: boolean
@@ -267,6 +295,7 @@ export interface WeatherSettings {
     cwaApiKey: string
     forecastCounty: string
   }
+  proactive?: WeatherProactiveSettings
 }
 
 export interface SpotifySettings {

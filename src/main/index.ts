@@ -8,6 +8,7 @@ import { initState, registerIpcHandlers, dismissAllAuxWindows, restoreDismissedA
 import { testCwaApiKey } from './cwaService'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
+import { initWeatherWatcher, triggerManualPoll } from './weatherWatcher'
 import { loadNewsModuleSettings } from './modules/news/settings'
 import {
   createCharacterWindow,
@@ -344,6 +345,11 @@ app.on('ready', async () => {
   // Init reminder scheduler (after state is ready)
   initReminderScheduler(triggerReminderSpeak)
   setIdleSkipMinutes(settings.ui.reminderIdleSkipMinutes ?? 0)
+
+  // 天氣主動發話（地震／颱風／變天）：見 `weatherWatcher.ts`；總開關預設關閉，安全空跑
+  initWeatherWatcher()
+  // debug 限定：設定頁「立即輪詢一次」，不必等 5–60 分鐘排程
+  ipcMain.handle('weather:proactive-test-poll', async () => triggerManualPoll())
 
   // 日曆驅動提醒（§5.3）：開機掃一次 + 之後每 8 小時重掃一次。
   // 未開日曆同步／未授權時 runCalendarReminderScanDirect() 內部直接回 null，這裡不用先判斷。

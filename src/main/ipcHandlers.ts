@@ -4,6 +4,8 @@ import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { AppSettings, Character, ColorTheme, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo, NewsLinkInfo, WeatherLocationSource } from './types'
+import type { WeatherProactiveSettings } from '../core/types'
+import { defaultProactiveWeatherSettings } from '../core/weather'
 import { MESSAGE_REACTION_EMOJIS } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM, generateLoreEntryForCharacter } from './llm/index'
@@ -2454,6 +2456,53 @@ function getActiveConversation(): Conversation | null {
   return conversations.get(activeConversationId) ?? null
 }
 
+/**
+ * 天氣主動發話（`main/weatherWatcher.ts`）需要的少量狀態，集中在這一支：
+ * 已解密的 CWA 金鑰、縣市、主動發話設定、最後一則使用者訊息時間
+ * （用來判斷「對話進行中不插話」，見 kickoff §7.5）。
+ */
+export function getWeatherWatcherContextDirect(): {
+  cwaApiKey: string
+  county: string
+  proactive: WeatherProactiveSettings
+  lastUserMessageAt: number | null
+} {
+  const w = settings.weather
+  const rq = w?.realtimeQuery
+  const county = rq?.forecastCounty || w?.locationName || ''
+  const conv = getActiveConversation()
+  const lastUserMsg = conv?.messages ? [...conv.messages].reverse().find(m => m.role === 'user') : undefined
+  return {
+    cwaApiKey: rq?.cwaApiKey && !rq.cwaApiKey.startsWith('enc:v1:') ? rq.cwaApiKey : '',
+    county,
+    // 淺層 spread：UI 用 dot-path 逐欄位寫入草稿，磁碟上的 `proactive` 物件可能只有
+    // 使用者實際碰過的欄位。用 `??` 整包退回預設值會漏掉「碰過部分欄位」的情況，
+    // 未碰過的欄位（如 `quietHours`）會是 undefined，門檻比對就會出現 NaN。
+    proactive: { ...defaultProactiveWeatherSettings(), ...w?.proactive },
+    lastUserMessageAt: lastUserMsg?.timestamp ?? null
+  }
+}
+
+/** 主動發話事件觸發後呼叫：合成虛擬提醒，走既有的 `triggerReminderSpeak()` 發話管線。 */
+export async function speakWeatherEventDirect(injectionText: string): Promise<void> {
+  const now = Date.now()
+  const virtual: Reminder = {
+    id: `weather-proactive:${now}`,
+    label: '天氣主動發話',
+    prompt: injectionText,
+    enabled: true,
+    schedule: { type: 'once', at: now },
+    createdAt: now,
+    sceneConstraint: 'any_scene',
+    injectWeather: false,
+    injectCalendar: false,
+    injectNews: false,
+    injectPinnedNotes: false,
+    injectConversationContext: true
+  }
+  await triggerReminderSpeak(virtual)
+}
+
 function createNewConversation(): Conversation {
   const id = uuidv4()
   const conv: Conversation = {
@@ -3982,6 +4031,8 @@ export function registerIpcHandlers() {
   ipcMain.handle('weather:test-cwa-key', async (_, apiKey: string) => {
     return testCwaApiKey(apiKey)
   })
+  // 'weather:proactive-test-poll' 註冊在 `index.ts`（避免跟 `weatherWatcher.ts` 循環 import——
+  // 它反過來要呼叫這支檔案的 `getWeatherWatcherContextDirect`／`speakWeatherEventDirect`）
 
   // Spotify
   ipcMain.handle('spotify:open-settings', () => {

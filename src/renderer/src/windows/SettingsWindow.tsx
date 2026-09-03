@@ -18,6 +18,7 @@ import {
   splitModelsByPrice
 } from '@core/llm/modelCatalog'
 import { isActiveSceneDirty } from '@core/scene/dirty'
+import { defaultProactiveWeatherSettings } from '@core/weather'
 import { useAppStore } from '../stores/useAppStore'
 import type { AppSettings, PersonaPreset, RemoteCapability, ScenePreset, WorldPreset } from '../types'
 import MonoIcon from '../components/MonoIcon'
@@ -300,6 +301,15 @@ export default function SettingsWindow() {
   const [cwaRealtimeExpanded, setCwaRealtimeExpanded] = useState(false)
   const [cwaTesting, setCwaTesting] = useState(false)
   const [cwaTestMsg, setCwaTestMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+  const [proactiveWeatherExpanded, setProactiveWeatherExpanded] = useState(false)
+  const [proactiveTestPolling, setProactiveTestPolling] = useState(false)
+  const [proactiveTestResult, setProactiveTestResult] = useState<{
+    skippedReason?: 'disabled' | 'no_api_key'
+    rawEvents: { kind: string; injectionText: string }[]
+    gatedEvents: { kind: string; injectionText: string }[]
+    shadowMode: boolean
+    spoke: boolean
+  } | null>(null)
   const messagePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const messagePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -2836,6 +2846,206 @@ export default function SettingsWindow() {
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* 天氣主動發話（進階）*/}
+              <div className="border border-border rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between px-3 py-2 text-sm text-primary hover:bg-surface-hover transition-colors"
+                  onClick={() => setProactiveWeatherExpanded(v => !v)}
+                >
+                  <span className="font-medium">天氣主動發話（進階）</span>
+                  <span className="text-secondary text-xs">{proactiveWeatherExpanded ? '▲' : '▼'}</span>
+                </button>
+                {proactiveWeatherExpanded && (() => {
+                  const pw = { ...defaultProactiveWeatherSettings(), ...draft!.weather?.proactive }
+                  const setPw = (key: string, value: unknown) => set(`weather.proactive.${key}`, value)
+                  const disabledIfOff = !draft!.weather?.realtimeQuery?.cwaApiKey?.trim()
+                  return (
+                    <div className="px-3 pb-3 space-y-3 border-t border-border">
+                      <p className="text-[11px] text-secondary pt-2">
+                        角色在你沒開口時，因為地震／颱風／變天等事件主動說一句話。需要先在上方設好「即時氣象查詢」的 API Key。
+                        {pw.shadowMode && pw.enabled && (
+                          <span className="block mt-1 text-teal">影子模式中：判斷照跑，但只寫 log 不真的發話。log 位置：使用者資料夾 / weather-proactive-shadow.log</span>
+                        )}
+                      </p>
+
+                      <label className={`flex items-center gap-2 cursor-pointer ${disabledIfOff ? 'opacity-40' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={pw.enabled}
+                          disabled={disabledIfOff}
+                          onChange={e => setPw('enabled', e.target.checked)}
+                          className="accent-teal w-4 h-4"
+                        />
+                        <span className="text-sm text-primary">啟用天氣主動發話</span>
+                      </label>
+
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={pw.shadowMode}
+                          onChange={e => setPw('shadowMode', e.target.checked)}
+                          className="accent-teal w-4 h-4"
+                        />
+                        <span className="text-sm text-primary">影子模式（先觀察判斷結果，不真的發話）</span>
+                      </label>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" checked={pw.earthquake} onChange={e => setPw('earthquake', e.target.checked)} className="accent-teal w-4 h-4" />
+                          <span className="text-sm text-primary">地震</span>
+                        </label>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-secondary">最低震度</span>
+                          <select
+                            className="bg-bg border border-border rounded-lg px-2 py-1 text-xs text-primary focus:outline-none focus:border-teal"
+                            value={pw.earthquakeMinIntensity}
+                            onChange={e => setPw('earthquakeMinIntensity', Number(e.target.value))}
+                          >
+                            {[1, 2, 3, 4, 5, 6, 7].map(n => <option key={n} value={n}>{n} 級</option>)}
+                          </select>
+                        </div>
+
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" checked={pw.typhoon} onChange={e => setPw('typhoon', e.target.checked)} className="accent-teal w-4 h-4" />
+                          <span className="text-sm text-primary">颱風</span>
+                        </label>
+                        <span />
+
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" checked={pw.rainTomorrow} onChange={e => setPw('rainTomorrow', e.target.checked)} className="accent-teal w-4 h-4" />
+                          <span className="text-sm text-primary">明日降雨提醒</span>
+                        </label>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-secondary">降雨機率 ≥</span>
+                          <input
+                            type="number" min={0} max={100} step={5}
+                            className="w-16 bg-bg border border-border rounded-lg px-2 py-1 text-xs text-primary focus:outline-none focus:border-teal"
+                            value={pw.rainThreshold}
+                            onChange={e => setPw('rainThreshold', Number(e.target.value))}
+                          />
+                          <span className="text-xs text-secondary">%</span>
+                        </div>
+
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" checked={pw.tempSwing} onChange={e => setPw('tempSwing', e.target.checked)} className="accent-teal w-4 h-4" />
+                          <span className="text-sm text-primary">明日變天提醒</span>
+                        </label>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-secondary">溫差 ≥</span>
+                          <input
+                            type="number" min={1} max={20} step={1}
+                            className="w-16 bg-bg border border-border rounded-lg px-2 py-1 text-xs text-primary focus:outline-none focus:border-teal"
+                            value={pw.tempSwingThreshold}
+                            onChange={e => setPw('tempSwingThreshold', Number(e.target.value))}
+                          />
+                          <span className="text-xs text-secondary">°C</span>
+                        </div>
+
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" checked={pw.niceDay} onChange={e => setPw('niceDay', e.target.checked)} className="accent-teal w-4 h-4" />
+                          <span className="text-sm text-primary">好天氣邀約</span>
+                        </label>
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-secondary">最少間隔</span>
+                          <input
+                            type="number" min={1} max={30} step={1}
+                            className="w-16 bg-bg border border-border rounded-lg px-2 py-1 text-xs text-primary focus:outline-none focus:border-teal"
+                            value={pw.niceDayMinIntervalDays}
+                            onChange={e => setPw('niceDayMinIntervalDays', Number(e.target.value))}
+                          />
+                          <span className="text-xs text-secondary">天</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-1">
+                          <span className="text-xs text-secondary">每日最多</span>
+                          <input
+                            type="number" min={1} max={10} step={1}
+                            className="w-14 bg-bg border border-border rounded-lg px-2 py-1 text-xs text-primary focus:outline-none focus:border-teal"
+                            value={pw.dailyLimit}
+                            onChange={e => setPw('dailyLimit', Number(e.target.value))}
+                          />
+                          <span className="text-xs text-secondary">則（好天氣邀約不算在內）</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-secondary">靜音時段</span>
+                        <select
+                          className="bg-bg border border-border rounded-lg px-2 py-1 text-xs text-primary focus:outline-none focus:border-teal"
+                          value={pw.quietHours.start}
+                          onChange={e => setPw('quietHours', { ...pw.quietHours, start: Number(e.target.value) })}
+                        >
+                          {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{h}:00</option>)}
+                        </select>
+                        <span className="text-xs text-secondary">至</span>
+                        <select
+                          className="bg-bg border border-border rounded-lg px-2 py-1 text-xs text-primary focus:outline-none focus:border-teal"
+                          value={pw.quietHours.end}
+                          onChange={e => setPw('quietHours', { ...pw.quietHours, end: Number(e.target.value) })}
+                        >
+                          {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{h}:00</option>)}
+                        </select>
+                        <span className="text-[11px] text-secondary">（地震不受此限）</span>
+                      </div>
+
+                      {/* debug：立即輪詢一次，不必等排程 */}
+                      <div className="pt-1 border-t border-border">
+                        <div className="flex items-center gap-2 pt-2">
+                          <button
+                            type="button"
+                            className="btn-secondary text-xs px-3 py-1.5"
+                            disabled={proactiveTestPolling || dirty || disabledIfOff}
+                            onClick={async () => {
+                              setProactiveTestPolling(true)
+                              setProactiveTestResult(null)
+                              try {
+                                const result = await window.api.invoke('weather:proactive-test-poll') as typeof proactiveTestResult
+                                setProactiveTestResult(result)
+                              } finally {
+                                setProactiveTestPolling(false)
+                              }
+                            }}
+                          >
+                            {proactiveTestPolling ? '輪詢中…' : '立即輪詢一次（debug）'}
+                          </button>
+                          {dirty && (
+                            <span className="text-[11px] text-secondary">請先儲存設定再測試</span>
+                          )}
+                        </div>
+                        {proactiveTestResult && (
+                          <div className="mt-2 space-y-1 text-xs">
+                            {proactiveTestResult.skippedReason === 'disabled' && (
+                              <p className="text-secondary">總開關是關的，沒有輪詢。</p>
+                            )}
+                            {proactiveTestResult.skippedReason === 'no_api_key' && (
+                              <p className="text-secondary">沒有 CWA API Key，沒有輪詢。</p>
+                            )}
+                            {!proactiveTestResult.skippedReason && proactiveTestResult.rawEvents.length === 0 && (
+                              <p className="text-secondary">輪詢完成，這次沒有偵測到任何轉變（正常——多數時候都會是這樣）。</p>
+                            )}
+                            {!proactiveTestResult.skippedReason && proactiveTestResult.rawEvents.length > 0 && (
+                              <>
+                                <p className="text-primary">
+                                  偵測到 {proactiveTestResult.rawEvents.length} 個事件，
+                                  剎車後 {proactiveTestResult.gatedEvents.length} 個
+                                  {proactiveTestResult.shadowMode ? '（影子模式，已寫入 log，不會真的發話）' : proactiveTestResult.spoke ? '，已交給角色發話' : '（被每日額度／靜音時段等剎車擋下）'}
+                                </p>
+                                {proactiveTestResult.gatedEvents.map((ev, i) => (
+                                  <p key={i} className="text-secondary whitespace-pre-line">{ev.injectionText}</p>
+                                ))}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
             <ExtensionRow

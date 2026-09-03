@@ -78,6 +78,13 @@ export const WIDGET_CONFIG_KEY = 'widget-config.json'
  */
 export const CALENDAR_SYNC_FLAG_KEY = 'calendar-sync-flag.json'
 
+/**
+ * 天氣主動發話：上次觀測到的世界狀態快照（`core/weather/proactive.ts` 的
+ * `WeatherWatchSnapshot`）。桌面限定裝置本地狀態，不進 S2 同步——
+ * 「已經講過哪些事件」換一台電腦沒有意義，帶著走反而會讓新裝置錯過該講的事件。
+ */
+export const WEATHER_WATCH_SNAPSHOT_KEY = 'weather-watch-snapshot.json'
+
 export const MODULES_DIR = 'modules'
 export const CHARACTERS_DIR = 'characters'
 export const CONVERSATIONS_DIR = 'conversations'

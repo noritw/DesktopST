@@ -1,5 +1,6 @@
 import type { WeatherDeps } from './providers'
 import { cwaFetch, type CwaForecastResponse } from './cwa'
+import { normalizeCountyName } from './proactive'
 
 /**
  * 中央氣象署即時關鍵詞查詢：天氣預報／地震／颱風。
@@ -122,7 +123,7 @@ export interface CwaEqResponse {
   }
 }
 
-async function fetchEarthquake(deps: WeatherDeps, apiKey: string): Promise<string> {
+async function fetchEarthquake(deps: WeatherDeps, apiKey: string, county: string): Promise<string> {
   const json = await cwaFetch(deps, 'E-A0016-001', { limit: '1' }, apiKey) as CwaEqResponse
   if (json.success !== 'true') throw new Error('CWA API error')
 
@@ -144,17 +145,20 @@ async function fetchEarthquake(deps: WeatherDeps, apiKey: string): Promise<strin
   const depth = eq.FocalDepth ?? '—'
   const location = eq.EpicenterLocation ?? '未知'
 
-  // 取台北市震度（如有）
+  // 取使用者所在縣市的震度（如有）——原本寫死台北，改用天氣設定的縣市。
+  // 顯示用原始字串（"5弱"／"5強"），不是 `findIntensityForCounty` 拿來排序用的數值。
   const areas = eq.Intensity?.ShakingArea ?? []
-  const taipeiArea = areas.find(a => a.areaName.includes('臺北') || a.areaName.includes('台北'))
-  const taipeiIntensity = taipeiArea ? `台北市震度：${taipeiArea.areaIntensity} 級` : ''
+  const matchedArea = county
+    ? areas.find(a => normalizeCountyName(a.areaName).includes(normalizeCountyName(county)) || normalizeCountyName(county).includes(normalizeCountyName(a.areaName)))
+    : undefined
+  const countyIntensity = matchedArea ? `${matchedArea.areaName}震度：${matchedArea.areaIntensity}` : ''
 
   let text =
     `[即時查詢：最近地震]\n` +
     `最近一次顯著有感地震（${dateStr}）\n` +
     `規模 M${magnitude}，震央：${location}，深度 ${depth} km\n`
 
-  if (taipeiIntensity) text += `${taipeiIntensity}\n`
+  if (countyIntensity) text += `${countyIntensity}\n`
 
   if (hoursAgo > 6) {
     text += `（此地震發生於約 ${hoursAgo} 小時前）\n`
@@ -287,7 +291,7 @@ export async function fetchCwaData(
       injectionText = await fetchForecast(deps, apiKey, forecastCounty)
       break
     case 'earthquake':
-      injectionText = await fetchEarthquake(deps, apiKey)
+      injectionText = await fetchEarthquake(deps, apiKey, forecastCounty)
       break
     case 'typhoon': {
       const result = await fetchTyphoon(deps, apiKey)

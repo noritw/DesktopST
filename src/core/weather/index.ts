@@ -41,3 +41,25 @@ export {
   type RealtimeQuerySettingsLike,
   type RealtimeQueryType
 } from './realtimeQuery'
+export {
+  DEFAULT_THRESHOLDS,
+  defaultProactiveWeatherSettings,
+  diffWeatherEvents,
+  emptySnapshot,
+  findIntensityForCounty,
+  gateProactiveEvents,
+  normalizeCountyName,
+  normalizeWeatherWatchSnapshot,
+  observeWeather,
+  parseIntensity,
+  thresholdsFromProactiveSettings,
+  type ObservedEarthquake,
+  type ObservedForecast,
+  type ObservedTyphoon,
+  type ObservedWeather,
+  type ProactiveGateContext,
+  type ProactiveThresholds,
+  type WeatherEvent,
+  type WeatherEventKind,
+  type WeatherWatchSnapshot
+} from './proactive'
