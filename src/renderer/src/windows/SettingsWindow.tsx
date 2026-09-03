@@ -22,6 +22,7 @@ import { defaultProactiveWeatherSettings } from '@core/weather'
 import { useAppStore } from '../stores/useAppStore'
 import type { AppSettings, PersonaPreset, RemoteCapability, ScenePreset, WorldPreset } from '../types'
 import MonoIcon from '../components/MonoIcon'
+import AutoTextarea from '../components/AutoTextarea'
 import { LorebookSection } from '../components/LorebookSection'
 import { RemoteControlSettingsPanel } from '../modules/remote-control'
 import { NewsSettingsPanel } from '../modules/news'
@@ -2198,7 +2199,7 @@ export default function SettingsWindow() {
                   />
                 </div>
                 <Field label="自我介紹（選填）">
-                  <textarea className="input-field min-h-[80px] resize-none"
+                  <AutoTextarea minHeight={80}
                     value={personaDraft.description}
                     onChange={e => editPersonaDraft(prev => ({ ...prev, description: e.target.value }))}
                     placeholder="讓角色更了解你..."
