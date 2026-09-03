@@ -323,6 +323,15 @@ export interface CalendarSettings {
   notifyOnUnsyncedChanges?: boolean
 }
 
+/**
+ * 早安簡報：使用者今天第一次理這個 App 時，角色主動打一聲招呼
+ * （`docs/morning-briefing-kickoff.md`）。跟天氣／日曆等模組一樣，
+ * 缺省（`undefined`）視同關閉——這是會讓角色主動說話的功能，預設不開。
+ */
+export interface MorningBriefingSettings {
+  enabled: boolean
+}
+
 export interface MobileSettings {
   enabled: boolean
   port: number
@@ -406,6 +415,7 @@ export interface AppSettings {
   weather?: WeatherSettings
   spotify?: SpotifySettings
   calendar?: CalendarSettings
+  morningBriefing?: MorningBriefingSettings
   mobile?: MobileSettings
   remoteControl?: RemoteControlSettings
   llm: {

@@ -9,6 +9,7 @@ import { testCwaApiKey } from './cwaService'
 import { checkForUpdates } from './updateChecker'
 import { initReminderScheduler, setIdleSkipMinutes } from './reminderScheduler'
 import { initWeatherWatcher, triggerManualPoll } from './weatherWatcher'
+import { shouldTriggerMorningBriefingNow, triggerMorningBriefing } from './morningBriefing'
 import { loadNewsModuleSettings } from './modules/news/settings'
 import {
   createCharacterWindow,
@@ -433,6 +434,12 @@ app.on('browser-window-focus', () => {
   if (blurTimer) { clearTimeout(blurTimer); blurTimer = null }
   restoreAuxWindowsFromRememberedState()
   broadcastToAll('ui:app-focus', { focused: true })
+
+  // 早安簡報：只做旗標檢查（同步、快），符合條件才丟到背景，不 await——
+  // 這個 handler 一天會觸發很多次，不能塞慢動作進來（見 kickoff §2.1）
+  if (shouldTriggerMorningBriefingNow()) {
+    void triggerMorningBriefing()
+  }
 })
 
 app.on('window-all-closed', () => {

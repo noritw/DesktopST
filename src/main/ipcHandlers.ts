@@ -2503,6 +2503,37 @@ export async function speakWeatherEventDirect(injectionText: string): Promise<vo
   await triggerReminderSpeak(virtual)
 }
 
+/**
+ * 早安簡報（`main/morningBriefing.ts`）需要的少量狀態：最後一則使用者訊息時間，
+ * 用來判斷「對話進行中不插話」——跟天氣主動發話共用同一套 2 分鐘門檻
+ * （`docs/morning-briefing-kickoff.md` §6.2）。
+ */
+export function getLastUserMessageAtDirect(): number | null {
+  const conv = getActiveConversation()
+  const lastUserMsg = conv?.messages ? [...conv.messages].reverse().find(m => m.role === 'user') : undefined
+  return lastUserMsg?.timestamp ?? null
+}
+
+/** 早安簡報觸發後呼叫：合成虛擬提醒，走既有的 `triggerReminderSpeak()` 發話管線。 */
+export async function speakMorningBriefingDirect(injectionText: string): Promise<void> {
+  const now = Date.now()
+  const virtual: Reminder = {
+    id: `morning-briefing:${now}`,
+    label: '今日初次問候',
+    prompt: injectionText,
+    enabled: true,
+    schedule: { type: 'once', at: now },
+    createdAt: now,
+    sceneConstraint: 'any_scene',
+    injectWeather: false,
+    injectCalendar: false,
+    injectNews: false,
+    injectPinnedNotes: false,
+    injectConversationContext: true
+  }
+  await triggerReminderSpeak(virtual)
+}
+
 function createNewConversation(): Conversation {
   const id = uuidv4()
   const conv: Conversation = {

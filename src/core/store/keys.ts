@@ -85,6 +85,13 @@ export const CALENDAR_SYNC_FLAG_KEY = 'calendar-sync-flag.json'
  */
 export const WEATHER_WATCH_SNAPSHOT_KEY = 'weather-watch-snapshot.json'
 
+/**
+ * 早安簡報：上次講過早安的日期快照（`core/greeting/morningBriefing.ts` 的
+ * `MorningBriefingSnapshot`）。裝置本地狀態，不進 S2 同步——「今天講過了嗎」
+ * 換一台裝置沒有意義，帶著走反而會讓新裝置漏講。
+ */
+export const MORNING_BRIEFING_KEY = 'morning-briefing.json'
+
 export const MODULES_DIR = 'modules'
 export const CHARACTERS_DIR = 'characters'
 export const CONVERSATIONS_DIR = 'conversations'

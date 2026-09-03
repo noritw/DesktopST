@@ -172,6 +172,11 @@ export interface CalendarSettings {
   notifyOnUnsyncedChanges?: boolean
 }
 
+/** 早安簡報：今天第一次點開視窗時，角色主動打聲招呼。缺省視同關閉。 */
+export interface MorningBriefingSettings {
+  enabled: boolean
+}
+
 export interface MobileSettings {
   enabled: boolean
   port: number
@@ -361,6 +366,7 @@ export interface AppSettings {
   weather?: WeatherSettings
   spotify?: SpotifySettings
   calendar?: CalendarSettings
+  morningBriefing?: MorningBriefingSettings
   mobile?: MobileSettings
   remoteControl?: RemoteControlSettings
   llm: {

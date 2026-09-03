@@ -4,6 +4,8 @@ import { v4 as uuidv4 } from 'uuid'
 import type { AppSettings, Character, Conversation, DesktopCharacterState, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder } from './types'
 import type { WeatherWatchSnapshot } from '../core/weather'
 import { normalizeWeatherWatchSnapshot } from '../core/weather'
+import type { MorningBriefingSnapshot } from '../core/greeting'
+import { normalizeMorningBriefingSnapshot } from '../core/greeting'
 import type { CharacterDisplayConfigMap, FaceCropRect } from '../core/character/displayImage'
 import { type Lorebook, normalizeLorebook } from '../core/lore'
 import { DEFAULT_SETTINGS } from './types'
@@ -217,6 +219,22 @@ export function saveWeatherWatchSnapshot(snapshot: WeatherWatchSnapshot): void {
     electronStorage.writeJsonSync(keys.WEATHER_WATCH_SNAPSHOT_KEY, snapshot)
   } catch (e) {
     console.error('[fileStore] saveWeatherWatchSnapshot failed:', e)
+  }
+}
+
+// ── 早安簡報：上次講過早安的日期快照（裝置本地狀態，見 `core/store/keys.ts` 附註）─
+
+export function loadMorningBriefingSnapshot(): MorningBriefingSnapshot {
+  const raw = electronStorage.readJsonSync<unknown>(keys.MORNING_BRIEFING_KEY)
+  return normalizeMorningBriefingSnapshot(raw)
+}
+
+export function saveMorningBriefingSnapshot(snapshot: MorningBriefingSnapshot): void {
+  ensureDirs()
+  try {
+    electronStorage.writeJsonSync(keys.MORNING_BRIEFING_KEY, snapshot)
+  } catch (e) {
+    console.error('[fileStore] saveMorningBriefingSnapshot failed:', e)
   }
 }
 
