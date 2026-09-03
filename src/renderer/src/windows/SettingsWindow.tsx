@@ -3098,6 +3098,13 @@ export default function SettingsWindow() {
               onSettings={() => window.api.invoke('calendar:open-settings')}
             />
             <SceneOverrideHint moduleId="desktopst.calendar" />
+            <ExtensionRow
+              title="早安簡報"
+              description="今天第一次點開視窗時，角色主動打聲招呼，帶一句天氣、行程或熱搜（一天最多一次）。"
+              enabled={!!draft.morningBriefing?.enabled}
+              onToggle={enabled => set('morningBriefing.enabled', enabled)}
+              statusText={draft.morningBriefing?.enabled ? '已啟用' : '已停用'}
+            />
           </div>
         )}
 
