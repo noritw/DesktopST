@@ -4736,3 +4736,61 @@ owner**，這裡只到自動測試通過為止，`docs/reminder-sync-kickoff.md`
      操作也會無端跳字）③補上「補寫成功幾筆／失敗幾筆」的統計文字。
      `npm run typecheck`／`npm test`（81 檔、1063 項）皆過。**這輪修正
      同樣還沒真機覆驗**，下一步要請 owner 再測一次「手動補寫一次」。
+
+## 2026-09-03｜天氣主動發話：地震欄位名稱真機炸開＋正式上線
+
+延續前一台機器做的天氣主動發話功能（`docs/weather-proactive-speech-kickoff.md`，
+`00f2c0d`／`9ae8fe8` 兩個 commit）。這台機器接手後 `npm run typecheck`／
+`npm test`（84 檔、1120 項）都過，看起來沒問題，但那只證明邏輯自洽，
+不代表接得住真實 CWA 回應——單元測試的 fixture 是照著（錯的）型別定義自己編的，
+兩邊一起錯就測不出來。
+
+**真機炸開**：owner 按「立即輪詢一次（debug）」，設定視窗跳
+`Cannot read properties of undefined (reading 'replace')`。根因是
+`CwaEqIntensity`（`core/weather/realtimeQuery.ts`）把地震 API
+`E-A0016-001` 的 `Intensity.ShakingArea[]` 型別定義成 lowercase 的
+`areaName`／`areaIntensity`，但 CWA 實際回傳的是 PascalCase 的
+`CountyName`／`AreaDesc`／`AreaIntensity`。這個欄位名稱錯誤其實從
+8/22 即時查詢地震功能上線那次就在，只是 `fetchEarthquake()` 那邊呼叫
+`.find()` 前有 `county ?` 短路判斷，加上測試從沒餵過非空的
+`ShakingArea` 陣列，一直僥倖沒被戳破；這次 `core/weather/proactive.ts`
+的 `findIntensityForCounty()` 對非空陣列無條件呼叫 `.find()`，第一次
+真的遇到有 `ShakingArea` 資料的地震就直接爆。
+
+診斷方法：在 `observeWeather()` 裡暫時加一行
+`console.error(JSON.stringify(areas[0]))`，請 owner 重跑一次 debug
+按鈕、貼終端機輸出，才拿到真實欄位名稱——CWA 官方文件／schema
+查不到這個細節，真機撞出來的資料最準。
+
+**修法**：`CwaEqIntensity` 型別、`findIntensityForCounty()`、
+`fetchEarthquake()` 的縣市比對全部改用 `CountyName`／`AreaIntensity`；
+`normalizeCountyName()` 順手加上 `undefined`/`null` 防呆（外部 API
+資料形狀不保證，這次就是教訓）；兩份測試 fixture
+（`tests/weather/proactive.test.ts`、`tests/weather/realtimeQuery.test.ts`）
+改用正確欄位名，之後才擋得住同一類回歸。`npm run typecheck`／
+`npm test`（weather 分組 4 檔 73 項）皆過，真機覆驗通過（owner 貼出
+debug 按鈕正常回應）。
+
+順手加了一顆「開啟影子模式 log」按鈕（設定頁天氣主動發話區塊，跟
+「立即輪詢一次」放一起），一鍵開啟
+`%APPDATA%\DesktopST\weather-proactive-shadow.log`（實際路徑依使用者
+自訂資料夾而定），不必自己去檔案總管找。
+
+**設計釐清（owner 問「現在外面在下大雨，角色該不該講」）**：
+不該講，這是刻意的，不是漏判。五種事件偵測的是**轉變**（地震／颱風
+發布解除／明日降雨／明日變天／好天氣邀約），沒有「現在正在下雨」這種
+**狀態**事件。理由：①這個資訊角色本來就有——每次聊天 `[Weather]`
+都會把當下天氣塞進 context，角色接得到、能自然提起，不需要主動打斷
+②「正在下雨」是持續狀態不是一次性事件，硬要對它開火容易變成每次輪詢
+都重複判定，正是 kickoff §10.3 說的「前三天被吵到就整個關掉」死法
+③「明日降雨提醒」已經涵蓋真正有主動告知價值的情境（要不要帶傘），
+且用 `rainNotifiedDates` 卡著一天只發一次。
+
+**正式上線**：owner 決定不等 kickoff §10.3／§10.4 建議的一到兩週影子
+模式觀察期，直接把總開關／影子模式切成「真的發話」（設定頁手動關閉
+「影子模式」checkbox，UI 已有，不需要改程式）。§10.4 的驗收條件
+（連續 7 天主動發話總數 ≤10 則、每則都覺得「這則該講」）留著當事後
+觀察標準，沒有達成也不是失敗，是提醒之後回頭看這幾天的發話紀錄、
+覺得吵就把對應門檻（`earthquakeMinIntensity`／`rainThreshold`／
+`tempSwingThreshold`／`dailyLimit`／`quietHours`）調高，不必等到影子
+模式再驗一輪。

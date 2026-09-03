@@ -155,12 +155,18 @@ const MANUAL_POLL_TIMEOUT_MS = 15 * 1000
  * 這裡再包一層絕對上限，逾時就回傳明確的錯誤而不是讓 `await` 永遠不 resolve。
  */
 export async function triggerManualPoll(): Promise<WeatherPollResult> {
-  return Promise.race([
-    runPoll(),
-    new Promise<WeatherPollResult>((_, reject) => {
-      setTimeout(() => reject(new Error('逾時（15 秒內未完成，可能是網路連線卡住）')), MANUAL_POLL_TIMEOUT_MS)
-    })
-  ])
+  try {
+    return await Promise.race([
+      runPoll(),
+      new Promise<WeatherPollResult>((_, reject) => {
+        setTimeout(() => reject(new Error('逾時（15 秒內未完成，可能是網路連線卡住）')), MANUAL_POLL_TIMEOUT_MS)
+      })
+    ])
+  } catch (e) {
+    console.error('[weatherWatcher] manual poll failed:', e)
+    const stack = e instanceof Error ? e.stack : undefined
+    throw new Error(stack ? `${e instanceof Error ? e.message : String(e)}\n${stack}` : String(e))
+  }
 }
 
 /**

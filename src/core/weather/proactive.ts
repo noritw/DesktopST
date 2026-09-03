@@ -302,19 +302,23 @@ export function parseIntensity(s: string | undefined | null): number {
   return base
 }
 
-/** 「臺北市」「台北市」視為同一個縣市；比對前先正規化。 */
-export function normalizeCountyName(name: string): string {
-  return name.replace(/臺/g, '台').trim()
+/**
+ * 「臺北市」「台北市」視為同一個縣市；比對前先正規化。
+ * 對 `undefined`／`null` 安全——CWA 回應欄位曾經對不上型別定義而讓這裡收到
+ * `undefined`（2026-09-03 真機撞出來的欄位名稱錯誤），外部資料不保證形狀。
+ */
+export function normalizeCountyName(name: string | undefined | null): string {
+  return (name ?? '').replace(/臺/g, '台').trim()
 }
 
 export function findIntensityForCounty(
-  areas: Array<{ areaName: string; areaIntensity: string }>,
+  areas: Array<{ CountyName: string; AreaIntensity: string }>,
   county: string
 ): { intensity: number; areaName: string } {
   const target = normalizeCountyName(county)
-  const hit = areas.find(a => normalizeCountyName(a.areaName).includes(target) || target.includes(normalizeCountyName(a.areaName)))
+  const hit = areas.find(a => normalizeCountyName(a.CountyName).includes(target) || target.includes(normalizeCountyName(a.CountyName)))
   if (!hit) return { intensity: 0, areaName: '' }
-  return { intensity: parseIntensity(hit.areaIntensity), areaName: hit.areaName }
+  return { intensity: parseIntensity(hit.AreaIntensity), areaName: hit.CountyName }
 }
 
 // ─── 觀測：打三支 CWA API，組成 ObservedWeather ────────────────

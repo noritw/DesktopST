@@ -98,9 +98,19 @@ async function fetchForecast(deps: WeatherDeps, apiKey: string, county: string):
 }
 
 // ─── 地震 E-A0016-001 ─────────────────────────────────────────
+/**
+ * ⚠️ 欄位名稱是 PascalCase，不是原本以為的 `areaName`／`areaIntensity`
+ * （2026-09-03 真機撞出來的：`findIntensityForCounty` 對非空陣列無條件
+ * 呼叫 `.find()`，讀到 `undefined.replace` 直接炸掉主動發話的 debug 輪詢；
+ * 這邊的 `fetchEarthquake` 沒被撞到純粹是運氣好——`county` 沒填或
+ * `ShakingArea` 剛好是空陣列時 `.find()` 不會執行 predicate）。
+ * `CountyName` 是縣市層級（跟使用者設定的縣市比對用這個），
+ * `AreaDesc` 是更細的地區描述，兩者不要混用。
+ */
 export interface CwaEqIntensity {
-  areaName: string
-  areaIntensity: string
+  AreaDesc: string
+  CountyName: string
+  AreaIntensity: string
 }
 
 export interface CwaEqRecord {
@@ -149,9 +159,9 @@ async function fetchEarthquake(deps: WeatherDeps, apiKey: string, county: string
   // 顯示用原始字串（"5弱"／"5強"），不是 `findIntensityForCounty` 拿來排序用的數值。
   const areas = eq.Intensity?.ShakingArea ?? []
   const matchedArea = county
-    ? areas.find(a => normalizeCountyName(a.areaName).includes(normalizeCountyName(county)) || normalizeCountyName(county).includes(normalizeCountyName(a.areaName)))
+    ? areas.find(a => normalizeCountyName(a.CountyName).includes(normalizeCountyName(county)) || normalizeCountyName(county).includes(normalizeCountyName(a.CountyName)))
     : undefined
-  const countyIntensity = matchedArea ? `${matchedArea.areaName}震度：${matchedArea.areaIntensity}` : ''
+  const countyIntensity = matchedArea ? `${matchedArea.CountyName}震度：${matchedArea.AreaIntensity}` : ''
 
   let text =
     `[即時查詢：最近地震]\n` +

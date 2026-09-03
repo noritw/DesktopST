@@ -133,11 +133,15 @@ if/else**——M4 同步那次的教訓是「方向變成資料而非程式分�
 要寫一支 `parseIntensity(s: string): number`，`5弱`→5、`5強`→5.5。
 **不要用 `parseInt` 了事**，`"5弱"` 會變 5 剛好對，但 `"6強"` 的排序會錯。
 
-**震度取哪個地區**：`Intensity.ShakingArea[].areaName` 要對上使用者設定的縣市。
+**震度取哪個地區**：`Intensity.ShakingArea[].CountyName` 要對上使用者設定的縣市。
 `realtimeQuery.ts` 現在寫死找「臺北／台北」（見 `fetchEarthquake`），
 **這是既有的硬編碼，這次要一起改成讀天氣設定的縣市**，兩處共用一支
-`findIntensityForCounty()`。注意 CWA 的 `areaName` 有「臺／台」兩種寫法，
-比對前要正規化。
+`findIntensityForCounty()`。注意 CWA 的 `CountyName` 有「臺／台」兩種寫法，
+比對前要正規化。⚠️ **2026-09-03 真機撞出來的教訓**：CWA 實際回傳的欄位是
+PascalCase（`CountyName`／`AreaDesc`／`AreaIntensity`），不是這份文件當初
+以為的 lowercase `areaName`／`areaIntensity`——單元測試自己編的 fixture
+照著錯的假設寫，兩邊一起錯就測不出來，是真機撞到才發現。細節見
+`docs/progress-log.md` 2026-09-03 條目。
 
 ---
 

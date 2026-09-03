@@ -55,13 +55,13 @@ describe('normalizeCountyName / findIntensityForCounty', () => {
   })
   it('finds intensity for matching county regardless of 臺/台', () => {
     const areas = [
-      { areaName: '臺北市', areaIntensity: '4級' },
-      { areaName: '新北市', areaIntensity: '3級' }
+      { CountyName: '臺北市', AreaIntensity: '4級' },
+      { CountyName: '新北市', AreaIntensity: '3級' }
     ]
     expect(findIntensityForCounty(areas, '台北市')).toEqual({ intensity: 4, areaName: '臺北市' })
   })
   it('returns zero intensity when county not found', () => {
-    const areas = [{ areaName: '高雄市', areaIntensity: '2級' }]
+    const areas = [{ CountyName: '高雄市', AreaIntensity: '2級' }]
     expect(findIntensityForCounty(areas, '台北市')).toEqual({ intensity: 0, areaName: '' })
   })
 })
@@ -261,7 +261,7 @@ describe('observeWeather', () => {
               EpicenterLocation: '花蓮縣近海',
               EarthquakeMagnitude: { MagnitudeValue: 5.5 },
               FocalDepth: 10,
-              Intensity: { ShakingArea: [{ areaName: '臺北市', areaIntensity: '3級' }] }
+              Intensity: { ShakingArea: [{ AreaDesc: '臺北市', CountyName: '臺北市', AreaIntensity: '3級' }] }
             }]
           }
         },

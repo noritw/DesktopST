@@ -92,7 +92,7 @@ describe('fetchCwaData', () => {
                 EpicenterLocation: '花蓮縣近海',
                 EarthquakeMagnitude: { MagnitudeValue: 5.2 },
                 FocalDepth: 10,
-                Intensity: { ShakingArea: [{ areaName: '臺北市', areaIntensity: '2級' }, { areaName: '高雄市', areaIntensity: '1級' }] }
+                Intensity: { ShakingArea: [{ AreaDesc: '臺北市', CountyName: '臺北市', AreaIntensity: '2級' }, { AreaDesc: '高雄市', CountyName: '高雄市', AreaIntensity: '1級' }] }
               }
             ]
           }
@@ -117,7 +117,7 @@ describe('fetchCwaData', () => {
               EpicenterLocation: '花蓮縣近海',
               EarthquakeMagnitude: { MagnitudeValue: 5.2 },
               FocalDepth: 10,
-              Intensity: { ShakingArea: [{ areaName: '臺北市', areaIntensity: '2級' }] }
+              Intensity: { ShakingArea: [{ AreaDesc: '臺北市', CountyName: '臺北市', AreaIntensity: '2級' }] }
             }]
           }
         }

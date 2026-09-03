@@ -3017,6 +3017,13 @@ export default function SettingsWindow() {
                           >
                             {proactiveTestPolling ? '輪詢中…' : '立即輪詢一次（debug）'}
                           </button>
+                          <button
+                            type="button"
+                            className="btn-secondary text-xs px-3 py-1.5"
+                            onClick={() => window.api.invoke('weather:open-proactive-shadow-log')}
+                          >
+                            開啟影子模式 log
+                          </button>
                           {dirty && (
                             <span className="text-[11px] text-secondary">請先儲存設定再測試</span>
                           )}

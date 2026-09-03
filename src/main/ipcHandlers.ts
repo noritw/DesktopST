@@ -4628,6 +4628,13 @@ export function registerIpcHandlers() {
     return true
   })
 
+  ipcMain.handle('weather:open-proactive-shadow-log', async () => {
+    const logPath = path.join(fileStore.getDataDir(), 'weather-proactive-shadow.log')
+    if (!fs.existsSync(logPath)) fs.writeFileSync(logPath, '', 'utf8')
+    const err = await shell.openPath(logPath)
+    return err ? { ok: false, error: err } : { ok: true }
+  })
+
   ipcMain.handle('window:open-pinned-notes-manager', () => {
     openPinnedNotesManager()
     return true
