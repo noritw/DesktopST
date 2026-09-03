@@ -310,6 +310,7 @@ export default function SettingsWindow() {
     shadowMode: boolean
     spoke: boolean
   } | null>(null)
+  const [proactiveTestError, setProactiveTestError] = useState<string | null>(null)
   const messagePreviewAudioRef = useRef<HTMLAudioElement | null>(null)
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const messagePreviewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -3003,9 +3004,12 @@ export default function SettingsWindow() {
                             onClick={async () => {
                               setProactiveTestPolling(true)
                               setProactiveTestResult(null)
+                              setProactiveTestError(null)
                               try {
                                 const result = await window.api.invoke('weather:proactive-test-poll') as typeof proactiveTestResult
                                 setProactiveTestResult(result)
+                              } catch (e) {
+                                setProactiveTestError(e instanceof Error ? e.message : String(e))
                               } finally {
                                 setProactiveTestPolling(false)
                               }
@@ -3017,6 +3021,9 @@ export default function SettingsWindow() {
                             <span className="text-[11px] text-secondary">請先儲存設定再測試</span>
                           )}
                         </div>
+                        {proactiveTestError && (
+                          <p className="mt-2 text-xs text-[#E85D3F]">失敗：{proactiveTestError}</p>
+                        )}
                         {proactiveTestResult && (
                           <div className="mt-2 space-y-1 text-xs">
                             {proactiveTestResult.skippedReason === 'disabled' && (

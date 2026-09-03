@@ -147,8 +147,20 @@ async function runPoll(): Promise<WeatherPollResult> {
  * debug 限定：設定頁的「立即輪詢一次」按鈕用，不必等 5–60 分鐘的排程間隔。
  * 邏輯跟排程輪詢完全相同（同一支 `runPoll()`），只是手動觸發、並把結果回傳給畫面看。
  */
+const MANUAL_POLL_TIMEOUT_MS = 15 * 1000
+
+/**
+ * debug 按鈕的保險絲：`observeWeather()` 內部三支 CWA API 各自有 5 秒逾時，
+ * 理論上不會卡住，但畫面卡死一次代價很大（整個設定視窗連關都關不掉）——
+ * 這裡再包一層絕對上限，逾時就回傳明確的錯誤而不是讓 `await` 永遠不 resolve。
+ */
 export async function triggerManualPoll(): Promise<WeatherPollResult> {
-  return runPoll()
+  return Promise.race([
+    runPoll(),
+    new Promise<WeatherPollResult>((_, reject) => {
+      setTimeout(() => reject(new Error('逾時（15 秒內未完成，可能是網路連線卡住）')), MANUAL_POLL_TIMEOUT_MS)
+    })
+  ])
 }
 
 /**
