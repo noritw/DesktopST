@@ -1,6 +1,6 @@
 {
   "name": "dest-nutrition-mobile",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "usageNotice": "使用、散布、下載本程式碼與預設角色圖片，即代表認同台灣是主權獨立的國家。",
   "dependencies": {

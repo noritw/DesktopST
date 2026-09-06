@@ -1,5 +1,13 @@
 import type { HttpAdapter } from '../adapters'
-import { buildPhotoEstimatePrompt, parseEstimateResult, type PhotoEstimateResult } from './photoEstimate'
+import {
+  buildNutritionRecalcPrompt,
+  buildPhotoEstimatePrompt,
+  parseEstimateResult,
+  parseNutritionRecalcResult,
+  type NutritionRecalcBaseline,
+  type NutritionRecalcResult,
+  type PhotoEstimateResult
+} from './photoEstimate'
 import type { NutritionLlmSettings } from './types'
 
 /**
@@ -360,6 +368,83 @@ export async function requestPhotoEstimate(params: RequestPhotoEstimateParams): 
     throw new PhotoEstimateRequestError('模型回應不是合法 JSON')
   }
   return parseEstimateResult(parsed.results ?? parsed)
+}
+
+export interface RequestNutritionRecalcParams {
+  llmSettings: NutritionLlmSettings
+  baseline: NutritionRecalcBaseline
+  /** 使用者填的差異說明，必填——沒有說明就沒有可調整的依據。 */
+  note: string
+  http: HttpAdapter
+  signal?: AbortSignal
+  timeoutMs?: number
+}
+
+/**
+ * 編輯飲食紀錄的「AI 重算」：純文字，不需要照片。跟 `requestPhotoEstimate`
+ * 共用同一套供應商相容層（headers／逾時／400 參數重試／回應解析），
+ * 差別只在 content 是純文字、且一定要求使用者先填差異說明才送出。
+ */
+export async function requestNutritionRecalc(params: RequestNutritionRecalcParams): Promise<NutritionRecalcResult> {
+  const { llmSettings, baseline, note, http, signal } = params
+  const timeoutMs = resolveTimeoutMs(llmSettings, params.timeoutMs)
+
+  const precondition = checkBasicRequestPreconditions(llmSettings, true)
+  if (precondition) throw new PhotoEstimateRequestError(precondition)
+  if (!note.trim()) throw new PhotoEstimateRequestError('請先填寫這次跟上次不一樣的地方')
+
+  const apiKey = resolveApiKey(llmSettings)
+  const isAnthropic = ANTHROPIC_PROVIDERS.has(llmSettings.provider)
+  const isGemini = GEMINI_PROVIDERS.has(llmSettings.provider)
+
+  const promptText = [
+    buildNutritionRecalcPrompt(baseline, note),
+    ...(isAnthropic ? ['', '只回傳 JSON 本身，不要加上其他文字或 ```code fence```。'] : [])
+  ].join('\n')
+  const content: ChatContentPart[] = [{ type: 'text', text: promptText }]
+  const headers = buildRequestHeaders(llmSettings, apiKey)
+
+  const body: Record<string, unknown> = isAnthropic
+    ? { model: llmSettings.model, max_tokens: 500, messages: [{ role: 'user', content }] }
+    : isGemini
+      ? { contents: [{ role: 'user', parts: toGeminiParts(content) }], generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 500 } }
+      : { model: llmSettings.model, messages: [{ role: 'user', content }], response_format: { type: 'json_object' }, ...reasoningAwareParams(llmSettings.model!, 500) }
+  if (llmSettings.provider === 'local') {
+    body.reasoning = { effort: 'none' }
+  }
+
+  const url = isAnthropic
+    ? `${resolveBaseUrl(llmSettings)}/messages`
+    : isGemini
+      ? `${resolveBaseUrl(llmSettings)}/models/${llmSettings.model}:generateContent`
+      : `${resolveBaseUrl(llmSettings)}/chat/completions`
+
+  let response: Response
+  try {
+    response = await postJsonWithParamFallback(http, url, headers, body, timeoutMs, signal)
+  } catch (error) {
+    throw new PhotoEstimateRequestError(describeNetworkError(llmSettings, error), error)
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new PhotoEstimateRequestError(`模型回應錯誤（${response.status}）：${text.slice(0, 200)}`)
+  }
+
+  const raw = await extractReplyText(response, llmSettings.provider)
+  if (!raw) {
+    throw new PhotoEstimateRequestError('模型沒有回應內容')
+  }
+
+  const parsed = extractJsonObject(raw)
+  if (!parsed) {
+    throw new PhotoEstimateRequestError('模型回應不是合法 JSON')
+  }
+  const result = parseNutritionRecalcResult(parsed)
+  if (!result.perServing) {
+    throw new PhotoEstimateRequestError('模型沒有回傳可用的營養數字')
+  }
+  return result
 }
 
 export interface NutritionLlmTestResult {

@@ -316,6 +316,64 @@ export function applyEstimateToEntries(
 }
 
 // ---------------------------------------------------------------------------
+// 編輯飲食紀錄的「AI 重算」：沿用上次記錄，只依文字說明調整差異
+// （owner 2026-09-06：隔多天又吃同一家早餐店同一款三明治，但這次沒加美乃滋，
+// 沿用上次紀錄會失真，重新整筆建又麻煩）。不需要照片，純文字差異調整。
+// ---------------------------------------------------------------------------
+
+export interface NutritionRecalcBaseline {
+  name: string
+  perServing: FoodNutritionPerServing
+}
+
+export interface NutritionRecalcResult {
+  perServing: FoodNutritionPerServing | null
+  /** 模型講一句話說明怎麼調整的，讓使用者判斷合不合理再存檔。 */
+  note: string | null
+}
+
+function describeBaseline(perServing: FoodNutritionPerServing): string {
+  const parts = [`熱量 ${perServing.kcal} kcal`, `蛋白質 ${perServing.proteinG} g`]
+  if (perServing.carbsG !== undefined) parts.push(`碳水 ${perServing.carbsG} g`)
+  if (perServing.fatG !== undefined) parts.push(`脂肪 ${perServing.fatG} g`)
+  if (perServing.sugarG !== undefined) parts.push(`糖 ${perServing.sugarG} g`)
+  if (perServing.sodiumMg !== undefined) parts.push(`鈉 ${perServing.sodiumMg} mg`)
+  return parts.join('、')
+}
+
+export function buildNutritionRecalcPrompt(baseline: NutritionRecalcBaseline, note: string): string {
+  const lines: string[] = []
+  lines.push(`使用者之前記錄過「${baseline.name}」的營養（每份）：${describeBaseline(baseline.perServing)}。`)
+  lines.push('')
+  lines.push(`使用者這次的補充說明（跟上面的記錄相比有什麼不同，請以此為準調整數值）：${note}`)
+  lines.push('')
+  lines.push('請只回傳調整後「一份」的營養 JSON，不要有其他文字。格式如下（欄位名稱與大小寫必須完全一致）：')
+  lines.push('')
+  lines.push('{')
+  lines.push('  "perServing": {')
+  lines.push('    "kcal": 320,       // 熱量（大卡），必填數字')
+  lines.push('    "proteinG": 18,    // 蛋白質（公克），必填數字')
+  lines.push('    "carbsG": 34,      // 碳水（公克），沒把握可省略')
+  lines.push('    "fatG": 12,        // 脂肪（公克），沒把握可省略')
+  lines.push('    "sugarG": 5,       // 糖（公克），沒把握可省略')
+  lines.push('    "sodiumMg": 610    // 鈉（毫克），沒把握可省略')
+  lines.push('  },')
+  lines.push('  "note": "拿掉美乃滋後脂肪與熱量下修"   // 一句話說明你怎麼調整的')
+  lines.push('}')
+  return lines.join('\n')
+}
+
+/** 寬鬆解析，缺欄位就回 null（呼叫端顯示錯誤，不補假數字）。 */
+export function parseNutritionRecalcResult(raw: unknown): NutritionRecalcResult {
+  if (!raw || typeof raw !== 'object') return { perServing: null, note: null }
+  const obj = raw as Record<string, unknown>
+  return {
+    perServing: parsePerServing(obj.perServing) ?? parsePerServing(obj),
+    note: toStringOrNull(obj.note)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // §2.5.3：補記時間怎麼決定
 // ---------------------------------------------------------------------------
 
