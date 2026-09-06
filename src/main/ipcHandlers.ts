@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { AppSettings, Character, ColorTheme, Conversation, Message, PersonaPreset, WorldPreset, ScenePreset, PinnedNote, Reminder, RandomResult, NewsDebugInfo, NewsLinkInfo, WeatherLocationSource } from './types'
-import type { WeatherProactiveSettings } from '../core/types'
+import type { MorningBriefingSettings, WeatherProactiveSettings } from '../core/types'
 import { defaultProactiveWeatherSettings } from '../core/weather'
 import { MESSAGE_REACTION_EMOJIS } from './types'
 import * as fileStore from './fileStore'
@@ -1443,6 +1443,33 @@ export function setWeatherSettingsDirect(patch: {
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return { ok: true, weather: getWeatherSettingsDirect() }
+}
+
+/** 每日問候（前身「早安簡報」）：手機可讀寫的設定快照。 */
+export function getMorningBriefingSettingsDirect(): MorningBriefingSettings {
+  return {
+    enabled: !!settings.morningBriefing?.enabled,
+    mode: settings.morningBriefing?.mode ?? 'daily',
+    dayBoundaryHour: settings.morningBriefing?.dayBoundaryHour ?? 0
+  }
+}
+
+export function setMorningBriefingSettingsDirect(
+  patch: Partial<MorningBriefingSettings>
+): { ok: true; morningBriefing: MorningBriefingSettings } | { error: string } {
+  const cur = getMorningBriefingSettingsDirect()
+  const next: MorningBriefingSettings = { ...cur }
+  if (typeof patch.enabled === 'boolean') next.enabled = patch.enabled
+  if (patch.mode === 'daily' || patch.mode === 'every-launch') next.mode = patch.mode
+  if (typeof patch.dayBoundaryHour === 'number' && Number.isFinite(patch.dayBoundaryHour)) {
+    const h = Math.round(patch.dayBoundaryHour)
+    if (h < 0 || h > 23) return { error: '「新的一天從幾點算起」超出範圍（0–23）' }
+    next.dayBoundaryHour = h
+  }
+  settings.morningBriefing = next
+  fileStore.saveSettings(settings)
+  broadcastToAll('settings:updated', settings)
+  return { ok: true, morningBriefing: next }
 }
 
 /** 覆寫 CWA API Key。**只寫不讀**——呼叫端（`mobileServer.ts`）須先做區網直連檢查，理由同 `setLlmApiKeyDirect`。 */

@@ -8,7 +8,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { app, desktopCapturer } from 'electron'
-import type { Message, RandomResult, WeatherLocationSource } from './types'
+import type { Message, MorningBriefingSettings, RandomResult, WeatherLocationSource } from './types'
 import { computeRandomResult, sanitizePendingRandomTool } from '../core/random/dice'
 import { getAccessToken } from './relayService'
 import { getRemoteControlClientState, getRemoteControlClientStateForDevice } from './modules/remote-control'
@@ -245,6 +245,9 @@ export interface MobileBridge {
   /** 覆寫 CWA API Key。**只寫不讀**，理由同 `setLlmApiKey`。 */
   setCwaApiKey: (apiKey: string) => { ok: true } | { error: string }
   testCwaApiKey: (apiKey: string) => Promise<{ ok: boolean; error?: string }>
+  /** 每日問候（前身「早安簡報」）。 */
+  getMorningBriefingSettings: () => MorningBriefingSettings
+  setMorningBriefingSettings: (patch: Partial<MorningBriefingSettings>) => { ok: true; morningBriefing: MorningBriefingSettings } | { error: string }
   /**
    * S1 要帶去手機的天氣設定。**不含地點**（手機自己定位）。
    * `lanDirect` 為 false 時不附 `cwaApiKey`，規矩同 LLM 金鑰。
@@ -2155,6 +2158,23 @@ async function handleRequest(
     const r = await bridge.fetchWeatherNow()
     if ('error' in r) { jsonError(res, 400, r.error); return }
     jsonOk(res, r)
+    return
+  }
+
+  // ── 每日問候（前身「早安簡報」）──
+  if (method === 'GET' && url === '/api/settings/morning-briefing') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    jsonOk(res, { morningBriefing: bridge.getMorningBriefingSettings() })
+    return
+  }
+
+  if (method === 'POST' && url === '/api/settings/morning-briefing') {
+    if (!bridge) { jsonError(res, 503, 'Server not ready'); return }
+    const payload = await readJson<{ enabled?: boolean; mode?: 'daily' | 'every-launch'; dayBoundaryHour?: number }>(req, res)
+    if (!payload) return
+    const r = bridge.setMorningBriefingSettings(payload)
+    if ('error' in r) { jsonError(res, 400, r.error); return }
+    jsonOk(res, { morningBriefing: r.morningBriefing })
     return
   }
 

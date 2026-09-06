@@ -11,6 +11,7 @@ import type {
   ReminderHistoryItem,
   ReminderSchedule,
   ScenePreset,
+  MorningBriefingSettings,
   WeatherLocationSource,
   WeatherProactiveSettings,
   WorldPreset
@@ -562,6 +563,10 @@ export interface SettingsApi {
   setCwaApiKey(apiKey: string): Promise<void>
   /** 測試目前（或剛填入但尚未存檔的）CWA API Key 是否可用。 */
   testCwaApiKey(apiKey: string): Promise<{ ok: boolean; error?: string }>
+
+  /** 每日問候（前身「早安簡報」，owner 很少一早開機，改名避免誤導）。 */
+  getMorningBriefing(): Promise<MorningBriefingSettings>
+  setMorningBriefing(patch: Partial<MorningBriefingSettings>): Promise<MorningBriefingSettings>
 }
 
 /**

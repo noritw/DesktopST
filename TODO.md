@@ -349,15 +349,17 @@ QR `action=sync-reminders` 深連結）。**分頁／分組／欄位鎖定、以
 
 ---
 
-## 2.8 天氣主動發話＋今日初次問候：手機獨立版（2026-09-04 owner 指定，**尚未動工**）
+## 2.8 天氣主動發話＋今日初次問候：手機獨立版（2026-09-04 owner 指定）→ ✅ 已實作，天氣主動發話真機驗證通過
 
 **開工指令：`docs/weather-proactive-mobile-kickoff.md`（整份讀）**
 
-桌面兩個功能都已完成並實測正常，手機端**一行都沒有**（早安簡報也沒做）。
-判斷邏輯（`core/weather/proactive.ts`、`core/greeting/morningBriefing.ts`）
-本來就平台無關，工作量幾乎全在「什麼時候醒來」。
+⚠️ 本節標題曾長期停在「尚未動工」，那是文件沒同步更新——`cf57f85`
+（2026-09-06）已經把兩個功能都搬到手機獨立版並附完整測試，這裡當時只是
+忘記把狀態行改掉，不是沒做。owner 2026-09-06 實機確認角色主動講出了
+變天的事，**天氣主動發話真機驗證通過**；早安簡報邏輯已落地但尚無獨立的
+真機確認紀錄。
 
-owner 已拍板的三件事：
+owner 已拍板的三件事（已照做）：
 
 1. **不接推播**（kickoff §2）。NCDR 民生示警平台的訂閱推播只推到伺服器
    （Email／HTTPS callback／Atom），`:posup` 那類 App 是自建後端轉 FCM ——
@@ -372,6 +374,26 @@ owner 已拍板的三件事：
    會提一下昨晚的地震）。
 
 實作順序見 kickoff §8——**第 1～6 步完全不碰原生層**，第 7 步才需要打 APK。
+
+**後續補漏（2026-09-06）**：`cf57f85` 把每日問候的設定欄位
+（`morningBriefing.enabled`／`mode`／`dayBoundaryHour`）放進了 S2 設定
+同步，卻沒有給手機自己的設定 UI——桌面版設定視窗那次是有補的，純粹手機
+端漏做，owner 回報「不知道要去哪裡設定」才發現。已補上 `SettingsView.tsx`
+的「每日問候」摺疊區塊（**手機上刻意不叫「早安簡報」**——owner 原話
+「我很少早上醒來去開他」，這個名稱假設了「早上開機」的情境跟手機的實際
+使用型態不符）。裝機實測又抓出兩層問題並修完：①下拉選單版面跑掉
+（`.field` 樣式衝突）②`shouldTriggerMorningBriefingNow()` 從一開始就沒讀
+`mode`／`dayBoundaryHour`，選了「每次開啟都問候」形同沒用；補上後裝機
+又測出③記憶體旗標 `hasGreetedThisLaunch` 假設「行程重開」＝「模組重新
+載入」，但 Android 滑掉工作清單不保證真的砍掉 WebView，導致問候完一次
+之後旗標卡住，改成離開前景時主動歸零（`resetMorningBriefingLaunchFlag()`，
+掛在 `session.onAppBackgrounded()`）。三層細節見
+`docs/progress-log.md` 該日三筆條目。
+
+**owner 2026-09-06 實機驗證**：✅ 「每次開啟都問候」通過（排除
+`isConversationTooRecent()` 2 分鐘冷卻窗口的干擾後，切背景再切回來正常
+再問候一次）。「一天一次」模式（含自訂 `dayBoundaryHour`）**owner 預計
+隔天測**，還沒有結論。
 
 ---
 

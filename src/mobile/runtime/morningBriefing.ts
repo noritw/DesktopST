@@ -1,8 +1,8 @@
 import {
+  greetingDayString,
   isConversationTooRecent,
   normalizeMorningBriefingSnapshot,
   shouldGreetToday,
-  taipeiDateString,
   type MorningBriefingContent
 } from '@core/greeting'
 import { filterAndPick } from '@core/news/filter'
@@ -71,18 +71,53 @@ export async function buildMorningBriefingContent(
   return (await fetchWeatherLayer(adapters, settings)) ?? (await fetchTrendingLayer(adapters, settings))
 }
 
+/*
+ * `mode: 'every-launch'` 用的是這個記憶體旗標，不是磁碟——比照桌面
+ * `main/morningBriefing.ts` 同名旗標的理由：「每次啟動」本來就該隨行程
+ * 重開重置，沒有跨行程持久化的必要。
+ *
+ * ⚠️ 手機這邊「行程重開」不能只靠模組重新載入去重置——桌面的「啟動」對應
+ * 一個 Electron process，滑掉再開的手機 App 卻不保證真的重開了 WebView／
+ * JS 引擎：Android 是否在「從最近工作清單滑掉」時真的砍掉 Activity／WebView，
+ * 依裝置與系統版本而不一定，尤其這次同時加了 `WeatherForegroundService`
+ * 讓行程更容易被系統留著。owner 2026-09-06 實機回報「每次開啟都問候」
+ * 只在真正第一次生效，之後滑掉重開、甚至來回切換設定都不再觸發——正是
+ * 因為 WebView 沒被砍掉，這個旗標從沒歸零過。
+ *
+ * 修法：**不要等模組重新載入**，改成在「離開前景」那一刻主動歸零
+ * （`resetMorningBriefingLaunchFlag()`，`session.onAppBackgrounded()` 呼叫）。
+ * 這樣「每次開啟都問候」真正的意思變成「每次從背景回到前景都問候一次」，
+ * 不管 Android 有沒有真的砍掉 process 都成立；真的被砍掉重開時，模組
+ * 本來就會是全新的 `false`，兩條路徑殊途同歸。
+ */
+let hasGreetedThisLaunch = false
+
+/** 離開前景時呼叫：讓下一次回到前景（不論是不是同一個 process）能再問候一次。 */
+export function resetMorningBriefingLaunchFlag(): void {
+  hasGreetedThisLaunch = false
+}
+
 /**
- * 快速檢查：總開關有開，而且今天還沒講過，才值得往下抓內容。
- * 不做任何慢動作（不打 API、不等 LLM），呼叫端可以在 resume 當下同步判斷。
+ * 快速檢查：總開關有開，而且（依目前模式）今天還沒講過／這次啟動還沒講過，
+ * 才值得往下抓內容。不做任何慢動作（不打 API、不等 LLM），呼叫端可以在
+ * resume 當下同步判斷。
+ *
+ * ⚠️ 2026-09-06 之前這裡完全沒讀 `mode`／`dayBoundaryHour`，一律當
+ * `mode: 'daily'`、`dayBoundaryHour: 0` 處理——設定頁上補了這兩個欄位的
+ * UI（`SettingsView.tsx`），但這支觸發邏輯忘了跟著改，導致選了
+ * 「每次開啟都問候」在手機上完全沒作用（owner 實機回報「滑掉重開沒有
+ * 問候出現」）。比照桌面 `shouldTriggerMorningBriefingNow()` 補上分支。
  */
 export async function shouldTriggerMorningBriefingNow(
   adapters: PlatformAdapters,
   settings: AppSettings,
   now: number = Date.now()
 ): Promise<boolean> {
-  if (!settings.morningBriefing?.enabled) return false
+  const cfg = settings.morningBriefing
+  if (!cfg?.enabled) return false
+  if (cfg.mode === 'every-launch') return !hasGreetedThisLaunch
   const raw = await adapters.storage.readJson<unknown>(keys.MORNING_BRIEFING_KEY)
-  return shouldGreetToday(normalizeMorningBriefingSnapshot(raw), taipeiDateString(now))
+  return shouldGreetToday(normalizeMorningBriefingSnapshot(raw), greetingDayString(now, cfg.dayBoundaryHour ?? 0))
 }
 
 export interface MorningBriefingCheckDeps {
@@ -111,6 +146,11 @@ export async function triggerMorningBriefing(deps: MorningBriefingCheckDeps): Pr
   const spoke = await deps.speak(content.injectionText)
   if (!spoke) return false
 
-  await deps.adapters.storage.writeJson(keys.MORNING_BRIEFING_KEY, { lastGreetedDate: taipeiDateString(now) })
+  if (deps.settings.morningBriefing?.mode === 'every-launch') {
+    hasGreetedThisLaunch = true
+  } else {
+    const dayBoundaryHour = deps.settings.morningBriefing?.dayBoundaryHour ?? 0
+    await deps.adapters.storage.writeJson(keys.MORNING_BRIEFING_KEY, { lastGreetedDate: greetingDayString(now, dayBoundaryHour) })
+  }
   return true
 }

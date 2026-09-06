@@ -36,7 +36,7 @@ import type {
   SendMessageInput,
   SettingsApi
 } from '@core/data'
-import type { Character, PersonaPreset, Reminder, ScenePreset, WorldPreset } from '@core/types'
+import type { Character, MorningBriefingSettings, PersonaPreset, Reminder, ScenePreset, WorldPreset } from '@core/types'
 import type { NewsSource } from '@core/news/types'
 import type { Lorebook } from '@core/lore'
 import { base64ToBytes, bytesToBase64 } from '@core/util/base64'
@@ -341,7 +341,12 @@ export class RemoteDataSource implements DataSource {
       return { description: r.description, temperatureC: r.temperatureC, humidity: r.humidity, windSpeed: r.windSpeed }
     },
     setCwaApiKey: async (apiKey) => { await this.http.post('/api/settings/weather/cwa-apikey', { apiKey }) },
-    testCwaApiKey: async (apiKey) => this.http.post('/api/settings/weather/cwa-test', { apiKey })
+    testCwaApiKey: async (apiKey) => this.http.post('/api/settings/weather/cwa-test', { apiKey }),
+
+    getMorningBriefing: async () =>
+      (await this.http.get<{ morningBriefing: MorningBriefingSettings }>('/api/settings/morning-briefing')).morningBriefing,
+    setMorningBriefing: async (patch) =>
+      (await this.http.post<{ morningBriefing: MorningBriefingSettings }>('/api/settings/morning-briefing', patch)).morningBriefing
   }
 
   readonly lorebooks: LorebooksApi = {

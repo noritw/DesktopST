@@ -379,7 +379,23 @@ export class LocalDataSource implements DataSource {
       this.session.settings.weather = w
       await this.session.saveSettings()
     },
-    testCwaApiKey: (apiKey) => testCwaApiKey({ http: this.session.adapters.http }, apiKey)
+    testCwaApiKey: (apiKey) => testCwaApiKey({ http: this.session.adapters.http }, apiKey),
+    getMorningBriefing: async () => ({
+      enabled: !!this.session.settings.morningBriefing?.enabled,
+      mode: this.session.settings.morningBriefing?.mode ?? 'daily',
+      dayBoundaryHour: this.session.settings.morningBriefing?.dayBoundaryHour ?? 0
+    }),
+    setMorningBriefing: async (patch) => {
+      this.session.settings.morningBriefing = {
+        enabled: false,
+        mode: 'daily',
+        dayBoundaryHour: 0,
+        ...this.session.settings.morningBriefing,
+        ...patch
+      }
+      await this.session.saveSettings()
+      return this.settings.getMorningBriefing()
+    }
   }
 
   readonly lorebooks: LorebooksApi = {

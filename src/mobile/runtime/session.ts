@@ -96,7 +96,7 @@ import {
   type ReminderSpeakResult
 } from './reminderSpeak'
 import { checkWeatherProactive } from './weatherProactive'
-import { shouldTriggerMorningBriefingNow, triggerMorningBriefing } from './morningBriefing'
+import { resetMorningBriefingLaunchFlag, shouldTriggerMorningBriefingNow, triggerMorningBriefing } from './morningBriefing'
 import {
   initReminderScheduler,
   updateReminders,
@@ -2378,9 +2378,14 @@ export class StandaloneSession {
     return { spoke: result.spoke, skippedReason: result.skippedReason }
   }
 
-  /** 離開前景：把接下來要響的提醒台詞先生一句起來當底線。 */
+  /**
+   * 離開前景：把接下來要響的提醒台詞先生一句起來當底線；順便讓「每次開啟
+   * 都問候」的記憶體旗標歸零——見 `morningBriefing.ts` 的
+   * `resetMorningBriefingLaunchFlag()` 檔頭說明，不能只靠等 process 被砍掉。
+   */
   onAppBackgrounded(): void {
     void this.refreshReminderCache()
+    resetMorningBriefingLaunchFlag()
   }
 
   /**

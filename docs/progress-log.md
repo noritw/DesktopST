@@ -4794,3 +4794,93 @@ debug 按鈕正常回應）。
 覺得吵就把對應門檻（`earthquakeMinIntensity`／`rainThreshold`／
 `tempSwingThreshold`／`dailyLimit`／`quietHours`）調高，不必等到影子
 模式再驗一輪。
+
+## 手機獨立版補上「每日問候」設定頁（2026-09-06）
+
+`cf57f85` 把早安簡報（今日初次問候）的判斷邏輯搬到手機獨立版時，只把
+`morningBriefing.enabled`／`mode`／`dayBoundaryHour` 這幾個欄位放進了
+S2 設定同步，卻忘了在手機設定頁（`SettingsView.tsx`）給對應的 UI——
+owner 回報「不知道要去哪裡設定」才發現這塊漏了。桌面版設定視窗那次
+是有補 UI 的（`SettingsWindow.tsx` 的「早安簡報觸發時機」摺疊區），
+純粹是手機端漏做，不是設計上刻意留白。
+
+補上手機端讀寫路徑，比照 `weather.proactive` 那組的分層：
+
+- `core/data/types.ts` 的 `SettingsApi` 加 `getMorningBriefing()`／
+  `setMorningBriefing(patch)`
+- 桌面（本機／遙控兩端共用的 bridge）：`main/ipcHandlers.ts` 新增
+  `getMorningBriefingSettingsDirect()`／`setMorningBriefingSettingsDirect()`，
+  `main/mobileServer.ts` 的 `MobileBridge` 介面與新端點
+  `GET/POST /api/settings/morning-briefing`
+- 手機獨立模式：`mobile/data/localDataSource.ts` 直接讀寫
+  `session.settings.morningBriefing`
+- 手機遙控模式：`mobile/data/remoteDataSource.ts` 打上面那組新端點
+
+**手機 UI 特意不叫「早安簡報」**——owner 原話「我很少早上醒來去開他」，
+桌面那個命名假設了「早上開機」的使用情境，手機版名稱改成「每日問候」，
+UI 文案跟著調整（不提「早安」），程式內部型別／欄位名稱不動
+（`MorningBriefingSettings` 沿用同一份，只是手機顯示文字不同）。
+
+`npm run typecheck`／`npm test`（87 檔、1155 項）皆過。**尚未真機驗證**。
+
+### 追加修正：手機版下拉選單版面跑掉、`mode`／`dayBoundaryHour` 完全沒接（2026-09-06）
+
+owner 裝上 APK 實測「每日問候」設定頁，抓到兩個問題：
+
+1. **「新的一天從幾點算起」下拉選單被撐滿整行、數字跑版**。成因：選單
+   套用了共用的 `.field` class，但 `.field` 在 `styles.css` 裡寫死
+   `width: 100%`（給大部分輸入框用），而 `@tailwind utilities` 是在檔案
+   最上面展開的——同樣特異度下，後定義的 `.field` 蓋掉了想疊加的
+   Tailwind `w-20`。改成不用 `.field`、自己寫一組固定寬度（`w-24`）的樣式，
+   字級仍保持 ≥16px（避免網頁版 iPhone Safari 掃碼開啟時，欄位太小觸發
+   自動放大整頁的舊坑）。
+2. **切成「每次開啟都問候」，滑掉重開卻沒有問候**——這是真的邏輯漏洞，
+   不是顯示問題。`mobile/runtime/morningBriefing.ts` 的
+   `shouldTriggerMorningBriefingNow()` 從一開始就沒讀 `mode`／
+   `dayBoundaryHour`，一律當 `daily`／0 點處理；設定頁的 UI 是補上了，
+   但沒人把這兩個欄位接進實際判斷邏輯裡，等於選了也沒用。桌面版
+   （`main/morningBriefing.ts`）當初是有做這個分支的（`mode ===
+   'every-launch'` 用記憶體旗標 `hasGreetedThisLaunch`，理由是「每次啟動」
+   本來就該隨行程重開重置，不必寫磁碟；`daily` 模式才用
+   `greetingDayString()` 位移磁碟旗標），手機這次搬過去時漏掉了這塊，
+   純粹是實作疏漏。照桌面那份邏輯原樣搬過來，`triggerMorningBriefing()`
+   寫入結果時也跟著分流（every-launch 設記憶體旗標、daily 才寫磁碟）。
+   新增 2 條測試（`tests/mobile/morningBriefing.test.ts`）：
+   every-launch 模式下即使磁碟已記錄「今天問候過」仍要回 true；
+   daily 模式配 `dayBoundaryHour` 時，還沒跨過邊界的話昨天問候過就不該
+   再觸發。`npm run typecheck`／`npm test`（87 檔、1157 項）皆過，
+   重新打包 release APK 裝機。
+
+### 追加修正之二：「每次開啟都問候」裝機後只生效一次（2026-09-06）
+
+上面那條修完重裝，owner 實機測出「每次開啟都問候」還是只在第一次生效，
+之後不管怎麼滑掉重開、來回切設定都不再問候。根因比原本以為的更深一層：
+`hasGreetedThisLaunch` 這個記憶體旗標的設計假設是「行程重開＝模組重新
+載入＝旗標歸零」，這在桌面（一個 Electron process 對應一次啟動）成立，
+但手機不成立——**Android 從最近工作清單滑掉，不保證真的砍掉
+Activity／WebView**，尤其這次同時新增了 `WeatherForegroundService`
+讓整個行程更容易被系統留著繼續跑。旗標因此從第一次問候之後就再也沒
+歸零過，跟滑不滑掉重開無關。
+
+修法：不等行程重開，改成**離開前景那一刻**主動呼叫新函式
+`resetMorningBriefingLaunchFlag()`（`morningBriefing.ts`），掛在
+`session.onAppBackgrounded()`（`App.tsx` 的 `visibilitychange → hidden`
+本來就會呼叫這支，原本只用來預先生成提醒離線台詞）。這樣「每次開啟都
+問候」的實際語意變成「每次從背景回到前景都問候一次」，不管 Android
+有沒有真的砍掉 process 都成立；真的被砍掉重開時，模組本來就是全新的
+`false`，兩條路徑殊途同歸，不衝突。
+
+新增 1 條測試鎖住這個行為（`triggerMorningBriefing` 一次 → 旗標卡住
+→ 呼叫 `resetMorningBriefingLaunchFlag()` → 再度可觸發），刻意把「不呼叫
+reset 就該保持安靜」也寫進斷言，避免誤把這個行為當 bug 修掉。
+
+**debug 過程中還排除了一個誤判**：owner 中間測到「完全沒反應」，一度
+以為旗標修復無效，實際上是撞到既有規則 `isConversationTooRecent()`
+（最後一則使用者訊息 2 分鐘內不插話）——這條規則刻意不留任何提示，
+安靜跳過，很容易被誤認為功能壞掉。跟這次的旗標修正無關，是既有設計，
+記錄下來避免以後又被誤判。
+
+`npm run typecheck`／`npm test`（87 檔、1158 項）皆過，重新打包 release
+APK 裝機。**owner 實機驗證通過**（2026-09-06，確認排除 2 分鐘冷卻窗口
+之後，切背景再切回來正常再問候一次）。「一天一次」模式（含自訂
+`dayBoundaryHour`）owner 預計隔天測，屆時再補驗證結論。

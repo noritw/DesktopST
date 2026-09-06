@@ -311,8 +311,20 @@ log 位置比照桌面的 `weather-proactive-shadow.log`，手機用
 - [ ] 發話後小工具有更新、通知有橫幅彈出
       （⚠️ 配對的 Wear OS 手錶會把通知轉走並清掉手機那則，通知欄看不到不代表沒發出去）
 - [ ] 今日初次問候一天只講一次，且半夜觸發時角色不會說「早安」
+      → daily 模式本身還沒測（owner 預計隔天測），但「每次開啟都問候」
+      （`mode: 'every-launch'`）已於 2026-09-06 真機驗證通過
 - [ ] 遙控模式下**不會**跑這套（§1）
 - [ ] 耗電：連續觀察數日，電池用量頁面沒有異常
+
+> **落地筆記（2026-09-06）**：`mode`／`dayBoundaryHour`（§7 沒提到的兩個
+> 後補欄位，見 `TODO.md` §2.8）在手機端第一次搬過來時完全沒接進
+> `shouldTriggerMorningBriefingNow()`，選了「每次開啟都問候」形同沒用；
+> 補上後又測出記憶體旗標假設「行程重開」在 Android 上不成立（滑掉工作
+> 清單不保證真的砍掉 WebView，尤其這個功能本身又新增了
+> `WeatherForegroundService` 讓行程更容易被系統留著），改成離開前景時
+> 主動歸零。**every-launch 模式 owner 已實機驗證通過**；daily 模式
+> （含自訂 `dayBoundaryHour`）還沒測。細節見 `docs/progress-log.md`
+> 2026-09-06 的三筆條目。
 
 ---
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { LlmProvider, LlmSettingsSnapshot, MemorySettingsSnapshot, ModuleToggle, WeatherSettingsSnapshot } from '@core/data'
-import type { WeatherProactiveSettings } from '@core/types'
+import type { MorningBriefingSettings, WeatherProactiveSettings } from '@core/types'
 import { MODEL_DATA_UPDATED } from '@core/llm/modelCatalog'
 import MonoIcon from '@shared/MonoIcon'
 import { capacitorSecrets } from '../../adapters'
@@ -65,7 +65,7 @@ export function SettingsView(): JSX.Element {
   const [weather, setWeather] = useState<WeatherSettingsSnapshot | null>(null)
   const [failed, setFailed] = useState(false)
   const [open, setOpen] = useState<
-    'chat' | 'utility' | 'weather' | 'memory' | 'modules' | 'desktop' | 'advanced' | null
+    'chat' | 'utility' | 'weather' | 'greeting' | 'memory' | 'modules' | 'desktop' | 'advanced' | null
   >(null)
   const [apiKeyAccess, setApiKeyAccess] = useState(false)
   const [cityDraft, setCityDraft] = useState('')
@@ -75,6 +75,8 @@ export function SettingsView(): JSX.Element {
   const [cwaSavingKey, setCwaSavingKey] = useState(false)
   const [proactiveBusy, setProactiveBusy] = useState(false)
   const [proactiveMsg, setProactiveMsg] = useState<string | null>(null)
+  const [greeting, setGreeting] = useState<MorningBriefingSettings | null>(null)
+  const [greetingBusy, setGreetingBusy] = useState(false)
   const [cwaTesting, setCwaTesting] = useState(false)
   const [cwaTestMsg, setCwaTestMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -170,6 +172,14 @@ export function SettingsView(): JSX.Element {
     }
   }, [])
 
+  const loadGreeting = useCallback(async (): Promise<void> => {
+    try {
+      setGreeting(await getData().settings.getMorningBriefing())
+    } catch {
+      setGreeting(null)
+    }
+  }, [])
+
   useEffect(() => {
     // `attached` 是依賴之一：切換模式的空窗期間掛進來（或本來就開著）的話，
     // 這次 load() 會安靜放棄（見上面），等 `attached` 變 true 這裡會自動重跑。
@@ -183,6 +193,10 @@ export function SettingsView(): JSX.Element {
   useEffect(() => {
     if (open === 'weather' && weather === null) void loadWeather()
   }, [open, weather, loadWeather])
+
+  useEffect(() => {
+    if (open === 'greeting' && greeting === null) void loadGreeting()
+  }, [open, greeting, loadGreeting])
 
   /*
    * 這個開關的真值住在快照裡（電腦端與本機共用同一個 `ui.showLlmBadge`），
@@ -460,6 +474,18 @@ export function SettingsView(): JSX.Element {
       void loadWeather()
     } finally {
       setWeatherBusy(false)
+    }
+  }
+
+  const patchGreeting = async (patch: Partial<MorningBriefingSettings>): Promise<void> => {
+    setGreetingBusy(true)
+    try {
+      setGreeting(await getData().settings.setMorningBriefing(patch))
+    } catch (e) {
+      toast(describeSettingsError(e, '切換每日問候'), 'error')
+      void loadGreeting()
+    } finally {
+      setGreetingBusy(false)
     }
   }
 
@@ -1214,6 +1240,67 @@ export function SettingsView(): JSX.Element {
                     {proactiveMsg && <p className="text-[11px] text-[var(--text-sub)]">{proactiveMsg}</p>}
                   </>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+      </Section>
+
+      {/* ── 每日問候（前身「早安簡報」，2026-09-06 owner 決定改名：很少一早開機） ── */}
+      <Section
+        title="每日問候"
+        hint="今天第一次理 App 時，角色主動打招呼"
+        expanded={open === 'greeting'}
+        onToggle={() => setOpen(open === 'greeting' ? null : 'greeting')}
+      >
+        {greeting === null ? (
+          <p className="text-[11px] text-[var(--text-sub)]">載入中⋯⋯</p>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
+              帶一句天氣／行程／熱搜（三選一，依優先序）。
+            </p>
+            <ToggleRow
+              label="啟用每日問候"
+              checked={greeting.enabled}
+              onChange={(v) => void patchGreeting({ enabled: v })}
+            />
+            {greeting.enabled && (
+              <div className="space-y-2 rounded-[14px] bg-[var(--bg)] p-3">
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="morningBriefingMode"
+                    checked={(greeting.mode ?? 'daily') === 'daily'}
+                    onChange={() => void patchGreeting({ mode: 'daily' })}
+                    className="h-4 w-4 shrink-0 accent-[var(--mint2)] mt-0.5"
+                  />
+                  <span className="text-sm text-[var(--text)]">一天最多問候一次</span>
+                </label>
+                <div className={`flex flex-wrap items-center gap-2 pl-6 text-[11px] ${(greeting.mode ?? 'daily') !== 'daily' ? 'opacity-40' : ''}`}>
+                  <span className="text-[var(--text-sub)]">新的一天從幾點算起</span>
+                  <select
+                    className="h-9 w-24 shrink-0 rounded-[10px] border border-[var(--border)] bg-[var(--bg)] px-2 text-base text-[var(--text)]"
+                    value={greeting.dayBoundaryHour ?? 0}
+                    disabled={(greeting.mode ?? 'daily') !== 'daily' || greetingBusy}
+                    onChange={(e) => void patchGreeting({ dayBoundaryHour: Number(e.target.value) })}
+                  >
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <option key={h} value={h}>{h}:00</option>
+                    ))}
+                  </select>
+                  <span className="text-[var(--text-sub)]">（預設 0:00，熬夜的話可以改晚一點）</span>
+                </div>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="morningBriefingMode"
+                    checked={greeting.mode === 'every-launch'}
+                    onChange={() => void patchGreeting({ mode: 'every-launch' })}
+                    className="h-4 w-4 shrink-0 accent-[var(--mint2)] mt-0.5"
+                  />
+                  <span className="text-sm text-[var(--text)]">不看日期，每次開啟 App 都問候一次</span>
+                </label>
               </div>
             )}
           </div>
