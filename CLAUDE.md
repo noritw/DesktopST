@@ -310,6 +310,7 @@ Spotify／日曆授權仍只在桌面。
 | 實作手機獨立版精準鬧鐘／提醒 | `mobile-standalone-reminder-plan.md`（整份） | 一切長文 |
 | **合併 QR 配對入口／出口（手機兩個入口＋電腦一張 QR 互相打架）** | `qr-entry-merge-plan.md`（整份，開工指令；§6 有 4 個開放問題要先問 owner） | 一切長文 |
 | **實作提醒跨裝置同步（S2 新分類）** | `reminder-sync-kickoff.md`（整份，開工指令） | 一切長文 |
+| **實作手機獨立版天氣主動發話＋今日初次問候（下一步）** | `weather-proactive-mobile-kickoff.md`（整份，開工指令；**§2 推播路線已否決別重提**、**§3 觸發模型是核心**） | `weather-proactive-speech-kickoff.md`／`morning-briefing-kickoff.md` 整份（只在查桌面現況時讀對應段落） |
 | 查／改 Google 日曆驅動提醒（桌面，**已完成**） | `calendar-driven-reminders-kickoff.md`（§5.2 已依實測修訂）＋ `TODO.md` §2.7 | `calendar-driven-reminders-design.md`（產品決策過程，結論已進 kickoff） |
 | **實作日曆驅動提醒的手機版（下一步）** | `calendar-reminders-mobile-kickoff.md`（整份，開工指令；**§3 那個分頁條件的坑一定要看**） | 一切長文 |
 | **實作獨立版個人新聞報（缺口 #6）** | `news-standalone-kickoff.md`（整份，開工指令） | 一切長文 |

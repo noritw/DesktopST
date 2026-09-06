@@ -87,6 +87,16 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!--
+            天氣主動發話：小工具 onUpdate 判斷節流間隔到了之後轉交的前景服務
+            （docs/weather-proactive-mobile-kickoff.md §3.4／§8 第 7 步）。
+            型別與理由同 ReminderForegroundService。
+        -->
+        <service
+            android:name=".weather.WeatherForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
     </application>
 
     <!-- Permissions -->

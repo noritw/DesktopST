@@ -344,6 +344,46 @@ export async function speakStandaloneReminder(opts: {
   }
 }
 
+/** `speakWeatherEvent`／`speakMorningBriefing` 共用的相依：跟提醒發話一樣的管線，只是沒有真正的 `Reminder`。 */
+export type ProactiveSpeakDeps = Omit<Parameters<typeof speakStandaloneReminder>[0], 'reminder' | 'cached' | 'mode'>
+
+function buildVirtualReminder(id: string, label: string, injectionText: string): Reminder {
+  const now = Date.now()
+  return {
+    id,
+    label,
+    prompt: injectionText,
+    enabled: true,
+    schedule: { type: 'once', at: now },
+    createdAt: now,
+    sceneConstraint: 'any_scene',
+    injectWeather: false,
+    injectCalendar: false,
+    injectNews: false,
+    injectPinnedNotes: false,
+    injectConversationContext: true
+  }
+}
+
+/**
+ * 天氣主動發話事件觸發後呼叫（獨立模式）：合成虛擬提醒，走既有的
+ * `speakStandaloneReminder()` 發話管線。措辭與桌面 `speakWeatherEventDirect()`
+ * 逐字對齊，見 `docs/weather-proactive-mobile-kickoff.md` §6。
+ */
+export function speakWeatherEvent(deps: ProactiveSpeakDeps, injectionText: string): Promise<ReminderSpeakResult | null> {
+  const reminder = buildVirtualReminder(`weather-proactive:${Date.now()}`, '天氣主動發話', injectionText)
+  return speakStandaloneReminder({ ...deps, reminder })
+}
+
+/**
+ * 今日初次問候（早安簡報）觸發後呼叫（獨立模式）：合成虛擬提醒，走同一條發話管線。
+ * 見 `docs/weather-proactive-mobile-kickoff.md` §7、桌面對照 `speakMorningBriefingDirect()`。
+ */
+export function speakMorningBriefing(deps: ProactiveSpeakDeps, injectionText: string): Promise<ReminderSpeakResult | null> {
+  const reminder = buildVirtualReminder(`morning-briefing:${Date.now()}`, '今日初次問候', injectionText)
+  return speakStandaloneReminder({ ...deps, reminder })
+}
+
 async function appendReminderMessage(
   opts: {
     events: LocalEventSource

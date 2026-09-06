@@ -29,6 +29,15 @@ export interface WeatherWatchSnapshot {
   recentDaySummaries: Array<{ date: string; rainy: boolean }>
   /** 上次成功輪詢的時間戳 */
   lastPolledAt: number
+  /**
+   * 今天已經發過幾則、是哪一天（YYYY-MM-DD，台北時區）。
+   *
+   * 桌面把這兩個當模組層記憶體變數（`main/weatherWatcher.ts`），常駐所以沒事；
+   * 手機每次 headless 都是全新程序，不落盤的話 `dailyLimit` 等於完全失效
+   * （kickoff §5.2），所以快照多帶這兩欄，桌面單純不使用。
+   */
+  firedTodayDate: string
+  firedTodayCount: number
 }
 
 /** 把磁碟讀回的未知資料正規化成合法快照；壞掉／缺欄位一律退回空快照的對應欄位。 */
@@ -46,7 +55,9 @@ export function normalizeWeatherWatchSnapshot(raw: unknown): WeatherWatchSnapsho
       ? r.recentDaySummaries.filter((d): d is { date: string; rainy: boolean } =>
           !!d && typeof d.date === 'string' && typeof d.rainy === 'boolean')
       : empty.recentDaySummaries,
-    lastPolledAt: typeof r.lastPolledAt === 'number' ? r.lastPolledAt : empty.lastPolledAt
+    lastPolledAt: typeof r.lastPolledAt === 'number' ? r.lastPolledAt : empty.lastPolledAt,
+    firedTodayDate: typeof r.firedTodayDate === 'string' ? r.firedTodayDate : empty.firedTodayDate,
+    firedTodayCount: typeof r.firedTodayCount === 'number' ? r.firedTodayCount : empty.firedTodayCount
   }
 }
 
@@ -58,12 +69,15 @@ export function emptySnapshot(): WeatherWatchSnapshot {
     tempSwingNotifiedDates: [],
     lastNiceDayAt: 0,
     recentDaySummaries: [],
-    lastPolledAt: 0
+    lastPolledAt: 0,
+    firedTodayDate: '',
+    firedTodayCount: 0
   }
 }
 
 export type WeatherEventKind =
   | 'earthquake'
+  | 'earthquake_stale'
   | 'typhoon_appear'
   | 'typhoon_clear'
   | 'rain_tomorrow'
@@ -123,6 +137,8 @@ export interface ObservedWeather {
 export interface ProactiveThresholds {
   earthquakeMinIntensity: number
   earthquakeMaxAgeMs: number
+  /** 超過 earthquakeMaxAgeMs 但在此窗口內仍降級成閒聊；0＝關閉降級（見 kickoff §4.2） */
+  earthquakeStaleWindowMs: number
   rainThreshold: number
   tempSwingThreshold: number
   niceDayMinIntervalDays: number
@@ -134,6 +150,7 @@ export interface ProactiveThresholds {
 export const DEFAULT_THRESHOLDS: ProactiveThresholds = {
   earthquakeMinIntensity: 3,
   earthquakeMaxAgeMs: 30 * 60 * 1000,
+  earthquakeStaleWindowMs: 6 * 60 * 60 * 1000,
   rainThreshold: 60,
   tempSwingThreshold: 5,
   niceDayMinIntervalDays: 7,
@@ -162,15 +179,21 @@ export function diffWeatherEvents(
     tempSwingNotifiedDates: [...prev.tempSwingNotifiedDates],
     lastNiceDayAt: prev.lastNiceDayAt,
     recentDaySummaries: [...prev.recentDaySummaries],
-    lastPolledAt: now
+    lastPolledAt: now,
+    // 呼叫端自己管理（桌面在記憶體、手機落盤），這裡單純透傳不動。
+    firedTodayDate: prev.firedTodayDate,
+    firedTodayCount: prev.firedTodayCount
   }
 
-  // ── 地震：新編號 + 在時效內 + 震度達標 ──
+  // ── 地震：新編號 + 震度達標；依時效分「新鮮」／「降級成閒聊」／丟掉（kickoff §4.2） ──
+  const staleEarthquakeEvents: WeatherEvent[] = []
   for (const eq of observed.earthquakes) {
     if (next.seenEarthquakeNos.includes(eq.no)) continue
     next.seenEarthquakeNos.push(eq.no)
+    if (eq.countyIntensity < thresholds.earthquakeMinIntensity) continue
     const ageMs = now - eq.originTimeMs
-    if (ageMs >= 0 && ageMs <= thresholds.earthquakeMaxAgeMs && eq.countyIntensity >= thresholds.earthquakeMinIntensity) {
+    if (ageMs < 0) continue
+    if (ageMs <= thresholds.earthquakeMaxAgeMs) {
       events.push({
         kind: 'earthquake',
         occurredAt: eq.originTimeMs,
@@ -178,6 +201,15 @@ export function diffWeatherEvents(
           `[天氣事件：地震]\n` +
           `剛剛發生地震，規模 M${eq.magnitude}，震央：${eq.location}，` +
           `${eq.countyAreaName}震度 ${eq.countyIntensity} 級。`
+      })
+    } else if (thresholds.earthquakeStaleWindowMs > 0 && ageMs <= thresholds.earthquakeStaleWindowMs) {
+      staleEarthquakeEvents.push({
+        kind: 'earthquake_stale',
+        occurredAt: eq.originTimeMs,
+        injectionText:
+          `[天氣事件：稍早地震]\n` +
+          `稍早發生地震，規模 M${eq.magnitude}，震央：${eq.location}，` +
+          `${eq.countyAreaName}震度 ${eq.countyIntensity} 級，你可能有感覺到。`
       })
     }
   }
@@ -282,6 +314,9 @@ export function diffWeatherEvents(
       })
     }
   }
+
+  // 降級地震排在其他事件之後（kickoff §4.3：同一輪詢有降級地震與明日降雨時，先讓位給後者）
+  events.push(...staleEarthquakeEvents)
 
   return { events, next }
 }
@@ -412,6 +447,7 @@ export function defaultProactiveWeatherSettings(): import('../types').WeatherPro
     enabled: false,
     earthquake: true,
     earthquakeMinIntensity: DEFAULT_THRESHOLDS.earthquakeMinIntensity,
+    earthquakeStaleWindowMs: DEFAULT_THRESHOLDS.earthquakeStaleWindowMs,
     typhoon: true,
     rainTomorrow: true,
     rainThreshold: DEFAULT_THRESHOLDS.rainThreshold,
@@ -432,6 +468,7 @@ export function thresholdsFromProactiveSettings(
   return {
     ...DEFAULT_THRESHOLDS,
     earthquakeMinIntensity: s.earthquakeMinIntensity,
+    earthquakeStaleWindowMs: s.earthquakeStaleWindowMs,
     rainThreshold: s.rainThreshold,
     tempSwingThreshold: s.tempSwingThreshold,
     niceDayMinIntervalDays: s.niceDayMinIntervalDays
@@ -440,6 +477,7 @@ export function thresholdsFromProactiveSettings(
 
 const KIND_TO_TOGGLE: Record<WeatherEventKind, keyof import('../types').WeatherProactiveSettings | null> = {
   earthquake: 'earthquake',
+  earthquake_stale: 'earthquake',
   typhoon_appear: 'typhoon',
   typhoon_clear: 'typhoon',
   rain_tomorrow: 'rainTomorrow',

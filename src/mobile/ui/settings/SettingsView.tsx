@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { LlmProvider, LlmSettingsSnapshot, MemorySettingsSnapshot, ModuleToggle, WeatherSettingsSnapshot } from '@core/data'
+import type { WeatherProactiveSettings } from '@core/types'
 import { MODEL_DATA_UPDATED } from '@core/llm/modelCatalog'
 import MonoIcon from '@shared/MonoIcon'
 import { capacitorSecrets } from '../../adapters'
@@ -72,6 +73,8 @@ export function SettingsView(): JSX.Element {
   const [weatherMsg, setWeatherMsg] = useState<string | null>(null)
   const [cwaKeyDraft, setCwaKeyDraft] = useState('')
   const [cwaSavingKey, setCwaSavingKey] = useState(false)
+  const [proactiveBusy, setProactiveBusy] = useState(false)
+  const [proactiveMsg, setProactiveMsg] = useState<string | null>(null)
   const [cwaTesting, setCwaTesting] = useState(false)
   const [cwaTestMsg, setCwaTestMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -457,6 +460,43 @@ export function SettingsView(): JSX.Element {
       void loadWeather()
     } finally {
       setWeatherBusy(false)
+    }
+  }
+
+  const patchProactive = async (patch: Partial<WeatherProactiveSettings>): Promise<void> => {
+    setWeatherBusy(true)
+    try {
+      await applyWeather(await getData().settings.setWeather({ proactive: patch }))
+    } catch (e) {
+      toast(describeSettingsError(e, '切換天氣主動發話'), 'error')
+      void loadWeather()
+    } finally {
+      setWeatherBusy(false)
+    }
+  }
+
+  const debugTriggerProactive = async (): Promise<void> => {
+    setProactiveBusy(true)
+    setProactiveMsg(null)
+    try {
+      const r = await getData().settings.triggerWeatherProactiveNow()
+      setProactiveMsg(
+        r.spoke
+          ? '已講出來了，看一下對話。'
+          : r.skippedReason === 'shadow'
+            ? '影子模式：判斷有事件，但沒有真的發話（已寫進 log）。'
+            : r.skippedReason === 'no_event'
+              ? '查過了，這次沒有偵測到轉變。'
+              : r.skippedReason === 'gated'
+                ? '有事件，但被剎車擋下（靜音時段／每日額度／對話進行中）。'
+                : r.skippedReason === 'no_api_key'
+                  ? '尚未設定中央氣象署 API Key。'
+                  : `跳過：${r.skippedReason ?? '未知原因'}`
+      )
+    } catch (e) {
+      toast(describeSettingsError(e, '立即檢查'), 'error')
+    } finally {
+      setProactiveBusy(false)
     }
   }
 
@@ -1075,6 +1115,107 @@ export function SettingsView(): JSX.Element {
                 )}
               </div>
             </div>
+
+            {/* ── 天氣主動發話：偵測地震／颱風／變天，讓角色主動講一句（獨立模式限定）── */}
+            {weather.proactive && (
+              <div className="mt-2 space-y-2 rounded-[14px] bg-[var(--bg)] p-3">
+                <p className="text-sm font-medium text-[var(--text)]">天氣主動發話</p>
+                <p className="text-[11px] leading-relaxed text-[var(--text-sub)]">
+                  偵測到地震／颱風／明日降雨／變天／久違放晴時，角色會主動講一句。
+                  只在你把小工具放上桌面、或不時打開 App 時才會檢查——沒放小工具的話只有開 App 才會查。
+                </p>
+                <ToggleRow
+                  label="啟用主動發話"
+                  checked={weather.proactive.enabled}
+                  onChange={(v) => void patchProactive({ enabled: v })}
+                />
+                {weather.proactive.enabled && (
+                  <>
+                    <div className="grid grid-cols-2 gap-x-3">
+                      <ToggleRow label="地震" checked={weather.proactive.earthquake} onChange={(v) => void patchProactive({ earthquake: v })} />
+                      <ToggleRow label="颱風" checked={weather.proactive.typhoon} onChange={(v) => void patchProactive({ typhoon: v })} />
+                      <ToggleRow label="明日降雨" checked={weather.proactive.rainTomorrow} onChange={(v) => void patchProactive({ rainTomorrow: v })} />
+                      <ToggleRow label="明日變天" checked={weather.proactive.tempSwing} onChange={(v) => void patchProactive({ tempSwing: v })} />
+                      <ToggleRow label="好天氣邀約" checked={weather.proactive.niceDay} onChange={(v) => void patchProactive({ niceDay: v })} />
+                    </div>
+                    <NumberRow
+                      label="地震最低震度"
+                      value={weather.proactive.earthquakeMinIntensity}
+                      min={1}
+                      max={7}
+                      onCommit={(v) => void patchProactive({ earthquakeMinIntensity: v })}
+                    />
+                    <NumberRow
+                      label="降雨機率門檻（%）"
+                      value={weather.proactive.rainThreshold}
+                      min={10}
+                      max={100}
+                      onCommit={(v) => void patchProactive({ rainThreshold: v })}
+                    />
+                    <NumberRow
+                      label="變天溫差門檻（°C）"
+                      value={weather.proactive.tempSwingThreshold}
+                      min={1}
+                      max={20}
+                      onCommit={(v) => void patchProactive({ tempSwingThreshold: v })}
+                    />
+                    <NumberRow
+                      label="每天最多講幾則"
+                      value={weather.proactive.dailyLimit}
+                      min={1}
+                      max={20}
+                      onCommit={(v) => void patchProactive({ dailyLimit: v })}
+                    />
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm text-[var(--text)]">靜音時段</span>
+                      <div className="flex items-center gap-1 text-sm text-[var(--text)]">
+                        <input
+                          type="number"
+                          min={0}
+                          max={23}
+                          className="field w-14 text-right"
+                          value={weather.proactive.quietHours.start}
+                          onChange={(e) => {
+                            const n = Math.round(Number(e.target.value))
+                            if (Number.isFinite(n) && n >= 0 && n <= 23) void patchProactive({ quietHours: { ...weather.proactive!.quietHours, start: n } })
+                          }}
+                        />
+                        <span>–</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={23}
+                          className="field w-14 text-right"
+                          value={weather.proactive.quietHours.end}
+                          onChange={(e) => {
+                            const n = Math.round(Number(e.target.value))
+                            if (Number.isFinite(n) && n >= 0 && n <= 23) void patchProactive({ quietHours: { ...weather.proactive!.quietHours, end: n } })
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm text-[var(--text)]">
+                      <input
+                        type="checkbox"
+                        checked={weather.proactive.shadowMode}
+                        onChange={(e) => void patchProactive({ shadowMode: e.target.checked })}
+                        className="h-4 w-4 accent-[var(--mint2)]"
+                      />
+                      影子模式（只記錄，不真的發話）
+                    </label>
+                    <button
+                      type="button"
+                      disabled={proactiveBusy}
+                      onClick={() => void debugTriggerProactive()}
+                      className="min-h-[40px] w-full rounded-full border border-[var(--border)] px-4 text-sm text-[var(--text)] disabled:opacity-50"
+                    >
+                      {proactiveBusy ? '檢查中…' : '立即檢查一次'}
+                    </button>
+                    {proactiveMsg && <p className="text-[11px] text-[var(--text-sub)]">{proactiveMsg}</p>}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
       </Section>

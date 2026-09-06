@@ -17,6 +17,7 @@ import { isActiveSceneDirty } from '../core/scene/dirty'
 import { buildConversationManifestEntry } from '../core/sync/manifestBuild'
 import { mergeMessages, pickSummary } from '../core/sync/convHash'
 import type { ManifestConversation } from '../core/sync/types'
+import { weatherProactiveSyncSubsetFrom, type WeatherProactiveSyncSubset } from '../core/sync/settingsSnapshot'
 import type { CharacterDisplayConfigMap, FaceCropRect } from '../core/character/displayImage'
 import { applySceneSettings } from '../core/scene/apply'
 import { normalizeForCompare, escapeRegExp } from '../core/util/text'
@@ -1332,6 +1333,7 @@ export function getWeatherSettingsDirect(): {
   locationSource: WeatherLocationSource
   utilityEnabled: boolean
   realtimeQuery: { enabled: boolean; hasCwaApiKey: boolean; forecastCounty: string }
+  proactive: WeatherProactiveSyncSubset
 } {
   const w = settings.weather
   const rq = w?.realtimeQuery
@@ -1347,7 +1349,8 @@ export function getWeatherSettingsDirect(): {
       enabled: !!rq?.enabled,
       hasCwaApiKey: !!rq?.cwaApiKey?.trim(),
       forecastCounty: rq?.forecastCounty ?? ''
-    }
+    },
+    proactive: weatherProactiveSyncSubsetFrom(w?.proactive)
   }
 }
 
@@ -1377,6 +1380,8 @@ export function setWeatherSettingsDirect(patch: {
   longitude?: number
   locationSource?: WeatherLocationSource
   realtimeQuery?: { enabled?: boolean; forecastCounty?: string }
+  /** 天氣主動發話的「判斷品味」半（S2 M5），見 `WeatherProactiveSyncSubset`。 */
+  proactive?: Partial<WeatherProactiveSyncSubset>
 }): { ok: true; weather: ReturnType<typeof getWeatherSettingsDirect> } | { error: string } {
   const w = ensureWeatherSettings()
   if (typeof patch.enabled === 'boolean') {
@@ -1409,6 +1414,29 @@ export function setWeatherSettingsDirect(patch: {
       rq.forecastCounty = patch.realtimeQuery.forecastCounty.trim()
     }
     w.realtimeQuery = rq
+  }
+  if (patch.proactive) {
+    const pw = { ...defaultProactiveWeatherSettings(), ...w.proactive }
+    const p = patch.proactive
+    if (typeof p.enabled === 'boolean') pw.enabled = p.enabled
+    if (typeof p.earthquake === 'boolean') pw.earthquake = p.earthquake
+    if (typeof p.earthquakeMinIntensity === 'number') pw.earthquakeMinIntensity = p.earthquakeMinIntensity
+    if (typeof p.typhoon === 'boolean') pw.typhoon = p.typhoon
+    if (typeof p.rainTomorrow === 'boolean') pw.rainTomorrow = p.rainTomorrow
+    if (typeof p.rainThreshold === 'number') pw.rainThreshold = p.rainThreshold
+    if (typeof p.tempSwing === 'boolean') pw.tempSwing = p.tempSwing
+    if (typeof p.tempSwingThreshold === 'number') pw.tempSwingThreshold = p.tempSwingThreshold
+    if (typeof p.niceDay === 'boolean') pw.niceDay = p.niceDay
+    if (typeof p.niceDayMinIntervalDays === 'number') pw.niceDayMinIntervalDays = p.niceDayMinIntervalDays
+    if (typeof p.dailyLimit === 'number') pw.dailyLimit = p.dailyLimit
+    if (typeof p.quietHoursStart === 'number' || typeof p.quietHoursEnd === 'number') {
+      pw.quietHours = {
+        start: typeof p.quietHoursStart === 'number' ? p.quietHoursStart : pw.quietHours.start,
+        end: typeof p.quietHoursEnd === 'number' ? p.quietHoursEnd : pw.quietHours.end
+      }
+    }
+    if (typeof p.shadowMode === 'boolean') pw.shadowMode = p.shadowMode
+    w.proactive = pw
   }
   settings.weather = w
   invalidateWeatherCache()

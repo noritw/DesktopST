@@ -1,6 +1,11 @@
 import * as keys from '@core/store/keys'
 import { buildManifest } from '@core/sync/manifestBuild'
-import { joinTriggerWords, settingsSnapshotHash, type SettingsSnapshot } from '@core/sync/settingsSnapshot'
+import {
+  joinTriggerWords,
+  settingsSnapshotHash,
+  weatherProactiveSyncSubsetFrom,
+  type SettingsSnapshot
+} from '@core/sync/settingsSnapshot'
 import type { Manifest } from '@core/sync/types'
 import type { CharacterDisplayConfigMap } from '@core/character/displayImage'
 import type { StandaloneSession } from './session'
@@ -66,7 +71,8 @@ export async function buildLocalSettingsSnapshot(session: StandaloneSession): Pr
     weather: {
       polish: !!session.settings.weather?.polish,
       realtimeQueryEnabled: !!session.settings.weather?.realtimeQuery?.enabled,
-      realtimeQueryForecastCounty: session.settings.weather?.realtimeQuery?.forecastCounty ?? ''
+      realtimeQueryForecastCounty: session.settings.weather?.realtimeQuery?.forecastCounty ?? '',
+      proactive: weatherProactiveSyncSubsetFrom(session.settings.weather?.proactive)
     },
     news: {
       speakButton: newsEditable.speakButton,

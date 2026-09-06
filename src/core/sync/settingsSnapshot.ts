@@ -1,5 +1,7 @@
 import { sha1Hex } from '../util/sha1'
 import { stableStringify } from '../util/stableJson'
+import { defaultProactiveWeatherSettings } from '../weather'
+import type { WeatherProactiveSettings } from '../types'
 
 /**
  * 設定同步的比對子集（S2 M5）。
@@ -89,6 +91,32 @@ export interface WeatherSyncSubset {
   polish: boolean
   realtimeQueryEnabled: boolean
   realtimeQueryForecastCounty: string
+  proactive: WeatherProactiveSyncSubset
+}
+
+/**
+ * 天氣主動發話（`docs/weather-proactive-mobile-kickoff.md` §5.1）的「判斷品味」那半——
+ * 兩邊該一致的欄位。**`earthquakeStaleWindowMs` 與觸發來源／最小間隔刻意不在這裡**：
+ * 那些是「排程／耗電」的裝置本地欄位，換一台裝置該重新斟酌，不是使用者偏好。
+ *
+ * `quietHours` 拆成兩個純量欄位——`SettingsFieldRow` 的值只能是純量
+ * （`settingsPair.ts` 的 `row()`），不能塞巢狀物件。
+ */
+export interface WeatherProactiveSyncSubset {
+  enabled: boolean
+  earthquake: boolean
+  earthquakeMinIntensity: number
+  typhoon: boolean
+  rainTomorrow: boolean
+  rainThreshold: number
+  tempSwing: boolean
+  tempSwingThreshold: number
+  niceDay: boolean
+  niceDayMinIntervalDays: number
+  dailyLimit: number
+  quietHoursStart: number
+  quietHoursEnd: number
+  shadowMode: boolean
 }
 
 /**
@@ -139,6 +167,31 @@ export function splitTriggerWords(joined: string): string[] {
 export interface AppearanceSyncSubset {
   showLlmBadge: boolean
   showPersonaName: boolean
+}
+
+/**
+ * `WeatherProactiveSettings`（缺欄位時先補預設值，比照桌面 `getWeatherWatcherContextDirect()`
+ * 的淺層 spread 那套邏輯）→ 同步用的品味子集。**兩端都要用這支**，不要各自組物件字面量
+ * ——這正是本檔案要避免的漂移。
+ */
+export function weatherProactiveSyncSubsetFrom(raw: Partial<WeatherProactiveSettings> | undefined): WeatherProactiveSyncSubset {
+  const w = { ...defaultProactiveWeatherSettings(), ...raw }
+  return {
+    enabled: w.enabled,
+    earthquake: w.earthquake,
+    earthquakeMinIntensity: w.earthquakeMinIntensity,
+    typhoon: w.typhoon,
+    rainTomorrow: w.rainTomorrow,
+    rainThreshold: w.rainThreshold,
+    tempSwing: w.tempSwing,
+    tempSwingThreshold: w.tempSwingThreshold,
+    niceDay: w.niceDay,
+    niceDayMinIntervalDays: w.niceDayMinIntervalDays,
+    dailyLimit: w.dailyLimit,
+    quietHoursStart: w.quietHours.start,
+    quietHoursEnd: w.quietHours.end,
+    shadowMode: w.shadowMode
+  }
 }
 
 export interface SettingsSnapshot {

@@ -28,6 +28,7 @@
 | [`mobile-sync-m3-kickoff.md`](mobile-sync-m3-kickoff.md) | 只在追歷史時才讀 | **已被 M4 取代**，勿當現況 |
 | [`qr-entry-merge-plan.md`](qr-entry-merge-plan.md) | **合併 QR 配對入口／出口**（2026-08-24 owner 指定，尚未動工） | 整份，開工指令。⚠️ §6 有 4 個必須先問 owner 的開放問題 |
 | [`reminder-sync-kickoff.md`](reminder-sync-kickoff.md) | **做提醒跨裝置同步（S2 新分類）** | 整份，開工指令。**尚未實作** |
+| [`weather-proactive-mobile-kickoff.md`](weather-proactive-mobile-kickoff.md) | **做手機獨立版的天氣主動發話＋今日初次問候** | 整份，開工指令。**尚未實作**。§2 已否決推播路線（別重提）；§3 觸發模型是核心；§4 地震分級會一併改到桌面 |
 | [`local-llm-provider-plan.md`](local-llm-provider-plan.md) | 接本地 LLM（Ollama／LM Studio）當主／輔助模型 | **已實作**（2026-08-15），看 §9 落地筆記 |
 | [`mobile-android-widget-plan.md`](mobile-android-widget-plan.md) | 查／改 DeST 主 App 的 Android 桌面小工具 | **已實作、真機待驗**（2026-08-23）。§11 落地筆記＋§12–§17 六輪修正 |
 | [`mobile-character-expression-plan.md`](mobile-character-expression-plan.md) | 查／改手機表情顯示（換表情／框選臉部／新增表情圖） | **已實作並真機驗證**（2026-08-23），看 §9.1／§9.2 |

@@ -232,6 +232,10 @@ await triggerReminderSpeak(virtual)
 
 ### 6.2 手機
 
+> ⚠️ **本節已過時（2026-09-04）。** 手機版的設計改由
+> `docs/weather-proactive-mobile-kickoff.md` 定義：不接推播、改用
+> 小工具 `onUpdate` ＋ App resume 觸發。下面保留當時的判斷供追歷史用。
+
 **這一階先不做手機。** 理由：手機要走 AlarmManager 才能在背景輪詢，而
 每 5 分鐘喚醒一次會被 Doze 打回票，也很耗電。手機版的正解大概率是
 **接 CWA 的推播或改用地震速報 App 的既有通知**，那是另一個設計題。

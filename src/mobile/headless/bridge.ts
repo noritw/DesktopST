@@ -56,6 +56,16 @@ export function headlessReminderParams(): {
 }
 
 /**
+ * 這一次載入是不是 headless 天氣主動發話／早安簡報（`?headless=weather-proactive`）。
+ * 由小工具 `onUpdate` 轉交，見 `docs/weather-proactive-mobile-kickoff.md` §3.4／§8 第 7 步。
+ */
+export function headlessWeatherProactiveParams(): boolean {
+  if (typeof window === 'undefined') return false
+  const p = new URLSearchParams(window.location.search)
+  return p.get('headless') === 'weather-proactive'
+}
+
+/**
  * 同時寫進 logcat 與 console。
  *
  * headless 出問題時**只有 logcat 看得到**（沒有畫面、沒有 DevTools），

@@ -92,6 +92,14 @@ export const WEATHER_WATCH_SNAPSHOT_KEY = 'weather-watch-snapshot.json'
  */
 export const MORNING_BRIEFING_KEY = 'morning-briefing.json'
 
+/**
+ * 天氣主動發話的手機影子模式 log（`docs/weather-proactive-mobile-kickoff.md` §9.3）。
+ * 桌面版寫的是純文字檔（`main/weatherWatcher.ts` 直接 `fs.appendFileSync`），
+ * 手機沒有等價的原生檔案寫入管道，改存 JSON 陣列、只留最近 N 筆。
+ * 純衍生資料，不進同步、不進搬家包。
+ */
+export const WEATHER_PROACTIVE_SHADOW_LOG_KEY = 'weather-proactive-shadow-log.json'
+
 export const MODULES_DIR = 'modules'
 export const CHARACTERS_DIR = 'characters'
 export const CONVERSATIONS_DIR = 'conversations'

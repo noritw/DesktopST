@@ -303,6 +303,7 @@ export default function SettingsWindow() {
   const [cwaTesting, setCwaTesting] = useState(false)
   const [cwaTestMsg, setCwaTestMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const [proactiveWeatherExpanded, setProactiveWeatherExpanded] = useState(false)
+  const [morningBriefingExpanded, setMorningBriefingExpanded] = useState(false)
   const [proactiveTestPolling, setProactiveTestPolling] = useState(false)
   const [proactiveTestResult, setProactiveTestResult] = useState<{
     skippedReason?: 'disabled' | 'no_api_key'
@@ -3105,6 +3106,58 @@ export default function SettingsWindow() {
               onToggle={enabled => set('morningBriefing.enabled', enabled)}
               statusText={draft.morningBriefing?.enabled ? '已啟用' : '已停用'}
             />
+            {draft.morningBriefing?.enabled && (
+              <div className="border border-border rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  className="w-full flex items-center justify-between px-3 py-2 text-sm text-primary hover:bg-surface-hover transition-colors"
+                  onClick={() => setMorningBriefingExpanded(v => !v)}
+                >
+                  <span className="font-medium">早安簡報觸發時機（進階）</span>
+                  <span className="text-secondary text-xs">{morningBriefingExpanded ? '▲' : '▼'}</span>
+                </button>
+                {morningBriefingExpanded && (() => {
+                  const mode = draft.morningBriefing?.mode ?? 'daily'
+                  const dayBoundaryHour = draft.morningBriefing?.dayBoundaryHour ?? 0
+                  return (
+                    <div className="px-3 pb-3 space-y-3 border-t border-border">
+                      <label className="flex items-start gap-2 cursor-pointer pt-2">
+                        <input
+                          type="radio"
+                          name="morningBriefingMode"
+                          checked={mode === 'daily'}
+                          onChange={() => set('morningBriefing.mode', 'daily')}
+                          className="accent-teal w-4 h-4 mt-0.5"
+                        />
+                        <span className="text-sm text-primary">一天最多問候一次</span>
+                      </label>
+                      <div className={`flex items-center gap-2 pl-6 ${mode !== 'daily' ? 'opacity-40' : ''}`}>
+                        <span className="text-xs text-secondary">新的一天從幾點算起</span>
+                        <select
+                          className="bg-bg border border-border rounded-lg px-2 py-1 text-xs text-primary focus:outline-none focus:border-teal"
+                          value={dayBoundaryHour}
+                          disabled={mode !== 'daily'}
+                          onChange={e => set('morningBriefing.dayBoundaryHour', Number(e.target.value))}
+                        >
+                          {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{h}:00</option>)}
+                        </select>
+                        <span className="text-[11px] text-secondary">（預設 0:00，熬夜的話可以改晚一點）</span>
+                      </div>
+                      <label className="flex items-start gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="morningBriefingMode"
+                          checked={mode === 'every-launch'}
+                          onChange={() => set('morningBriefing.mode', 'every-launch')}
+                          className="accent-teal w-4 h-4 mt-0.5"
+                        />
+                        <span className="text-sm text-primary">不看日期，每次啟動 App 都問候一次</span>
+                      </label>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
           </div>
         )}
 

@@ -12,6 +12,7 @@ import type {
   ReminderSchedule,
   ScenePreset,
   WeatherLocationSource,
+  WeatherProactiveSettings,
   WorldPreset
 } from '../types'
 import type { Lorebook, LoreEntry } from '../lore'
@@ -457,6 +458,12 @@ export interface WeatherSettingsSnapshot {
   /** 輔助模型是否啟用；潤飾勾選要靠它，只讀。 */
   utilityEnabled: boolean
   realtimeQuery: WeatherRealtimeQuerySnapshot
+  /**
+   * 天氣主動發話（`docs/weather-proactive-mobile-kickoff.md`）。**只在獨立模式提供**
+   * ——遙控模式下電腦本來就在跑桌面版的 watcher，這裡回 `undefined`，
+   * UI 據此隱藏整個區塊（`!capabilities.remoteControl` 同一條判斷）。
+   */
+  proactive?: WeatherProactiveSettings
 }
 
 export interface WeatherNowSnapshot {
@@ -537,10 +544,17 @@ export interface SettingsApi {
    */
   getWeather(): Promise<WeatherSettingsSnapshot>
   setWeather(
-    patch: Partial<Omit<WeatherSettingsSnapshot, 'utilityEnabled' | 'realtimeQuery'>> & {
+    patch: Partial<Omit<WeatherSettingsSnapshot, 'utilityEnabled' | 'realtimeQuery' | 'proactive'>> & {
       realtimeQuery?: Partial<Omit<WeatherRealtimeQuerySnapshot, 'hasCwaApiKey'>>
+      proactive?: Partial<WeatherProactiveSettings>
     }
   ): Promise<WeatherSettingsSnapshot>
+  /**
+   * debug 限定：立即跑一次天氣主動發話檢查，不等節流間隔（獨立模式限定，
+   * 見 `docs/weather-proactive-mobile-kickoff.md` §9.2）。遙控模式回
+   * `not-supported`。
+   */
+  triggerWeatherProactiveNow(): Promise<{ spoke: boolean; skippedReason?: string }>
   detectWeatherLocation(): Promise<WeatherSettingsSnapshot>
   geocodeWeatherLocation(name: string): Promise<WeatherSettingsSnapshot>
   fetchWeatherNow(): Promise<WeatherNowSnapshot>

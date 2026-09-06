@@ -1,4 +1,5 @@
 import { DEFAULT_MODEL_BY_PROVIDER } from '@core/llm/modelCatalog'
+import { defaultProactiveWeatherSettings } from '@core/weather'
 import { SYNC_LLM_PROVIDERS } from '@core/sync/settingsSnapshot'
 import type { ColorTheme } from '@core/types'
 import type { SpeakMode } from '@core/news/types'
@@ -437,6 +438,91 @@ export async function applySettingsSync(
           ...prevRq,
           [field]: field === 'enabled' ? !!r.remoteValue : String(r.remoteValue)
         }
+        await session.saveSettings()
+        result.pulled.push(r.label)
+      })
+    }
+  }
+
+  // ── 天氣主動發話：判斷品味（kickoff §5.1，earthquakeStaleWindowMs／觸發來源等裝置本地欄位不在這裡）──
+  const PROACTIVE_SCALAR_FIELDS = [
+    'enabled',
+    'earthquake',
+    'earthquakeMinIntensity',
+    'typhoon',
+    'rainTomorrow',
+    'rainThreshold',
+    'tempSwing',
+    'tempSwingThreshold',
+    'niceDay',
+    'niceDayMinIntervalDays',
+    'dailyLimit',
+    'shadowMode'
+  ] as const
+
+  const withProactive = (
+    mutate: (pw: import('@core/types').WeatherProactiveSettings) => void
+  ): void => {
+    const pw = { ...defaultProactiveWeatherSettings(), ...session.settings.weather?.proactive }
+    mutate(pw)
+    session.settings.weather = {
+      enabled: false,
+      polish: false,
+      locationName: '',
+      latitude: 0,
+      longitude: 0,
+      locationSource: '',
+      ...session.settings.weather,
+      proactive: pw
+    }
+  }
+
+  for (const field of PROACTIVE_SCALAR_FIELDS) {
+    const key = `weather.proactive.${field}`
+    const r = byKey.get(key)
+    if (!r || !r.differs) continue
+    const choice = choiceOf(key)
+    if (choice === 'local') {
+      await track(r.label, async () => {
+        onProgress?.(`推送「${r.label}」⋯⋯`)
+        await postJson(src, '/api/settings/weather', { proactive: { [field]: r.localValue } }, fetchImpl)
+        result.pushed.push(r.label)
+      })
+    } else if (choice === 'remote') {
+      await track(r.label, async () => {
+        onProgress?.(`帶回「${r.label}」⋯⋯`)
+        withProactive((pw) => {
+          ;(pw as unknown as Record<string, string | number | boolean>)[field] = r.remoteValue
+        })
+        await session.saveSettings()
+        result.pulled.push(r.label)
+      })
+    }
+  }
+
+  // 靜音時段：`quietHours` 在 `WeatherProactiveSettings` 是巢狀物件，同步子集拆成兩個純量欄位
+  // （`SettingsFieldRow` 只認純量），寫回時要合回同一個物件。
+  const quietHoursKeys = [
+    { key: 'weather.proactive.quietHoursStart', field: 'start' as const },
+    { key: 'weather.proactive.quietHoursEnd', field: 'end' as const }
+  ]
+  for (const { key, field } of quietHoursKeys) {
+    const r = byKey.get(key)
+    if (!r || !r.differs) continue
+    const choice = choiceOf(key)
+    const patchField = field === 'start' ? 'quietHoursStart' : 'quietHoursEnd'
+    if (choice === 'local') {
+      await track(r.label, async () => {
+        onProgress?.(`推送「${r.label}」⋯⋯`)
+        await postJson(src, '/api/settings/weather', { proactive: { [patchField]: r.localValue } }, fetchImpl)
+        result.pushed.push(r.label)
+      })
+    } else if (choice === 'remote') {
+      await track(r.label, async () => {
+        onProgress?.(`帶回「${r.label}」⋯⋯`)
+        withProactive((pw) => {
+          pw.quietHours = { ...pw.quietHours, [field]: Number(r.remoteValue) }
+        })
         await session.saveSettings()
         result.pulled.push(r.label)
       })

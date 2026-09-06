@@ -15,7 +15,13 @@ import { getRemoteControlClientState, getRemoteControlClientStateForDevice } fro
 import { sha1Hex } from '../core/util/sha1'
 import { stableStringify } from '../core/util/stableJson'
 import { buildManifest } from '../core/sync/manifestBuild'
-import { joinTriggerWords, settingsSnapshotHash, type SettingsSnapshot } from '../core/sync/settingsSnapshot'
+import {
+  joinTriggerWords,
+  settingsSnapshotHash,
+  weatherProactiveSyncSubsetFrom,
+  type SettingsSnapshot,
+  type WeatherProactiveSyncSubset
+} from '../core/sync/settingsSnapshot'
 import { loadNewsModuleSettings } from './modules/news/settings'
 import { resolveDisplayImagePath } from '../core/character/displayImage'
 
@@ -223,6 +229,8 @@ export interface MobileBridge {
     locationSource: WeatherLocationSource
     utilityEnabled: boolean
     realtimeQuery: { enabled: boolean; hasCwaApiKey: boolean; forecastCounty: string }
+    /** 天氣主動發話的「判斷品味」半，見 `core/sync/settingsSnapshot.ts` 的 `WeatherProactiveSyncSubset`。 */
+    proactive: WeatherProactiveSyncSubset
   }
   setWeatherSettings: (patch: {
     enabled?: boolean
@@ -232,6 +240,7 @@ export interface MobileBridge {
     longitude?: number
     locationSource?: WeatherLocationSource
     realtimeQuery?: { enabled?: boolean; forecastCounty?: string }
+    proactive?: Partial<WeatherProactiveSyncSubset>
   }) => { ok: true; weather: ReturnType<MobileBridge['getWeatherSettings']> } | { error: string }
   /** 覆寫 CWA API Key。**只寫不讀**，理由同 `setLlmApiKey`。 */
   setCwaApiKey: (apiKey: string) => { ok: true } | { error: string }
@@ -569,7 +578,8 @@ function buildSettingsSnapshot(bridge: MobileBridge): SettingsSnapshot {
       return {
         polish: w.polish,
         realtimeQueryEnabled: w.realtimeQuery.enabled,
-        realtimeQueryForecastCounty: w.realtimeQuery.forecastCounty
+        realtimeQueryForecastCounty: w.realtimeQuery.forecastCounty,
+        proactive: w.proactive
       }
     })(),
     news: (() => {
@@ -2092,6 +2102,7 @@ async function handleRequest(
       longitude?: number
       locationSource?: WeatherLocationSource
       realtimeQuery?: { enabled?: boolean; forecastCounty?: string }
+      proactive?: Partial<WeatherProactiveSyncSubset>
     }>(req, res)
     if (!payload) return
     const r = bridge.setWeatherSettings(payload)

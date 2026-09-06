@@ -88,7 +88,15 @@ import {
 } from './seedDefaults'
 import { forceSpeakStandalone, sendStandaloneMessage } from './chat'
 import { listSummarizableMessages, summarizeConversation } from '@core/llm/summarizer'
-import { speakStandaloneReminder, type ReminderSpeakResult } from './reminderSpeak'
+import {
+  speakStandaloneReminder,
+  speakWeatherEvent,
+  speakMorningBriefing,
+  type ProactiveSpeakDeps,
+  type ReminderSpeakResult
+} from './reminderSpeak'
+import { checkWeatherProactive } from './weatherProactive'
+import { shouldTriggerMorningBriefingNow, triggerMorningBriefing } from './morningBriefing'
 import {
   initReminderScheduler,
   updateReminders,
@@ -2263,7 +2271,111 @@ export class StandaloneSession {
         console.warn('[Reminder] 回到前景時重讀資料失敗:', e)
       }
       flushDeferredReminders()
+      // 前景觸發不需要通知／小工具資訊（訊息本來就會直接顯示在畫面上），
+      // 但跟 headless 走同一支函式——省一份平行邏輯。
+      void this.runProactiveGreetingsHeadless()
     })()
+  }
+
+  /** `speakWeatherEvent`／`speakMorningBriefing` 共用的相依組裝。 */
+  private proactiveSpeakDeps(): ProactiveSpeakDeps {
+    return {
+      adapters: this.adapters,
+      events: this.events,
+      settings: this.settings,
+      characters: this.characters,
+      getActiveConversation: () => this.activeConversation,
+      saveConversation: (c) => this.saveConversation(c),
+      getPersona: () => this.personas.find((p) => p.id === this.settings.activePersonaId) ?? null,
+      getWorld: () => this.worlds.find((w) => w.id === this.settings.activeWorldId) ?? null,
+      getActiveScene: () => this.scenes.find((s) => s.id === this.settings.activeSceneId) ?? null,
+      loadLorebook: (id) => this.getLorebook(id)
+    }
+  }
+
+  private lastUserMessageAt(): number | null {
+    const conv = this.activeConversation
+    if (!conv?.messages?.length) return null
+    return [...conv.messages].reverse().find((m) => m.role === 'user')?.timestamp ?? null
+  }
+
+  /**
+   * 天氣主動發話 ＋ 今日初次問候（早安簡報），獨立模式限定。
+   * 見 `docs/weather-proactive-mobile-kickoff.md` §8 第 3／4／7 步。
+   *
+   * 順序：先看有沒有天氣事件要講（比較急），沒有才看要不要今日問候——
+   * 不要讓使用者一開 App 被連講兩句（kickoff §7.3）。
+   *
+   * **兩個呼叫端共用同一支**，不是平行邏輯：
+   * - App resume（`onAppResumed()`）：前景觸發，回傳值直接丟棄——訊息本來就會顯示在畫面上。
+   * - 小工具 `onUpdate()` 轉交的 headless（`headless/weatherProactiveHeadless.ts`）：
+   *   App 可能整個被劃掉，回傳值要交回原生發通知（kickoff §6.1 的「兩個管道都要」）。
+   */
+  async runProactiveGreetingsHeadless(): Promise<{
+    notify: boolean
+    title?: string
+    body?: string
+    avatarBase64?: string
+    reason: string
+  }> {
+    try {
+      let spoken: ReminderSpeakResult | null = null
+
+      const weatherResult = await checkWeatherProactive({
+        adapters: this.adapters,
+        settings: this.settings,
+        getActiveConversation: () => this.activeConversation,
+        speak: async (text) => {
+          const r = await speakWeatherEvent(this.proactiveSpeakDeps(), text)
+          if (r) spoken = r
+          return !!r
+        }
+      })
+
+      if (!weatherResult.spoke && (await shouldTriggerMorningBriefingNow(this.adapters, this.settings))) {
+        await triggerMorningBriefing({
+          adapters: this.adapters,
+          settings: this.settings,
+          lastUserMessageAt: this.lastUserMessageAt(),
+          speak: async (text) => {
+            const r = await speakMorningBriefing(this.proactiveSpeakDeps(), text)
+            if (r) spoken = r
+            return !!r
+          }
+        })
+      }
+
+      if (!spoken) return { notify: false, reason: weatherResult.skippedReason ?? 'no_event' }
+
+      this.refreshWidget()
+      const s = spoken as ReminderSpeakResult
+      return {
+        notify: true,
+        title: s.characterName,
+        body: s.text,
+        avatarBase64: await this.resolveAvatarBase64(s.characterId).catch(() => undefined),
+        reason: s.status
+      }
+    } catch (e) {
+      console.warn('[proactiveGreetings] runProactiveGreetingsHeadless failed:', e)
+      return { notify: false, reason: 'error' }
+    }
+  }
+
+  /**
+   * debug 按鈕：立即跑一次天氣主動發話檢查，略過節流間隔（kickoff §9.2）。
+   * 邏輯跟 resume 觸發完全相同（同一支 `checkWeatherProactive()`），
+   * 只是手動觸發、且忽略 §3.3 的最小間隔。
+   */
+  async debugTriggerWeatherProactive(): Promise<{ spoke: boolean; skippedReason?: string }> {
+    const result = await checkWeatherProactive({
+      adapters: this.adapters,
+      settings: this.settings,
+      getActiveConversation: () => this.activeConversation,
+      speak: async (text) => !!(await speakWeatherEvent(this.proactiveSpeakDeps(), text)),
+      ignoreThrottle: true
+    })
+    return { spoke: result.spoke, skippedReason: result.skippedReason }
   }
 
   /** 離開前景：把接下來要響的提醒台詞先生一句起來當底線。 */

@@ -5,7 +5,24 @@ import {
   defaultSettingsChoices,
   pairSettings
 } from '../../../src/core/sync/settingsPair'
-import type { SettingsSnapshot } from '../../../src/core/sync/settingsSnapshot'
+import type { SettingsSnapshot, WeatherProactiveSyncSubset } from '../../../src/core/sync/settingsSnapshot'
+
+const DEFAULT_PROACTIVE: WeatherProactiveSyncSubset = {
+  enabled: false,
+  earthquake: true,
+  earthquakeMinIntensity: 3,
+  typhoon: true,
+  rainTomorrow: true,
+  rainThreshold: 60,
+  tempSwing: false,
+  tempSwingThreshold: 5,
+  niceDay: false,
+  niceDayMinIntervalDays: 7,
+  dailyLimit: 3,
+  quietHoursStart: 23,
+  quietHoursEnd: 8,
+  shadowMode: true
+}
 
 function snapshot(over: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
   return {
@@ -24,7 +41,7 @@ function snapshot(over: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     memory: { keepRecentN: 20, autoSummarizeAfter: 30, autoSummarizeEnabled: true },
     colorTheme: 'mint',
     modules: [{ id: 'desktopst.weather', label: '天氣', enabled: true }],
-    weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' },
+    weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '', proactive: DEFAULT_PROACTIVE },
     news: { speakButton: 'sometimes', conversationSearchEnabled: false, conversationSearchTriggerWords: '', conversationSearchMaxAgeHours: 48 },
     appearance: { showLlmBadge: true, showPersonaName: true },
     ...over
@@ -148,6 +165,54 @@ describe('countSettingsPlan', () => {
     expect(counts.push).toBe(1)
     expect(counts.pull).toBe(1)
     expect(counts.untouched).toBe(rows.length - 2)
+  })
+})
+
+describe('天氣主動發話：判斷品味（S2 M5，weather-proactive-mobile-kickoff §5.1／§8 第 6 步）', () => {
+  // 迴歸守門：`weather.proactive` 一度完全不在比對子集裡（kickoff §5.1 的警告），
+  // 跟 `weather.polish`／新聞對話搜尋是同一個錯誤類別。
+  const PROACTIVE_KEYS = [
+    'weather.proactive.enabled',
+    'weather.proactive.earthquake',
+    'weather.proactive.earthquakeMinIntensity',
+    'weather.proactive.typhoon',
+    'weather.proactive.rainTomorrow',
+    'weather.proactive.rainThreshold',
+    'weather.proactive.tempSwing',
+    'weather.proactive.tempSwingThreshold',
+    'weather.proactive.niceDay',
+    'weather.proactive.niceDayMinIntervalDays',
+    'weather.proactive.dailyLimit',
+    'weather.proactive.quietHoursStart',
+    'weather.proactive.quietHoursEnd',
+    'weather.proactive.shadowMode'
+  ]
+
+  it('十四欄都會產生比對列', () => {
+    const rows = pairSettings(snapshot(), snapshot())
+    for (const key of PROACTIVE_KEYS) {
+      expect(rows.find((r) => r.key === key), `缺少比對列：${key}`).toBeTruthy()
+    }
+  })
+
+  it('地震開關與靜音時段不同時各自 differs，其餘列不受影響', () => {
+    const local = snapshot()
+    const remote = snapshot({
+      weather: {
+        ...snapshot().weather,
+        proactive: { ...DEFAULT_PROACTIVE, earthquake: false, quietHoursStart: 22, quietHoursEnd: 7 }
+      }
+    })
+    const rows = pairSettings(local, remote)
+    expect(rows.find((r) => r.key === 'weather.proactive.earthquake')).toMatchObject({ differs: true, localValue: true, remoteValue: false })
+    expect(rows.find((r) => r.key === 'weather.proactive.quietHoursStart')).toMatchObject({ differs: true, localValue: 23, remoteValue: 22 })
+    expect(rows.find((r) => r.key === 'weather.proactive.quietHoursEnd')).toMatchObject({ differs: true, localValue: 8, remoteValue: 7 })
+    expect(rows.find((r) => r.key === 'weather.proactive.typhoon')).toMatchObject({ differs: false })
+  })
+
+  it('earthquakeStaleWindowMs 是裝置本地欄位，不會出現在比對列裡', () => {
+    const rows = pairSettings(snapshot(), snapshot())
+    expect(rows.find((r) => r.key.includes('earthquakeStaleWindowMs'))).toBeUndefined()
   })
 })
 

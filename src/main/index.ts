@@ -387,6 +387,13 @@ app.on('ready', async () => {
   }
   if (didRepairDesktopLayout) saveSettings(settings)
 
+  // 早安簡報：開機後就檢查一次，不要只靠 `browser-window-focus`——桌寵視窗開機後
+  // 不一定會立刻拿到 OS 焦點，導致問候被延誤到使用者真的點進來才觸發，
+  // 但提醒排程是絕對時間、跟焦點無關，看起來就像「提醒搶在問候前面」（2026-09-06 owner 實機回報）
+  if (shouldTriggerMorningBriefingNow()) {
+    void triggerMorningBriefing()
+  }
+
   const noCharacters = chars.length === 0
   const onboardingPending = settings.ui.onboardingCompleted === false
 

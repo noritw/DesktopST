@@ -1,13 +1,31 @@
 import { describe, expect, it } from 'vitest'
 import type { PlatformAdapters } from '@core/adapters'
 import { pairSettings, type SettingsChoiceMap } from '@core/sync/settingsPair'
-import type { SettingsSnapshot } from '@core/sync/settingsSnapshot'
+import type { SettingsSnapshot, WeatherProactiveSyncSubset } from '@core/sync/settingsSnapshot'
+import { defaultProactiveWeatherSettings } from '@core/weather'
 import { createMemoryStorage } from '../../src/mobile/adapters/memoryStorage'
 import { unavailableSecrets } from '../../src/mobile/adapters/secretCrypto'
 import { bootStandaloneSession, type StandaloneSession } from '../../src/mobile/runtime/session'
 import { applySettingsSync } from '../../src/mobile/runtime/syncSettingsApply'
 
 const SRC = { baseUrl: 'http://192.168.1.20:3721', token: 'tok' }
+
+const DEFAULT_PROACTIVE: WeatherProactiveSyncSubset = {
+  enabled: false,
+  earthquake: true,
+  earthquakeMinIntensity: 3,
+  typhoon: true,
+  rainTomorrow: true,
+  rainThreshold: 60,
+  tempSwing: false,
+  tempSwingThreshold: 5,
+  niceDay: false,
+  niceDayMinIntervalDays: 7,
+  dailyLimit: 3,
+  quietHoursStart: 23,
+  quietHoursEnd: 8,
+  shadowMode: true
+}
 
 function adapters(): PlatformAdapters {
   return {
@@ -38,7 +56,7 @@ function snapshot(over: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     memory: { keepRecentN: 20, autoSummarizeAfter: 30, autoSummarizeEnabled: true },
     colorTheme: 'mint',
     modules: [],
-    weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' },
+    weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '', proactive: DEFAULT_PROACTIVE },
     news: { speakButton: 'sometimes', conversationSearchEnabled: false, conversationSearchTriggerWords: '', conversationSearchMaxAgeHours: 48 },
     appearance: { showLlmBadge: true, showPersonaName: true },
     ...over
@@ -240,8 +258,8 @@ describe('applySettingsSync 模組', () => {
 describe('applySettingsSync 天氣潤飾', () => {
   it("choice 'local' 推送 polish，不動地點座標等其他天氣欄位", async () => {
     const session = await bootSession()
-    const local = snapshot({ weather: { polish: true, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' } })
-    const remote = snapshot({ weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' } })
+    const local = snapshot({ weather: { polish: true, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '', proactive: DEFAULT_PROACTIVE } })
+    const remote = snapshot({ weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '', proactive: DEFAULT_PROACTIVE } })
     const rows = pairSettings(local, remote)
     const { fetchImpl, calls } = makeFakeDesktop()
 
@@ -262,8 +280,8 @@ describe('applySettingsSync 天氣潤飾', () => {
       longitude: 121.56,
       locationSource: 'gps'
     }
-    const local = snapshot({ weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' } })
-    const remote = snapshot({ weather: { polish: true, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '' } })
+    const local = snapshot({ weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '', proactive: DEFAULT_PROACTIVE } })
+    const remote = snapshot({ weather: { polish: true, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '', proactive: DEFAULT_PROACTIVE } })
     const rows = pairSettings(local, remote)
     const { fetchImpl } = makeFakeDesktop()
 
@@ -271,6 +289,65 @@ describe('applySettingsSync 天氣潤飾', () => {
 
     expect(session.settings.weather.polish).toBe(true)
     expect(session.settings.weather.locationName).toBe('台北市') // 沒被合併邏輯清空
+  })
+})
+
+describe('applySettingsSync 天氣主動發話（S2 M5 §8 第 6 步）', () => {
+  it("choice 'local' 推送地震開關，其餘欄位不受影響", async () => {
+    const session = await bootSession()
+    const local = snapshot({ weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '', proactive: { ...DEFAULT_PROACTIVE, earthquake: false } } })
+    const remote = snapshot({ weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '', proactive: DEFAULT_PROACTIVE } })
+    const rows = pairSettings(local, remote)
+    const { fetchImpl, calls } = makeFakeDesktop()
+
+    const res = await applySettingsSync(SRC, session, rows, { 'weather.proactive.earthquake': 'local' } as SettingsChoiceMap, undefined, fetchImpl)
+
+    expect(res.pushed).toEqual(['天氣主動發話：地震'])
+    const call = calls.find((c) => c.path === '/api/settings/weather')
+    expect(call?.body).toEqual({ proactive: { earthquake: false } })
+  })
+
+  it("choice 'remote' 把每日額度帶回手機，合併進既有 proactive 設定而不整包覆蓋", async () => {
+    const session = await bootSession()
+    session.settings.weather = {
+      enabled: true,
+      polish: false,
+      locationName: '台北市',
+      latitude: 25.03,
+      longitude: 121.56,
+      locationSource: 'gps',
+      proactive: { ...defaultProactiveWeatherSettings(), shadowMode: false }
+    }
+    const local = snapshot({ weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '', proactive: DEFAULT_PROACTIVE } })
+    const remote = snapshot({ weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '', proactive: { ...DEFAULT_PROACTIVE, dailyLimit: 5 } } })
+    const rows = pairSettings(local, remote)
+    const { fetchImpl } = makeFakeDesktop()
+
+    await applySettingsSync(SRC, session, rows, { 'weather.proactive.dailyLimit': 'remote' } as SettingsChoiceMap, undefined, fetchImpl)
+
+    expect(session.settings.weather?.proactive?.dailyLimit).toBe(5)
+    // 沒被選中的欄位（shadowMode）維持手機原本設過的值，不能被拉回動作悄悄蓋掉
+    expect(session.settings.weather?.proactive?.shadowMode).toBe(false)
+    expect(session.settings.weather?.locationName).toBe('台北市')
+  })
+
+  it('靜音時段兩欄各自比對、各自可推送，拼回同一個 quietHours 物件', async () => {
+    const session = await bootSession()
+    const local = snapshot({ weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '', proactive: { ...DEFAULT_PROACTIVE, quietHoursStart: 22, quietHoursEnd: 7 } } })
+    const remote = snapshot({ weather: { polish: false, realtimeQueryEnabled: false, realtimeQueryForecastCounty: '', proactive: DEFAULT_PROACTIVE } })
+    const rows = pairSettings(local, remote)
+    const { fetchImpl } = makeFakeDesktop()
+
+    await applySettingsSync(
+      SRC,
+      session,
+      rows,
+      { 'weather.proactive.quietHoursStart': 'remote', 'weather.proactive.quietHoursEnd': 'remote' } as SettingsChoiceMap,
+      undefined,
+      fetchImpl
+    )
+
+    expect(session.settings.weather?.proactive?.quietHours).toEqual({ start: 23, end: 8 })
   })
 })
 

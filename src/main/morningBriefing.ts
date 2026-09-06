@@ -8,7 +8,7 @@
  * - 熱搜：`fetchBreakoutItems()` + `filterAndPick()`（黑名單／來源排除全部沿用）
  */
 import type { MorningBriefingContent } from '../core/greeting'
-import { isConversationTooRecent, shouldGreetToday, taipeiDateString } from '../core/greeting'
+import { greetingDayString, isConversationTooRecent, shouldGreetToday } from '../core/greeting'
 import { filterAndPick } from '../core/news/filter'
 import { NEWS_MODULE_ID } from '../core/news/moduleId'
 import {
@@ -84,14 +84,21 @@ export async function buildMorningBriefingContent(): Promise<MorningBriefingCont
 // 需要這個記憶體旗標擋住第二次觸發，磁碟旗標只負責跨行程（重開 App）那一層。
 let inFlight = false
 
+// `mode: 'every-launch'` 用的是這個記憶體旗標，不是磁碟——「每次啟動」本來就該
+// 隨行程重開重置，沒有跨行程持久化的必要，也不會跟 `mode: 'daily'` 的磁碟旗標互相污染。
+let hasGreetedThisLaunch = false
+
 /**
  * 給呼叫端（桌面 `browser-window-focus`、手機 `onAppResumed`）用的同步、快速檢查：
- * 總開關有開，而且今天還沒講過，才值得丟 `triggerMorningBriefing()` 到背景。
- * 不做任何慢動作（不打 API、不等 LLM），符合 kickoff §2.1 對 focus handler 的要求。
+ * 總開關有開，而且（依目前模式）今天還沒講過／這次啟動還沒講過，才值得丟
+ * `triggerMorningBriefing()` 到背景。不做任何慢動作（不打 API、不等 LLM），
+ * 符合 kickoff §2.1 對 focus handler 的要求。
  */
 export function shouldTriggerMorningBriefingNow(now: number = Date.now()): boolean {
-  if (!getSettings().morningBriefing?.enabled) return false
-  return shouldGreetToday(loadMorningBriefingSnapshot(), taipeiDateString(now))
+  const cfg = getSettings().morningBriefing
+  if (!cfg?.enabled) return false
+  if (cfg.mode === 'every-launch') return !hasGreetedThisLaunch
+  return shouldGreetToday(loadMorningBriefingSnapshot(), greetingDayString(now, cfg.dayBoundaryHour ?? 0))
 }
 
 /**
@@ -110,7 +117,13 @@ export async function triggerMorningBriefing(): Promise<void> {
     if (!content) return
 
     await speakMorningBriefingDirect(content.injectionText)
-    saveMorningBriefingSnapshot({ lastGreetedDate: taipeiDateString(now) })
+
+    const cfg = getSettings().morningBriefing
+    if (cfg?.mode === 'every-launch') {
+      hasGreetedThisLaunch = true
+    } else {
+      saveMorningBriefingSnapshot({ lastGreetedDate: greetingDayString(now, cfg?.dayBoundaryHour ?? 0) })
+    }
   } catch (e) {
     console.error('[morningBriefing] triggerMorningBriefing failed:', e)
   } finally {

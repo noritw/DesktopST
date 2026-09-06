@@ -268,6 +268,8 @@ export interface WeatherProactiveSettings {
   enabled: boolean
   earthquake: boolean
   earthquakeMinIntensity: number
+  /** 超過 earthquakeMaxAgeMs 但在此窗口內仍降級成閒聊；0＝關閉降級。裝置本地，S2 M5 不同步（kickoff §5.1／§5.2） */
+  earthquakeStaleWindowMs: number
   typhoon: boolean
   rainTomorrow: boolean
   rainThreshold: number
@@ -330,6 +332,13 @@ export interface CalendarSettings {
  */
 export interface MorningBriefingSettings {
   enabled: boolean
+  /**
+   * 觸發模式：`daily`（預設）一天最多問候一次，用 `dayBoundaryHour` 判斷新的一天從幾點算起；
+   * `every-launch` 不看日期，每次啟動 App 都問候一次。
+   */
+  mode?: 'daily' | 'every-launch'
+  /** `mode: 'daily'` 時，新的一天從幾點算起（0-23，台北時區）。預設 0（午夜）。 */
+  dayBoundaryHour?: number
 }
 
 export interface MobileSettings {

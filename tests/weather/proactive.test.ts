@@ -100,11 +100,33 @@ describe('diffWeatherEvents — earthquake', () => {
     expect(events).toHaveLength(0)
   })
 
-  it('does not fire when past the max-age window', () => {
+  it('downgrades to earthquake_stale when past max-age but within the stale window', () => {
     const { events } = diffWeatherEvents(emptySnapshot(), observed({
       earthquakes: [{ no: 333, originTimeMs: NOW - 60 * 60 * 1000, magnitude: 6, location: '台東', countyIntensity: 4, countyAreaName: '臺北市' }]
     }), NOW, DEFAULT_THRESHOLDS)
+    expect(events.map(e => e.kind)).toEqual(['earthquake_stale'])
+  })
+
+  it('drops the earthquake entirely once past the stale window', () => {
+    const { events } = diffWeatherEvents(emptySnapshot(), observed({
+      earthquakes: [{ no: 444, originTimeMs: NOW - 7 * 60 * 60 * 1000, magnitude: 6, location: '台東', countyIntensity: 4, countyAreaName: '臺北市' }]
+    }), NOW, DEFAULT_THRESHOLDS)
     expect(events).toHaveLength(0)
+  })
+
+  it('does not downgrade when the stale window is disabled (0)', () => {
+    const { events } = diffWeatherEvents(emptySnapshot(), observed({
+      earthquakes: [{ no: 555, originTimeMs: NOW - 60 * 60 * 1000, magnitude: 6, location: '台東', countyIntensity: 4, countyAreaName: '臺北市' }]
+    }), NOW, { ...DEFAULT_THRESHOLDS, earthquakeStaleWindowMs: 0 })
+    expect(events).toHaveLength(0)
+  })
+
+  it('orders earthquake_stale after other event kinds from the same poll', () => {
+    const { events } = diffWeatherEvents(emptySnapshot(), observed({
+      earthquakes: [{ no: 666, originTimeMs: NOW - 60 * 60 * 1000, magnitude: 6, location: '台東', countyIntensity: 4, countyAreaName: '臺北市' }],
+      forecast: baseForecast({ tomorrowPoP: 70 })
+    }), NOW, DEFAULT_THRESHOLDS)
+    expect(events.map(e => e.kind)).toEqual(['rain_tomorrow', 'earthquake_stale'])
   })
 })
 
@@ -364,6 +386,16 @@ describe('gateProactiveEvents', () => {
     const events = [
       { kind: 'earthquake' as const, occurredAt: NOW, injectionText: 'eq' },
       { kind: 'rain_tomorrow' as const, occurredAt: NOW, injectionText: 'rain' }
+    ]
+    const result = gateProactiveEvents(events, settings, { now: NOW, firedTodayCount: 0, lastUserMessageAt: null })
+    expect(result.map(e => e.kind)).toEqual(['earthquake'])
+  })
+
+  it('earthquake_stale is NOT exempt from quiet hours (unlike fresh earthquake)', () => {
+    const settings = { ...defaultProactiveWeatherSettings(), enabled: true, quietHours: { start: 0, end: 24 } }
+    const events = [
+      { kind: 'earthquake' as const, occurredAt: NOW, injectionText: 'eq' },
+      { kind: 'earthquake_stale' as const, occurredAt: NOW, injectionText: 'stale-eq' }
     ]
     const result = gateProactiveEvents(events, settings, { now: NOW, firedTodayCount: 0, lastUserMessageAt: null })
     expect(result.map(e => e.kind)).toEqual(['earthquake'])

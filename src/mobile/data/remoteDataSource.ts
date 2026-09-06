@@ -332,6 +332,8 @@ export class RemoteDataSource implements DataSource {
 
     getWeather: async () => (await this.http.get<{ weather: WeatherSettingsSnapshot }>('/api/settings/weather')).weather,
     setWeather: async (patch) => (await this.http.post<{ weather: WeatherSettingsSnapshot }>('/api/settings/weather', patch)).weather,
+    // 天氣主動發話只在獨立模式跑（電腦端本來就有自己的 watcher），見型別註解。
+    triggerWeatherProactiveNow: async () => { throw new DataError('not-supported', '天氣主動發話只支援獨立模式') },
     detectWeatherLocation: async () => (await this.http.post<{ weather: WeatherSettingsSnapshot }>('/api/settings/weather/detect-ip', {})).weather,
     geocodeWeatherLocation: async (name) => (await this.http.post<{ weather: WeatherSettingsSnapshot }>('/api/settings/weather/geocode', { name })).weather,
     fetchWeatherNow: async () => {

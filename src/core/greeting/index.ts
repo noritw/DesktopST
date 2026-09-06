@@ -1,5 +1,6 @@
 export {
   emptyMorningBriefingSnapshot,
+  greetingDayString,
   isConversationTooRecent,
   normalizeMorningBriefingSnapshot,
   shouldGreetToday,

@@ -17,7 +17,7 @@ import type {
 import { DEFAULT_MODEL_BY_PROVIDER } from '@core/llm/modelCatalog'
 import { resolveEndpoint } from '@core/llm'
 import { providerNeedsApiKey } from '@core/prompt/promptUtils'
-import { testCwaApiKey } from '@core/weather'
+import { defaultProactiveWeatherSettings, testCwaApiKey } from '@core/weather'
 import { personaKey, worldKey } from '@core/store/keys'
 import type { StandaloneSession } from '../runtime/session'
 import { newId } from '../runtime/id'
@@ -318,12 +318,15 @@ export class LocalDataSource implements DataSource {
           enabled: !!rq?.enabled,
           hasCwaApiKey: !!rq?.cwaApiKey?.trim(),
           forecastCounty: rq?.forecastCounty ?? ''
-        }
+        },
+        // 獨立模式限定（見型別註解）；本機一定是獨立模式，永遠回傳。
+        proactive: { ...defaultProactiveWeatherSettings(), ...w?.proactive }
       }
     },
     setWeather: async (patch) => {
-      const { realtimeQuery: rqPatch, ...rest } = patch
+      const { realtimeQuery: rqPatch, proactive: proactivePatch, ...rest } = patch
       const prevRq = this.session.settings.weather?.realtimeQuery
+      const prevProactive = this.session.settings.weather?.proactive
       this.session.settings.weather = {
         enabled: false,
         polish: false,
@@ -343,9 +346,17 @@ export class LocalDataSource implements DataSource {
           ...rqPatch
         }
       }
+      if (proactivePatch) {
+        this.session.settings.weather.proactive = {
+          ...defaultProactiveWeatherSettings(),
+          ...prevProactive,
+          ...proactivePatch
+        }
+      }
       await this.session.saveSettings()
       return this.settings.getWeather()
     },
+    triggerWeatherProactiveNow: () => this.session.debugTriggerWeatherProactive(),
     detectWeatherLocation: async () => {
       await this.session.detectWeatherLocation()
       return this.settings.getWeather()

@@ -119,6 +119,74 @@ export function pairSettings(local: SettingsSnapshot, remote: SettingsSnapshot):
       local.weather.realtimeQueryForecastCounty,
       remote.weather.realtimeQueryForecastCounty
     ),
+    row('weather.proactive.enabled', 'modules', '天氣主動發話：總開關', local.weather.proactive.enabled, remote.weather.proactive.enabled),
+    row('weather.proactive.earthquake', 'modules', '天氣主動發話：地震', local.weather.proactive.earthquake, remote.weather.proactive.earthquake),
+    row(
+      'weather.proactive.earthquakeMinIntensity',
+      'modules',
+      '天氣主動發話：地震最低震度',
+      local.weather.proactive.earthquakeMinIntensity,
+      remote.weather.proactive.earthquakeMinIntensity
+    ),
+    row('weather.proactive.typhoon', 'modules', '天氣主動發話：颱風', local.weather.proactive.typhoon, remote.weather.proactive.typhoon),
+    row(
+      'weather.proactive.rainTomorrow',
+      'modules',
+      '天氣主動發話：明日降雨',
+      local.weather.proactive.rainTomorrow,
+      remote.weather.proactive.rainTomorrow
+    ),
+    row(
+      'weather.proactive.rainThreshold',
+      'modules',
+      '天氣主動發話：降雨機率門檻',
+      local.weather.proactive.rainThreshold,
+      remote.weather.proactive.rainThreshold
+    ),
+    row('weather.proactive.tempSwing', 'modules', '天氣主動發話：明日變天', local.weather.proactive.tempSwing, remote.weather.proactive.tempSwing),
+    row(
+      'weather.proactive.tempSwingThreshold',
+      'modules',
+      '天氣主動發話：變天溫差門檻',
+      local.weather.proactive.tempSwingThreshold,
+      remote.weather.proactive.tempSwingThreshold
+    ),
+    row('weather.proactive.niceDay', 'modules', '天氣主動發話：好天氣邀約', local.weather.proactive.niceDay, remote.weather.proactive.niceDay),
+    row(
+      'weather.proactive.niceDayMinIntervalDays',
+      'modules',
+      '天氣主動發話：好天氣邀約最小間隔（天）',
+      local.weather.proactive.niceDayMinIntervalDays,
+      remote.weather.proactive.niceDayMinIntervalDays
+    ),
+    row(
+      'weather.proactive.dailyLimit',
+      'modules',
+      '天氣主動發話：每天最多幾則',
+      local.weather.proactive.dailyLimit,
+      remote.weather.proactive.dailyLimit
+    ),
+    row(
+      'weather.proactive.quietHoursStart',
+      'modules',
+      '天氣主動發話：靜音時段起',
+      local.weather.proactive.quietHoursStart,
+      remote.weather.proactive.quietHoursStart
+    ),
+    row(
+      'weather.proactive.quietHoursEnd',
+      'modules',
+      '天氣主動發話：靜音時段迄',
+      local.weather.proactive.quietHoursEnd,
+      remote.weather.proactive.quietHoursEnd
+    ),
+    row(
+      'weather.proactive.shadowMode',
+      'modules',
+      '天氣主動發話：影子模式',
+      local.weather.proactive.shadowMode,
+      remote.weather.proactive.shadowMode
+    ),
     row('news.speakButton', 'modules', '新聞：陪聊頻率', local.news.speakButton, remote.news.speakButton),
     row(
       'news.conversationSearchEnabled',

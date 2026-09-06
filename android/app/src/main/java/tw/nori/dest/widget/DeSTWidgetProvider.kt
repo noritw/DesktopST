@@ -17,13 +17,16 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
+import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
 import tw.nori.dest.MainActivity
 import tw.nori.dest.R
+import tw.nori.dest.weather.WeatherForegroundService
 import java.io.File
 
 /**
@@ -42,6 +45,7 @@ class DeSTWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         val state = readState(context)
         for (id in appWidgetIds) updateWidget(context, appWidgetManager, id, state)
+        maybeTriggerWeatherProactive(context)
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -66,7 +70,25 @@ class DeSTWidgetProvider : AppWidgetProvider() {
         /** 底板圓角，與 `bg_dest_widget_container.xml` 的值一致（扁平圓潤，CLAUDE.md §3）。 */
         private const val CORNER_RADIUS_DP = 20f
 
-        /** [DeSTWidgetBridgePlugin] 呼叫這個，重繪畫面上所有小工具實例。 */
+        // ── 天氣主動發話：onUpdate 轉交（kickoff §3.4／§8 第 7 步）──
+
+        private const val WEATHER_LOG_TAG = "WeatherProactive"
+        private const val SETTINGS_FILE = "settings.json"
+        private const val WEATHER_SNAPSHOT_FILE = "weather-watch-snapshot.json"
+
+        /**
+         * 跟 `mobile/runtime/weatherProactive.ts` 的 `MIN_POLL_INTERVAL_MS` 對齊——
+         * 改一邊要記得改另一邊，這裡只是在「值不值得起 headless WebView」之前的
+         * 廉價守門，真正的節流判斷仍在 JS 那支（讀同一份快照）。
+         */
+        private const val WEATHER_MIN_POLL_INTERVAL_MS = 3 * 60 * 60 * 1000L
+
+        /**
+         * [DeSTWidgetBridgePlugin] 呼叫這個，重繪畫面上所有小工具實例。
+         * `@JvmStatic`：[WeatherForegroundService]（Java）也要能直接呼叫，
+         * 不加的話 Java 那邊得寫成 `DeSTWidgetProvider.Companion.updateAll(...)`。
+         */
+        @JvmStatic
         fun updateAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
             val ids = manager.getAppWidgetIds(ComponentName(context, DeSTWidgetProvider::class.java))
@@ -79,6 +101,56 @@ class DeSTWidgetProvider : AppWidgetProvider() {
         fun placedCount(context: Context): Int {
             val manager = AppWidgetManager.getInstance(context)
             return manager.getAppWidgetIds(ComponentName(context, DeSTWidgetProvider::class.java)).size
+        }
+
+        /**
+         * `onUpdate()` 只做一件事：判斷「距上次檢查夠久了嗎」，是就轉交前景服務，
+         * 立刻返回——不在這裡打 API、不等 LLM（kickoff §3.4）。
+         *
+         * 沒放小工具就沒有這個觸發點，這是設計前提不是 bug（kickoff §3.2）。
+         */
+        private fun maybeTriggerWeatherProactive(context: Context) {
+            try {
+                if (!isWeatherProactiveEnabled(context)) return
+                val lastPolledAt = readLastPolledAt(context)
+                val now = System.currentTimeMillis()
+                if (lastPolledAt > 0 && now - lastPolledAt < WEATHER_MIN_POLL_INTERVAL_MS) return
+                ContextCompat.startForegroundService(context, WeatherForegroundService.intentFor(context))
+                Log.i(WEATHER_LOG_TAG, "已交給前景服務檢查天氣轉變")
+            } catch (e: Exception) {
+                /*
+                 * 起不來的情況（系統沒給白名單豁免等）：安靜放棄這一輪。
+                 * 跟提醒不同，這裡沒有快取台詞可以退回——沒講到就等下次
+                 * `onUpdate()` 再試，不會遺失資料（`lastPolledAt` 只在 JS 端
+                 * 真的跑完一次輪詢後才更新）。
+                 */
+                Log.w(WEATHER_LOG_TAG, "轉交前景服務失敗: ${e.message}")
+            }
+        }
+
+        /** 讀 `settings.json` 的 `weather.proactive.enabled`；沒開就不必浪費一次 WebView 啟動。 */
+        private fun isWeatherProactiveEnabled(context: Context): Boolean {
+            val file = File(context.filesDir, SETTINGS_FILE)
+            if (!file.exists()) return false
+            return try {
+                val root = JSONObject(file.readText(Charsets.UTF_8))
+                val weather = root.optJSONObject("weather") ?: return false
+                val proactive = weather.optJSONObject("proactive") ?: return false
+                proactive.optBoolean("enabled", false)
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        /** 讀 `weather-watch-snapshot.json` 的 `lastPolledAt`——跟 JS 端讀寫同一份檔案，不是衍生檔。 */
+        private fun readLastPolledAt(context: Context): Long {
+            val file = File(context.filesDir, WEATHER_SNAPSHOT_FILE)
+            if (!file.exists()) return 0
+            return try {
+                JSONObject(file.readText(Charsets.UTF_8)).optLong("lastPolledAt", 0)
+            } catch (_: Exception) {
+                0
+            }
         }
 
         private fun updateWidget(context: Context, manager: AppWidgetManager, appWidgetId: Int, state: WidgetState?) {

@@ -175,6 +175,8 @@ export interface CalendarSettings {
 /** 早安簡報：今天第一次點開視窗時，角色主動打聲招呼。缺省視同關閉。 */
 export interface MorningBriefingSettings {
   enabled: boolean
+  mode?: 'daily' | 'every-launch'
+  dayBoundaryHour?: number
 }
 
 export interface MobileSettings {

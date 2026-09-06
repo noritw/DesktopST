@@ -43,6 +43,16 @@ export function taipeiDateString(now: number): string {
   return new Date(now).toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
 }
 
+/**
+ * 依「新的一天從幾點算起」位移後的台北日期字串。`boundaryHour` 0（預設）等同 `taipeiDateString`；
+ * 例如 `boundaryHour=4` 時，凌晨 2 點算「前一天」，過了凌晨 4 點才算「新的一天」，
+ * 熬夜使用者的最後一次互動不會把隔天一早的問候額度提前用掉。台灣沒有日光節約時間，
+ * 直接位移毫秒數等同位移台北時區的實際時鐘時間。
+ */
+export function greetingDayString(now: number, boundaryHour: number): string {
+  return taipeiDateString(now - boundaryHour * 3600_000)
+}
+
 /** 對話進行中不插話：最後一則使用者訊息在 2 分鐘內，就不觸發早安簡報。 */
 export function isConversationTooRecent(lastUserMessageAt: number | null, now: number): boolean {
   return lastUserMessageAt !== null && now - lastUserMessageAt < 2 * 60 * 1000
