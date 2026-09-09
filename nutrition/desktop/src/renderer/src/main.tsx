@@ -1100,7 +1100,7 @@ function App(): React.JSX.Element {
       <section className="meal-list">
         {daily.meals.length === 0 ? <p className="empty">這天還沒有飲食紀錄</p> : daily.meals.map((meal) => (
           <button type="button" className="meal-row-compact" key={meal.mealLog.id} onClick={() => openMealEditor(meal.mealLog, meal.foodItem, meal.name)}>
-            <time>{new Date(meal.mealLog.eatenAt).toLocaleTimeString('zh-TW', { hour: 'numeric', minute: '2-digit' })}</time>
+            <time>{(() => { const d = new Date(meal.mealLog.eatenAt); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; })()}</time>
             <span className="meal-name">{meal.name}</span>
             <span className="meal-kcal">{meal.kcal} kcal</span>
             <span className="meal-protein">{meal.proteinG} g</span>

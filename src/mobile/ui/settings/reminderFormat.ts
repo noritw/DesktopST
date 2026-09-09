@@ -4,19 +4,18 @@ import type { ReminderSchedule } from '@core/types'
  * 提醒時間的顯示格式（手機版）。
  *
  * ⚠️ **一定要跟原生選擇器同一種制式**。`<input type="time">` 與
- * `<input type="datetime-local">` 在 Android 上是照**裝置語系**畫的——
- * zh-TW 會顯示「下午4:43」。清單這邊若自己用 `padStart` 拼 24 小時制，
- * 同一則提醒在編輯器是「下午4:43」、在清單是「16:43」，
- * 使用者會以為存錯了（owner 2026-08-09 實機回報過這個）。
- *
- * 所以一律走 `toLocaleTimeString()`，讓兩邊由同一個語系決定。
+ * `<input type="datetime-local">` 在 Android 上的 12/24 小時制是照
+ * **系統設定**（設定 → 日期和時間 → 使用 24 小時制）畫的，不是照網頁的
+ * locale。過去以為 `toLocaleTimeString()` 能自動跟系統設定同步，但
+ * `toLocaleTimeString('zh-TW', …)` 這類寫死 locale 字串的寫法只會固定顯示
+ * 12 小時制＋上下午，跟系統設定無關（2026-09-09 owner 實機回報：手機系統
+ * 已是 24 小時制，食記畫面仍顯示「下午」）。手寫 24 小時制字串才能保證
+ * 跟系統設定驅動的原生選擇器一致，不受 locale 字串影響。
  */
 
-/** 把時分格式化成裝置語系的樣子（例：zh-TW → 「下午4:43」）。 */
+/** 把時分格式化成 24 小時制（例：16:43）。 */
 export function formatClock(hour: number, minute: number): string {
-  const d = new Date()
-  d.setHours(hour, minute, 0, 0)
-  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
 }
 
 /** 完整日期＋時間（一次性提醒用）。 */

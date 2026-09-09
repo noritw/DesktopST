@@ -17,9 +17,12 @@ export function formatRelativeTime(iso: string | undefined | null, now: number =
     case 'days': return `${span.value} 天前`
     case 'absolute':
       try {
-        return new Date(span.iso).toLocaleString('zh-TW', {
-          month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
-        })
+        const d = new Date(span.iso)
+        const month = d.getMonth() + 1
+        const day = d.getDate()
+        const hour = String(d.getHours()).padStart(2, '0')
+        const minute = String(d.getMinutes()).padStart(2, '0')
+        return `${month}/${day} ${hour}:${minute}`
       } catch {
         return span.iso
       }

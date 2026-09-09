@@ -118,6 +118,8 @@ textarea { min-width: 0; width: 100%; border: 1px solid var(--border); border-ra
 label { display: grid; gap: 5px; color: var(--text); font-size: 13px; font-weight: 700; }
 label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 
+/* ⚠️ 全螢幕彈窗一定要吃 safe-area：Android 的狀態列／手勢列會蓋在 WebView 上，
+   只給固定 padding 的話卡片上緣（含右上角關閉鈕）會被系統列擋住而點不到。 */
 .quick-entry-overlay {
   position: fixed;
   inset: 0;
@@ -125,13 +127,13 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
   display: grid;
   place-items: center;
   z-index: 999;
-  padding: 8px;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 8px calc(8px + env(safe-area-inset-bottom, 0px));
 }
 .quick-entry-card {
   background: var(--surface);
   border-radius: 16px;
   padding: 16px;
-  max-height: 94vh;
+  max-height: calc(100vh - 16px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
   overflow: auto;
   width: 100%;
   max-width: 640px;
@@ -217,7 +219,7 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 .photo-image-button { padding: 0; background: transparent; border-radius: 0; display: block; }
 .photo-image-button .photo-thumb { border: 0; }
 .food-library-photo, .food-library-photo-placeholder { width: 52px; height: 52px; flex: 0 0 52px; border-radius: 8px; object-fit: cover; background: var(--tint); }
-.photo-preview-overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 20px; background: rgba(20, 35, 31, .82); }
+.photo-preview-overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: calc(20px + env(safe-area-inset-top, 0px)) 20px calc(20px + env(safe-area-inset-bottom, 0px)); background: rgba(20, 35, 31, .82); }
 .photo-preview { position: relative; max-width: min(92vw, 720px); max-height: 88vh; display: grid; place-items: center; gap: 8px; color: white; }
 .zoom-pan-frame { display: inline-flex; align-items: center; justify-content: center; overflow: hidden; touch-action: none; }
 .zoom-pan-frame img { max-width: 90vw; max-height: 80vh; object-fit: contain; border-radius: 8px; user-select: none; }
@@ -292,7 +294,7 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
   background: rgba(61, 90, 82, 0.45);
   display: grid;
   place-items: center;
-  padding: 20px;
+  padding: calc(20px + env(safe-area-inset-top, 0px)) 20px calc(20px + env(safe-area-inset-bottom, 0px));
   z-index: 20;
 }
 .confirm-card { background: var(--surface); border-radius: 14px; padding: 20px; display: grid; gap: 10px; max-width: 360px; width: 100%; }

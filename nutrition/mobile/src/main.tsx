@@ -59,6 +59,7 @@ import { DEFAULT_MODEL_BY_PROVIDER, MODEL_PRICES, MODELS_BY_PROVIDER, modelPrice
 import { bytesToBase64 } from '@core/util/base64'
 import { buildInfoLines } from './buildInfo'
 import { downloadBytes, pickFile } from './fileTransfer'
+import { buildNutritionCsv, buildNutritionJson, parseNutritionCsv, parseNutritionJson } from './nutritionExport'
 import { nutritionHealthAdapter } from './health'
 import { nutritionMobileHttp } from './http'
 import { compressImageFile } from './imageInput'
@@ -480,7 +481,8 @@ function MealPhotoField({ mealLog, foodItem, onPick, onClear, onPreview }: {
 /** 頂部標題列的體重徽章（開關預設關，見 `NutritionAppSettings.showWeightBadge`）。 */
 function WeightBadge({ profile }: { profile: BodyProfile }): React.JSX.Element {
   const measuredAt = profile.healthMeasuredAt ?? profile.updatedAt
-  const timeLabel = new Date(measuredAt).toLocaleTimeString('zh-TW', { hour: 'numeric', minute: '2-digit' })
+  const d = new Date(measuredAt)
+  const timeLabel = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   return (
     <span className="weight-badge">
       <strong>{profile.weightKg} kg</strong>
@@ -598,6 +600,12 @@ function App(): React.JSX.Element {
 
   const [transferBusy, setTransferBusy] = React.useState(false)
   const [transferMessage, setTransferMessage] = React.useState<string | null>(null)
+  const [exportDateStart, setExportDateStart] = React.useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 30)
+    return toIsoDateString(d.getTime())
+  })
+  const [exportDateEnd, setExportDateEnd] = React.useState(() => toIsoDateString(Date.now()))
 
   // --- 拍照估熱量（§2.10：第三層開關，預設關）---
   const [photoEstimateEnabled, setPhotoEstimateEnabled] = React.useState(false)
@@ -2196,6 +2204,100 @@ function App(): React.JSX.Element {
     }
   }
 
+  async function exportNutritionDataCsv(): Promise<void> {
+    if (!snapshot) return
+    setTransferBusy(true)
+    setTransferMessage(null)
+    try {
+      const csv = buildNutritionCsv(snapshot, exportDateStart, exportDateEnd)
+      const bytes = new TextEncoder().encode(csv)
+      const now = new Date()
+      const dateTimeStr = now.toISOString().replace(/[:.Z]/g, '-').slice(0, -1)
+      const filename = `飲食紀錄-${dateTimeStr}.csv`
+      await downloadBytes(bytes, filename, 'text/csv;charset=utf-8')
+      setTransferMessage('CSV 已匯出，請透過分享面板存到你要的地方。')
+    } catch (error) {
+      setTransferMessage(`CSV 匯出失敗：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setTransferBusy(false)
+    }
+  }
+
+  async function exportNutritionDataJson(): Promise<void> {
+    if (!snapshot) return
+    setTransferBusy(true)
+    setTransferMessage(null)
+    try {
+      const json = buildNutritionJson(snapshot, exportDateStart, exportDateEnd)
+      const bytes = new TextEncoder().encode(json)
+      const now = new Date()
+      const dateTimeStr = now.toISOString().replace(/[:.Z]/g, '-').slice(0, -1)
+      const filename = `飲食紀錄-${dateTimeStr}.json`
+      await downloadBytes(bytes, filename, 'application/json;charset=utf-8')
+      setTransferMessage('JSON 已匯出，請透過分享面板存到你要的地方。')
+    } catch (error) {
+      setTransferMessage(`JSON 匯出失敗：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setTransferBusy(false)
+    }
+  }
+
+  async function importNutritionDataCsvJson(): Promise<void> {
+    if (!snapshot) return
+    const file = await pickFile()
+    if (!file) return
+    setTransferBusy(true)
+    setTransferMessage(null)
+    try {
+      const content = await file.text()
+      let parsedLogs: Partial<MealLog>[] = []
+      let errors: string[] = []
+      let importedBodyProfile: BodyProfile | undefined
+
+      if (file.name.endsWith('.csv')) {
+        const result = parseNutritionCsv(content, snapshot.foodItems)
+        parsedLogs = result.logs
+        errors = result.errors
+      } else if (file.name.endsWith('.json')) {
+        const result = parseNutritionJson(content)
+        parsedLogs = result.logs
+        errors = result.errors
+        importedBodyProfile = result.bodyProfile
+      } else {
+        throw new Error('只支援 CSV 或 JSON 格式')
+      }
+
+      if (parsedLogs.length === 0) {
+        throw new Error(`沒有有效的紀錄可匯入。${errors.length > 0 ? `錯誤：${errors.join('; ')}` : ''}`)
+      }
+
+      // 用時間戳 + 隨機數生成 id
+      const mealLogsToAdd = parsedLogs.map((log, idx) => ({
+        ...log,
+        id: `${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`
+      })) as MealLog[]
+
+      await runAction(async (session) => {
+        const merged: NutritionSnapshot = {
+          foodItems: [...session.foodItems],
+          mealLogs: [...session.mealLogs, ...mealLogsToAdd],
+          bodyProfile: importedBodyProfile ?? session.bodyProfile,
+          settings: session.settings,
+          burnedKcalHistory: { ...session.burnedKcalHistory }
+        }
+        await session.replaceSnapshot(merged)
+        if (importedBodyProfile) syncProfileFields(importedBodyProfile)
+      })
+
+      const errorMsg = errors.length > 0 ? `；${errors.length} 列有問題但已略過` : ''
+      setTransferMessage(`已匯入 ${mealLogsToAdd.length} 筆飲食紀錄${errorMsg}。`)
+    } catch (error) {
+      setTransferMessage(`匯入失敗：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setTransferBusy(false)
+    }
+  }
+
   if (loadError) return <main className="shell"><p>飲食資料載入失敗</p><p className="hint">{loadError}</p></main>
   if (!snapshot) return <main className="shell"><p>載入飲食資料中...</p></main>
 
@@ -2955,6 +3057,28 @@ function App(): React.JSX.Element {
           {info.detail && <small className="hint">{info.detail}</small>}
           <small className="hint">要看「更新了沒」看建置時間，不是版本號——debug 版重打幾次版本號也不會變。</small>
         </section>
+        <section className="food-form">
+          <strong>飲食紀錄匯出（給 AI 分析）</strong>
+          <small className="hint">選擇時間範圍，匯出成 CSV（試算表格式）或 JSON（AI 相容格式），給 Claude、ChatGPT、Gemini、Grok 等 AI 分析便秘、營養等問題。</small>
+          <label>起始日期：<input type="date" value={exportDateStart} onChange={(e) => setExportDateStart(e.target.value)} /></label>
+          <label>結束日期：<input type="date" value={exportDateEnd} onChange={(e) => setExportDateEnd(e.target.value)} /></label>
+          <button type="button" className="primary" disabled={transferBusy} onClick={() => void exportNutritionDataCsv()}>
+            <MonoIcon name="download" className="icon-sm" /> 匯出 CSV（試算表）
+          </button>
+          <button type="button" className="primary" disabled={transferBusy} onClick={() => void exportNutritionDataJson()}>
+            <MonoIcon name="download" className="icon-sm" /> 匯出 JSON（AI 相容）
+          </button>
+          <small className="hint">
+            <strong>CSV vs JSON：</strong>
+            CSV 是逗號分隔的表格格式，可用 Excel 或 Google 試算表開啟、自己分析；
+            JSON 是結構化格式，AI 更容易理解，包含完整的營養資訊與食物庫對照。
+          </small>
+          <button type="button" disabled={transferBusy} onClick={() => void importNutritionDataCsvJson()}>
+            <MonoIcon name="import" className="icon-sm" /> 匯入 CSV / JSON
+          </button>
+          <small className="hint">從別台手機或匯出檔匯入飲食紀錄。如果匯入的食物庫裡沒有，會提示需要先在食物庫新增。</small>
+        </section>
+
         <section className="food-form">
           <strong>搬家（匯出／匯入）</strong>
           <small className="hint">手機與電腦是各自獨立的兩份資料，不會自動同步。用搬家包手動讓兩邊資料一致，或換機時把資料帶過去。內容不含 API Key。</small>
