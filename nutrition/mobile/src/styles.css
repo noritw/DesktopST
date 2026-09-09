@@ -155,15 +155,17 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
   color: var(--text-sub);
 }
 .quick-entry-time-row { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 13px; font-weight: 700; }
-.quick-entry-time-input {
+.time-input-24 { display: inline-flex; align-items: center; gap: 2px; }
+.time-input-24 select {
   font-weight: 400;
   width: auto;
   background: var(--tint);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 6px 10px;
+  padding: 6px 4px;
   color: var(--text);
 }
+.time-input-24-colon { font-weight: 700; color: var(--text); }
 .time-now-button { flex-shrink: 0; padding: 6px; background: var(--tint); border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; color: var(--accent-strong); }
 .quick-entry-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .quick-entry-header button { background: var(--surface); border: 1px solid var(--border); padding: 6px 11px; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
