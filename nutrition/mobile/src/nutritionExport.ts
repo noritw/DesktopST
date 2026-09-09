@@ -48,7 +48,8 @@ export function buildNutritionCsv(snapshot: NutritionSnapshot, dateStart?: strin
     if (!food) return null
 
     const date = toIsoDateString(log.eatenAt)
-    const time = new Date(log.eatenAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })
+    const eatenAtDate = new Date(log.eatenAt)
+    const time = `${String(eatenAtDate.getHours()).padStart(2, '0')}:${String(eatenAtDate.getMinutes()).padStart(2, '0')}`
     const name = food.name
     const amount = `${log.servings} 份`
     const kcal = (food.perServing.kcal * log.servings).toFixed(0)

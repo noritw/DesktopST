@@ -1327,7 +1327,7 @@ function App(): React.JSX.Element {
         setProfileWeightTime(timeInputValue(snap.measuredAt))
       }
       if (snap.bodyFatPercent !== undefined) setProfileBodyFatPercent(String(snap.bodyFatPercent))
-      setHealthMessage(`已同步（${new Date().toLocaleTimeString('zh-TW', { hour: 'numeric', minute: '2-digit' })}）`)
+      setHealthMessage(`已同步（${(() => { const d = new Date(); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; })()}）`)
     } catch (error: unknown) {
       setHealthMessage(`同步失敗：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -3005,7 +3005,7 @@ function App(): React.JSX.Element {
               </button>
               <p className="hint">
                 上次同步：{bodyProfile?.healthSyncedAt
-                  ? new Date(bodyProfile.healthSyncedAt).toLocaleString('zh-TW', { month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                  ? (() => { const d = new Date(bodyProfile.healthSyncedAt); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; })()
                   : '尚未同步過'}
               </p>
               {healthMessage && <p className="hint">{healthMessage}</p>}
@@ -3507,7 +3507,7 @@ function App(): React.JSX.Element {
       <section className="meal-list">
         {daily.meals.length === 0 ? <p className="empty">這天還沒有飲食紀錄</p> : daily.meals.map((meal) => (
           <button type="button" className="meal-row-compact" key={meal.mealLog.id} onClick={() => openMealEditor(meal.mealLog, meal.foodItem, meal.name)}>
-            <time>{new Date(meal.mealLog.eatenAt).toLocaleTimeString('zh-TW', { hour: 'numeric', minute: '2-digit' })}</time>
+            <time>{(() => { const d = new Date(meal.mealLog.eatenAt); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; })()}</time>
             <span className="meal-name">
               {/* 份量要看得到，但不能搶走名稱的視線（owner 2026-08-19）：接在名稱後面的小字。
                   份量放在 <strong> 外面，長名稱被 ellipsis 截斷時份量才不會跟著被吃掉。 */}
