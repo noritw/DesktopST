@@ -2589,7 +2589,7 @@ function App(): React.JSX.Element {
           </label>
           <label>時間
             <div className="quick-entry-time-row">
-              <input type="time" value={mealTime} onChange={(event) => setMealTime(event.target.value)} />
+              <input type="time" lang="zh-TW-u-hc-h23" value={mealTime} onChange={(event) => setMealTime(event.target.value)} />
               <button type="button" className="time-now-button" aria-label="重設為目前時間" onClick={() => setMealTime(timeInputValue(Date.now()))}>
                 <MonoIcon name="refresh" className="icon-sm" />
               </button>
@@ -2712,7 +2712,7 @@ function App(): React.JSX.Element {
         <section className="food-form">
           <label>身高（cm）<input value={profileHeight} onChange={(event) => setProfileHeight(event.target.value)} inputMode="decimal" /></label>
           <label>體重（kg）<input value={profileWeight} onChange={(event) => setProfileWeight(event.target.value)} inputMode="decimal" /></label>
-          <label>量測時間<input type="time" value={profileWeightTime} onChange={(event) => setProfileWeightTime(event.target.value)} /></label>
+          <label>量測時間<input type="time" lang="zh-TW-u-hc-h23" value={profileWeightTime} onChange={(event) => setProfileWeightTime(event.target.value)} /></label>
           <label>年齡（歲）<input value={profileAge} onChange={(event) => setProfileAge(event.target.value)} inputMode="numeric" /></label>
           <label>性別
             <select value={profileSex} onChange={(event) => setProfileSex(event.target.value as 'male' | 'female')}>
@@ -3450,7 +3450,7 @@ function App(): React.JSX.Element {
             <button type="button" className="quick-entry-close" aria-label="關閉" onClick={() => setQuickEntryOpen(false)}><MonoIcon name="close" className="icon-md" /></button>
             <div className="quick-entry-time-row">
               <strong>記錄時間</strong>
-              <input type="time" className="quick-entry-time-input" value={quickEntryTime} onChange={(event) => setQuickEntryTime(event.target.value)} />
+              <input type="time" lang="zh-TW-u-hc-h23" className="quick-entry-time-input" value={quickEntryTime} onChange={(event) => setQuickEntryTime(event.target.value)} />
               <button type="button" className="time-now-button" aria-label="重設為目前時間" onClick={() => setQuickEntryTime(timeInputValue(Date.now()))}>
                 <MonoIcon name="refresh" className="icon-sm" />
               </button>
