@@ -389,6 +389,29 @@ export function App(): JSX.Element {
     void useWidgetStore.getState().load().then(() => useWidgetStore.getState().refresh())
   }, [ready])
 
+  /*
+   * 冷啟動也要跑一次「回到前景」的流程。
+   *
+   * ⚠️ 下面那個 `visibilitychange` 監聽**接不到冷啟動**：App 剛開起來時
+   * `visibilityState` 已經是 `visible`，事件在掛上監聽之前就過去了（而且本來
+   * 就不會為了「一開始就可見」補發一次）。於是今日初次問候／天氣主動發話在
+   * 真正的第一次開 App 什麼都不會發生，要等使用者切出去再切回來（或滑掉重開
+   * 一個仍活著的 process）才觸發——症狀就是 owner 2026-09-09 回報的
+   * 「幾乎變成第二次開 App 才問候」。
+   *
+   * 所以這裡在 `ready` 之後補跑一次，用 ref 保證整個 App 生命週期只補一次
+   * （之後的前景切換交給 `visibilitychange`，不會重複）。
+   */
+  const coldStartResumeRanRef = useRef(false)
+  useEffect(() => {
+    if (!ready || coldStartResumeRanRef.current) return
+    if (document.visibilityState !== 'visible') return
+    const session = getStandaloneSession()
+    if (!session) return
+    coldStartResumeRanRef.current = true
+    session.onAppResumed()
+  }, [ready, conn])
+
   useEffect(() => {
     const onVisible = (): void => {
       const session = getStandaloneSession()
