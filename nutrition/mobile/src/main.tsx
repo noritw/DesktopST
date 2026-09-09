@@ -478,33 +478,6 @@ function MealPhotoField({ mealLog, foodItem, onPick, onClear, onPreview }: {
   )
 }
 
-/**
- * 24 小時制時間輸入（取代 `<input type="time">`）。
- *
- * ⚠️ `<input type="time">` 的顯示格式是瀏覽器照 locale／WebView 版本畫的原生元件，
- * `lang="…-u-hc-h23"` 這個 Unicode hour-cycle extension 在桌面 Chrome 有效，
- * 但在這台裝置的 Android WebView 上實測沒用（owner 2026-09-09 實機回報：
- * 系統已是 24 小時制，輸入框仍顯示「4:02」）。改用兩個 `<select>` 自己拼
- * 「HH:MM」字串，顯示文字完全是我們自己寫的，不受 locale／WebView 版本影響。
- * `value`／`onChange` 沿用原本 `<input type="time">` 的 "HH:MM" 格式，呼叫端不用改。
- */
-function TimeInput24({ value, onChange, className }: { value: string; onChange: (value: string) => void; className?: string }): React.JSX.Element {
-  const [hStr, mStr] = value.split(':')
-  const h = Number.parseInt(hStr, 10) || 0
-  const m = Number.parseInt(mStr, 10) || 0
-  return (
-    <span className={`time-input-24${className ? ` ${className}` : ''}`}>
-      <select aria-label="小時" value={h} onChange={(event) => onChange(`${event.target.value.padStart(2, '0')}:${String(m).padStart(2, '0')}`)}>
-        {Array.from({ length: 24 }, (_, i) => <option key={i} value={i}>{String(i).padStart(2, '0')}</option>)}
-      </select>
-      <span className="time-input-24-colon">:</span>
-      <select aria-label="分鐘" value={m} onChange={(event) => onChange(`${String(h).padStart(2, '0')}:${event.target.value.padStart(2, '0')}`)}>
-        {Array.from({ length: 60 }, (_, i) => <option key={i} value={i}>{String(i).padStart(2, '0')}</option>)}
-      </select>
-    </span>
-  )
-}
-
 /** 頂部標題列的體重徽章（開關預設關，見 `NutritionAppSettings.showWeightBadge`）。 */
 function WeightBadge({ profile }: { profile: BodyProfile }): React.JSX.Element {
   const measuredAt = profile.healthMeasuredAt ?? profile.updatedAt
@@ -2616,7 +2589,7 @@ function App(): React.JSX.Element {
           </label>
           <label>時間
             <div className="quick-entry-time-row">
-              <TimeInput24 value={mealTime} onChange={setMealTime} />
+              <input type="time" lang="en-GB" value={mealTime} onChange={(event) => setMealTime(event.target.value)} />
               <button type="button" className="time-now-button" aria-label="重設為目前時間" onClick={() => setMealTime(timeInputValue(Date.now()))}>
                 <MonoIcon name="refresh" className="icon-sm" />
               </button>
@@ -2739,7 +2712,7 @@ function App(): React.JSX.Element {
         <section className="food-form">
           <label>身高（cm）<input value={profileHeight} onChange={(event) => setProfileHeight(event.target.value)} inputMode="decimal" /></label>
           <label>體重（kg）<input value={profileWeight} onChange={(event) => setProfileWeight(event.target.value)} inputMode="decimal" /></label>
-          <label>量測時間<TimeInput24 value={profileWeightTime} onChange={setProfileWeightTime} /></label>
+          <label>量測時間<input type="time" lang="en-GB" value={profileWeightTime} onChange={(event) => setProfileWeightTime(event.target.value)} /></label>
           <label>年齡（歲）<input value={profileAge} onChange={(event) => setProfileAge(event.target.value)} inputMode="numeric" /></label>
           <label>性別
             <select value={profileSex} onChange={(event) => setProfileSex(event.target.value as 'male' | 'female')}>
@@ -3477,7 +3450,7 @@ function App(): React.JSX.Element {
             <button type="button" className="quick-entry-close" aria-label="關閉" onClick={() => setQuickEntryOpen(false)}><MonoIcon name="close" className="icon-md" /></button>
             <div className="quick-entry-time-row">
               <strong>記錄時間</strong>
-              <TimeInput24 className="quick-entry-time-input" value={quickEntryTime} onChange={setQuickEntryTime} />
+              <input type="time" lang="en-GB" className="quick-entry-time-input" value={quickEntryTime} onChange={(event) => setQuickEntryTime(event.target.value)} />
               <button type="button" className="time-now-button" aria-label="重設為目前時間" onClick={() => setQuickEntryTime(timeInputValue(Date.now()))}>
                 <MonoIcon name="refresh" className="icon-sm" />
               </button>
