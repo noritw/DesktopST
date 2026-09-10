@@ -215,6 +215,20 @@ function collectTags(foodItems: FoodItem[]): string[] {
 /** 快速入帳分頁「未分類」篩選用的假 tag id，不會真的寫進 FoodItem.tags。 */
 const UNTAGGED_TAG_ID = '__untagged__'
 
+/** 多重標籤篩選：空陣列＝全部；「未分類」是獨佔選項；其餘標籤取交集（全部符合才留下）。 */
+function filterFoodItemsByTags(foodItems: FoodItem[], selectedTags: string[]): FoodItem[] {
+  if (selectedTags.length === 0) return foodItems
+  if (selectedTags.includes(UNTAGGED_TAG_ID)) return foodItems.filter((item) => (item.tags ?? []).length === 0)
+  return foodItems.filter((item) => selectedTags.every((tag) => (item.tags ?? []).includes(tag)))
+}
+
+/** 點一個標籤：已選就取消、沒選就加入；選一般標籤時要把獨佔的「未分類」踢掉。 */
+function toggleTagSelection(selectedTags: string[], tag: string): string[] {
+  if (tag === UNTAGGED_TAG_ID) return selectedTags.includes(UNTAGGED_TAG_ID) ? [] : [UNTAGGED_TAG_ID]
+  const withoutUntagged = selectedTags.filter((t) => t !== UNTAGGED_TAG_ID)
+  return withoutUntagged.includes(tag) ? withoutUntagged.filter((t) => t !== tag) : [...withoutUntagged, tag]
+}
+
 /** 讀取儲存的照片二進位並轉成可供 <img> 使用的 blob URL；photoKey 換掉時自動釋放舊的。 */
 function useStoredPhotoUrl(photoKey: string | undefined): string | null {
   const [url, setUrl] = React.useState<string | null>(null)
@@ -544,7 +558,7 @@ function App(): React.JSX.Element {
 
   const [quickEntryOpen, setQuickEntryOpen] = React.useState(false)
   const [foodQuery, setFoodQuery] = React.useState('')
-  const [quickEntryTag, setQuickEntryTag] = React.useState('all')
+  const [quickEntryTags, setQuickEntryTags] = React.useState<string[]>([])
   const [quickEntryTime, setQuickEntryTime] = React.useState(() => timeInputValue(Date.now()))
 
   const [libraryQuery, setLibraryQuery] = React.useState('')
@@ -1503,10 +1517,11 @@ function App(): React.JSX.Element {
   }
 
   function toggleLibrarySelectedTag(tag: string): void {
-    setLibrarySelectedTags((prev) => {
-      const withoutUntagged = prev.filter((t) => t !== UNTAGGED_TAG_ID)
-      return withoutUntagged.includes(tag) ? withoutUntagged.filter((t) => t !== tag) : [...withoutUntagged, tag]
-    })
+    setLibrarySelectedTags((prev) => toggleTagSelection(prev, tag))
+  }
+
+  function toggleQuickEntryTag(tag: string): void {
+    setQuickEntryTags((prev) => toggleTagSelection(prev, tag))
   }
 
   function toggleFoodTag(tag: string): void {
@@ -2358,18 +2373,18 @@ function App(): React.JSX.Element {
   }
   const tags = collectTags(snapshot.foodItems)
   const untaggedFoodCount = snapshot.foodItems.filter((item) => (item.tags ?? []).length === 0).length
-  const quickEntryTagFiltered = quickEntryTag === 'all'
-    ? snapshot.foodItems
-    : quickEntryTag === UNTAGGED_TAG_ID
-      ? snapshot.foodItems.filter((item) => (item.tags ?? []).length === 0)
-      : snapshot.foodItems.filter((item) => (item.tags ?? []).includes(quickEntryTag))
+  const quickEntryTagFiltered = filterFoodItemsByTags(snapshot.foodItems, quickEntryTags)
   const quickFoods = foodQuery.trim() ? matchFoodKeyword(foodQuery, quickEntryTagFiltered).map((match) => match.foodItem) : quickEntryTagFiltered
-  const libraryFoods = snapshot.foodItems.filter((foodItem) => {
-    if (librarySelectedTags.includes(UNTAGGED_TAG_ID)) {
-      if ((foodItem.tags ?? []).length > 0) return false
-    } else if (librarySelectedTags.length > 0 && !librarySelectedTags.every((tag) => (foodItem.tags ?? []).includes(tag))) {
-      return false
-    }
+  /**
+   * 還能再往下縮的標籤（點下去至少留得住一筆）。其餘的照樣列出來但變灰、按不動——
+   * 直接隱藏會讓按鈕在每次點選後跳位，標籤一多就很難按。
+   */
+  const quickEntryNarrowingTags = new Set(
+    quickEntryTags.includes(UNTAGGED_TAG_ID)
+      ? []
+      : tags.filter((tag) => quickEntryTags.includes(tag) || quickEntryTagFiltered.some((item) => (item.tags ?? []).includes(tag)))
+  )
+  const libraryFoods = filterFoodItemsByTags(snapshot.foodItems, librarySelectedTags).filter((foodItem) => {
     if (!libraryQuery.trim()) return true
     return matchFoodKeyword(libraryQuery, [foodItem]).length > 0
   })
@@ -3491,18 +3506,24 @@ function App(): React.JSX.Element {
             </div>
             {(tags.length > 0 || untaggedFoodCount > 0) && (
               <div className="tag-options">
-                <button type="button" className={`tag-choice${quickEntryTag === 'all' ? ' selected' : ''}`} onClick={() => setQuickEntryTag('all')}>全部</button>
+                <button type="button" className={`tag-choice${quickEntryTags.length === 0 ? ' selected' : ''}`} onClick={() => setQuickEntryTags([])}>全部</button>
                 {untaggedFoodCount > 0 && (
                   <button
                     type="button"
-                    className={`tag-choice tag-choice-untagged${quickEntryTag === UNTAGGED_TAG_ID ? ' selected' : ''}`}
-                    onClick={() => setQuickEntryTag(UNTAGGED_TAG_ID)}
+                    className={`tag-choice tag-choice-untagged${quickEntryTags.includes(UNTAGGED_TAG_ID) ? ' selected' : ''}`}
+                    onClick={() => toggleQuickEntryTag(UNTAGGED_TAG_ID)}
                   >
                     未分類（{untaggedFoodCount}）
                   </button>
                 )}
                 {tags.map((tag) => (
-                  <button type="button" key={tag} className={`tag-choice${quickEntryTag === tag ? ' selected' : ''}`} onClick={() => setQuickEntryTag(tag)}>{tag}</button>
+                  <button
+                    type="button"
+                    key={tag}
+                    className={`tag-choice${quickEntryTags.includes(tag) ? ' selected' : ''}`}
+                    disabled={!quickEntryNarrowingTags.has(tag)}
+                    onClick={() => toggleQuickEntryTag(tag)}
+                  >{tag}</button>
                 ))}
               </div>
             )}
