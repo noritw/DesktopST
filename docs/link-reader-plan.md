@@ -121,6 +121,13 @@ src/main/linkReader.ts       桌面薄殼（綁 electronHttp）
   吊著事件迴圈。`news/enrich.ts` 的 `summarizeWithUtility` 還是舊寫法，
   下次動它時可以順手改。
 - **輔助模型失敗不能讓整條路斷掉**：正文已經抓到了，退回截斷原文照樣有用。
+- **斜線指令把網址剝壞了**（2026-09-13 owner 首次實測當場中）。`ipcHandlers.ts`
+  的 `/news`／`/weather` 解析原本是無錨定的全域取代，`https://news.cnyes.com/news/id/…`
+  被剝成 `https:/.cnyes.com/id/…`。**`[Link]` 區塊本身是對的**（抓取用的是未經剝除的
+  `payload.content`），壞的是使用者訊息文字本身——所以角色看到一串壞網址，
+  回「我看不懂這些網址」，看起來像模型太弱其實不是。已抽到
+  `core/prompt/slashCommands.ts` 並加回歸測試。這也是為什麼 §7 的待驗清單
+  建議先看 debug prompt 而不是只看角色講什麼。
 
 ---
 

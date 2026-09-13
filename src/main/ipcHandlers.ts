@@ -13,6 +13,7 @@ import { DEFAULT_MODEL_BY_PROVIDER } from '../core/llm/modelCatalog'
 import { summarizeConversation, countUncoveredMessages, listSummarizableMessages } from './llm/summarizer'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta, hasUsableApiKey } from './llm/promptUtils'
 import { formatSystemTimeStamp } from '../core/prompt/systemTime'
+import { parseSlashCommands } from '../core/prompt/slashCommands'
 import { isActiveSceneDirty } from '../core/scene/dirty'
 import { buildConversationManifestEntry } from '../core/sync/manifestBuild'
 import { mergeMessages, pickSummary } from '../core/sync/convHash'
@@ -5003,14 +5004,15 @@ export function registerIpcHandlers() {
     const activePersona = getActivePersona()
     const activeWorld = getActiveWorld()
 
-    let userContentForPrompt = payload.content
     // ─── 斜線指令解析 ──────────────────────────────────────────
     // /news → 強制搜尋新聞；/weather → 強制查 CWA 天氣。指令文字從 prompt 中移除。
-    const slashNews = /\/news\b/i.test(payload.content)
-    const slashWeather = /\/weather\b/i.test(payload.content)
-    if (slashNews || slashWeather) {
-      userContentForPrompt = payload.content.replace(/\/news\b/gi, '').replace(/\/weather\b/gi, '').trim()
-    }
+    // ⚠️ 判定與剝除都在 `core/prompt/slashCommands.ts`，**不要改回自己寫 regex**：
+    // 原本的 `/\/news\b/gi` 會把 `https://news.cnyes.com/news/id/…` 剝成
+    // `https:/.cnyes.com/id/…`，角色看到壞網址就回「我看不懂」（見該檔檔頭）。
+    const slash = parseSlashCommands(payload.content)
+    const slashNews = slash.news
+    const slashWeather = slash.weather
+    let userContentForPrompt = slash.stripped
     const sourceDeviceName = String(
       settings.mobile?.enabled
         ? payload.sourceDeviceName?.trim() || 'Desktop'

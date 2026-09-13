@@ -288,6 +288,17 @@ Spotify／日曆授權仍只在桌面。
 - **跨裝置判斷「哪份比較新」永遠不能看 `updatedAt`**：推送本身會把接收端設成
   現在，推完永遠是對面比較新。內容一不一樣看 contentHash；對話摘要看
   `summaryCoversTs`（那是從訊息時間戳推導的，跨裝置可比）
+- **斜線指令（`/news`／`/weather`）的剝除一定要錨定在「開頭或空白之後」**
+  （2026-09-13 連結閱讀上線當天實測炸開）。原本是 `content.replace(/\/news\b/gi, '')`
+  無錨定全域取代，於是 `https://news.cnyes.com/news/id/6551476` 被剝成
+  `https:/.cnyes.com/id/6551476` —— 新聞網站的網址幾乎必然含 `/news`，
+  貼一個就中一個。**症狀很容易誤判成「模型看不懂」**：角色回「我看不懂這些網址
+  是什麼鬼東西」，聽起來像模型太弱，其實它看到的網址真的是壞的。
+  連帶還有第二個傷害：`slashNews` 被誤判成 true，每貼一次新聞連結就白花一次
+  對話新聞搜尋的輔助模型呼叫。判定與剝除現在都在
+  `core/prompt/slashCommands.ts`（搬到 core 是為了測得到，`src/main/` 不在
+  vitest 範圍），**不要改回在 `ipcHandlers.ts` 自己寫 regex**。
+  診斷方法：看 debug prompt 裡使用者那則訊息的網址還完不完整。
 - 動 LLM 供應商設定時注意 `llm.model` 是早期單一供應商的遺留欄位，
   `resolveModel()` 仍會拿它墊底 —— 不同步會把 A 家型號送去 B 家
 
