@@ -20,6 +20,7 @@ import { applyUtilitySettings, chatWithLLM, type LLMDeps } from '../llm'
 import type { AppSettings } from '../types'
 import { extractArticleText, extractHtmlTitle, fetchHtmlDoc } from '../util/htmlFetch'
 import { extractLinkUrls, isJsRenderedHost, isPrivateHost, MAX_LINKS_PER_MESSAGE } from './detect'
+import { parseYouTubeVideoId, readYouTubeVideo } from './youtube'
 import { normalizeLinkReaderSettings, type LinkContextResult, type LinkFetchOutcome, type LinkFetchStatus } from './types'
 
 const FETCH_TIMEOUT_MS = 8000
@@ -132,6 +133,19 @@ export async function readOneLink(
   }
 
   if (isPrivateHost(host)) return { url, title: '', status: 'private-host', usedUtility: false }
+
+  /*
+   * YouTube 影片先攔下來：它在 `JS_RENDERED_HOSTS` 裡（整頁內容確實抓不到），
+   * 但**標題與說明欄是靜態 meta**，拿得到而且常常有用。字幕為什麼不行見
+   * `youtube.ts` 檔頭與 `docs/link-reader-plan.md` §9。
+   * 非影片的 YouTube 網址（頻道頁、播放清單）`parseYouTubeVideoId` 回 null，
+   * 照樣落到下面的 js-rendered。
+   */
+  if (parseYouTubeVideoId(url)) {
+    diag('youtube', { url: url.slice(0, 60) })
+    return readYouTubeVideo(deps, url)
+  }
+
   if (isJsRenderedHost(host)) return { url, title: '', status: 'js-rendered', usedUtility: false }
 
   let html: string
@@ -193,6 +207,10 @@ export function buildLinkInjection(outcomes: LinkFetchOutcome[]): string | null 
     if (o.status === 'ok') {
       lines.push('')
       lines.push(`${n}${o.title || '(無標題)'} — ${o.url}`)
+      if (o.sourceKind === 'video-description') {
+        // 這句是防止角色裝作看過影片的唯一保險，不要拿掉。
+        lines.push('（以下是這支影片的「說明欄」文字，不是影片內容。你沒有看過這支影片，不要談論畫面、對白或劇情細節，也不要假裝看過。）')
+      }
       lines.push(o.text ?? '')
     } else {
       lines.push('')

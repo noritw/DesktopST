@@ -131,6 +131,26 @@ describe('buildLinkInjection', () => {
     expect(text).toContain('2. https://x.com/a/status/1')
   })
 
+  it('影片說明欄一定要附上「你沒看過這支影片」那句', () => {
+    const video: LinkFetchOutcome = {
+      url: 'https://youtu.be/dQw4w9WgXcQ',
+      title: '某支影片',
+      status: 'ok',
+      text: '頻道：某某\n這集聊了什麼什麼',
+      usedUtility: false,
+      sourceKind: 'video-description'
+    }
+    const text = buildLinkInjection([video]) ?? ''
+    expect(text).toContain('說明欄')
+    // 這句是防止角色裝作看過影片的唯一保險，不能被改掉
+    expect(text).toContain('不要假裝看過')
+  })
+
+  it('一般網頁不會多出那句影片警語', () => {
+    const text = buildLinkInjection([ok]) ?? ''
+    expect(text).not.toContain('說明欄')
+  })
+
   it('沒有任何連結時回 null', () => {
     expect(buildLinkInjection([])).toBeNull()
   })

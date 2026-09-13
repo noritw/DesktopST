@@ -424,6 +424,18 @@ owner 已拍板的三件事（已照做）：
 `core/util/htmlFetch.ts`，新聞與連結閱讀共用同一份（`enrich.ts` 仍 re-export
 `extractArticleText`，既有 import 沒動）。
 
+**上線當天修掉一個既有 bug**：斜線指令 `/news` 是無錨定全域取代，會把
+`https://news.cnyes.com/news/id/…` 剝成 `https:/.cnyes.com/id/…`。症狀是角色回
+「我看不懂這些網址」，看起來像模型太弱其實不是。已抽到
+`core/prompt/slashCommands.ts` 並加 9 項回歸測試（CLAUDE.md §5 有條目）。
+
+**同日追加 YouTube 說明欄**（`core/link/youtube.ts`）。字幕那條路 owner
+在自己電腦上實測確認**不通**（`HTTP 200 長度 0`，PO Token），**而且不是
+「沒登入」的問題、別去做 OAuth**——完整實測結論在 `docs/link-reader-plan.md` §9。
+改成拿標題／頻道／說明欄，只抓開頭 256 KB（Range，watch 頁 1.2 MB 起跳），
+注入時明講「這是說明欄不是影片內容」。官方 Data API 版刻意延後，理由見該文件 §9.8
+（要動金鑰加解密路徑，風險不該跟新功能綁在一起）。
+
 ## 3. 排程中／延後
 
 - [x] **B3 階段 7：正式 APK／散布** → ✅ **已完成**（2026-08-25）。owner 已

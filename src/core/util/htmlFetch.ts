@@ -31,21 +31,29 @@ export const DEFAULT_HTML_FETCH_TIMEOUT_MS = 8000
 export async function fetchHtmlDoc(
   http: HttpAdapter,
   url: string,
-  timeoutMs = DEFAULT_HTML_FETCH_TIMEOUT_MS
+  timeoutMs = DEFAULT_HTML_FETCH_TIMEOUT_MS,
+  options: { rangeBytes?: number } = {}
 ): Promise<string> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
+    const headers: Record<string, string> = {
+      'User-Agent': BROWSER_USER_AGENT,
+      Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8'
+    }
+    // 只要開頭那一段就夠時（例如只想讀 <head> 的 og:meta）省流量用。
+    // ⚠️ 對方**可以不理** Range 而回整份 200，呼叫端要能接受拿到完整內容。
+    if (options.rangeBytes && options.rangeBytes > 0) {
+      headers.Range = `bytes=0-${options.rangeBytes - 1}`
+    }
     const res = await http.fetch(url, {
       signal: ctrl.signal,
       redirect: 'follow',
-      headers: {
-        'User-Agent': BROWSER_USER_AGENT,
-        Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8'
-      }
+      headers
     })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    // 206 Partial Content 是 Range 成功，不是錯誤。
+    if (!res.ok && res.status !== 206) throw new Error(`HTTP ${res.status}`)
     const ctype = (res.headers.get('content-type') || '').toLowerCase()
     if (ctype && !ctype.includes('html') && !ctype.includes('text/plain') && !ctype.includes('xml')) {
       throw new Error(`non-html content-type: ${ctype}`)

@@ -58,6 +58,14 @@ export interface LinkFetchOutcome {
   text?: string
   /** 這一則有沒有打輔助模型濃縮 */
   usedUtility: boolean
+  /**
+   * 抓到的東西是哪一種。
+   *
+   * `video-description` ＝ 影片的**說明欄**，不是影片內容本身（YouTube）。
+   * 注入時一定要講明，否則角色會照著說明裝作看過影片——跟「不要憑網址
+   * 猜內容」是同一類問題。未設定時視為 `page`（一般網頁正文）。
+   */
+  sourceKind?: 'page' | 'video-description'
 }
 
 export interface LinkContextResult {
