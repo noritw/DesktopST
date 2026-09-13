@@ -96,8 +96,8 @@ src/mobile/ 手機 UI
 | **手機對話記錄換表情／手動指定／新增表情圖** | **已實作，三輪修正後 owner 第四次實機驗證通過**（2026-08-23）。跨裝置同步後表情正常顯示。架構級成因是**訊息換一台裝置看會用該裝置自己的 `emotions`／`spriteIds` 反查，而自訂 id 是裝置本地產生的**——修法是訊息落地前就換算成 canonical key（`canonicalizeEmotionId()`，接在 `chatWithLLM()`／`classifyEmotionWithLLM()` 這兩個唯一產生 `message.emotion` 的入口）。⚠️ **修正前產生的舊訊息不會自動修好**，跨裝置看仍退回主圖，要手動「換表情」補一次。`EMOTION_OPTIONS` 已搬到 `core/character/emotionCatalog.ts`。細節：`docs/mobile-character-expression-plan.md` §9.1／§9.2 |
 | **DeST Android 桌面小工具** | **已完成，真機驗證通過**（2026-08-23，owner 手機實測數輪正常結案）。小工具**不綁角色、跟著目前對話走**；可釘選訊息（`ui/stores/widgetStore.ts` 單一真相）、App 內有「桌面小工具」設定頁（預覽＋管理釘選＋頭像開關＋12 組配色＋底色透明度 0–100%）。JS：`core/character/widgetSnapshot.ts`、`mobile/runtime/widgetPins.ts`／`widgetBridge.ts`；原生：`android/.../widget/` 兩支 Kotlin。踩過三次同一條坑——**RemoteViews 不吃 CSS／不認裸 `<View>`／不能只改容器顏色**，按鈕、進度條、頭像底色圓都得整顆畫成 bitmap（頭像用 `BitmapShader`，**不能用 `SRC_IN`**，會把底色一起挖掉）。四個配色設定彼此獨立：DeST App／DeST 小工具／飲食 App／飲食小工具。真機待驗清單：計畫書 §12.7＋§13.5＋§14.4＋§15.4＋§16.3＋§17.1 |
 | **S2 提醒同步（M4 第六個 kind）** | **已實作，真機待驗**（2026-08-24，`npm run typecheck`／`npm test` 皆過）。提醒清單同步走逐項比對，但 `notificationDevice`／`wakeMode`／`inactiveBehavior`／`allowOfflineFallback`／`lastTriggeredAt` 是裝置本地／衍生狀態，push/pull 時保留接收端原值、不整包覆蓋（比照情境案例）；`characterId`／`sceneId` 走既有 id 對照表，`conversationId` 沒有對照表可翻、一律不推。細節：`TODO.md` §2.3、`docs/reminder-sync-kickoff.md`（設計依據，已照做完成）。 |
-| **Google 日曆驅動提醒** | **桌面已完成，owner 初步實測正常**（2026-08-25）。Google 事件自帶的提醒設定 → DeST 提醒（唯讀鏡射，Google 端是唯一真相）；提醒清單分「日曆同步／手動建立」兩分頁＋週月分組；開機＋每 8 小時＋手動掃描；日曆設定頁一進去就自動掃。**上線當天實測炸開，修掉 4 件事**，最重要的是 **`setTimeout` 24.85 天溢位**（既有 bug，見 §5 新條目）。**手機版還沒做** → `docs/calendar-reminders-mobile-kickoff.md` |
-| **連結閱讀（貼網址讀內文）** | **已實作，待實際使用驗證**（2026-09-13）。訊息裡貼網址時，回應前先抓那一頁正文注入 prompt；桌面／手機獨立版／遙控三條路都接上。**只做公開網頁**——需要登入的頁面（社群貼文）一律讀不到，因為抓取從主行程／原生層發出、拿不到瀏覽器 cookie，社群站更是 SPA 抽不到正文，所以連抓都不抓、直接回報讀不到（這是範圍不是 bug；要支援得走 App 內建瀏覽器或瀏覽器擴充，**先問 owner**）。**YouTube 只拿說明欄**（標題／頻道／說明，Range 只抓開頭 256 KB；字幕實測不通見 `docs/link-reader-plan.md` §9，注入時會明講「不是影片內容」）。邏輯在 `core/link/`，抓 HTML／抽正文抽到 `core/util/htmlFetch.ts` 與新聞共用。開關走既有模組清單 `desktopst.link-reader`，S2 同步與情境覆蓋因此不必另外接線。細節與待驗清單：`docs/link-reader-plan.md` |
+| **Google 日曆驅動提醒** | **桌面已完成，owner 初步實測正常**（2026-08-25）。Google 事件自帶的提醒設定 → DeST 提醒（唯讀鏡射，Google 端是唯一真相）；提醒清單分「日曆同步／手動建立」兩分頁＋週月分組；開機＋每 8 小時＋手動掃描；日曆設定頁一進去就自動掃。**上線當天實測炸開，修掉 4 件事**，最重要的是 **`setTimeout` 24.85 天溢位**（既有 bug，見 §5）。**手機版同日也做完了**（`70a0a68`，分頁條件正確地用「資料自己說了算」而不是設定旗標，避開了 kickoff §3 那個坑；手機端的溢位分段等待也一起補了）——2026-09-13 owner 確認手機實際收得到日曆衍生的提醒。⚠️ 本列與 §6 選讀表先前寫「手機版還沒做」是**文件沒同步更新**，不是真的沒做 |
+| **連結閱讀（貼網址讀內文）** | **已實作；桌面與手機獨立版的基本讀取 owner 已實測通過**（2026-09-13，兩邊表現一致）。**YouTube 說明欄、模組開關關閉、情境覆蓋、行動網路流量仍未驗**。訊息裡貼網址時，回應前先抓那一頁正文注入 prompt；桌面／手機獨立版／遙控三條路都接上。**只做公開網頁**——需要登入的頁面（社群貼文）一律讀不到，因為抓取從主行程／原生層發出、拿不到瀏覽器 cookie，社群站更是 SPA 抽不到正文，所以連抓都不抓、直接回報讀不到（這是範圍不是 bug；要支援得走 App 內建瀏覽器或瀏覽器擴充，**先問 owner**）。**YouTube 只拿說明欄**（標題／頻道／說明，Range 只抓開頭 256 KB；字幕實測不通見 `docs/link-reader-plan.md` §9，注入時會明講「不是影片內容」）。邏輯在 `core/link/`，抓 HTML／抽正文抽到 `core/util/htmlFetch.ts` 與新聞共用。開關走既有模組清單 `desktopst.link-reader`，S2 同步與情境覆蓋因此不必另外接線。細節與待驗清單：`docs/link-reader-plan.md` |
 | **下一步** | **看根目錄的 [`TODO.md`](TODO.md)** —— 待辦的唯一入口，狀態以那份為準。**2026-08-24 現況**：飲食模組 B9a／Health 讀／拍照估價／桌面小工具皆已完成並實際使用中，剩**本機報表頁**（排最後，純唯讀）與 **B9c**（Health 寫、接 S2、角色偏好注入）。DeST 手機版近期的對話新聞搜尋、表情、桌面小工具、天氣即時查詢、**提醒同步**都已實作完成（提醒同步待真機驗證，其餘已真機驗證結案）；桌面版本機 LLM 也實測可用。剩下的主要是少數自動測試過但沒真機驗的同步項目（`llm.utility*` 設定同步、模組子設定遺漏排查、M4 第 6 條）。 |
 | 延後／已排程 | 角色印象（B8）；系統通知（B5）；飲食熱量模組其餘分期（**B9b／B9c**，B9-Health-lite 已完成見上） |
 
@@ -233,8 +233,9 @@ Spotify／日曆授權仍只在桌面。
   兩個現象看起來無關，其實同一個成因。
   桌面已改成 `main/reminderScheduler.ts` 的 `scheduleAt()`：超過上限就先睡到上限、
   醒來再用**絕對目標時間**重算剩餘（不要用「剩餘時間相減」，會累積誤差）。
-  ⚠️ **手機端 `mobile/runtime/reminderScheduler.ts` 還是舊寫法**，真正的觸發靠原生
-  AlarmManager 所以影響較小，但日曆提醒搬到手機那一階段要一起改。
+  **手機端 `mobile/runtime/reminderScheduler.ts` 已經是同一套分段等待**
+  （2026-08-25 日曆提醒手機版一起補的；真正的觸發雖然靠原生 AlarmManager，
+  但同步過來一大批超過 24.85 天的一次性提醒照樣會中招）。
   診斷方法：看提醒的 `lastTriggeredAt < schedule.at`（觸發時間早於自己的排定時間，
   正常情況不可能發生）就是溢位誤觸。
 - **手機通知一定要自己建 channel**：Capacitor 預設頻道 importance=3，
@@ -324,7 +325,7 @@ Spotify／日曆授權仍只在桌面。
 | **實作提醒跨裝置同步（S2 新分類）** | `reminder-sync-kickoff.md`（整份，開工指令） | 一切長文 |
 | **實作手機獨立版天氣主動發話＋今日初次問候（下一步）** | `weather-proactive-mobile-kickoff.md`（整份，開工指令；**§2 推播路線已否決別重提**、**§3 觸發模型是核心**） | `weather-proactive-speech-kickoff.md`／`morning-briefing-kickoff.md` 整份（只在查桌面現況時讀對應段落） |
 | 查／改 Google 日曆驅動提醒（桌面，**已完成**） | `calendar-driven-reminders-kickoff.md`（§5.2 已依實測修訂）＋ `TODO.md` §2.7 | `calendar-driven-reminders-design.md`（產品決策過程，結論已進 kickoff） |
-| **實作日曆驅動提醒的手機版（下一步）** | `calendar-reminders-mobile-kickoff.md`（整份，開工指令；**§3 那個分頁條件的坑一定要看**） | 一切長文 |
+| 查／改日曆驅動提醒的手機版（**已完成**，2026-08-25） | `calendar-reminders-mobile-kickoff.md`（**§3 那個分頁條件的坑仍值得看**，實作已照它做）＋ `TODO.md` §2.7b | 一切長文 |
 | **實作獨立版個人新聞報（缺口 #6）** | `news-standalone-kickoff.md`（整份，開工指令） | 一切長文 |
 | 地方新聞為什麼不是獨立欄了 | `news-local-merge-plan.md`（已完成，看 §9） | 一切長文 |
 | 查／改 Android 桌面小工具（DeST 主 App） | `mobile-android-widget-plan.md`（**已實作**，看 §11 落地筆記＋§12–§17 六輪修正與真機待驗清單） | 一切長文 |
