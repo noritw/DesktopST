@@ -7,6 +7,7 @@
  */
 import type { HttpAdapter } from '../adapters/http'
 import type { StorageAdapter } from '../adapters/storage'
+import { BROWSER_USER_AGENT, extractArticleText, fetchHtmlDoc } from '../util/htmlFetch'
 import { chatWithLLM, applyUtilitySettings, type LLMDeps } from '../llm'
 import type { AppSettings } from '../types'
 import { loadNewsModuleSettings } from './settings'
@@ -133,10 +134,6 @@ function brief(s: string | undefined, max = 120): string {
   if (!s) return ''
   return s.length > max ? `${s.slice(0, max)}…` : s
 }
-/** 用一般瀏覽器 UA；自訂爬蟲 UA 容易被擋或只拿到中間頁 */
-const USER_AGENT =
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-
 const SUMMARY_INSTRUCTIONS =
   'You summarize a news article for a role-play chat bot\'s background knowledge.\n' +
   'Rules:\n' +
@@ -204,66 +201,11 @@ export function isGoogleNewsArticleUrl(url: string): boolean {
   }
 }
 
-function stripTags(html: string): string {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
-    .replace(/<svg[\s\S]*?<\/svg>/gi, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-/** 簡單可讀性抽取：優先 article／main，失敗則整頁純文字 */
-export function extractArticleText(html: string): string {
-  if (!html || !html.trim()) return ''
-  const pick = (re: RegExp): string => {
-    const m = html.match(re)
-    return m?.[1] ? stripTags(m[1]) : ''
-  }
-  const fromArticle = pick(/<article\b[^>]*>([\s\S]*?)<\/article>/i)
-  if (fromArticle.length >= 80) return fromArticle
-  const fromMain = pick(/<main\b[^>]*>([\s\S]*?)<\/main>/i)
-  if (fromMain.length >= 80) return fromMain
-  const fromEntry = pick(/<(?:div|section)\b[^>]*(?:class|id)=["'][^"']*(?:article-body|post-content|entry-content|story-body)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|section)>/i)
-  if (fromEntry.length >= 80) return fromEntry
-  const body = html.replace(/<head[\s\S]*?<\/head>/i, ' ')
-  return stripTags(body)
-}
-
-async function fetchHtml(http: HttpAdapter, url: string): Promise<string> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS)
-  try {
-    const res = await http.fetch(url, {
-      signal: ctrl.signal,
-      redirect: 'follow',
-      headers: {
-        'User-Agent': USER_AGENT,
-        Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8'
-      }
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const ctype = (res.headers.get('content-type') || '').toLowerCase()
-    if (ctype && !ctype.includes('html') && !ctype.includes('text/plain') && !ctype.includes('xml')) {
-      throw new Error(`non-html content-type: ${ctype}`)
-    }
-    const text = await res.text()
-    if (!text.trim()) throw new Error('empty body')
-    return text
-  } finally {
-    clearTimeout(timer)
-  }
-}
+/**
+ * 抽正文／抓 HTML 已搬到 `core/util/htmlFetch.ts`（「貼網址讀內文」也要用同一份，
+ * 2026-09-13）。這裡繼續 re-export `extractArticleText`，既有 import 不用改。
+ */
+export { extractArticleText }
 
 /**
  * 從 `batchexecute` 的回應裡挖出原文 URL。
@@ -361,7 +303,7 @@ export async function resolveGoogleNewsArticleUrl(http: HttpAdapter, articleUrl:
   const t0 = Date.now()
   let pageHtml: string
   try {
-    pageHtml = await fetchHtml(http, articleUrl)
+    pageHtml = await fetchHtmlDoc(http, articleUrl, FETCH_TIMEOUT_MS)
   } catch (e) {
     diag('resolve.page-fetch-failed', { ms: Date.now() - t0, err: e instanceof Error ? e.message : String(e) })
     throw e
@@ -399,7 +341,7 @@ export async function resolveGoogleNewsArticleUrl(http: HttpAdapter, articleUrl:
       signal: ctrl.signal,
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        'User-Agent': USER_AGENT,
+        'User-Agent': BROWSER_USER_AGENT,
         Referer: 'https://news.google.com/',
         'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8'
       },
@@ -569,7 +511,7 @@ async function enrichNewsForChatInner(
   for (let attempt = 0; attempt < 2; attempt++) {
     const t = Date.now()
     try {
-      html = await fetchHtml(deps.http, fetchUrl)
+      html = await fetchHtmlDoc(deps.http, fetchUrl, FETCH_TIMEOUT_MS)
       diag('article.fetch-ok', { attempt, ms: Date.now() - t, htmlLen: html.length })
       break
     } catch (e) {

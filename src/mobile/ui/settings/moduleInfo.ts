@@ -11,7 +11,8 @@ const DESCRIPTIONS: Record<string, string> = {
   'desktopst.weather': '角色會知道現在的天氣與氣溫，聊天時可能主動提起。地點可在上方「天氣」區塊設定。',
   'desktopst.news': '角色會知道最近的新聞，可以跟你聊時事。陪聊頻率與排程在「個人新聞報 → 新聞設定」。',
   'desktopst.spotify': '角色會知道你正在聽什麼歌。帳號連結請在電腦版「設定 → 擴充」完成，手機只負責開關。',
-  'desktopst.calendar': '角色會知道你今天的行程（唯讀）。授權請在電腦版完成，手機只負責開關。'
+  'desktopst.calendar': '角色會知道你今天的行程（唯讀）。授權請在電腦版完成，手機只負責開關。',
+  'desktopst.link-reader': '訊息裡貼網址時，角色會先讀一次那一頁的內文再回應。需要登入才看得到的頁面（社群貼文等）讀不到，角色會直接跟你說打不開。'
 }
 
 export function moduleDescription(id: string): string | null {

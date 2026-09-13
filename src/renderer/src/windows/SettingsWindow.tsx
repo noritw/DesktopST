@@ -131,6 +131,7 @@ const SCENE_MODULE_ROWS_BASE: Array<{ id: string; label: string }> = [
   { id: 'desktopst.news', label: '新聞陪聊' },
   { id: 'desktopst.spotify', label: 'Spotify 音樂' },
   { id: 'desktopst.calendar', label: 'Google 日曆' },
+  { id: 'desktopst.link-reader', label: '連結閱讀' },
   { id: 'desktopst.systemTime', label: '系統時間' },
   { id: 'desktopst.lorebook', label: '用語解說' }
 ]
@@ -2608,6 +2609,14 @@ export default function SettingsWindow() {
               onToggle={enabled => set('ui.randomToolsEnabled', enabled)}
               statusText={draft.ui.randomToolsEnabled !== false ? '已啟用' : '已停用'}
             />
+            <ExtensionRow
+              title="連結閱讀"
+              description="訊息裡貼網址時，角色會先讀一次那一頁的內文再回應。需要登入才看得到的頁面（社群貼文等）讀不到，角色會直說。"
+              enabled={draft.linkReader?.enabled !== false}
+              onToggle={enabled => set('linkReader.enabled', enabled)}
+              statusText={draft.linkReader?.enabled !== false ? '已啟用' : '已停用'}
+            />
+            <SceneOverrideHint moduleId="desktopst.link-reader" />
             <ExtensionRow
               title="天氣資訊"
               description="讓角色取得所在地天氣、氣溫與濕度。"

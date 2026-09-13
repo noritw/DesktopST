@@ -109,7 +109,8 @@ const MODULE_DEFS: ModuleToggle[] = [
   { id: 'desktopst.weather', label: '天氣', enabled: false },
   { id: 'desktopst.news', label: '個人新聞報', enabled: false },
   { id: 'desktopst.spotify', label: 'Spotify 音樂偵測', enabled: false },
-  { id: 'desktopst.calendar', label: 'Google 日曆', enabled: false }
+  { id: 'desktopst.calendar', label: 'Google 日曆', enabled: false },
+  { id: 'desktopst.link-reader', label: '連結閱讀', enabled: false }
 ]
 
 const ALLOWED_AVATAR_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp']
@@ -765,7 +766,9 @@ export class StandaloneSession {
               ? !!this.settings.calendar?.enabled
               : m.id === 'desktopst.news'
                 ? newsEnabled
-                : false
+                : m.id === 'desktopst.link-reader'
+                  ? this.settings.linkReader?.enabled !== false
+                  : false
     }))
   }
 
@@ -781,6 +784,10 @@ export class StandaloneSession {
           ...this.settings.weather,
           enabled
         }
+        break
+      case 'desktopst.link-reader':
+        // 連結閱讀不依賴任何外部設定或授權，開了就能用。
+        this.settings.linkReader = { enabled }
         break
       case 'desktopst.spotify':
         this.settings.spotify = { ...(this.settings.spotify ?? { enabled: false, clientId: '' }), enabled }

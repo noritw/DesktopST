@@ -366,6 +366,8 @@ export interface AppSettings {
   activeSceneId?: string
   injectSystemTime: boolean
   weather?: WeatherSettings
+  /** 連結閱讀：訊息含網址時先抓一次頁面內文（`core/link/`）。未設定＝啟用。 */
+  linkReader?: { enabled: boolean }
   spotify?: SpotifySettings
   calendar?: CalendarSettings
   morningBriefing?: MorningBriefingSettings

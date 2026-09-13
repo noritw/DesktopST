@@ -80,6 +80,7 @@ import {
   type NewsTopic, type NewsSelectionContext, type NewsModuleSettings
 } from './modules/news'
 import { getConversationSearchContext } from './modules/news/conversationSearch'
+import { getLinkContext, LINK_READER_MODULE_ID } from './linkReader'
 import { collectModuleContext, listRegisteredModules } from './modules/moduleHost'
 import { pushRemoteControlState, pushThinking as mobilePushThinking, pushThinkingDone as mobilePushThinkingDone, isServerRunning as isMobileServerRunning, getConnectedCount, pushRemindersSyncAvailable } from './mobileServer'
 
@@ -1276,7 +1277,8 @@ function mobileModuleToggleDefs(): { id: string; label: string }[] {
     { id: WEATHER_MODULE_ID, label: '天氣' },
     { id: NEWS_MODULE_ID, label: '新聞陪聊' },
     { id: SPOTIFY_MODULE_ID, label: 'Spotify 音樂偵測' },
-    { id: CALENDAR_MODULE_ID, label: 'Google 日曆' }
+    { id: CALENDAR_MODULE_ID, label: 'Google 日曆' },
+    { id: LINK_READER_MODULE_ID, label: '連結閱讀' }
   ]
 }
 
@@ -1289,6 +1291,7 @@ export function listMobileModuleTogglesDirect(): { id: string; label: string; en
       m.id === SPOTIFY_MODULE_ID ? !!settings.spotify?.enabled :
       m.id === CALENDAR_MODULE_ID ? !!settings.calendar?.enabled :
       m.id === NEWS_MODULE_ID ? loadNewsModuleSettings().enabled :
+      m.id === LINK_READER_MODULE_ID ? settings.linkReader?.enabled !== false :
       false
   }))
 }
@@ -1314,6 +1317,10 @@ export function setMobileModuleEnabledDirect(id: string, enabled: boolean): { ok
       break
     case NEWS_MODULE_ID:
       saveNewsModuleSettings({ enabled })
+      break
+    case LINK_READER_MODULE_ID:
+      // 連結閱讀不依賴任何外部設定，手機這邊開了就能用。
+      settings.linkReader = { enabled }
       break
     default:
       return { error: '未知的模組' }
@@ -5151,6 +5158,17 @@ export function registerIpcHandlers() {
     const newsSearchResult = (isModuleEffectivelyEnabled(NEWS_MODULE_ID, true) || slashNews)
       ? await getConversationSearchContext(payload.content, settings, loadNewsModuleSettings())
       : { context: null, debugPrompt: null }
+    /*
+     * 連結閱讀：訊息裡貼了網址就先抓一次頁面內文（`core/link/`）。
+     * 沒有網址時 `getLinkContext` 立刻回 null，不花任何外部往返——
+     * 跟對話新聞搜尋不同，這裡不需要先用輔助模型判斷意圖，
+     * 「貼了網址」本身就是最明確的意圖。
+     */
+    const linkContext = await getLinkContext(
+      payload.content,
+      settings,
+      isModuleEffectivelyEnabled(LINK_READER_MODULE_ID, settings.linkReader?.enabled !== false)
+    )
     // 災害新聞補搜：CWA 即時查詢命中時，自動從 Google News 補充社會面資訊
     const disasterNews = (isModuleEffectivelyEnabled(NEWS_MODULE_ID, true) || slashNews)
       ? await getDisasterNewsSupplement(payload.content, settings, realtimeQueryContext.typhoonName)
@@ -5163,7 +5181,7 @@ export function registerIpcHandlers() {
     }
     const chatPinnedNotesBlock = settings.ui.chatUsePinnedNotes ? buildVisiblePinnedNotesContext()?.text ?? null : null
     const moduleContextParts = await collectModuleContext(id => isModuleEffectivelyEnabled(id, true))
-    const extraContextParts = [weatherContext, spotifyContext, calendarContext, realtimeQueryContext.injectionText, newsSearchResult.context, disasterNews.context, chatPinnedNotesBlock, ...moduleContextParts].filter(Boolean) as string[]
+    const extraContextParts = [weatherContext, spotifyContext, calendarContext, realtimeQueryContext.injectionText, newsSearchResult.context, disasterNews.context, linkContext.context, chatPinnedNotesBlock, ...moduleContextParts].filter(Boolean) as string[]
     const combinedExtraContext = extraContextParts.length > 0 ? extraContextParts.join('\n\n') : null
 
     // Emotion split: use utility model to classify if utilityEnabled + character has custom sprites

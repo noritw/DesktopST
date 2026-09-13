@@ -15,6 +15,7 @@ import { getRealtimeQueryContextString, getWeatherContextString } from '@core/we
 import { getNewsInjectionForSpeak, type NewsInjectionDeps } from '@core/news/injection'
 import { getActiveNewsTopic } from '@core/news/topicState'
 import { getConversationSearchContext, type ConversationSearchDeps } from '@core/news/conversationSearch'
+import { getLinkContext } from '@core/link'
 import { loadNewsModuleSettings } from '@core/news/settings'
 import {
   buildScanText,
@@ -489,7 +490,22 @@ export async function sendStandaloneMessage(opts: {
     userMsg.convSearchInputTokens = newsSearchResult.inputTokens
     userMsg.convSearchOutputTokens = newsSearchResult.outputTokens
   }
-  const extraContext = [weatherContext, realtimeQueryContext.injectionText, newsSearchResult.context].filter(Boolean).join('\n\n') || undefined
+  /*
+   * 連結閱讀：使用者訊息裡貼了網址就先抓一次內文（`core/link/`，兩邊共用）。
+   * 沒有網址時立刻回 null，一般聊天不會多花任何往返；讀不到的連結也會進
+   * prompt 並明講讀不到，免得角色照網址猜內容。
+   */
+  const linkContext = await getLinkContext(
+    { http: opts.adapters.http },
+    userContentForPrompt,
+    opts.settings
+  )
+  if (opts.signal?.aborted) {
+    await undoUserMessage()
+    return
+  }
+
+  const extraContext = [weatherContext, realtimeQueryContext.injectionText, newsSearchResult.context, linkContext.context].filter(Boolean).join('\n\n') || undefined
 
   // 2026-08-22 起手機獨立版也要換表情（見 `docs/mobile-character-expression-plan.md`），
   // 所以不再傳 `omitEmotionTag: true`——`buildSystemPrompt()` 本來就只在角色卡

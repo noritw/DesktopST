@@ -59,6 +59,7 @@
 | [`module-system-roadmap.md`](module-system-roadmap.md)／[`module-host-next-step.md`](module-host-next-step.md) | 模組宿主；動模組系統時再查 |
 | [`remote-control-plan.md`](remote-control-plan.md)／[`remote-control-module-refactor.md`](remote-control-module-refactor.md) | 遙控；B6 前相關 |
 | [`news-module-*.md`](news-module-design.md)、[`news-feed-spec.md`](news-feed-spec.md)、[`news-conversation-search-spec.md`](news-conversation-search-spec.md)、[`weather-realtime-query-spec.md`](weather-realtime-query-spec.md) | 新聞／天氣已實作規格；改行為時對照 |
+| [`link-reader-plan.md`](link-reader-plan.md) | **連結閱讀**（貼網址讓角色讀內文）；已實作待實際使用驗證。§2 說明為什麼登入牆讀不到、§7 待驗清單 |
 | [`news-future-*.md`](news-future-keyword-groups.md) | **構想／未定案**，勿當待辦強制實作 |
 | [`future-character-impression.md`](future-character-impression.md) | B8，完全延後 |
 | [`future-nutrition-module.md`](future-nutrition-module.md) | **B9 飲食熱量模組**（B9a／Health 讀／拍照估價／桌面小工具皆已完成；剩本機報表頁與 B9c）；換機匯出匯入見該檔 §5。開工請直接看 [`nutrition-module-kickoff.md`](nutrition-module-kickoff.md) |

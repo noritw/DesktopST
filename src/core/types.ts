@@ -416,12 +416,25 @@ export interface PendingRandomTool {
   keepLowest?: number
 }
 
+/**
+ * 連結閱讀設定。真正的定義在 `core/link/types.ts`（那裡有「為什麼只有一個欄位」
+ * 的說明）；這裡重述一份是為了 `AppSettings` 不必反向 import 功能模組。
+ */
+export interface LinkReaderSettings {
+  enabled: boolean
+}
+
 export interface AppSettings {
   activePersonaId: string
   activeWorldId: string
   activeSceneId?: string
   injectSystemTime: boolean
   weather?: WeatherSettings
+  /**
+   * 連結閱讀：使用者訊息裡貼了網址時，回應前先抓一次頁面內文
+   * （`core/link/`，2026-09-13）。未設定＝啟用。
+   */
+  linkReader?: LinkReaderSettings
   spotify?: SpotifySettings
   calendar?: CalendarSettings
   morningBriefing?: MorningBriefingSettings
