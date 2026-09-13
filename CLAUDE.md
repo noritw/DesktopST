@@ -330,6 +330,7 @@ Spotify／日曆授權仍只在桌面。
 | 查／改 Android 桌面小工具（DeST 主 App） | `mobile-android-widget-plan.md`（**已實作**，看 §11 落地筆記＋§12–§17 六輪修正與真機待驗清單） | 一切長文 |
 | 查／改手機表情顯示（換表情／框選臉部／新增表情圖） | `mobile-character-expression-plan.md`（**已實作並真機驗證**，看 §9 落地筆記，尤其 §9.1／§9.2 跨裝置反查那段） | 一切長文 |
 | 查／改連結閱讀（貼網址讓角色讀內文） | `link-reader-plan.md`（**已實作，待實際使用驗證**，整份不長；§2 說明為什麼登入牆讀不到、§7 是待驗清單） | 一切長文 |
+| **有人問「YouTube／影片能不能讀」** | `link-reader-plan.md` **§9**（2026-09-13 實測結論：字幕此路不通，**而且不是「沒登入」的問題，別去做 OAuth**；§9.4 有可行的降級方案） | 一切長文 |
 | 查／改對話新聞搜尋（聊天中即時查新聞） | `news-conversation-search-spec.md`（**已實作並真機驗證**，2026-08-22 搬到手機獨立版） | 一切長文 |
 | 查／改飲食記錄 App 的桌面小工具 | `nutrition-widget-plan.md`（已實作，§7「已知風險」＋ `TODO.md` 的落地筆記） | `mobile-android-widget-plan.md`（**不同專案**的小工具，兩支 App 各自獨立，別互相套用） |
 | 接本地 LLM（Ollama／LM Studio）當輔助模型 | `local-llm-provider-plan.md`（**已完成並實測**，2026-08-15／08-23，看 §9） | 一切長文 |
