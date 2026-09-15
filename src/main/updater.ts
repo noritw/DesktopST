@@ -3,7 +3,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { spawn } from 'child_process'
 import { getDataDir } from './dataDir'
-import { buildHelperBatScript } from './updaterScript'
+import { buildHelperBatScript, matchesUpdateAsset } from './updaterScript'
 
 /**
  * 一鍵更新（手動觸發，不自動下載）。
@@ -119,12 +119,9 @@ async function fetchLatestRelease(): Promise<GithubRelease> {
   return await res.json() as GithubRelease
 }
 
-/** 免安裝版要 `DesktopST-v0.5.6-full.zip`；單檔版要 `DesktopST 0.5.6.exe` */
-function pickAsset(kind: InstallKind, assets: GithubAsset[]): GithubAsset | null {
-  const want = kind === 'portable-exe'
-    ? /^DesktopST[ _-]v?\d+\.\d+\.\d+\.exe$/i
-    : /^DesktopST-v?\d+\.\d+\.\d+-full\.zip$/i
-  return assets.find(a => want.test(a.name)) ?? null
+/** 免安裝版要 `DesktopST-v0.5.6-full.zip`；單檔版要 `DesktopST 0.5.6.exe`（GitHub 上會變成點，見 updaterScript.ts） */
+function pickAsset(kind: 'portable-exe' | 'unpacked-dir', assets: GithubAsset[]): GithubAsset | null {
+  return assets.find(a => matchesUpdateAsset(kind, a.name)) ?? null
 }
 
 /**
@@ -178,7 +175,7 @@ export async function buildUpdatePlan(): Promise<UpdatePlan> {
     return { ...base, latestVersion, releaseNotes, reason: `已是最新版本（v${currentVersion}）。` }
   }
 
-  const asset = pickAsset(kind, release.assets ?? [])
+  const asset = pickAsset(kind === 'portable-exe' ? 'portable-exe' : 'unpacked-dir', release.assets ?? [])
   if (!asset) {
     return {
       ...base,
@@ -337,7 +334,8 @@ export async function runUpdate(win: BrowserWindow | null): Promise<{ ok: boolea
       stagingDir,
       downloadedFile,
       targetPath: plan.targetPath,
-      pid: process.pid
+      // 更新失敗時程式已經關了，沒有畫面能回報；留一份 log 在暫存區供事後追查
+      failLogPath: path.join(app.getPath('temp'), 'DesktopST-update-failed.log')
     }), 'ascii')
 
     if (abort.signal.aborted) throw new Error('已取消更新')
