@@ -447,6 +447,46 @@ owner 已拍板的三件事（已照做）：
 注入時明講「這是說明欄不是影片內容」。官方 Data API 版刻意延後，理由見該文件 §9.8
 （要動金鑰加解密路徑，風險不該跟新功能綁在一起）。
 
+## 2.10 桌面版一鍵更新（2026-09-14 owner 指定）→ ✅ 已實作，**待下次發 release 時真驗**
+
+起因：每次更新都得自己下載 zip、解壓縮、覆蓋，owner 自己就蓋錯過一次
+（把 release zip 解到 `D:\DesktopST` 工作資料夾，把 `docs/nutrition.html`
+的下載連結整個蓋回舊版）。
+
+**為什麼不用 electron-updater**：它只支援 nsis／dmg／AppImage，
+**不支援 `portable` target**，而 `electron-builder.yml` 用的就是 portable
+（免安裝是這個專案的定位，不打算改成安裝版）。所以自己寫，好處是發布流程一行都不用改。
+
+流程：既有的「檢查更新」對話框多一顆**「立即更新」**→ 開更新視窗（`w=updater`）
+→ 顯示要下載哪個附件、多大、會覆蓋哪裡 → 下載（有進度條、可取消）
+→ 解壓縮到暫存 → 驗證 → 產生 helper `.bat` → 關掉自己 → `.bat` 覆蓋並重新啟動。
+
+- 兩種安裝型態都支援，執行時自動判斷：免安裝 zip 版覆蓋整個安裝資料夾
+  （`DesktopST-vX.Y.Z-full.zip`），單檔 EXE 版換掉那一個 exe（`DesktopST X.Y.Z.exe`）。
+  判斷靠 `process.env.PORTABLE_EXECUTABLE_FILE`（portable target 啟動時注入，
+  值＝使用者實際點的 exe；`app.getPath('exe')` 在 portable 下指向 %TEMP%，不能用）。
+- 三道安全閘（都在還沒動任何檔案前擋下，`buildUpdatePlan()`）：開發模式不做；
+  **安裝目錄裡有 `.git` 或 `package.json` 就不做**（就是這次事故的翻版，只是變成程式自己去覆蓋）；
+  資料資料夾在安裝目錄底下也不做（`setDataDir` 可以改到那裡）。
+- 覆蓋用 `robocopy /E`，**刻意不加 `/MIR`**：只覆蓋與新增，不刪掉使用者自己放進資料夾的東西。
+- 檔案：`src/main/updater.ts`（流程）、`src/main/updaterScript.ts`（純字串的 .bat 產生器，
+  測得到）、`src/renderer/src/windows/UpdaterWindow.tsx`、`tests/main/updaterScript.test.ts`（11 項）。
+
+**開發時用真 cmd 跑過三輪冒煙測試，揪出兩個坑**（都寫進 `updaterScript.ts` 的註解）：
+
+1. `find`／`timeout` 這些名字會被使用者 PATH 裡的 Git for Windows／GnuWin 搶走，
+   等待迴圈直接失效 → 系統工具一律走 `%SystemRoot%\System32\` 絕對路徑。
+2. **`timeout /t 1` 在 stdin 被重導向時會立刻失敗**（主程式是用 `stdio: 'ignore'`
+   叫起 .bat 的，stdin ＝ NUL ＝已重導向）→「等 60 秒」實測 0.9 秒就跑完，等於沒等。
+   改用 `ping -n 2 127.0.0.1`。
+
+**待驗（要等下一次真的發 release 才驗得到）**：
+
+- [ ] 免安裝 zip 版：按「立即更新」能下載、覆蓋、自動重開，資料還在
+- [ ] 單檔 EXE 版：同上（exe 檔名會維持舊的那個，因為 Windows 啟動捷徑指著它）
+- [ ] 更新中按「取消」／關視窗，確認不會在背景偷偷更新完
+- [ ] 安裝目錄放一個自己的檔案，更新後確認沒被刪掉
+
 ## 3. 排程中／延後
 
 - [x] **B3 階段 7：正式 APK／散布** → ✅ **已完成**（2026-08-25）。owner 已

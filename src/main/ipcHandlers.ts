@@ -1,5 +1,6 @@
 import { ipcMain, shell, BrowserWindow, dialog, app, desktopCapturer, clipboard, nativeImage, screen, type WebContents } from 'electron'
 import { checkForUpdates } from './updateChecker'
+import { buildUpdatePlan, runUpdate, cancelUpdate } from './updater'
 import { v4 as uuidv4 } from 'uuid'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -123,6 +124,7 @@ import {
   openSpotifySettingsWindow, closeSpotifySettingsWindow,
   openCalendarSettingsWindow, closeCalendarSettingsWindow,
   openQRCodeWindow,
+  openUpdaterWindow, getUpdaterWindow,
   hideAllAuxWindowsExceptPinnedNotes, focusPinnedNoteWindow, showPinnedNoteColorMenu,
   createEmojiPickerWindow, closeEmojiPickerWindow, getEmojiPickerWindow,
   createRandomToolsWindow, closeRandomToolsWindow,
@@ -6359,6 +6361,22 @@ export function registerIpcHandlers() {
   })
 
   ipcMain.handle('app:get-version', () => app.getVersion())
+
+  // ── 一鍵更新（updater.ts）──────────────────────────────
+  // 兩段式：先 plan（能不能更新、要抓哪個附件、安全檢查）再 start（真的下載＋覆蓋）。
+  ipcMain.handle('updates:open-window', () => {
+    openUpdaterWindow()
+    return { ok: true }
+  })
+
+  ipcMain.handle('updates:plan', async () => buildUpdatePlan())
+
+  ipcMain.handle('updates:start', async () => runUpdate(getUpdaterWindow()))
+
+  ipcMain.handle('updates:cancel', () => {
+    cancelUpdate()
+    return { ok: true }
+  })
 
   ipcMain.handle('updates:check-now', async () => {
     const result = await checkForUpdates({

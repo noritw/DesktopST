@@ -20,6 +20,7 @@ import { RemoteControlLogWindow } from './modules/remote-control'
 import EmojiPickerWindow from './windows/EmojiPickerWindow'
 import RandomToolsWindow from './windows/RandomToolsWindow'
 import QRCodeWindow from './windows/QRCodeWindow'
+import UpdaterWindow from './windows/UpdaterWindow'
 import NewsReaderWindow from './components/newsReader/NewsReaderWindow'
 import ErrorBoundary from './components/ErrorBoundary'
 
@@ -168,6 +169,7 @@ export default function App() {
   if (w === 'emoji-picker') return <ErrorBoundary><EmojiPickerWindow /></ErrorBoundary>
   if (w === 'random-tools') return <ErrorBoundary><RandomToolsWindow /></ErrorBoundary>
   if (w === 'qrcode') return <ErrorBoundary><QRCodeWindow /></ErrorBoundary>
+  if (w === 'updater') return <ErrorBoundary><UpdaterWindow /></ErrorBoundary>
 
   // Fallback: show nothing (should not happen)
   return (

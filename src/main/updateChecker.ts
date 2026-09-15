@@ -1,9 +1,7 @@
 import { app, dialog, shell } from 'electron'
+import { detectInstallKind, API_URL, RELEASES_PAGE, compareVersion } from './updater'
+import { openUpdaterWindow } from './windowManager'
 
-const GITHUB_OWNER = 'noritw'
-const GITHUB_REPO = 'DesktopST'
-const RELEASES_PAGE = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`
-const API_URL = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`
 
 export interface UpdateCheckResult {
   hasUpdate: boolean
@@ -12,26 +10,6 @@ export interface UpdateCheckResult {
   latestPublishedAt?: string
   dismissed: boolean
   error?: string
-}
-
-/** 將 "0.1.23" 拆成數字陣列，供版本比較用 */
-function parseVersionParts(v: string): number[] {
-  return v.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0)
-}
-
-/**
- * 比較遠端 latest 與本機 current（SemVer 語意：主.次.修）。
- * 回傳值 > 0 表示 latest 較新；0 相同；< 0 表示本機較新。
- */
-function compareVersion(latest: string, current: string): number {
-  const a = parseVersionParts(latest)
-  const b = parseVersionParts(current)
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const ai = a[i] ?? 0
-    const bi = b[i] ?? 0
-    if (ai !== bi) return ai - bi
-  }
-  return 0
 }
 
 /** 是否應提示更新：僅在遠端版本號較高時（版號相同不通知） */
@@ -76,24 +54,35 @@ export async function checkForUpdates(opts: {
       }
     }
 
+    // 開發模式沒有可覆蓋的安裝目錄（見 updater.ts），這時不給「立即更新」這顆按鈕
+    const canOneClick = detectInstallKind() !== 'dev'
+    const buttons = canOneClick
+      ? ['立即更新', '前往下載頁', '略過此版本', '稍後再說']
+      : ['前往下載', '略過此版本', '稍後再說']
+    const downloadIndex = canOneClick ? 1 : 0
+    const dismissIndex = canOneClick ? 2 : 1
+
     const { response } = await dialog.showMessageBox({
       type: 'info',
       title: '有新版本可下載',
       message: `DesktopST 有新版本！`,
-      detail: `目前版本：v${current}\n最新版本：v${latest}`,
-      buttons: ['前往下載', '略過此版本', '稍後再說'],
+      detail: canOneClick
+        ? `目前版本：v${current}\n最新版本：v${latest}\n\n「立即更新」會自動下載並覆蓋安裝，完成後重新啟動；角色與對話不會被動到。`
+        : `目前版本：v${current}\n最新版本：v${latest}`,
+      buttons,
       defaultId: 0,
-      cancelId: 2
+      cancelId: buttons.length - 1
     })
 
-    if (response === 0) void shell.openExternal(RELEASES_PAGE)
+    if (canOneClick && response === 0) openUpdaterWindow()
+    else if (response === downloadIndex) void shell.openExternal(RELEASES_PAGE)
 
     return {
       hasUpdate: true,
       currentVersion: current,
       latestVersion: latest,
       latestPublishedAt,
-      dismissed: response === 1
+      dismissed: response === dismissIndex
     }
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)

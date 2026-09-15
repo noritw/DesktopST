@@ -3212,6 +3212,71 @@ export function openQRCodeWindow(): BrowserWindow {
   return qrCodeWindow
 }
 
+// ── Updater window ────────────────────────────────────────
+
+let updaterWindow: BrowserWindow | null = null
+
+/**
+ * 一鍵更新視窗。刻意做成獨立小視窗而不是塞進設定視窗：
+ * 下載 100+ MB 要跑一陣子，使用者中途關掉設定視窗的話進度就沒地方顯示了。
+ */
+export function openUpdaterWindow(): BrowserWindow {
+  if (updaterWindow && !updaterWindow.isDestroyed()) {
+    updaterWindow.show()
+    updaterWindow.focus()
+    updaterWindow.moveTop()
+    return updaterWindow
+  }
+
+  const wa = screen.getPrimaryDisplay().workArea
+  const w = 420
+  const h = 300
+  updaterWindow = new BrowserWindow({
+    x: Math.round(wa.x + (wa.width - w) / 2),
+    y: Math.round(wa.y + (wa.height - h) / 2),
+    width: w,
+    height: h,
+    frame: false,
+    transparent: false,
+    backgroundColor: '#F7FFFC',
+    alwaysOnTop: true,
+    skipTaskbar: false,
+    resizable: false,
+    title: '更新 DesktopST',
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  updaterWindow.setAlwaysOnTop(true, 'pop-up-menu')
+  if (VITE_DEV_SERVER_URL) {
+    updaterWindow.loadURL(makeURL({ w: 'updater' }))
+  } else {
+    updaterWindow.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      query: { w: 'updater' }
+    })
+  }
+  updaterWindow.on('closed', () => {
+    updaterWindow = null
+    // 關視窗等於取消：不然下載會在背景跑完，然後程式無預警自己關掉重開
+    void import('./updater').then(m => m.cancelUpdate()).catch(() => { /* 還沒載入就沒有進行中的更新 */ })
+  })
+  updaterWindow.show()
+  raiseAuxAboveCharacters()
+  updaterWindow.moveTop()
+  updaterWindow.focus()
+  return updaterWindow
+}
+
+export function getUpdaterWindow(): BrowserWindow | null {
+  return updaterWindow && !updaterWindow.isDestroyed() ? updaterWindow : null
+}
+
+export function closeUpdaterWindow(): void {
+  if (updaterWindow && !updaterWindow.isDestroyed()) updaterWindow.close()
+}
+
 export function getQRCodeWindow(): BrowserWindow | null {
   return qrCodeWindow && !qrCodeWindow.isDestroyed() ? qrCodeWindow : null
 }
