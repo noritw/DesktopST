@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HttpAdapter } from '@core/adapters/http'
 import { makeSettings } from '../fixtures'
+// `vi.mock` 會被 vitest 提升到所有 import 之前，所以這裡用一般的靜態 import
+// 就拿得到被 mock 過的 `@core/llm`。
+// ⚠️ 不要改回 top-level `await import(...)`：`tsconfig` 的 module 設定不允許，
+// `npm run typecheck` 會整個掛掉（TS1378）。
+import { readOneLink } from '@core/link/reader'
 
 /**
  * 長文才會走的「輔助模型濃縮」那一段。
@@ -15,7 +20,6 @@ vi.mock('@core/llm', () => ({
   applyUtilitySettings: (s: unknown) => s
 }))
 
-const { readOneLink } = await import('@core/link/reader')
 
 /** 超過 DIRECT_MAX_LEN(1500) 才會觸發濃縮 */
 const LONG_ARTICLE = '市府今天說明交通改善計畫的細節，並回答記者提問。'.repeat(80)

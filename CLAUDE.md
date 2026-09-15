@@ -98,6 +98,7 @@ src/mobile/ 手機 UI
 | **S2 提醒同步（M4 第六個 kind）** | **已實作，真機待驗**（2026-08-24，`npm run typecheck`／`npm test` 皆過）。提醒清單同步走逐項比對，但 `notificationDevice`／`wakeMode`／`inactiveBehavior`／`allowOfflineFallback`／`lastTriggeredAt` 是裝置本地／衍生狀態，push/pull 時保留接收端原值、不整包覆蓋（比照情境案例）；`characterId`／`sceneId` 走既有 id 對照表，`conversationId` 沒有對照表可翻、一律不推。細節：`TODO.md` §2.3、`docs/reminder-sync-kickoff.md`（設計依據，已照做完成）。 |
 | **Google 日曆驅動提醒** | **桌面已完成，owner 初步實測正常**（2026-08-25）。Google 事件自帶的提醒設定 → DeST 提醒（唯讀鏡射，Google 端是唯一真相）；提醒清單分「日曆同步／手動建立」兩分頁＋週月分組；開機＋每 8 小時＋手動掃描；日曆設定頁一進去就自動掃。**上線當天實測炸開，修掉 4 件事**，最重要的是 **`setTimeout` 24.85 天溢位**（既有 bug，見 §5）。**手機版同日也做完了**（`70a0a68`，分頁條件正確地用「資料自己說了算」而不是設定旗標，避開了 kickoff §3 那個坑；手機端的溢位分段等待也一起補了）——2026-09-13 owner 確認手機實際收得到日曆衍生的提醒。⚠️ 本列與 §6 選讀表先前寫「手機版還沒做」是**文件沒同步更新**，不是真的沒做 |
 | **連結閱讀（貼網址讀內文）** | **已實作並實測可用**（2026-09-13）。一般網頁（桌面＋手機獨立版，兩邊表現一致）與 **YouTube 說明欄**都經 owner 實測可讀。次要項目（模組開關關閉、情境覆蓋、行動網路流量）未逐一驗。訊息裡貼網址時，回應前先抓那一頁正文注入 prompt；桌面／手機獨立版／遙控三條路都接上。**只做公開網頁**——需要登入的頁面（社群貼文）一律讀不到，因為抓取從主行程／原生層發出、拿不到瀏覽器 cookie，社群站更是 SPA 抽不到正文，所以連抓都不抓、直接回報讀不到（這是範圍不是 bug；要支援得走 App 內建瀏覽器或瀏覽器擴充，**先問 owner**）。**YouTube 只拿說明欄**（標題／頻道／說明，Range 只抓開頭 256 KB；字幕實測不通見 `docs/link-reader-plan.md` §9，注入時會明講「不是影片內容」）。邏輯在 `core/link/`，抓 HTML／抽正文抽到 `core/util/htmlFetch.ts` 與新聞共用。開關走既有模組清單 `desktopst.link-reader`，S2 同步與情境覆蓋因此不必另外接線。細節與待驗清單：`docs/link-reader-plan.md` |
+| **桌面版一鍵更新** | **已完成並實跑驗證**（2026-09-15，隨 v0.5.6 發布）。「檢查更新」對話框多一顆「立即更新」→ 下載 → 覆蓋 → 自動重啟；免安裝 zip 版與單檔 EXE 版都支援（靠 `PORTABLE_EXECUTABLE_FILE` 判斷）。**不用 electron-updater**（它不支援 `portable` target），發布流程完全沒動。三道安全閘：開發模式／安裝目錄有 `.git`／資料夾在安裝目錄底下都不做。GUI 那一段（對話框按鈕、進度條、取消）要等有更新的 release 才點得到，清單在 `TODO.md` §2.10。實跑抓到的三個坑見 §5 |
 | **下一步** | **看根目錄的 [`TODO.md`](TODO.md)** —— 待辦的唯一入口，狀態以那份為準。**2026-08-24 現況**：飲食模組 B9a／Health 讀／拍照估價／桌面小工具皆已完成並實際使用中，本機報表頁與 **B9c ① Health 寫營養**也都完成並實際使用中（後者 2026-09-13 owner 回報「用很久了」結案）；B9c 只剩 **② 接 S2**（owner 傾向降級）與 **③ 角色偏好注入**（prompt 設計還沒做）。DeST 手機版近期的對話新聞搜尋、表情、桌面小工具、天氣即時查詢、**提醒同步**都已實作完成（提醒同步待真機驗證，其餘已真機驗證結案）；桌面版本機 LLM 也實測可用。剩下的主要是少數自動測試過但沒真機驗的同步項目（`llm.utility*` 設定同步、模組子設定遺漏排查、M4 第 6 條）。 |
 | 延後／已排程 | 角色印象（B8）；系統通知（B5）；飲食熱量模組其餘分期（**B9b／B9c**，B9-Health-lite 已完成見上） |
 
@@ -300,6 +301,23 @@ Spotify／日曆授權仍只在桌面。
   `core/prompt/slashCommands.ts`（搬到 core 是為了測得到，`src/main/` 不在
   vitest 範圍），**不要改回在 `ipcHandlers.ts` 自己寫 regex**。
   診斷方法：看 debug prompt 裡使用者那則訊息的網址還完不完整。
+- **一鍵更新的 helper `.bat`：不准用管線、不准用 `pause`、`echo` 裡不准有括號**
+  （2026-09-15 實跑一次更新才發現，三個都是自動測試看不出來的）。那支是用
+  `spawn(detached, stdio:'ignore')` 起來的，**stdin ＝ NUL**：①`tasklist | find "PID"`
+  會讓 `find.exe` 永遠卡在等 stdin，更新一步都不會走（cmd 掛在那裡十幾分鐘，
+  畫面上是「程式關掉後什麼都沒發生」）②`pause` 相反，直接跳過，錯誤訊息一閃而逝，
+  要留訊息就寫檔 ③cmd 是先 parse 完整個 `if errorlevel N ( … )` 區塊才執行的，
+  訊息裡一個 `)` 就提前關掉區塊、後面的字變成指令 → 整支腳本中止，
+  **症狀是「檔案已經覆蓋成功，但沒重新啟動、暫存也沒清掉」**，
+  主控台只吐一句「copying 這個時候不應該…」，完全不像自己寫的訊息造成的。
+  錯誤處理一律用標籤跳轉（`goto failapply`）。另外系統工具要走
+  `%SystemRoot%\System32\` 絕對路徑（PATH 裡有 Git for Windows 時 `find`
+  會被搶走），延遲用 `ping -n 2` 不要用 `timeout`（同樣是 stdin 問題）。
+  真相在 `src/main/updaterScript.ts`，測試守在 `tests/main/updaterScript.test.ts`
+- **GitHub 上傳 Release 附件會把檔名裡的空白換成點**：本機產出 `DesktopST 0.5.6.exe`，
+  Release 上是 `DesktopST.0.5.6.exe`。比對附件名的 regex 沒把點算進分隔符的話，
+  單檔 EXE 版永遠配不到，而且**錯誤訊息還是錯的**（會說「這版沒有附單檔 EXE」，
+  但 Release 明明有）。`matchesUpdateAsset()` 已處理
 - 動 LLM 供應商設定時注意 `llm.model` 是早期單一供應商的遺留欄位，
   `resolveModel()` 仍會拿它墊底 —— 不同步會把 A 家型號送去 B 家
 
