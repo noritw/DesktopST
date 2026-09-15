@@ -19,6 +19,26 @@ const READ_TYPES = ['weight', 'bodyFat', 'totalCalories'] as const
 const WRITE_TYPES = ['dietaryEnergyConsumed'] as const
 const MS_PER_DAY = 24 * 60 * 60 * 1000
 
+/**
+ * 「今日／某日總消耗熱量」這種**要加總整段區間、一筆都不能漏**的查詢，limit 一定要
+ * 大到等於不設限（不要沿用體重那條的 500）。
+ *
+ * `@capgo/capacitor-health` 的 `readRecords()` 是
+ * `while (pageToken != null && fetched < limit)`，湊滿 limit 筆就停止翻頁；
+ * 接著 `readSamples()` 還會 `sortedBy(startTime).take(limit)` ——
+ * `ascending: true` 時拿到的是**當天最早的 limit 筆**。手錶（Pixel Watch）寫進
+ * Health Connect 的 `TotalCaloriesBurnedRecord` 是很細的分段，一天遠超過 500 筆，
+ * 於是加總只涵蓋清晨那幾個小時，出現「整天才六百多大卡」（2026-09-15 owner 回報：
+ * 小工具數字正常、進 App 按重讀就變小 —— 原生小工具那邊是 `do…while (pageToken != null)`
+ * 翻完所有頁，沒有這個上限，所以只有 JS 這條路會錯）。
+ *
+ * 用大數字而不是 `limit: 0`：0 在外掛裡也代表不設限，但會讓 `pageSize` 退回
+ * 預設的 100，同一天要多打好幾倍的 Health Connect IPC（外掛自己的註解就提過
+ * IPC 有速率限制）。給大數字時 `pageSize = min(limit, 500)` 仍是單頁上限 500，
+ * 而 `fetched < limit` 永遠成立，翻頁直到 `pageToken` 為 null 為止。
+ */
+const UNLIMITED_SAMPLE_LIMIT = 1_000_000
+
 function roundToOneDecimal(value: number): number {
   return Math.round(value * 10) / 10
 }
@@ -120,12 +140,14 @@ export const nutritionHealthAdapter: HealthAdapter = {
     // 而不是最新 5 筆，導致同步到的體重是好幾週前的舊數字（2026-08-19 真機發現）。
     // 500 是這個外掛單頁上限（MAX_PAGE_SIZE），一次就能蓋滿 30 天內所有體重/體脂
     // 紀錄（正常一天最多量個幾次，遠到不了 500 筆）。
+    // ⚠️ **只有「取最新一筆」的體重/體脂能用 500 收尾**；要整段加總的熱量不行，
+    // 那條一定要 UNLIMITED_SAMPLE_LIMIT（原因見該常數的說明）。
     const [weightSamples, bodyFatSamples, calorieSamples] = await Promise.all([
       safeReadSamples(Health, { dataType: 'weight', startDate: recentStartIso, endDate: nowIso, limit: 500, ascending: false }),
       safeReadSamples(Health, { dataType: 'bodyFat', startDate: recentStartIso, endDate: nowIso, limit: 500, ascending: false }),
       // 累計消耗熱量一定要抓「今天 00:00 到現在」這段區間自己加總——
       // 不是讀一筆現成的「今日總量」欄位（見 docs/nutrition-health-lite-kickoff.md §6）。
-      safeReadSamples(Health, { dataType: 'totalCalories', startDate: todayStartIso, endDate: nowIso, limit: 500, ascending: true })
+      safeReadSamples(Health, { dataType: 'totalCalories', startDate: todayStartIso, endDate: nowIso, limit: UNLIMITED_SAMPLE_LIMIT, ascending: true })
     ])
 
     const latestWeight = weightSamples[0]
@@ -160,7 +182,7 @@ export const nutritionHealthAdapter: HealthAdapter = {
       dataType: 'totalCalories',
       startDate: new Date(dayStartMs).toISOString(),
       endDate: new Date(dayEndMs).toISOString(),
-      limit: 500,
+      limit: UNLIMITED_SAMPLE_LIMIT,
       ascending: true
     })
     if (samples.length === 0) return undefined
