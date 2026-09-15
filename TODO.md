@@ -447,7 +447,7 @@ owner 已拍板的三件事（已照做）：
 注入時明講「這是說明欄不是影片內容」。官方 Data API 版刻意延後，理由見該文件 §9.8
 （要動金鑰加解密路徑，風險不該跟新功能綁在一起）。
 
-## 2.10 桌面版一鍵更新（2026-09-14 owner 指定）→ ✅ 已實作，**待下次發 release 時真驗**
+## 2.10 桌面版一鍵更新（2026-09-14 owner 指定）→ ✅ **已實作並實跑驗證，隨 v0.5.6 發布**
 
 起因：每次更新都得自己下載 zip、解壓縮、覆蓋，owner 自己就蓋錯過一次
 （把 release zip 解到 `D:\DesktopST` 工作資料夾，把 `docs/nutrition.html`
@@ -455,7 +455,7 @@ owner 已拍板的三件事（已照做）：
 
 **為什麼不用 electron-updater**：它只支援 nsis／dmg／AppImage，
 **不支援 `portable` target**，而 `electron-builder.yml` 用的就是 portable
-（免安裝是這個專案的定位，不打算改成安裝版）。所以自己寫，好處是發布流程一行都不用改。
+（免安裝是這個專案的定位，不打算改成安裝版）。所以自己寫，發布流程一行都不用改。
 
 流程：既有的「檢查更新」對話框多一顆**「立即更新」**→ 開更新視窗（`w=updater`）
 → 顯示要下載哪個附件、多大、會覆蓋哪裡 → 下載（有進度條、可取消）
@@ -467,25 +467,47 @@ owner 已拍板的三件事（已照做）：
   值＝使用者實際點的 exe；`app.getPath('exe')` 在 portable 下指向 %TEMP%，不能用）。
 - 三道安全閘（都在還沒動任何檔案前擋下，`buildUpdatePlan()`）：開發模式不做；
   **安裝目錄裡有 `.git` 或 `package.json` 就不做**（就是這次事故的翻版，只是變成程式自己去覆蓋）；
-  資料資料夾在安裝目錄底下也不做（`setDataDir` 可以改到那裡）。
-- 覆蓋用 `robocopy /E`，**刻意不加 `/MIR`**：只覆蓋與新增，不刪掉使用者自己放進資料夾的東西。
-- 檔案：`src/main/updater.ts`（流程）、`src/main/updaterScript.ts`（純字串的 .bat 產生器，
-  測得到）、`src/renderer/src/windows/UpdaterWindow.tsx`、`tests/main/updaterScript.test.ts`（11 項）。
+  資料資料夾在安裝目錄底下也不做。
+- 覆蓋用 `robocopy /E`，**刻意不加 `/MIR`**：只覆蓋與新增，不刪使用者自己放進資料夾的東西。
+- 檔案：`src/main/updater.ts`（流程）、`src/main/updaterScript.ts`（純函式：附件比對
+  ＋ helper `.bat` 產生器，測得到）、`src/renderer/src/windows/UpdaterWindow.tsx`、
+  `tests/main/updaterScript.test.ts`（19 項）。
 
-**開發時用真 cmd 跑過三輪冒煙測試，揪出兩個坑**（都寫進 `updaterScript.ts` 的註解）：
+### 實跑一次抓到的三個坑（自動測試看不出來，全部已修）
 
-1. `find`／`timeout` 這些名字會被使用者 PATH 裡的 Git for Windows／GnuWin 搶走，
-   等待迴圈直接失效 → 系統工具一律走 `%SystemRoot%\System32\` 絕對路徑。
-2. **`timeout /t 1` 在 stdin 被重導向時會立刻失敗**（主程式是用 `stdio: 'ignore'`
-   叫起 .bat 的，stdin ＝ NUL ＝已重導向）→「等 60 秒」實測 0.9 秒就跑完，等於沒等。
-   改用 `ping -n 2 127.0.0.1`。
+2026-09-15 用真的 GitHub Release 跑完整流程（下載 433 MB → 解壓縮 → 覆蓋 → 重啟）才發現：
 
-**待驗（要等下一次真的發 release 才驗得到）**：
+1. **GitHub 上傳附件會把檔名的空白換成點**：本機是 `DesktopST 0.5.6.exe`，
+   Release 上變成 `DesktopST.0.5.6.exe`。原本的比對只認空白／底線／連字號，
+   單檔 EXE 版永遠配不到附件，而畫面還顯示「這版沒有附單檔 EXE」——訊息是錯的。
+2. **helper `.bat` 裡不能用管線**：它是 `spawn(detached, stdio:'ignore')` 起來的，
+   stdin ＝ NUL，`tasklist | find "PID"` 會讓 `find.exe` 永遠卡在等 stdin，
+   更新完全不會開始（實測 cmd 掛在那裡十幾分鐘）。等 PID 本來只是輔助，
+   真正的判斷是檔案鎖，整段管線已砍掉。`pause` 同理不可用（stdin 是 NUL 會直接跳過），
+   失敗原因改成寫檔。
+3. **`echo` 訊息裡不能有括號**：cmd 先 parse 完整個 `if errorlevel 8 ( ... )` 區塊才執行，
+   訊息裡一個 `)` 就提前關掉區塊、後面的字變成指令 → 整支腳本中止。
+   症狀極難認：**檔案已經覆蓋成功，但沒重新啟動、暫存也沒清掉**，
+   主控台只吐一句「copying 這個時候不應該…」。錯誤處理已改成標籤跳轉。
 
-- [ ] 免安裝 zip 版：按「立即更新」能下載、覆蓋、自動重開，資料還在
-- [ ] 單檔 EXE 版：同上（exe 檔名會維持舊的那個，因為 Windows 啟動捷徑指著它）
+另外順手：更新完會刪掉下載的 zip（400 MB 起跳，不刪每次更新都留一份）。
+
+### 驗證狀態
+
+**已實跑驗證**（`C:\Temp\DeST-test` 放一份假的 0.5.5 安裝，對真的 v0.5.6 Release）：
+下載 → 解壓縮 → 驗證 → 覆蓋 → 自動重新啟動全程成功；自己放在安裝資料夾裡的檔案沒被刪；
+暫存與 `.bat` 都自清。安裝型態判斷、附件挑選、`buildUpdatePlan` 三道閘也都跑過真的路徑。
+
+**還沒驗的**：App 裡實際按那顆「立即更新」的 GUI 流程（對話框 → 更新視窗 → 進度條 → 取消鈕）。
+這要等有比手上版本更新的 release 才點得到，下次發 v0.5.7 時一併驗：
+
+- [ ] 「檢查更新」對話框有出現「立即更新」，按了會開更新視窗
+- [ ] 進度條有動、數字合理
 - [ ] 更新中按「取消」／關視窗，確認不會在背景偷偷更新完
-- [ ] 安裝目錄放一個自己的檔案，更新後確認沒被刪掉
+- [ ] 單檔 EXE 版跑一次（exe 檔名會維持舊的那個，因為 Windows 啟動捷徑指著它）
+
+⚠️ v0.5.6 曾經在 2026-09-15 發布過一次又刪掉重發：第一版的附件內含上述三個 bug 的更新器。
+重發時 tag 已重新指向修正後的 commit（`92032bc`），舊附件唯一的一次下載是測試造成的。
 
 ## 3. 排程中／延後
 
