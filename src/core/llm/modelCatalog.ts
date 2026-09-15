@@ -25,10 +25,11 @@ import type { LlmProvider } from '../data/types'
  */
 
 /** 模型清單與價格的人工同步日期（依各家官方定價頁） */
-export const MODEL_DATA_UPDATED = '2026-08-20'
+export const MODEL_DATA_UPDATED = '2026-09-14'
 
 /** 建議值：與官方目錄同步手動維護，或以帳戶可用的 `GET https://api.openai.com/v1/models` 為準 */
 export const OPENAI_MODELS = [
+  'gpt-6-astra',
   'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
   'gpt-5.5', 'gpt-5.5-pro',
   'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano',
@@ -40,6 +41,7 @@ export const OPENAI_MODELS = [
 ]
 
 export const CLAUDE_MODELS = [
+  'claude-fable-5-1',
   'claude-fable-5',
   'claude-opus-5',
   'claude-opus-4-8',
@@ -56,6 +58,7 @@ export const CLAUDE_MODELS = [
  * 價格表仍保留它們，讓舊訊息與手打的自訂 ID 還能顯示價格。
  */
 export const GEMINI_MODELS = [
+  'gemini-3.8-flash',
   'gemini-3.7-flash',
   'gemini-3.6-flash',
   'gemini-3.5-flash',
@@ -65,6 +68,7 @@ export const GEMINI_MODELS = [
 ]
 
 export const GROK_MODELS = [
+  'grok-4.6',
   'grok-4.5',
   'grok-4.3',
   'grok-4.20-0309-reasoning',
@@ -90,7 +94,7 @@ export const MODELS_BY_PROVIDER: Record<LlmProvider, string[]> = {
  * 每家的預設模型（切換供應商時自動選這個）。
  *
  * **一律挑該家最便宜、且非高單價區的**。不要拿清單第一個當預設——
- * 清單是照新舊排的，Claude 的第一個是 `claude-fable-5`（$10/$50），
+ * 清單是照新舊排的，Claude 的第一個是 `claude-fable-5-1`（$10/$50），
  * 使用者切過去隨手聊兩句就會很痛。
  */
 export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProvider, string> = {
@@ -112,7 +116,9 @@ export const LOCAL_ENDPOINT_PRESETS: Array<{ label: string; url: string }> = [
 /** 每百萬 tokens 美金價（輸入, 輸出）；未列出的模型（如官方快照 ID、自訂 ID）不顯示價格 */
 export const MODEL_PRICES: Record<string, [number, number]> = {
   // OpenAI
-  'gpt-5.6-sol': [5, 30],
+  'gpt-6-astra': [10, 50],
+  // gpt-5.6-sol：$4/$20 是 OpenAI 標示「至少到 2026-11-21」的優惠價，原價 $5/$30
+  'gpt-5.6-sol': [4, 20],
   'gpt-5.6-terra': [2, 12],
   'gpt-5.6-luna': [0.2, 1.2],
   'gpt-5.5': [5, 30],
@@ -138,18 +144,22 @@ export const MODEL_PRICES: Record<string, [number, number]> = {
   'o4-mini': [1.1, 4.4],
   'o1': [15, 60],
   // Anthropic Claude
+  'claude-fable-5-1': [10, 50],
   'claude-fable-5': [10, 50],
   'claude-opus-5': [5, 25],
   'claude-opus-4-8': [5, 25],
-  'claude-sonnet-5': [3, 15],
+  // claude-sonnet-5：$2/$10 原是到 2026-08-31 的導入價，官方已宣布不調回 $3/$15
+  'claude-sonnet-5': [2, 10],
   'claude-opus-4-7': [5, 25],
   'claude-sonnet-4-6': [3, 15],
   'claude-opus-4-6': [5, 25],
   'claude-haiku-4-5': [1, 5],
   // Google Gemini（長 prompt 分級價以 ≤200K tokens 計）
-  // gemini-3.7-flash：2026-08-13 推出的導入期價，官方標示 2027-01-01 起調回 $1.5/$7.5
+  // 3.8／3.7／3.6 Flash 的 $0.75/$3.75 是官方標示「至 2026-12-31 有效」的價格，
+  // 2027-01-01 之後可能調回 $1.5/$7.5，屆時要回來對一次
+  'gemini-3.8-flash': [0.75, 3.75],
   'gemini-3.7-flash': [0.75, 3.75],
-  'gemini-3.6-flash': [1.5, 7.5],
+  'gemini-3.6-flash': [0.75, 3.75],
   'gemini-3.5-flash': [1.5, 9],
   'gemini-3.5-flash-lite': [0.3, 2.5],
   'gemini-3.1-flash-lite': [0.25, 1.5],
@@ -158,6 +168,8 @@ export const MODEL_PRICES: Record<string, [number, number]> = {
   'gemini-2.5-flash-lite': [0.1, 0.4],
   'gemini-2.5-pro': [1.25, 10],
   // xAI Grok
+  // xAI 200K 以上長 prompt 另有翻倍價，此處一律以 <200K 計
+  'grok-4.6': [2, 6],
   'grok-4.5': [2, 6],
   'grok-4.3': [1.25, 2.5],
   'grok-4.20-0309-reasoning': [1.25, 2.5],

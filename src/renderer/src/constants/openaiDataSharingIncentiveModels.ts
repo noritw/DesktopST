@@ -6,7 +6,7 @@
  * 只有 Org Owner 能在 data sharing 設定頁開關此選項。
  *
  * 清單為官方文件截錄，OpenAI 更新政策時請對照下列連結手動同步。
- * 最後同步：2026-08-01
+ * 最後同步：2026-09-14（逐條對過官方說明頁，兩組清單皆與官方一致，無異動）
  * @see https://help.openai.com/en/articles/10306912-sharing-feedback-evaluation-and-fine-tuning-data-and-api-inputs-and-outputs-with-openai
  */
 
