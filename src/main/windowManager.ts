@@ -3229,8 +3229,10 @@ export function openUpdaterWindow(): BrowserWindow {
   }
 
   const wa = screen.getPrimaryDisplay().workArea
-  const w = 420
-  const h = 300
+  // 高度給足：下載時會多出進度條與速度／剩餘時間那兩行，
+  // 抓太緊就會冒出捲軸（2026-09-15 owner 實測回報）
+  const w = 440
+  const h = 400
   updaterWindow = new BrowserWindow({
     x: Math.round(wa.x + (wa.width - w) / 2),
     y: Math.round(wa.y + (wa.height - h) / 2),

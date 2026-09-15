@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 /**
  * 一鍵更新視窗（`w=updater`）。
@@ -36,14 +36,46 @@ function formatMB(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+function formatRate(bytesPerSec: number): string {
+  return bytesPerSec >= 1024 * 1024
+    ? `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
+    : `${Math.round(bytesPerSec / 1024)} KB/s`
+}
+
+/** 剩餘時間講人話：不足一分鐘就說秒，超過一小時就說幾小時幾分 */
+function formatEta(seconds: number): string {
+  if (!isFinite(seconds) || seconds <= 0) return ''
+  if (seconds < 60) return `約剩 ${Math.ceil(seconds)} 秒`
+  const mins = Math.ceil(seconds / 60)
+  if (mins < 60) return `約剩 ${mins} 分鐘`
+  const h = Math.floor(mins / 60)
+  return `約剩 ${h} 小時 ${mins % 60} 分`
+}
+
 export default function UpdaterWindow() {
   const [plan, setPlan] = useState<UpdatePlan | null>(null)
   const [progress, setProgress] = useState<UpdateProgress | null>(null)
   const [running, setRunning] = useState(false)
+  /** 平滑過的下載速率（bytes/秒）；GitHub 附件慢起來差兩百倍，沒有這個看不出還要等多久 */
+  const [rate, setRate] = useState<number | null>(null)
+  const lastSample = useRef<{ t: number; b: number } | null>(null)
 
   useEffect(() => {
     void window.api.invoke('updates:plan').then(p => setPlan(p as UpdatePlan))
-    const unsub = window.api.on('updates:progress', (p) => setProgress(p as UpdateProgress))
+    const unsub = window.api.on('updates:progress', (p) => {
+      const prog = p as UpdateProgress
+      setProgress(prog)
+      if (prog.phase !== 'download') return
+      const now = Date.now()
+      const last = lastSample.current
+      if (!last) {
+        lastSample.current = { t: now, b: prog.receivedBytes }
+      } else if (now - last.t >= 1000) {
+        const inst = (prog.receivedBytes - last.b) / ((now - last.t) / 1000)
+        setRate(prev => (prev == null ? inst : prev * 0.7 + inst * 0.3))
+        lastSample.current = { t: now, b: prog.receivedBytes }
+      }
+    })
     return () => { unsub() }
   }, [])
 
@@ -73,7 +105,9 @@ export default function UpdaterWindow() {
   return (
     <div style={styles.root}>
       <button style={{ ...styles.closeBtn, ...noDrag }} onClick={handleClose}>✕</button>
-      <div style={{ ...styles.card, ...noDrag }}>
+      <div style={{ ...styles.card, ...drag }}>
+        {/* 看得見的拖曳把手：不給提示的話沒人知道哪裡可以拖（owner 實測回報） */}
+        <div style={styles.grabber} />
         {!plan.ok ? (
           <>
             <div style={styles.title}>暫時無法一鍵更新</div>
@@ -95,11 +129,7 @@ export default function UpdaterWindow() {
               目前 v{plan.currentVersion} → 新版 v{plan.latestVersion}
             </div>
             <div style={styles.hint}>
-              {plan.kind === 'unpacked-dir'
-                ? `會下載 ${plan.assetName}（${formatMB(plan.assetSize)}）覆蓋安裝資料夾，然後自動重新啟動。`
-                : `會下載 ${plan.assetName}（${formatMB(plan.assetSize)}）換掉目前的執行檔，然後自動重新啟動。`}
-              <br />
-              你的角色、對話與設定放在另一個資料夾，不會被動到。
+              {`下載 ${formatMB(plan.assetSize)} 後${plan.kind === 'unpacked-dir' ? '覆蓋這個資料夾' : '換掉這個執行檔'}並自動重開。角色與對話不受影響。`}
             </div>
             <div style={styles.pathBox} title={plan.targetPath}>{plan.targetPath}</div>
 
@@ -112,7 +142,7 @@ export default function UpdaterWindow() {
                   {failed
                     ? `失敗：${progress?.message}`
                     : progress?.phase === 'download'
-                      ? `下載中 ${pct}%（${formatMB(progress.receivedBytes)} / ${formatMB(progress.totalBytes)}）`
+                      ? `下載中 ${pct}%　${formatMB(progress.receivedBytes)} / ${formatMB(progress.totalBytes)}`
                       : progress?.phase === 'extract'
                         ? '解壓縮中…'
                         : progress?.phase === 'verify'
@@ -121,6 +151,20 @@ export default function UpdaterWindow() {
                             ? '即將關閉並安裝，請稍候…'
                             : '準備中…'}
                 </div>
+                {!failed && progress?.phase === 'download' && rate != null && (
+                  <div style={styles.progressText}>
+                    {formatRate(rate)}
+                    {progress.totalBytes > 0 &&
+                      `　${formatEta((progress.totalBytes - progress.receivedBytes) / rate)}`}
+                  </div>
+                )}
+                {/* GitHub 的附件下載對某些線路特別慢（實測差到兩百倍），
+                    慢到不合理時直接給一條逃生路，不要讓人乾等一小時 */}
+                {!failed && progress?.phase === 'download' && rate != null && rate < 400 * 1024 && (
+                  <div style={styles.slowNote}>
+                    GitHub 這時段偏慢。可以讓它繼續跑，或按「取消」改用瀏覽器下載後手動覆蓋。
+                  </div>
+                )}
               </div>
             )}
 
@@ -168,7 +212,8 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
     minHeight: '100vh',
     maxHeight: '100vh',
-    overflowY: 'auto' as const,
+    // 內容固定且視窗夠高，關捲軸免得差一兩個像素就冒出一條（owner 實測回報）
+    overflowY: 'hidden' as const,
     boxSizing: 'border-box' as const,
     background: 'var(--color-bg)',
     padding: 16,
@@ -185,6 +230,23 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: 'var(--shadow-soft)',
     width: '100%',
     maxWidth: 340
+  },
+  grabber: {
+    width: 44,
+    height: 4,
+    borderRadius: 20,
+    background: 'var(--color-border-60)',
+    marginBottom: 2,
+    flexShrink: 0
+  },
+  slowNote: {
+    fontSize: 11,
+    lineHeight: 1.5,
+    color: 'var(--color-text-secondary)',
+    textAlign: 'center' as const,
+    background: 'var(--color-border-60)',
+    borderRadius: 10,
+    padding: '5px 8px'
   },
   title: {
     fontSize: 16,
