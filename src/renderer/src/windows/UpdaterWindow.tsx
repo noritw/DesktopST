@@ -42,6 +42,16 @@ function formatRate(bytesPerSec: number): string {
     : `${Math.round(bytesPerSec / 1024)} KB/s`
 }
 
+/** 已經花了多久：2:05 這種讀法，一眼看得出跑多久了 */
+function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  const mm = h > 0 ? String(m).padStart(2, '0') : String(m)
+  return `${h > 0 ? `${h}:` : ''}${mm}:${String(sec).padStart(2, '0')}`
+}
+
 /** 剩餘時間講人話：不足一分鐘就說秒，超過一小時就說幾小時幾分 */
 function formatEta(seconds: number): string {
   if (!isFinite(seconds) || seconds <= 0) return ''
@@ -59,6 +69,9 @@ export default function UpdaterWindow() {
   /** 平滑過的下載速率（bytes/秒）；GitHub 附件慢起來差兩百倍，沒有這個看不出還要等多久 */
   const [rate, setRate] = useState<number | null>(null)
   const lastSample = useRef<{ t: number; b: number } | null>(null)
+  /** 按下「立即更新」的時間；用來顯示已經花了多久（owner 實測時最想知道的就是這個） */
+  const [startedAt, setStartedAt] = useState<number | null>(null)
+  const [now, setNow] = useState(Date.now())
 
   useEffect(() => {
     void window.api.invoke('updates:plan').then(p => setPlan(p as UpdatePlan))
@@ -79,6 +92,13 @@ export default function UpdaterWindow() {
     return () => { unsub() }
   }, [])
 
+  // 秒針：只有在更新進行中才跑，停下來就不再重繪
+  useEffect(() => {
+    if (startedAt == null) return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [startedAt])
+
   // 關視窗＝取消（主行程那邊也會再保險呼叫一次），不然下載會在背景跑完後突然重啟程式
   const handleClose = () => {
     if (running) void window.api.invoke('updates:cancel')
@@ -87,6 +107,8 @@ export default function UpdaterWindow() {
 
   const handleStart = async () => {
     setRunning(true)
+    setStartedAt(Date.now())
+    setNow(Date.now())
     const res = await window.api.invoke('updates:start') as { ok: boolean; error?: string }
     if (!res.ok) setRunning(false)
   }
@@ -151,11 +173,17 @@ export default function UpdaterWindow() {
                             ? '即將關閉並安裝，請稍候…'
                             : '準備中…'}
                 </div>
-                {!failed && progress?.phase === 'download' && rate != null && (
+                {!failed && startedAt != null && (
                   <div style={styles.progressText}>
-                    {formatRate(rate)}
-                    {progress.totalBytes > 0 &&
-                      `　${formatEta((progress.totalBytes - progress.receivedBytes) / rate)}`}
+                    {progress?.phase === 'download' && rate != null && (
+                      <>
+                        {formatRate(rate)}
+                        {progress.totalBytes > 0 &&
+                          `　${formatEta((progress.totalBytes - progress.receivedBytes) / rate)}`}
+                        {'　'}
+                      </>
+                    )}
+                    {`已用 ${formatDuration((now - startedAt) / 1000)}`}
                   </div>
                 )}
                 {/* GitHub 的附件下載對某些線路特別慢（實測差到兩百倍），

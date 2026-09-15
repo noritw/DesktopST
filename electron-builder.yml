@@ -5,11 +5,26 @@ directories:
 files:
   - out/**/*
   - '!**/node_modules/**/android/**/*'
+  # out/apk/ 是打手機 APK 的輸出資料夾，不是桌面版的東西。
+  # 漏掉這條的話歷次 APK 會整包被塞進 app.asar——2026-09-15 查出來有 338 MB、
+  # 十個舊 APK，佔了整包的四分之三，使用者每次更新都在下載它們。
+  - '!out/apk/**'
+  # 開發用的暫存啟動腳本，不該進安裝包
+  - '!out/_run-*.cmd'
 extraFiles:
   - from: assets
     to: assets
+    filter:
+      - '**/*'
+      # TRPG 擴充包程式裡完全沒引用（只有 DefaultChara 會在首次啟動時讀），
+      # 它是 Release 上獨立提供的附件。放進安裝包等於每個人多下載 50 MB。
+      - '!*TRPGPack*'
   - from: docs
     to: docs
+    filter:
+      - '**/*'
+      # 截圖是給 README／官網用的，程式只需要 license.html 那類文件
+      - '!ScreenShot/**'
   - from: bin/cloudflared.exe
     to: cloudflared/cloudflared.exe
     filter:

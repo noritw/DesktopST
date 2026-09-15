@@ -204,48 +204,195 @@ function emit(win: BrowserWindow | null, p: UpdateProgress): void {
   if (win && !win.isDestroyed()) win.webContents.send('updates:progress', p)
 }
 
-/** 下載附件到暫存檔，邊下邊回報進度 */
-async function download(
+/**
+ * 分段並行下載的參數。
+ *
+ * 2026-09-15 owner 實測的教訓（下載卡在 100 KB/s 超過半小時、瀏覽器抓同一個檔只要幾秒）：
+ *
+ * - **不是 GitHub 每條連線限速**。同一天稍晚重測，單一連線就有 17.6 MB/s、
+ *   四條 18.2 MB/s，幾乎沒差 —— 慢是**暫時性的**（CDN 節點或路由當時出問題）。
+ * - **真正的病灶是「一條連線爛掉就一路爛到底」**：TCP 連線一旦落到壞路徑，
+ *   壅塞視窗不會自己恢復，而單一連線的下載沒有任何自救機制，只能陪它爛完。
+ *   當時 curl 單線量到 127～213 KB/s、開四條變 690 KB/s，看起來像「每條限速」，
+ *   其實是每條都同樣爛、開越多條越可能有一條不爛。
+ * - 換 Electron 的 `net.fetch`（Chromium 堆疊）沒用，一樣只有 181 KB/s，
+ *   所以**不要再回頭試「換網路堆疊」這條路**。
+ *
+ * 因此這裡真正的重點不是並行本身，而是 `downloadRange()` 的**停滯偵測與換連線重抓**：
+ * 某一段超過 `STALL_MS` 沒進度就砍掉重連，從斷點續傳。並行只是順便把時間再壓短。
+ */
+const DOWNLOAD_CONNECTIONS = 4
+
+/** 一條連線負責一段，太小的檔案不值得拆 */
+const MIN_SIZE_FOR_PARALLEL = 8 * 1024 * 1024
+
+/** 一段超過這麼久沒有任何位元組進來，就當那條連線廢了，砍掉換一條 */
+const STALL_MS = 20_000
+
+/** 每一段最多重試幾次（含停滯重連） */
+const RANGE_ATTEMPTS = 4
+
+/**
+ * 抓 `[start, end]` 這一段寫進檔案，卡住就換連線續傳。
+ *
+ * 續傳的關鍵是 `position` 不重置：重連時只要 `bytes=<已寫到哪>-<end>`，
+ * 已經落地的位元組不必重抓。
+ */
+async function downloadRange(
+  url: string,
+  fh: fs.promises.FileHandle,
+  start: number,
+  end: number,
+  outerSignal: AbortSignal,
+  onBytes: (n: number) => void
+): Promise<void> {
+  const ua = { 'User-Agent': `DesktopST/${app.getVersion()}` }
+  let position = start
+
+  for (let attempt = 1; attempt <= RANGE_ATTEMPTS; attempt++) {
+    if (position > end) return
+    if (outerSignal.aborted) throw new Error('已取消更新')
+
+    const ctrl = new AbortController()
+    const onOuterAbort = () => ctrl.abort()
+    outerSignal.addEventListener('abort', onOuterAbort, { once: true })
+    let stallTimer: ReturnType<typeof setTimeout> | null = null
+    let stalled = false
+    const armStall = () => {
+      if (stallTimer) clearTimeout(stallTimer)
+      stallTimer = setTimeout(() => { stalled = true; ctrl.abort() }, STALL_MS)
+    }
+
+    try {
+      const res = await fetch(url, {
+        headers: { ...ua, Range: `bytes=${position}-${end}` },
+        redirect: 'follow',
+        signal: ctrl.signal
+      })
+      if (res.status !== 206 || !res.body) throw new Error(`HTTP ${res.status}`)
+      armStall()
+      for await (const chunk of res.body as unknown as NodeJS.ReadableStream) {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as unknown as Uint8Array)
+        await fh.write(buf, 0, buf.length, position)
+        position += buf.length
+        onBytes(buf.length)
+        armStall()
+      }
+      if (position > end) return
+      // body 提前結束但沒抓完：當成斷線，下一輪從斷點續
+    } catch (e) {
+      // 使用者取消要往外丟；停滯或連線錯誤則重試
+      if (outerSignal.aborted) throw e
+      if (!stalled && attempt === RANGE_ATTEMPTS) throw e
+    } finally {
+      if (stallTimer) clearTimeout(stallTimer)
+      outerSignal.removeEventListener('abort', onOuterAbort)
+    }
+  }
+
+  throw new Error(`同一段重試 ${RANGE_ATTEMPTS} 次仍抓不完（bytes ${position}-${end}），可能是網路不穩。`)
+}
+
+/** 把回應的 body 寫進檔案的指定位移，回傳寫了多少 bytes */
+async function pumpToFile(
+  body: NodeJS.ReadableStream,
+  fh: fs.promises.FileHandle,
+  startOffset: number,
+  onBytes: (n: number) => void
+): Promise<number> {
+  let position = startOffset
+  for await (const chunk of body) {
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as unknown as Uint8Array)
+    await fh.write(buf, 0, buf.length, position)
+    position += buf.length
+    onBytes(buf.length)
+  }
+  return position - startOffset
+}
+
+/** 伺服器支不支援 Range（GitHub 支援；自架鏡像不一定） */
+async function supportsRange(url: string, signal: AbortSignal): Promise<boolean> {
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': `DesktopST/${app.getVersion()}`, Range: 'bytes=0-0' },
+      redirect: 'follow',
+      signal
+    })
+    // 讀掉 body 免得連線卡著
+    await res.arrayBuffer().catch(() => undefined)
+    return res.status === 206
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 下載附件到暫存檔，邊下邊回報進度。
+ * 匯出是為了讓下載這段能被單獨量測／驗證（整個 runUpdate 跑一次太重）。
+ */
+export async function download(
   url: string,
   destFile: string,
   expectedSize: number,
   win: BrowserWindow | null,
   signal: AbortSignal
 ): Promise<void> {
-  const res = await fetch(url, {
-    headers: { 'User-Agent': `DesktopST/${app.getVersion()}` },
-    redirect: 'follow',
-    signal
-  })
-  if (!res.ok || !res.body) throw new Error(`下載失敗：HTTP ${res.status}`)
-
-  const total = Number(res.headers.get('content-length')) || expectedSize || 0
-  const out = fs.createWriteStream(destFile)
+  const ua = { 'User-Agent': `DesktopST/${app.getVersion()}` }
   let received = 0
   let lastEmit = 0
-
-  try {
-    // @ts-expect-error Node 18+ 的 ReadableStream 支援 async iteration，TS lib 尚未涵蓋
-    for await (const chunk of res.body) {
-      const buf = Buffer.from(chunk as Uint8Array)
-      received += buf.length
-      if (!out.write(buf)) await new Promise(r => out.once('drain', r))
-      const now = Date.now()
-      if (now - lastEmit > 200) {
-        lastEmit = now
-        emit(win, {
-          phase: 'download',
-          ratio: total > 0 ? received / total : 0,
-          receivedBytes: received,
-          totalBytes: total,
-          message: '下載中'
-        })
-      }
-    }
-  } finally {
-    await new Promise<void>(r => out.end(r))
+  const report = (total: number) => {
+    const now = Date.now()
+    if (now - lastEmit < 200) return
+    lastEmit = now
+    emit(win, {
+      phase: 'download',
+      ratio: total > 0 ? received / total : 0,
+      receivedBytes: received,
+      totalBytes: total,
+      message: '下載中'
+    })
   }
 
+  const parallel = expectedSize >= MIN_SIZE_FOR_PARALLEL && await supportsRange(url, signal)
+
+  if (parallel) {
+    const total = expectedSize
+    const fh = await fs.promises.open(destFile, 'w')
+    try {
+      // 先把檔案撐到完整大小，各段才能各寫各的位移
+      await fh.truncate(total)
+      const per = Math.ceil(total / DOWNLOAD_CONNECTIONS)
+      await Promise.all(
+        Array.from({ length: DOWNLOAD_CONNECTIONS }, async (_, i) => {
+          const start = i * per
+          if (start >= total) return
+          const end = Math.min(start + per, total) - 1
+          await downloadRange(url, fh, start, end, signal, n => { received += n; report(total) })
+        })
+      )
+    } finally {
+      await fh.close()
+    }
+    const size = fs.statSync(destFile).size
+    if (size !== total) throw new Error(`下載不完整（${size} / ${total} bytes），可能是中途斷線。`)
+    return
+  }
+
+  // 單一連線：伺服器不支援 Range，或檔案小到不值得拆
+  const res = await fetch(url, { headers: ua, redirect: 'follow', signal })
+  if (!res.ok || !res.body) throw new Error(`下載失敗：HTTP ${res.status}`)
+  const total = Number(res.headers.get('content-length')) || expectedSize || 0
+  const fh = await fs.promises.open(destFile, 'w')
+  try {
+    await pumpToFile(
+      res.body as unknown as NodeJS.ReadableStream,
+      fh,
+      0,
+      n => { received += n; report(total) }
+    )
+  } finally {
+    await fh.close()
+  }
   if (total > 0 && received !== total) {
     throw new Error(`下載不完整（${received} / ${total} bytes），可能是中途斷線。`)
   }

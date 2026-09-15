@@ -314,6 +314,21 @@ Spotify／日曆授權仍只在桌面。
   `%SystemRoot%\System32\` 絕對路徑（PATH 裡有 Git for Windows 時 `find`
   會被搶走），延遲用 `ping -n 2` 不要用 `timeout`（同樣是 stdin 問題）。
   真相在 `src/main/updaterScript.ts`，測試守在 `tests/main/updaterScript.test.ts`
+- **`electron-builder.yml` 的 `files: out/**/*` 會把手機 APK 一起打進桌面版**
+  （2026-09-15 查下載為什麼慢時發現）。`out/apk/` 是打 APK 的輸出資料夾，
+  歷次建置都留在那裡 —— 實測 `app.asar` 391 MB 裡有 **338 MB 是十個舊 APK**，
+  佔整包四分之三，每個使用者每次更新都在下載它們。排除後 `app.asar` 剩 35 MB、
+  ZIP 從 433 MB 降到 158 MB。同理 `extraFiles` 的 `assets` 整包搬過去會夾帶
+  兩份 TRPG 擴充包（50 MB，程式裡根本沒引用，Release 本來就另外附）、
+  `docs/ScreenShot`（10 MB，官網用的）。**動 `files`／`extraFiles` 後要看一下
+  `dist/win-unpacked/resources/app.asar` 有沒有莫名其妙變肥**
+- **下載慢不要急著怪「每條連線限速」**（2026-09-15 踩過，我自己先下錯結論）。
+  當時單線 127～213 KB/s、開四條 690 KB/s，看起來像每條被限速；同一天稍晚重測
+  **單線 17.6 MB/s、四條 18.2 MB/s**，根本沒差。真相是**一條 TCP 連線落到壞路徑
+  就會一路爛到底、不會自己恢復**，而單一連線的下載沒有自救機制（owner 那次卡在
+  100 KB/s 超過半小時，同時瀏覽器抓同一個檔只要幾秒）。所以 `updater.ts` 的重點
+  是 `downloadRange()` 的**停滯 20 秒就換連線續傳**，並行只是順便。
+  ⚠️ 換 Electron 的 `net.fetch`（Chromium 堆疊）實測沒用（181 KB/s），別再試那條路
 - **GitHub 上傳 Release 附件會把檔名裡的空白換成點**：本機產出 `DesktopST 0.5.6.exe`，
   Release 上是 `DesktopST.0.5.6.exe`。比對附件名的 regex 沒把點算進分隔符的話，
   單檔 EXE 版永遠配不到，而且**錯誤訊息還是錯的**（會說「這版沒有附單檔 EXE」，
