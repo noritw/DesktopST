@@ -23,7 +23,14 @@ trap {
 # ══════════════════════════════════════════════════════════════
 #  讀取目前版本
 # ══════════════════════════════════════════════════════════════
-$pkg = Get-Content "package.json" -Raw | ConvertFrom-Json
+# ⚠️ 讀 package.json 一定要指定 -Encoding UTF8。
+# PS 5.1 的 Get-Content 預設用系統 ANSI 碼頁（zh-TW 是 cp950）讀無 BOM 的檔，
+# package.json 裡的中文（description／usageNotice）是 UTF-8，decode 會失敗；
+# 更糟的是無效位元組會連同後面那個 `"` 一起被吃掉，於是字串沒有結尾引號、
+# ConvertFrom-Json 報「必須有 ':' 或 '}'」——錯誤訊息完全指不到真正的原因。
+# 症狀只在 release.bat（走 powershell 5.1）出現；在 pwsh 7 裡直接跑不會中，
+# 因為 PS 7 預設就是 UTF-8。
+$pkg = Get-Content "package.json" -Raw -Encoding UTF8 | ConvertFrom-Json
 $currentVersion = $pkg.version
 
 Write-Host ""
@@ -139,7 +146,7 @@ if ($doVersionBump) {
     } else {
         npm version $newVersion --no-git-tag-version | Out-Null
     }
-    $pkgNew = Get-Content "package.json" -Raw | ConvertFrom-Json
+    $pkgNew = Get-Content "package.json" -Raw -Encoding UTF8 | ConvertFrom-Json
     Write-Host "      package.json 已更新：v$($pkgNew.version)" -ForegroundColor Green
 } else {
     Write-Host "[2/6] 略過版本升級。" -ForegroundColor Gray
@@ -183,7 +190,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-$pkgFinal = Get-Content "package.json" -Raw | ConvertFrom-Json
+$pkgFinal = Get-Content "package.json" -Raw -Encoding UTF8 | ConvertFrom-Json
 $ver = $pkgFinal.version
 $exeName = "DesktopST $ver.exe"
 $exePath  = "dist\$exeName"

@@ -315,6 +315,21 @@ Spotify／日曆授權仍只在桌面。
   `%SystemRoot%\System32\` 絕對路徑（PATH 裡有 Git for Windows 時 `find`
   會被搶走），延遲用 `ping -n 2` 不要用 `timeout`（同樣是 stdin 問題）。
   真相在 `src/main/updaterScript.ts`，測試守在 `tests/main/updaterScript.test.ts`
+- **PS 5.1 的 `Get-Content` 讀 UTF-8 無 BOM 檔會壞，而且錯誤訊息指不到原因**
+  （2026-09-18 發 0.5.8 時 `release.bat` 當場failed）。PS 5.1 預設用系統 ANSI
+  碼頁（zh-TW 是 cp950）讀檔，`package.json` 裡的中文（`description`／
+  `usageNotice`）是 UTF-8，decode 會失敗——**更糟的是無效位元組會連同後面那個
+  `"` 一起被吃掉**，於是字串沒有結尾引號，`ConvertFrom-Json` 報
+  「傳入了無效的物件，必須有 ':' 或 '}'」。看起來像 JSON 壞了，其實檔案完全正常。
+  修法：`Get-Content ... -Raw -Encoding UTF8`（`scripts/release.ps1` 三處已加）。
+  ⚠️ **只有走 `release.bat` 才會中**（它呼叫 `powershell` ＝ 5.1）；
+  在 pwsh 7 裡直接跑 `.\scriptselease.ps1` 不會，因為 PS 7 預設 UTF-8
+  ——所以這條坑可以潛伏很久才爆。
+  診斷方法：`Get-Content <檔> -Raw | ConvertFrom-Json` 失敗，但同一個檔
+  用 Node／Python 讀是合法 JSON，就是這個。
+  （寫檔那一側是另一條規則：`Set-Content -Encoding UTF8` 在 PS 5.1 會加 BOM，
+  `release.ps1` 第 392 行的註解已經記過；版本升級走 `npm version` 由 Node 寫檔，
+  不受影響。）
 - **`electron-builder.yml` 的 `files: out/**/*` 會把手機 APK 一起打進桌面版**
   （2026-09-15 查下載為什麼慢時發現）。`out/apk/` 是打 APK 的輸出資料夾，
   歷次建置都留在那裡 —— 實測 `app.asar` 391 MB 裡有 **338 MB 是十個舊 APK**，
