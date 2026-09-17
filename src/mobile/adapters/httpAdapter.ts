@@ -1,4 +1,5 @@
 import type { HttpAdapter } from '../../core/adapters'
+import { SOCIAL_BOT_USER_AGENT } from '../../core/util/htmlFetch'
 
 /**
  * Capacitor 端的 HTTP adapter。
@@ -69,8 +70,93 @@ function abortError(reason: string): Error {
   return err
 }
 
+/**
+ * 呼叫端有沒有自己指定 `User-Agent`。
+ *
+ * `init.headers` 可能是物件、陣列或 `Headers`，三種都要認得
+ * （`fetchHtmlDoc` 傳的是物件，SDK 傳的可能是 `Headers`）。
+ */
+function readUserAgent(headers: HeadersInit | undefined): string | null {
+  if (!headers) return null
+  try {
+    return new Headers(headers).get('user-agent')
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 直接呼叫原生 `CapacitorHttp`，**繞過被 patch 的全域 `fetch`**。
+ *
+ * ⚠️ **為什麼非這樣不可**（2026-09-18 真機實測，Pixel 10a）：
+ * Capacitor 的 fetch patch 對 **GET 與非 GET 走完全不同的兩條路**
+ * （`native-bridge.js`）——非 GET 直接進原生 plugin，headers 原樣送出；
+ * **GET 卻是改寫成 proxy 網址、交回 WebView 自己的 fetch**，而 Android WebView
+ * 會把 `User-Agent` 拔掉（Chromium bug 40450316）。Capacitor 為此把 UA 抄到
+ * `x-cap-user-agent`、再由 `WebViewLocalServer` 在原生端還原，但**這條還原路徑
+ * 在實機上沒有生效**：社群站收到的仍是 WebView 自己的瀏覽器 UA。
+ *
+ * 症狀非常有辨識度：**噗浪成功、FB／Threads 失敗**。因為只有後兩家需要
+ * 「不像瀏覽器」的 UA（`core/util/htmlFetch.ts` 的 `SOCIAL_BOT_USER_AGENT`），
+ * FB 對瀏覽器 UA 直接回 HTTP 400、Threads 回沒有內容的空殼。
+ * 桌面走 Node fetch 完全沒有這個問題，所以**只有手機壞**。
+ *
+ * 所以只要呼叫端明確指定了 UA，就走這條原生路——它跟 POST 走的是同一條，
+ * 而噗浪回應串（POST）在實機上是通的，等於已經驗證過 headers 送得出去。
+ */
+async function nativeFetch(url: string, init: RequestInit): Promise<Response> {
+  // 動態 import：瀏覽器煙測與 vitest 不該在載入時就碰到 Capacitor（CLAUDE.md §5）
+  const { CapacitorHttp } = await import('@capacitor/core')
+  const headers: Record<string, string> = {}
+  if (init.headers) new Headers(init.headers).forEach((v, k) => { headers[k] = v })
+
+  const res = await CapacitorHttp.request({
+    url,
+    method: (init.method ?? 'GET').toUpperCase(),
+    headers,
+    // 一律要原始文字：讓原生層自己 parse JSON 會踩到「宣稱 JSON 卻不合法時
+    // 多編碼一次」那個坑（CLAUDE.md §5）。呼叫端自己決定怎麼解。
+    responseType: 'text',
+    data: init.body as string | undefined
+  })
+
+  const body = typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '')
+  /*
+   * `Response` 建構子不接受 status 0，也不接受「204／304 帶 body」。
+   * 原生層在某些錯誤情況下會回 0，硬塞會拋 RangeError ——那會把一個
+   * 「對方回了錯誤碼」的情況變成「程式炸了」，兩者該分清楚。
+   */
+  const status = res.status >= 200 && res.status <= 599 ? res.status : 502
+  const noBody = status === 204 || status === 304
+  return new Response(noBody ? null : body, { status, headers: new Headers(res.headers ?? {}) })
+}
+
+/**
+ * 這個請求要不要繞過 patch 過的 `fetch`、直接走原生。
+ *
+ * ⚠️ **只改道社群那條，不要改道全部。**
+ *
+ * `fetchHtmlDoc` 對**每一個**請求都會設 `User-Agent`（一般網頁用的是
+ * `BROWSER_USER_AGENT`），所以「只要有 UA 就走原生」會把新聞抓取、一般連結
+ * 閱讀整批改道——那些本來就是好的，換一條路只是平白引進新風險。
+ * 真正壞掉的只有「要求非瀏覽器 UA」這一種，所以比對得明確一點。
+ *
+ * 匯出是為了測得到：真正的行為要靠真機，但「有沒有挑錯要改道的請求」
+ * 是純判斷，該用單元測試守住。
+ */
+export function shouldUseNativeFetch(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined
+): input is string {
+  return typeof input === 'string' && readUserAgent(init?.headers) === SOCIAL_BOT_USER_AGENT
+}
+
 export const capacitorHttp: HttpAdapter = {
-  fetch: ((input, init) =>
-    withAbort(globalThis.fetch(input, init), init?.signal)) as typeof globalThis.fetch,
+  fetch: ((input, init) => {
+    if (!shouldUseNativeFetch(input, init)) {
+      return withAbort(globalThis.fetch(input, init), init?.signal)
+    }
+    return withAbort(nativeFetch(input, init ?? {}), init?.signal)
+  }) as typeof globalThis.fetch,
   supportsStreaming: false
 }

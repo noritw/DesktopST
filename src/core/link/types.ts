@@ -64,8 +64,13 @@ export interface LinkFetchOutcome {
    * `video-description` ＝ 影片的**說明欄**，不是影片內容本身（YouTube）。
    * 注入時一定要講明，否則角色會照著說明裝作看過影片——跟「不要憑網址
    * 猜內容」是同一類問題。未設定時視為 `page`（一般網頁正文）。
+   *
+   * `social-post` ＝ 社群貼文的完整內容（噗浪、FB 粉專貼文、Threads）。
+   * `social-excerpt` ＝ **只有預覽摘要**（FB 社團貼文，以及嵌入失敗退回 og 的
+   * 情況）。後者結尾是 `...`，注入時一定要標「這不是全文」——否則角色會把
+   * 一段被腰斬的貼文當完整內容認真討論，跟 `video-description` 同一類問題。
    */
-  sourceKind?: 'page' | 'video-description'
+  sourceKind?: 'page' | 'video-description' | 'social-post' | 'social-excerpt'
 }
 
 export interface LinkContextResult {

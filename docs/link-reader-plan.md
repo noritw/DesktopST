@@ -29,6 +29,12 @@ HTML 原始碼裡幾乎沒有正文，**有沒有 cookie 都抽不到**。所以
 （`detect.ts` 的 `JS_RENDERED_HOSTS`）**連抓都不抓**，直接標成讀不到——
 抓了只是白花一次網路往返，還會得到一個看不懂的失敗理由。
 
+> ⚠️ **上面這段有例外，2026-09-18 起。**
+> 「SPA 抽不到正文」對**瀏覽器 UA** 成立，但這些站另外有一套給連結預覽用的
+> 靜態輸出，換個 UA 就拿得到。**噗浪／Facebook／Threads 的單篇公開貼文
+> 現在讀得到了**，見 §10。本節講的「登入牆讀不到」仍然完全成立且沒有改變
+> ——§10 拿到的全是公開內容，不碰任何帳號。
+
 登入牆要支援的話有兩條路，都是獨立的大工程，**目前都沒做**：
 
 | 路線 | 做法 | 代價 |
@@ -47,6 +53,8 @@ HTML 原始碼裡幾乎沒有正文，**有沒有 cookie 都抽不到**。所以
 src/core/util/htmlFetch.ts   抓 HTML／抽正文／抽標題（與 news enrich 共用同一份）
 src/core/link/detect.ts      從訊息抽網址、社群站與內網位址判定（純函式）
 src/core/link/reader.ts      主流程：抓 → 抽 → 太長就濃縮 → 組 [Link] 注入
+src/core/link/youtube.ts     YouTube 影片說明欄（特例，§9）
+src/core/link/social.ts      噗浪／FB／Threads 單篇公開貼文（特例，§10）
 src/core/link/types.ts       LinkFetchStatus 等
 src/core/link/moduleId.ts    desktopst.link-reader
 src/main/linkReader.ts       桌面薄殼（綁 electronHttp）
@@ -106,6 +114,14 @@ src/main/linkReader.ts       桌面薄殼（綁 electronHttp）
 | `DIRECT_MAX_LEN` | 1500 | 不超過就直接進 prompt，不花輔助模型 |
 | `SUMMARY_INPUT_MAX` | 12000 | 丟給輔助模型的正文上限，比照 news enrich |
 
+社群貼文另有一組（`social.ts`，§10）：
+
+| 常數 | 值 | 為什麼 |
+|---|---|---|
+| `BODY_MAX` | 1500 | 主文進 prompt 的上限 |
+| `MAX_REPLIES` / `REPLY_MAX` / `REPLIES_MAX` | 15／200／1200 | 噗浪熱門噗可以有好幾百則回應 |
+| `RESPONSES_TIMEOUT_MS` | 6000 | 回應串是第二趟請求，拿不到就算了，不能拖累主文 |
+
 ---
 
 ## 6. 踩過／繞過的坑
@@ -134,7 +150,8 @@ src/main/linkReader.ts       桌面薄殼（綁 electronHttp）
 ## 7. 待驗清單（實際用過才算數）
 
 - [x] 桌面：貼一般新聞／部落格連結 → 角色講得出文章裡的具體內容（2026-09-13 通過）
-- [ ] 桌面：貼 X／Facebook 連結 → 角色直說打不開，**沒有**編造內容
+- [ ] 桌面：貼 X／Instagram 連結 → 角色直說打不開，**沒有**編造內容
+      （⚠️ **Facebook／Threads／噗浪已經改成讀得到了**，社群貼文的待驗清單在 §10.6）
 - [ ] 桌面：貼需要登入的頁面 → 理由是「需要登入」而不是「讀取失敗」
 - [ ] 桌面：一則訊息貼三個連結 → 只讀前兩個，不報錯
 - [ ] 桌面：設定 → 擴充 → 連結閱讀關掉後，貼網址不再抓（可看 DevTools `[link-diag]`）
@@ -156,7 +173,9 @@ src/main/linkReader.ts       桌面薄殼（綁 electronHttp）
 - **PDF**：目前 `unsupported-type` 直接放棄。要做的話得引 pdf parser，桌面容易、手機麻煩。
 - **YouTube**：說明欄版**已實作**（見 §9.8）。字幕那條路**已實測不通，見 §9**。官方 Data API 版（§9.4）刻意延後，理由見 §9.8。
 - **快取**：同一個網址短時間內貼兩次會抓兩次。news enrich 有 4 小時快取可以比照。
-- **登入牆**：見 §2 的 A／B 兩條路。
+- **登入牆**：見 §2 的 A／B 兩條路。公開的社群貼文**不需要走這兩條**，已用免登入的
+  預覽端點做掉（§10）；還是只有真正要登入的頁面（私密社團、個人動態消息）才需要。
+- **社群熱門話題來源**：見 §10.5，是另一個題目。
 
 ---
 
@@ -293,3 +312,158 @@ hydrate／persist 加解密路徑和 `mobile/runtime/session.ts` 的保險絲—
 要補的話，順序是：先讓說明欄版跑一陣子確認有用 → 再單獨開一次金鑰欄位，
 並且**一次只動這一件事**，方便出事時定位。`settingsSnapshot.ts` 的同步子集
 **永遠不放金鑰**，這條沒有例外。
+
+---
+
+## 10. 社群貼文：噗浪／Facebook／Threads（2026-09-18 實作）
+
+### 10.1 §2 那個「社群站一律讀不到」的結論，只對了一半
+
+§2 當時寫「X／Facebook／Instagram／Threads 都是 SPA，HTML 原始碼裡幾乎沒有
+正文，**有沒有 cookie 都抽不到**」。前半句是對的，但它推出的結論太早了：
+
+**空殼是因為我們送的是瀏覽器 UA。** 這些站另外準備了一套給第三方做連結預覽
+與嵌入的靜態輸出（就是你貼連結到 Discord／LINE 時對方伺服器抓的那個），
+只要 UA 不像瀏覽器就會吐出來。實測：
+
+| 網址 | 瀏覽器 UA | 非瀏覽器 UA |
+|---|---|---|
+| FB 貼文頁 | **HTTP 400** | 200 ＋ `og:*` |
+| FB `plugins/post.php` | **HTTP 400** | 200 ＋ 全文 |
+| Threads 貼文頁 | 275 KB 空殼、`<title>Threads` | 200 ＋ `og:*` |
+| 噗浪貼文頁 | 正常（本來就是 SSR） | 正常 |
+
+**不需要冒充 `facebookexternalhit`**——實測連 `curl/8.4.0` 都拿得到，
+所以用具名的 `DesktopSTBot/1.0 (+https://nori.tw/DeST/)`
+（`core/util/htmlFetch.ts` 的 `SOCIAL_BOT_USER_AGENT`）。用具名的比較誠實，
+對方要擋也擋得掉。
+
+⚠️ **這跟登入牆是兩件事，不要混。** §2 講的「需要登入才看得到的頁面讀不到」
+仍然成立且沒有改變——這裡拿到的全是**公開**內容，走的是免登入、不帶 cookie、
+與使用者帳號完全無關的端點。**沒有任何一條路會碰到使用者的社群帳號**，
+所以不存在「機器人被 Ban」的問題（owner 最初的顧慮就是這個）。
+
+### 10.2 四種來源拿得到的東西差很多
+
+| 來源 | 主文 | 回應串 | 靠什麼 |
+|---|---|---|---|
+| **噗浪** | 全文 | ✅ **整串** | 頁面是 SSR ＋ `POST /Responses/get` |
+| **FB 粉專／個人公開貼文** | **全文** | ✗ | `plugins/post.php` 官方嵌入 |
+| **FB 社團貼文** | ⚠️ **只有 ~190 字摘要** | ✗ | `og:description` |
+| **Threads** | 全文 | ✗ | `/embed` ＋ `og:description` 後備 |
+
+四家都支援**兩種網址形式**：正規網址，以及 App 裡「複製連結」給的短網址
+（`/share/…`，要先解析，見 §10.3）。
+
+
+**FB 社團為什麼只有摘要**：`plugins/post.php` 對社團貼文會回一段
+「貼文已無法取得」而不是 HTTP 錯誤（社團不支援嵌入），所以只剩 og 那條，
+而 og 是給預覽用的、~190 字就以 `...` 結尾。實測確認**全文沒有藏在頁面裡**
+（把 357 KB 整份 decode 後搜過，那段文字只出現 2 次，都是同一個截斷版的 meta）。
+`mbasic.facebook.com`／`m.facebook.com` 一律踢到 `login.php`，也沒用。
+
+因此 `readOgExcerpt()` 回傳的 `sourceKind` 一律是 **`social-excerpt`**，
+`buildLinkInjection()` 會加一句「這只是開頭預覽、不是全文」。
+**這句是防止角色把腰斬的貼文當全文認真討論的唯一保險，跟 YouTube 那句
+「你沒有看過這支影片」是同一個機制，不要拿掉。**
+
+### 10.3 三個實作上的坑
+
+- **⚠️ Threads 嵌入頁不可以拿第一個 `TextContentContainer`**（最難發現的一個）。
+  貼文是回覆時，嵌入頁會**先畫被回覆的母貼文**再畫目標貼文，兩個 class 都含
+  `TextContentContainer`。拿第一個的結果是「讀一則貼文卻拿回另一個人的貼文」
+  ——`status` 是 ok、長度正常、看起來完全成功，只有內容整個不對。
+  目標貼文的 class 多一個 `Full`（`TextContentContainerFull`），用它認。
+  母貼文照樣抽出來當前情提要（回覆脫離上文常常等於沒有資訊）。
+- **正文容器要配對 div 深度，不能用非貪婪比對**。FB 的 `post_message` 裡面有
+  `text_exposed_root`，噗浪的 `text_holder` 裡面有圖片區塊；
+  `<div[^>]*>([\s\S]*?)<\/div>` 會停在第一個 `</div>`，正文被腰斬一半，
+  而且斬得很漂亮、長度檢查照樣會過。`sliceBalancedDiv()` 負責這件事。
+- **行內標籤要整個拿掉、不留空白**。`stripTags()` 把每個標籤換成一個空格，
+  對段落標籤是對的，對行內標籤卻會在句子中間戳出空格——FB 把每個 hashtag
+  包在自己的 `<span>` 裡，於是「#以色列的模式無疑是最具啟發性的。」會變成
+  「 #以色列的模式無疑是最具啟發性的 。」，標點跟字分家，像壞掉的 OCR。
+  另外 `decodeHtmlEntities()` 一定要處理**數值實體**：這三家把中文與 emoji
+  整片寫成 `&#x4e2d;`，不解的話抽出來的「正文」是一長串 `&#x...;`，
+  長度檢查照樣會過然後原樣進 prompt。
+
+- **⚠️ 手機端：Capacitor 的 fetch patch 會弄丟 GET 的自訂 `User-Agent`**
+  （2026-09-18 Pixel 10a 實測，這條是整個功能在手機上唯一的阻礙）。
+  `native-bridge.js` 對 **GET 與非 GET 走兩條完全不同的路**：非 GET 直接進原生
+  `CapacitorHttp` plugin、headers 原樣送出；GET 卻改寫成 proxy 網址、交回
+  WebView 自己的 fetch，而 Android WebView 會把 `User-Agent` 拔掉
+  （Chromium bug 40450316）。Capacitor 把 UA 抄到 `x-cap-user-agent` 再由
+  `WebViewLocalServer` 還原，**但實機上這條還原沒有生效**。
+  **症狀非常容易誤判**：桌面完全正常、手機上「噗浪成功、FB／Threads 失敗」
+  ——看起來像手機沒吃到新程式，其實程式有跑，只是 UA 被換成 WebView 自己的
+  瀏覽器 UA，FB 回 HTTP 400、Threads 回空殼。
+  修法：`mobile/adapters/httpAdapter.ts` 的 `shouldUseNativeFetch()`——UA 等於
+  `SOCIAL_BOT_USER_AGENT` 時改直接呼叫原生 `CapacitorHttp.request()`
+  （那正是 POST 走的路，而噗浪回應串是 POST、實機本來就通，等於已驗證過）。
+  **不要放寬成「有 UA 就走原生」**：`fetchHtmlDoc` 對每個請求都設 UA，
+  放寬等於把新聞抓取與一般連結閱讀整批改道，那些本來就是好的
+  （`tests/mobile/socialUserAgentRouting.test.ts` 守這條）。
+
+- **⚠️ 「複製連結」給的是短網址，正規形式的判定會全部漏掉**
+  （2026-09-18 owner 實測當場中）。在 App 裡點「複製連結」，
+  Threads 給 `threads.com/share/<code>`、FB 給 `facebook.com/share/p/<code>`，
+  **兩家都不是** `/@user/post/<code>` 那種正規形式——只認正規形式的話，
+  **使用者最常用的那條路剛好全部讀不到**，而且症狀就是普通的「讀不到」，
+  完全看不出是網址格式沒認。
+  短網址是 302 轉正規網址，但 `/embed` 與 `plugins/post.php` **都不吃短網址**
+  （前者 404、後者回「貼文已無法取得」），一定要先解析。
+  解析方式**不是讀 `Location`**（`fetchHtmlDoc` 只回內文，手機那條路也不見得
+  交得出最終網址），而是抓跟隨重導後那一頁、從 **`og:url`** 反推
+  （`canonicalFromSharePage()`）——那一頁本來就要抓（解析失敗時的摘要後備靠它），
+  等於沒有多花請求。
+  ⚠️ **FB 不能直接拿 `og:url` 當正規網址**：它給的是
+  `/<ownerId>/posts/<一長串中文 slug>/<storyId>/`，那個形式丟進嵌入端點會被拒，
+  只有 `permalink.php?story_fbid=…&id=…` 吃——所以要從 og:url 把兩個數字 id
+  挖出來自己組。`story.php` 跟 `permalink.php` 是同一組參數的兩種寫法，
+  `parseSocialLink` 直接正規化成後者。
+
+### 10.4 脆弱度分級（壞掉時先看這裡）
+
+FB／Threads 走的是 Meta **對外公開的**預覽與嵌入端點，相對穩定。
+噗浪的 `POST /Responses/get` 是**它網站自己的 AJAX 端點、不是官方 API**，
+沒有相容性承諾，改版壞掉的機率最高——所以它失敗時只是少了回應串，
+主文照樣回得出來，不可以讓整條路斷掉（有測試守）。
+
+Meta 那邊真的改了的話，症狀會是「安靜地退回摘要」或「讀不到」。
+診斷方法：看 `[social-diag]` 的 `fb-embed-fallback-og`／`threads-embed-fallback-og`
+有沒有開始一直出現。
+
+### 10.5 刻意沒做
+
+- **熱門話題來源**。這條做的是「貼網址讀單篇」，不是「找出現在在紅什麼」。
+  噗浪有個免登入的公開端點 `https://www.plurk.com/Stats/topReplurks`
+  直接回熱門噗 JSON，真要做的話那是最低成本的入口；Threads 得去建 Meta App
+  走 keyword search（2200 次／24h），FB 沒有。**這是另一個題目，先問 owner。**
+- **FB／Threads 的回應串**。兩家都沒有免登入的公開端點。
+- **X／Instagram／TikTok**。沒測過，不要假設同一招通用。
+
+### 10.6 待驗清單（真機／實際使用才算數）
+
+**2026-09-18 已在 Pixel 10a 真機驗證通過**（透過 adb 實際在聊天裡送出連結）：
+
+- [x] 手機獨立版：**FB 粉專貼文** → 角色講得出 188 字摘要**之後**的內容
+      （「支持系統、能自己選」「把高壓軍隊當職訓場」都在後半段）→ 官方嵌入的全文路徑有效
+- [x] 手機獨立版：**Threads 回覆貼文** → 角色談的是**目標貼文**（紅太陽紅茶要藍勾勾），
+      同時用上了母貼文脈絡（祖克柏）→ `TextContentContainerFull` 的修正有效
+- [x] 手機獨立版：**噗浪** → 主文＋整串回應（角色主動說「四則回應都在」）
+- [x] 手機端走 CapacitorHttp 的 POST（噗浪回應串）確實送得出去
+- [x] 手機獨立版：**Threads「複製連結」短網址** `/share/<code>` → 讀得到全文
+- [x] 手機獨立版：**FB「複製連結」短網址** `/share/p/<code>` → 讀得到全文
+
+剩下的：
+
+- [ ] 桌面：貼噗浪連結 → 角色講得出主文**與回應串**裡的內容
+- [ ] 桌面：貼 FB 粉專長貼文 → 角色講得出 190 字**之後**的內容（證明嵌入那條有生效）
+- [ ] 桌面：貼 FB 社團貼文 → 角色**明講自己只看到開頭**，沒有硬下總結
+- [ ] 桌面：貼 Threads 回覆貼文 → 角色談的是**你貼的那一則**，不是母貼文
+- [ ] 桌面：貼私密社團／限定對象貼文 → 誠實回報讀不到，沒有編造
+- [ ] 桌面：貼社群**個人頁／社團首頁**（非單篇） → 仍回報讀不到（不該走貼文路徑）
+- [ ] 手機獨立版：四種來源各試一次，行為與桌面一致
+- [ ] 手機：確認 CapacitorHttp 那條路的 POST（噗浪回應）真的送得出去
+      ——桌面走 Node fetch，手機走原生橋接，**這是兩條不同的路**
+- [ ] 模組開關關掉後不再抓（`desktopst.link-reader`，沿用既有開關）

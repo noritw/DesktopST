@@ -20,6 +20,11 @@ export const MAX_LINKS_PER_MESSAGE = 2
  *
  * 比對方式是「主機名等於，或以 `.` 結尾相符」，所以 `m.facebook.com`
  * 會被 `facebook.com` 命中，但 `notfacebook.com` 不會。
+ *
+ * ⚠️ **這份清單是「一般抓法的黑名單」，不是「這些站一律讀不到」**。
+ * YouTube 影片（`youtube.ts`）與噗浪／FB／Threads 的單篇公開貼文（`social.ts`）
+ * 都有各自的免登入端點，`reader.ts` 會在查這份清單**之前**先攔截。
+ * 清單留著是為了擋剩下的那些（個人頁、社團首頁、相簿、登入牆頁面）。
  */
 const JS_RENDERED_HOSTS = [
   'x.com', 'twitter.com', 't.co',

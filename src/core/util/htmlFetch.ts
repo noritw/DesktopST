@@ -19,6 +19,18 @@ import type { HttpAdapter } from '../adapters/http'
 export const BROWSER_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
 
+/**
+ * 社群站專用 UA。
+ *
+ * ⚠️ **這不是龜毛，是必要條件**（2026-09-18 實測）：Facebook 的貼文頁與
+ * `plugins/post.php` 對一般瀏覽器 UA 直接回 **HTTP 400**，Threads 則回一份
+ * 完全沒有內容的 SPA 空殼；換成任何「不像瀏覽器」的 UA 才會吐 `og:*` 與嵌入
+ * 內容。那些端點本來就是給第三方做連結預覽／嵌入用的，所以**不需要冒充
+ * `facebookexternalhit`**——具名的自家 UA 一樣拿得到，實測連 `curl/8.4.0`
+ * 都可以。用具名的比較誠實，對方要擋也擋得掉。
+ */
+export const SOCIAL_BOT_USER_AGENT = 'DesktopSTBot/1.0 (+https://nori.tw/DeST/)'
+
 export const DEFAULT_HTML_FETCH_TIMEOUT_MS = 8000
 
 /**
@@ -32,13 +44,13 @@ export async function fetchHtmlDoc(
   http: HttpAdapter,
   url: string,
   timeoutMs = DEFAULT_HTML_FETCH_TIMEOUT_MS,
-  options: { rangeBytes?: number } = {}
+  options: { rangeBytes?: number; userAgent?: string } = {}
 ): Promise<string> {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
     const headers: Record<string, string> = {
-      'User-Agent': BROWSER_USER_AGENT,
+      'User-Agent': options.userAgent || BROWSER_USER_AGENT,
       Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8'
     }
@@ -66,20 +78,42 @@ export async function fetchHtmlDoc(
   }
 }
 
+/**
+ * 還原 HTML 實體。
+ *
+ * ⚠️ **數值實體一定要處理**：Facebook／Threads／噗浪把中文與 emoji 整片寫成
+ * `&#x4e2d;` 這種形式，只解 `&amp;` 那幾個具名實體的話，抽出來的「正文」會是
+ * 一長串 `&#x...;`——看起來有內容、長度檢查也會過，然後原樣送進 prompt。
+ * 還原時用 `fromCodePoint` 而非 `fromCharCode`，否則 emoji（>0xFFFF）會壞掉。
+ */
+export function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&#x([0-9a-f]+);/gi, (_, c) => {
+      const n = parseInt(c, 16)
+      return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : ' '
+    })
+    .replace(/&#(\d+);/g, (_, c) => {
+      const n = Number(c)
+      return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : ' '
+    })
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/gi, "'")
+    // `&amp;` 一定放最後：先解它的話 `&amp;lt;` 會被還原成 `<`
+    .replace(/&amp;/g, '&')
+}
+
 export function stripTags(html: string): string {
-  return html
+  return decodeHtmlEntities(html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
     .replace(/<svg[\s\S]*?<\/svg>/gi, ' ')
     .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+    .replace(/<[^>]+>/g, ' '))
     .replace(/\s+/g, ' ')
     .trim()
 }

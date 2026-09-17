@@ -14,12 +14,17 @@
  *    掰出一篇它沒看過的文章，而且講得很像真的。
  * 3. **不做登入牆**。抓取從主行程／原生層發出，那裡沒有使用者瀏覽器的
  *    cookie，也拿不到（Chrome 在 Windows 上還有 App-Bound Encryption）。
- *    社群連結因此一律讀不到，這是範圍，不是 bug。
+ *    需要登入才看得到的頁面因此一律讀不到，這是範圍，不是 bug。
+ *
+ * ⚠️ 2026-09-18 起，**公開的**社群貼文（噗浪／FB／Threads）是讀得到的
+ * ——那些站另外有一套給連結預覽用的免登入端點，見 `social.ts`。
+ * 上面第 3 點講的是登入牆，不是「社群站一律不行」，兩件事不要混。
  */
 import { applyUtilitySettings, chatWithLLM, type LLMDeps } from '../llm'
 import type { AppSettings } from '../types'
 import { extractArticleText, extractHtmlTitle, fetchHtmlDoc } from '../util/htmlFetch'
 import { extractLinkUrls, isJsRenderedHost, isPrivateHost, MAX_LINKS_PER_MESSAGE } from './detect'
+import { parseSocialLink, readSocialPost } from './social'
 import { parseYouTubeVideoId, readYouTubeVideo } from './youtube'
 import { normalizeLinkReaderSettings, type LinkContextResult, type LinkFetchOutcome, type LinkFetchStatus } from './types'
 
@@ -146,6 +151,18 @@ export async function readOneLink(
     return readYouTubeVideo(deps, url)
   }
 
+  /*
+   * 社群貼文同理：這些站都在 `JS_RENDERED_HOSTS` 裡（一般瀏覽器 UA 確實只拿得到
+   * 空殼，甚至 HTTP 400），但**單篇公開貼文**有免登入的預覽／嵌入端點可以走。
+   * 認不出來的社群網址（個人頁、社團首頁、相簿）`parseSocialLink` 回 null，
+   * 照樣落到下面的 js-rendered。
+   */
+  const social = parseSocialLink(url)
+  if (social) {
+    diag('social', { kind: social.kind, url: social.url.slice(0, 60) })
+    return readSocialPost(deps.http, social)
+  }
+
   if (isJsRenderedHost(host)) return { url, title: '', status: 'js-rendered', usedUtility: false }
 
   let html: string
@@ -210,6 +227,10 @@ export function buildLinkInjection(outcomes: LinkFetchOutcome[]): string | null 
       if (o.sourceKind === 'video-description') {
         // 這句是防止角色裝作看過影片的唯一保險，不要拿掉。
         lines.push('（以下是這支影片的「說明欄」文字，不是影片內容。你沒有看過這支影片，不要談論畫面、對白或劇情細節，也不要假裝看過。）')
+      }
+      if (o.sourceKind === 'social-excerpt') {
+        // 同上：這句是防止角色把腰斬的貼文當全文討論的唯一保險。
+        lines.push('（以下只是這則貼文的**開頭預覽**，不是全文，後面還有內容看不到。可以聊看得到的部分，但不要下「這篇在講什麼」的總結，也不要假裝讀完了。）')
       }
       lines.push(o.text ?? '')
     } else {

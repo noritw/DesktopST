@@ -97,7 +97,8 @@ src/mobile/ 手機 UI
 | **DeST Android 桌面小工具** | **已完成，真機驗證通過**（2026-08-23，owner 手機實測數輪正常結案）。小工具**不綁角色、跟著目前對話走**；可釘選訊息（`ui/stores/widgetStore.ts` 單一真相）、App 內有「桌面小工具」設定頁（預覽＋管理釘選＋頭像開關＋12 組配色＋底色透明度 0–100%）。JS：`core/character/widgetSnapshot.ts`、`mobile/runtime/widgetPins.ts`／`widgetBridge.ts`；原生：`android/.../widget/` 兩支 Kotlin。踩過三次同一條坑——**RemoteViews 不吃 CSS／不認裸 `<View>`／不能只改容器顏色**，按鈕、進度條、頭像底色圓都得整顆畫成 bitmap（頭像用 `BitmapShader`，**不能用 `SRC_IN`**，會把底色一起挖掉）。四個配色設定彼此獨立：DeST App／DeST 小工具／飲食 App／飲食小工具。真機待驗清單：計畫書 §12.7＋§13.5＋§14.4＋§15.4＋§16.3＋§17.1 |
 | **S2 提醒同步（M4 第六個 kind）** | **已實作，真機待驗**（2026-08-24，`npm run typecheck`／`npm test` 皆過）。提醒清單同步走逐項比對，但 `notificationDevice`／`wakeMode`／`inactiveBehavior`／`allowOfflineFallback`／`lastTriggeredAt` 是裝置本地／衍生狀態，push/pull 時保留接收端原值、不整包覆蓋（比照情境案例）；`characterId`／`sceneId` 走既有 id 對照表，`conversationId` 沒有對照表可翻、一律不推。細節：`TODO.md` §2.3、`docs/reminder-sync-kickoff.md`（設計依據，已照做完成）。 |
 | **Google 日曆驅動提醒** | **桌面已完成，owner 初步實測正常**（2026-08-25）。Google 事件自帶的提醒設定 → DeST 提醒（唯讀鏡射，Google 端是唯一真相）；提醒清單分「日曆同步／手動建立」兩分頁＋週月分組；開機＋每 8 小時＋手動掃描；日曆設定頁一進去就自動掃。**上線當天實測炸開，修掉 4 件事**，最重要的是 **`setTimeout` 24.85 天溢位**（既有 bug，見 §5）。**手機版同日也做完了**（`70a0a68`，分頁條件正確地用「資料自己說了算」而不是設定旗標，避開了 kickoff §3 那個坑；手機端的溢位分段等待也一起補了）——2026-09-13 owner 確認手機實際收得到日曆衍生的提醒。⚠️ 本列與 §6 選讀表先前寫「手機版還沒做」是**文件沒同步更新**，不是真的沒做 |
-| **連結閱讀（貼網址讀內文）** | **已實作並實測可用**（2026-09-13）。一般網頁（桌面＋手機獨立版，兩邊表現一致）與 **YouTube 說明欄**都經 owner 實測可讀。次要項目（模組開關關閉、情境覆蓋、行動網路流量）未逐一驗。訊息裡貼網址時，回應前先抓那一頁正文注入 prompt；桌面／手機獨立版／遙控三條路都接上。**只做公開網頁**——需要登入的頁面（社群貼文）一律讀不到，因為抓取從主行程／原生層發出、拿不到瀏覽器 cookie，社群站更是 SPA 抽不到正文，所以連抓都不抓、直接回報讀不到（這是範圍不是 bug；要支援得走 App 內建瀏覽器或瀏覽器擴充，**先問 owner**）。**YouTube 只拿說明欄**（標題／頻道／說明，Range 只抓開頭 256 KB；字幕實測不通見 `docs/link-reader-plan.md` §9，注入時會明講「不是影片內容」）。邏輯在 `core/link/`，抓 HTML／抽正文抽到 `core/util/htmlFetch.ts` 與新聞共用。開關走既有模組清單 `desktopst.link-reader`，S2 同步與情境覆蓋因此不必另外接線。細節與待驗清單：`docs/link-reader-plan.md` |
+| **連結閱讀（貼網址讀內文）** | **已實作並實測可用**（2026-09-13）。一般網頁（桌面＋手機獨立版）與 **YouTube 說明欄**都經 owner 實測可讀。訊息裡貼網址時，回應前先抓那一頁正文注入 prompt；桌面／手機獨立版／遙控三條路都接上。⚠️ **原本寫的「社群連結一律讀不到」2026-09-18 起只剩一半成立**——**噗浪／FB／Threads 的單篇公開貼文現在讀得到了**（見下一列）；真正需要登入的頁面（私密社團、個人動態消息）仍然讀不到，那是範圍不是 bug，抓取從主行程／原生層發出、拿不到瀏覽器 cookie。**YouTube 只拿說明欄**（字幕實測不通見 `docs/link-reader-plan.md` §9，注入時會明講「不是影片內容」）。邏輯在 `core/link/`，抓 HTML／抽正文抽到 `core/util/htmlFetch.ts` 與新聞共用。開關走既有模組清單 `desktopst.link-reader`，S2 同步與情境覆蓋因此不必另外接線。細節：`docs/link-reader-plan.md` |
+| **社群貼文連結（噗浪／FB／Threads）** | **已完成，桌面與手機獨立版都真機驗證通過**（2026-09-18，Pixel 10a 實測三家皆可讀）。貼一則貼文的網址讓角色讀那一篇。**關鍵是 UA**：這三家對瀏覽器 UA 只給空殼（FB 甚至回 HTTP 400），換成非瀏覽器 UA 就吐出給連結預覽用的靜態輸出——**不必冒充 `facebookexternalhit`**，具名的 `DesktopSTBot` 就行。拿得到的東西差很多：**噗浪＝全文＋整串回應**（`POST /Responses/get`）、**FB 粉專＝全文**（`plugins/post.php` 官方嵌入）、**FB 社團＝只有 ~190 字摘要**（社團不支援嵌入，會標成 `social-excerpt` 並在 prompt 裡明講不是全文）、**Threads＝全文**（`/embed`）。走的全是免登入、不帶 cookie、與帳號無關的公開端點，**不存在「機器人被 Ban」的問題**。⚠️ 最難發現的坑：**Threads 嵌入頁不可以拿第一個 `TextContentContainer`**，貼文是回覆時母貼文排在前面，拿錯會安靜地回傳另一個人的貼文（status 是 ok、長度正常）——認 class 裡的 `Full`。⚠️ **兩個一定要知道的坑**：①Capacitor 的 fetch patch 會弄丟 GET 的自訂 UA，症狀是「桌面能、手機只有噗浪能」（修法見 §5）②**App 裡「複製連結」給的是 `/share/<code>` 短網址、不是正規網址**，只認正規形式的話使用者最常用的那條路全部讀不到，要先跟著 302 解析（`canonicalFromSharePage()`）。**不做**：熱門話題來源、FB／Threads 回應串、X／IG／TikTok。細節：`docs/link-reader-plan.md` §10、`TODO.md` §2.11 |
 | **桌面版一鍵更新** | **已完成並實跑驗證**（2026-09-15，隨 v0.5.6 發布）。「檢查更新」對話框多一顆「立即更新」→ 下載 → 覆蓋 → 自動重啟；免安裝 zip 版與單檔 EXE 版都支援（靠 `PORTABLE_EXECUTABLE_FILE` 判斷）。**不用 electron-updater**（它不支援 `portable` target），發布流程完全沒動。三道安全閘：開發模式／安裝目錄有 `.git`／資料夾在安裝目錄底下都不做。GUI 那一段（對話框按鈕、進度條、取消）要等有更新的 release 才點得到，清單在 `TODO.md` §2.10。實跑抓到的三個坑見 §5 |
 | **下一步** | **看根目錄的 [`TODO.md`](TODO.md)** —— 待辦的唯一入口，狀態以那份為準。**2026-08-24 現況**：飲食模組 B9a／Health 讀／拍照估價／桌面小工具皆已完成並實際使用中，本機報表頁與 **B9c ① Health 寫營養**也都完成並實際使用中（後者 2026-09-13 owner 回報「用很久了」結案）；B9c 只剩 **② 接 S2**（owner 傾向降級）與 **③ 角色偏好注入**（prompt 設計還沒做）。DeST 手機版近期的對話新聞搜尋、表情、桌面小工具、天氣即時查詢、**提醒同步**都已實作完成（提醒同步待真機驗證，其餘已真機驗證結案）；桌面版本機 LLM 也實測可用。剩下的主要是少數自動測試過但沒真機驗的同步項目（`llm.utility*` 設定同步、模組子設定遺漏排查、M4 第 6 條）。 |
 | 延後／已排程 | 角色印象（B8）；系統通知（B5）；飲食熱量模組其餘分期（**B9b／B9c**，B9-Health-lite 已完成見上） |
@@ -333,6 +334,38 @@ Spotify／日曆授權仍只在桌面。
   Release 上是 `DesktopST.0.5.6.exe`。比對附件名的 regex 沒把點算進分隔符的話，
   單檔 EXE 版永遠配不到，而且**錯誤訊息還是錯的**（會說「這版沒有附單檔 EXE」，
   但 Release 明明有）。`matchesUpdateAsset()` 已處理
+- **社群站（FB／Threads）要用「不像瀏覽器」的 UA，用瀏覽器 UA 會被拒**
+  （2026-09-18 社群連結閱讀實測）。Facebook 的貼文頁與 `plugins/post.php`
+  對一般瀏覽器 UA 直接回 **HTTP 400**，Threads 回一份完全沒有內容的 SPA 空殼；
+  換成任何非瀏覽器 UA 才會吐 `og:*` 與嵌入內容。**不必冒充
+  `facebookexternalhit`**——實測連 `curl/8.4.0` 都拿得到，所以用具名的
+  `SOCIAL_BOT_USER_AGENT`（`core/util/htmlFetch.ts`）。
+  ⚠️ 這跟 `BROWSER_USER_AGENT` 的註解「自訂爬蟲 UA 容易被擋」**方向相反**，
+  兩者都對、適用對象不同：一般新聞站用瀏覽器 UA，社群站用 bot UA，
+  別為了「統一」而把其中一邊改掉。
+- **Capacitor 的 fetch patch：GET 與非 GET 走兩條完全不同的路，GET 會弄丟自訂 `User-Agent`**
+  （2026-09-18 Pixel 10a 實測）。`native-bridge.js` 裡，**非 GET 直接進原生
+  `CapacitorHttp` plugin**，headers 原樣送出；**GET 卻被改寫成 proxy 網址、交回
+  WebView 自己的 fetch**，而 Android WebView 會把 `User-Agent` 拔掉
+  （Chromium bug 40450316）。Capacitor 為此把 UA 抄到 `x-cap-user-agent`、
+  再由 `WebViewLocalServer` 在原生端還原——**但這條還原路徑實機上沒有生效**，
+  對面收到的仍是 WebView 自己的瀏覽器 UA。
+  症狀非常有辨識度而且很容易誤判：**噗浪成功、FB／Threads 失敗**，
+  因為只有後兩家需要非瀏覽器 UA。**桌面走 Node fetch 完全正常**，
+  所以看起來像「手機沒吃到新程式」——實際上程式有跑，是 UA 被吃掉。
+  修法在 `mobile/adapters/httpAdapter.ts` 的 `shouldUseNativeFetch()`：
+  UA 等於 `SOCIAL_BOT_USER_AGENT` 時改呼叫原生 `CapacitorHttp.request()`。
+  ⚠️ **不要放寬成「有 UA 就走原生」**——`fetchHtmlDoc` 對每個請求都設 UA，
+  放寬等於把新聞抓取與一般連結閱讀整批改道，那些本來就是好的
+  （`tests/mobile/socialUserAgentRouting.test.ts` 守這條）。
+- **抽社群貼文正文時，非貪婪比對會把正文腰斬一半而且不會報錯**
+  （同上）。FB 的 `post_message` 容器裡有 `text_exposed_root`、噗浪的
+  `text_holder` 裡有圖片區塊，`<div[^>]*>([\s\S]*?)<\/div>` 會停在第一個
+  `</div>`——斬得很漂亮，長度檢查照樣會過，症狀是「讀到了但少一截」。
+  用 `sliceBalancedDiv()` 配對 div 深度。同一類還有 **Threads 嵌入頁不可以
+  拿第一個 `TextContentContainer`**：貼文是回覆時母貼文排在前面，拿錯會
+  安靜地回傳**另一個人的貼文**（`status` 是 ok、長度正常，完全看不出錯），
+  要認 class 裡的 `Full`。
 - 動 LLM 供應商設定時注意 `llm.model` 是早期單一供應商的遺留欄位，
   `resolveModel()` 仍會拿它墊底 —— 不同步會把 A 家型號送去 B 家
 
@@ -364,6 +397,8 @@ Spotify／日曆授權仍只在桌面。
 | 查／改 Android 桌面小工具（DeST 主 App） | `mobile-android-widget-plan.md`（**已實作**，看 §11 落地筆記＋§12–§17 六輪修正與真機待驗清單） | 一切長文 |
 | 查／改手機表情顯示（換表情／框選臉部／新增表情圖） | `mobile-character-expression-plan.md`（**已實作並真機驗證**，看 §9 落地筆記，尤其 §9.1／§9.2 跨裝置反查那段） | 一切長文 |
 | 查／改連結閱讀（貼網址讓角色讀內文） | `link-reader-plan.md`（**已實作並實測可用**，整份不長；§2 說明為什麼登入牆讀不到、§7 是驗收清單） | 一切長文 |
+| **查／改社群貼文連結（噗浪／FB／Threads）** | `link-reader-plan.md` **§10**（§10.1 是「為什麼原本以為讀不到」、**§10.3 三個坑必看**、§10.6 待驗清單） | §2 的結論（已被 §10 部分推翻，別照舊的回答） |
+| **有人問「社群熱門話題能不能做」** | `link-reader-plan.md` **§10.5**（噗浪有免登入端點、Threads 要建 Meta App、FB 沒有；**這是另一個題目，先問 owner**） | 一切長文 |
 | **有人問「YouTube／影片能不能讀」** | `link-reader-plan.md` **§9**（2026-09-13 實測結論：字幕此路不通，**而且不是「沒登入」的問題，別去做 OAuth**；**§9.8 是實際做了的說明欄版**，以及為什麼 Data API 版刻意延後） | 一切長文 |
 | 查／改對話新聞搜尋（聊天中即時查新聞） | `news-conversation-search-spec.md`（**已實作並真機驗證**，2026-08-22 搬到手機獨立版） | 一切長文 |
 | 查／改飲食記錄 App 的桌面小工具 | `nutrition-widget-plan.md`（已實作，§7「已知風險」＋ `TODO.md` 的落地筆記） | `mobile-android-widget-plan.md`（**不同專案**的小工具，兩支 App 各自獨立，別互相套用） |
