@@ -315,6 +315,25 @@ Spotify／日曆授權仍只在桌面。
   `%SystemRoot%\System32\` 絕對路徑（PATH 裡有 Git for Windows 時 `find`
   會被搶走），延遲用 `ping -n 2` 不要用 `timeout`（同樣是 stdin 問題）。
   真相在 `src/main/updaterScript.ts`，測試守在 `tests/main/updaterScript.test.ts`
+- **`gh release upload` 回 HTTP 500「Error saving asset」＝上傳中途連線爛掉，不是 GitHub 壞了**
+  （2026-09-18 發 0.5.8 時連中兩次）。GitHub 收到不完整的檔案就回 500，
+  訊息完全看不出是連線問題。**判斷方法：先傳一個幾 bytes 的檔**——小檔成功就
+  確定端點正常，剩下的只是重傳。實測同一段時間內 36.8 MB 的 APK 22 秒
+  （1.7 MB/s）、104 MB 的 EXE 卻要 7 分半（230 KB/s），**同機同時段差 7 倍**
+  ——就是下載那條記過的「一條 TCP 連線落到壞路徑就一路爛到底、不會自己恢復」，
+  上傳端同一個病。
+  ⚠️ **`gh release create` 連附件一起傳時，附件失敗會把整個 release 收回**
+  （tag 已經推上去了，但 `gh release list` 找不到那一版，看起來像什麼都沒發生）。
+  所以大版本建議：**先 `--draft` 建空的 release → 逐一 `gh release upload` →
+  全部齊了再 `gh release edit --draft=false`**。草稿不會被自動更新與官網看到，
+  中途失敗也不會留下「latest release 缺附件」這種同時弄壞兩邊的狀態。
+- **Release 附件一定要含檔名固定的 `DeST-latest.apk`**，不是只有版本號那個。
+  `docs/mobile.html` 的下載鈕直連
+  `releases/latest/download/DeST-latest.apk`，那個網址是對**最新的** release
+  解析的——只要有一版忘了附，官網那顆按鈕就 404，**而且是發布之後才壞、
+  當場看不出來**。`scripts/release.ps1` 已經會自動帶上（2026-09-18 補的，
+  在那之前只傳版本號檔名）。debug 簽章版刻意不傳這個檔名：官網直連拿到
+  debug 版的話，已裝正式版的人反而無法覆蓋安裝。
 - **PS 5.1 的 `Get-Content` 讀 UTF-8 無 BOM 檔會壞，而且錯誤訊息指不到原因**
   （2026-09-18 發 0.5.8 時 `release.bat` 當場failed）。PS 5.1 預設用系統 ANSI
   碼頁（zh-TW 是 cp950）讀檔，`package.json` 裡的中文（`description`／
@@ -323,7 +342,8 @@ Spotify／日曆授權仍只在桌面。
   「傳入了無效的物件，必須有 ':' 或 '}'」。看起來像 JSON 壞了，其實檔案完全正常。
   修法：`Get-Content ... -Raw -Encoding UTF8`（`scripts/release.ps1` 三處已加）。
   ⚠️ **只有走 `release.bat` 才會中**（它呼叫 `powershell` ＝ 5.1）；
-  在 pwsh 7 裡直接跑 `.\scriptselease.ps1` 不會，因為 PS 7 預設 UTF-8
+  在 pwsh 7 裡直接跑 `.\scripts
+elease.ps1` 不會，因為 PS 7 預設 UTF-8
   ——所以這條坑可以潛伏很久才爆。
   診斷方法：`Get-Content <檔> -Raw | ConvertFrom-Json` 失敗，但同一個檔
   用 Node／Python 讀是合法 JSON，就是這個。

@@ -101,7 +101,8 @@ if ($doVersionBump) {
 # 先問完所有問題再開始跑，中間就不用顧著看螢幕（桌面 build 本身要好幾分鐘）。
 Write-Host ""
 Write-Host "要不要一併打包手機 APK 並附到 Release？" -ForegroundColor White
-Write-Host "  這是 debug 簽章的 APK，裝的人得允許「未知來源」，也無法上架商店。" -ForegroundColor Gray
+Write-Host "  有 android\keystore.properties 就輸出正式簽章版（可覆蓋更新舊版），否則是 debug 版。" -ForegroundColor Gray
+Write-Host "  兩者都需要允許「未知來源」，也都無法上架商店。" -ForegroundColor Gray
 Write-Host "  會多花約 1 分鐘（gradle）。" -ForegroundColor Gray
 $apkChoice = Read-Host "打包 APK？(y/N)"
 $buildApk = $apkChoice -match '^[Yy]$'
@@ -237,6 +238,7 @@ if (-not (Test-Path $unpackedDir)) {
 # ══════════════════════════════════════════════════════════════
 Write-Host ""
 $apkRelease = $null
+$apkLatest = $null
 $apkIsSigned = $false
 if (-not $buildApk) {
     Write-Host "[5/6] 略過手機 APK。" -ForegroundColor Gray
@@ -273,6 +275,24 @@ if (-not $buildApk) {
             Copy-Item $apkSrc $apkRelease -Force
             $apkSizeMB = [math]::Round((Get-Item $apkRelease).Length / 1MB, 1)
             Write-Host "      APK：$apkRelease ($apkSizeMB MB)" -ForegroundColor Yellow
+
+            # ⚠️ 正式簽章版還要再傳一份「檔名固定不變」的副本。
+            # docs\mobile.html 的下載鈕直連
+            #   releases/latest/download/DeST-latest.apk
+            # 那個網址是對「最新的 release」解析的，所以只要有一版沒附這個檔名，
+            # 官網那顆按鈕就會 404 —— 而且是發布之後才壞，很難當場發現。
+            # debug 版刻意不傳：讓官網直連拿到 debug 簽章的話，已裝正式版的人
+            # 會變成無法覆蓋安裝。
+            if ($apkIsSigned) {
+                $apkLatestSrc = "out\apk\DeST-latest.apk"
+                if (Test-Path $apkLatestSrc) {
+                    $apkLatest = "dist\DeST-latest.apk"
+                    Copy-Item $apkLatestSrc $apkLatest -Force
+                    Write-Host "      APK（官網直連用的固定檔名）：$apkLatest" -ForegroundColor Yellow
+                } else {
+                    Write-Host "      找不到 $apkLatestSrc，官網的『直接下載最新 APK』會 404。" -ForegroundColor Red
+                }
+            }
         } else {
             Write-Host "      打包回報成功但找不到 $apkSrc，略過附件。" -ForegroundColor Yellow
         }
@@ -340,6 +360,7 @@ if (-not $shouldPush) {
     $uploadFiles = @($exePath)
     if ($zipPath -and (Test-Path $zipPath)) { $uploadFiles += $zipPath }
     if ($apkRelease -and (Test-Path $apkRelease)) { $uploadFiles += $apkRelease }
+    if ($apkLatest -and (Test-Path $apkLatest)) { $uploadFiles += $apkLatest }
     if ($dstpackUpdated) { $uploadFiles += $dstpackPath }
 
     # 檢查 gh 是否安裝
