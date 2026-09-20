@@ -173,7 +173,6 @@ export default function LogWindow() {
   const [editEmotion, setEditEmotion] = useState<string>('neutral')
   const [promptMessage, setPromptMessage] = useState<Message | null>(null)
   const [promptTab, setPromptTab] = useState<'main' | 'utility' | 'conv-search' | 'news'>('main')
-  const [previewImage, setPreviewImage] = useState<string | null>(null)
   const [reactionPickerId, setReactionPickerId] = useState<string | null>(null)
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [summaryDraft, setSummaryDraft] = useState('')
@@ -447,14 +446,15 @@ export default function LogWindow() {
   const openMessageImage = async (src: string, fallbackMessageId: string, fallbackIndex: number) => {
     const placeholder = parseLogImagePlaceholder(src)
     if (!placeholder) {
-      setPreviewImage(src)
+      void window.api.invoke('desktop:show-image-preview', { images: [src], index: 0 })
       return
     }
     const messageId = placeholder.messageId || fallbackMessageId
     const index = Number.isFinite(placeholder.index) ? placeholder.index : fallbackIndex
     const images = await window.api.invoke('log:get-message-images', messageId) as string[]
-    const image = Array.isArray(images) ? images[index] : null
-    if (image) setPreviewImage(image)
+    if (Array.isArray(images) && images.length > 0) {
+      void window.api.invoke('desktop:show-image-preview', { images, index })
+    }
   }
 
   const renderMessage = (msg: Message) => {
@@ -1080,28 +1080,6 @@ export default function LogWindow() {
         />
       )}
 
-      {previewImage && (
-        <div
-          className="fixed inset-0 z-[60] bg-primary/30 flex items-center justify-center p-6 no-drag"
-          onMouseDown={() => setPreviewImage(null)}
-        >
-          <div className="relative max-w-[90vw] max-h-[88vh]" onMouseDown={event => event.stopPropagation()}>
-            <button
-              type="button"
-              className="btn-round absolute -top-3 -right-3 w-8 h-8 text-sm"
-              onClick={() => setPreviewImage(null)}
-              title="關閉圖片預覽"
-            >
-              <MonoIcon name="close" className="w-4 h-4" />
-            </button>
-            <img
-              src={previewImage}
-              className="max-w-[90vw] max-h-[88vh] rounded-2xl border border-border bg-surface shadow-panel object-contain"
-              alt=""
-            />
-          </div>
-        </div>
-      )}
     </div>
   )
 }
