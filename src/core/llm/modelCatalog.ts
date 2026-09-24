@@ -25,11 +25,11 @@ import type { LlmProvider } from '../data/types'
  */
 
 /** 模型清單與價格的人工同步日期（依各家官方定價頁） */
-export const MODEL_DATA_UPDATED = '2026-09-14'
+export const MODEL_DATA_UPDATED = '2026-09-24'
 
 /** 建議值：與官方目錄同步手動維護，或以帳戶可用的 `GET https://api.openai.com/v1/models` 為準 */
 export const OPENAI_MODELS = [
-  'gpt-6-astra',
+  'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna',
   'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
   'gpt-5.5', 'gpt-5.5-pro',
   'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano',
@@ -43,6 +43,7 @@ export const OPENAI_MODELS = [
 export const CLAUDE_MODELS = [
   'claude-fable-5-1',
   'claude-fable-5',
+  'claude-opus-5-5',
   'claude-opus-5',
   'claude-opus-4-8',
   'claude-sonnet-5',
@@ -98,7 +99,7 @@ export const MODELS_BY_PROVIDER: Record<LlmProvider, string[]> = {
  * 使用者切過去隨手聊兩句就會很痛。
  */
 export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProvider, string> = {
-  openai: 'gpt-5.6-luna',
+  openai: 'gpt-6-luna',
   claude: 'claude-haiku-4-5',
   gemini: 'gemini-3.1-flash-lite',
   grok: 'grok-4.3',
@@ -117,6 +118,9 @@ export const LOCAL_ENDPOINT_PRESETS: Array<{ label: string; url: string }> = [
 export const MODEL_PRICES: Record<string, [number, number]> = {
   // OpenAI
   'gpt-6-astra': [10, 50],
+  // GPT-6 Sol／Luna 2026-09-22 發布；GPT-6 Terra 尚未推出
+  'gpt-6-sol': [2, 10],
+  'gpt-6-luna': [0.1, 0.5],
   // gpt-5.6-sol：$4/$20 是 OpenAI 標示「至少到 2026-11-21」的優惠價，原價 $5/$30
   'gpt-5.6-sol': [4, 20],
   'gpt-5.6-terra': [2, 12],
@@ -146,6 +150,8 @@ export const MODEL_PRICES: Record<string, [number, number]> = {
   // Anthropic Claude
   'claude-fable-5-1': [10, 50],
   'claude-fable-5': [10, 50],
+  // claude-opus-5-5：思考無法關閉、不接受強制 tool_choice（本 app 兩者都沒送，不受影響）
+  'claude-opus-5-5': [4, 20],
   'claude-opus-5': [5, 25],
   'claude-opus-4-8': [5, 25],
   // claude-sonnet-5：$2/$10 原是到 2026-08-31 的導入價，官方已宣布不調回 $3/$15

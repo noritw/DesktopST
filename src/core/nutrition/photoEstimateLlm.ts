@@ -83,9 +83,9 @@ function resolveBaseUrl(llmSettings: NutritionLlmSettings): string {
   return 'https://api.openai.com/v1'
 }
 
-/** 跟 `core/llm/openai.ts` 的 `shouldOmitTemperature()` 判斷同一批模型（gpt-5／o 系列）。 */
+/** 跟 `core/llm/openai.ts` 的 `shouldOmitTemperature()` 判斷同一批模型（gpt-5 以後／o 系列）。 */
 function isReasoningModel(model: string): boolean {
-  return /^gpt-5(\.|-|$)/i.test(model) || /^o\d/i.test(model)
+  return /^gpt-[5-9](\.|-|$)/i.test(model) || /^o\d/i.test(model)
 }
 
 /**

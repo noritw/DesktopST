@@ -29,8 +29,9 @@ function extractInputText(
   return textPart?.text ?? ''
 }
 
+/** gpt-5 以後（含 gpt-6 系列）與 o 系列都是推理模型，不接受自訂 temperature。 */
 function shouldOmitTemperature(model: string): boolean {
-  return /^gpt-5(\.|-|$)/i.test(model) || /^o\d/i.test(model)
+  return /^gpt-[5-9](\.|-|$)/i.test(model) || /^o\d/i.test(model)
 }
 
 function extractResponseText(resp: unknown): string {

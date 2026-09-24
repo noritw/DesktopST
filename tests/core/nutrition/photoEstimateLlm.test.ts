@@ -61,6 +61,22 @@ describe('requestPhotoEstimate', () => {
     expect(capturedBody.max_completion_tokens).toBe(1500)
   })
 
+  it('gpt-6 系列同樣走 max_completion_tokens', async () => {
+    let capturedBody: any = null
+    const http = fakeHttp(async (_input, init) => {
+      capturedBody = JSON.parse(String(init?.body))
+      return jsonResponse({ choices: [{ message: { content: JSON.stringify({ results: [] }) } }] })
+    })
+    await requestPhotoEstimate({
+      llmSettings: { ...baseLlmSettings, model: 'gpt-6-luna' },
+      photos: [{ slot: 1, base64: 'AAA', mimeType: 'image/webp' }],
+      recentNames: [],
+      http
+    })
+    expect(capturedBody.max_tokens).toBeUndefined()
+    expect(capturedBody.max_completion_tokens).toBe(1500)
+  })
+
   it('模型拒絕某個參數（400 + Unsupported parameter）時拔掉那個參數重送一次', async () => {
     let attempt = 0
     let secondBody: any = null
