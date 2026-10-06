@@ -5,7 +5,7 @@
  * （打包／重開 QR／HMR 預覽／防火牆），每次都要想一下該點哪個。
  * 併成一個選單，預設就是最常用的「打包並裝到手機」，直接 Enter 即可。
  *
- * 五條路徑：
+ * 六條路徑：
  *   [1] 打包 APK 裝到手機：防火牆 → 打包 → USB 直裝 → 開桌面 DeST → 區網 QR
  *   [2] 只開下載 QR：APK 沒重打，只是要再裝一次（省掉 gradle 那一分鐘）
  *   [3] 手機 UI 即時預覽：改版面用的 HMR，不產 APK
@@ -15,6 +15,7 @@
  *   [5] 產生 App 圖示：改完 assets/AppIcon-android.png 後重出五種密度的資源。
  *       有「預覽」子選項，因為構圖被圓形遮罩裁到、單色版亮度沒壓夠這兩件事
  *       都要看到圖才知道，而裝機驗證一輪要好幾分鐘（2026-08-24 加）
+ *   [6] 打包 Google Play AAB：DeST／食記上架用，簽章同 [4]（2026-10-06 加）
  *
  * 埠：DeST mobileServer 3721、APK 下載頁 8731、手機 UI HMR 5180 起。
  */
@@ -324,6 +325,36 @@ async function actionIcons(rl) {
   return true
 }
 
+/**
+ * 打包 Google Play 上傳用的 AAB（Play 不收 APK）。DeST 與食記都在這裡，
+ * 因為上架時通常兩支一起處理。簽章跟 [4] 同一把：Play 的應用程式簽署選
+ * 「上傳現有金鑰」，Play 版與 GitHub 版才能互相覆蓋更新（2026-10-06 加）。
+ */
+async function actionPlayAab(rl) {
+  console.log('')
+  console.log('=== 打包 Google Play AAB ===')
+  console.log('  [1] DeST')
+  console.log('  [2] 食記')
+  console.log('  [3] 兩支都打')
+  const pick = (await rl.question('選擇 (1/2/3，預設 1)：')).trim() || '1'
+  const targets = { 1: ['DeST'], 2: ['食記'], 3: ['DeST', '食記'] }[pick]
+  if (!targets) {
+    console.error(`不認得的選項「${pick}」。`)
+    return false
+  }
+  const scripts = { DeST: 'scripts/build-mobile-apk-release.mjs', 食記: 'scripts/build-nutrition-apk-release.mjs' }
+  for (const t of targets) {
+    if (!runStep('node', [scripts[t], '--aab'])) {
+      console.error('')
+      console.error(`${t} 打包失敗，上面有錯誤訊息。`)
+      return false
+    }
+  }
+  // 直接開資料夾，省得使用者自己去找要拖哪個檔
+  spawn('explorer.exe', [path.join(root, 'out', 'apk')], { detached: true, stdio: 'ignore' }).unref()
+  return true
+}
+
 // ── 選單 ──────────────────────────────────────────────────
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
@@ -336,6 +367,7 @@ console.log('  [2] 只開下載 QR           （APK 已經打好，省掉重新�
 console.log('  [3] 手機 UI 即時預覽      （改版面用，不產 APK）')
 console.log('  [4] 打包正式簽章 APK      （手機上已裝正式版時用這個才裝得上去）')
 console.log('  [5] 產生 App 圖示         （改完 AppIcon-android.png 後跑這個）')
+console.log('  [6] 打包 Google Play AAB  （上架用；DeST／食記可選）')
 console.log('')
 
 const choice = (await rl.question('請選擇（直接 Enter = 1）：')).trim() || '1'
@@ -356,6 +388,9 @@ switch (choice) {
     break
   case '5':
     ok = await actionIcons(rl)
+    break
+  case '6':
+    ok = await actionPlayAab(rl)
     break
   default:
     console.error(`不認得的選項「${choice}」。`)

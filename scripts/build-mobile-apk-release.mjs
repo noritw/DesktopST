@@ -8,6 +8,11 @@
  * `assembleDebug`。③預設不 adb 自動裝機（release 是要拿去發布的檔案，
  * 不該被開發機的舊安裝記錄干擾；真要測可以自己 `adb install -r`）。
  *
+ * `--aab`：改跑 `bundleRelease`，產出給 Google Play 上傳的 AAB（Play 不收 APK）。
+ * 簽章用同一把 keystore——Play 應用程式簽署選「上傳現有金鑰」，Play 版與 GitHub 版
+ * 才能互相覆蓋更新（2026-10-06 決定）。AAB 放在 `out/apk/`，因為那裡已被
+ * `electron-builder.yml` 排除，不會被塞進桌面版安裝包。
+ *
  * keystore 怎麼來、密碼怎麼保管：`docs/pre-b3-work-assessment.md` §9。
  * **這支腳本、還有它呼叫的 `prepare-android.mjs`，都不會產生或讀取密碼明文
  * 印出到終端機**——密碼只會被 Gradle 讀去簽章，不會經過這支 Node 程式。
@@ -24,6 +29,8 @@ const jdk21 = 'C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.8-hotspot'
 const keystoreProps = path.join(root, 'android', 'keystore.properties')
 const apkSrc = path.join(root, 'android', 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk')
 const outDir = path.join(root, 'out', 'apk')
+const wantAab = process.argv.includes('--aab')
+const aabSrc = path.join(root, 'android', 'app', 'build', 'outputs', 'bundle', 'release', 'app-release.aab')
 
 function fail(msg, code = 1) {
   console.error(msg)
@@ -43,7 +50,7 @@ function run(command, args, opts = {}) {
 }
 
 console.log('')
-console.log('=== DeST 正式簽章 release APK ===')
+console.log(wantAab ? '=== DeST 正式簽章 AAB（Google Play 上傳用）===' : '=== DeST 正式簽章 release APK ===')
 console.log('')
 
 if (!fs.existsSync(jdk21)) {
@@ -82,12 +89,33 @@ console.log(`[1/4] JAVA_HOME = ${env.JAVA_HOME}`)
 console.log('[2/4] build:mobile + cap sync android（會順便把簽章設定接進 build.gradle）...')
 run('npm.cmd', ['run', 'sync:android'], { env, shell: true })
 
-console.log('[3/4] gradlew assembleRelease ...')
-run(path.join(root, 'android', 'gradlew.bat'), ['assembleRelease'], {
+const gradleTask = wantAab ? 'bundleRelease' : 'assembleRelease'
+console.log(`[3/4] gradlew ${gradleTask} ...`)
+run(path.join(root, 'android', 'gradlew.bat'), [gradleTask], {
   cwd: path.join(root, 'android'),
   env,
   shell: true
 })
+
+if (wantAab) {
+  if (!fs.existsSync(aabSrc)) {
+    fail(
+      `建置結束但找不到 AAB：${aabSrc}\n` +
+        '常見原因：keystore.properties 的密碼或路徑錯了，往上翻 Gradle 輸出。'
+    )
+  }
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
+  fs.mkdirSync(outDir, { recursive: true })
+  const aabDst = path.join(outDir, `DeST-v${pkg.version}-release.aab`)
+  fs.copyFileSync(aabSrc, aabDst)
+  const aabMb = (fs.statSync(aabDst).size / (1024 * 1024)).toFixed(1)
+  console.log('')
+  console.log(`[4/4] 完成：${aabDst}  (${aabMb} MB)`)
+  console.log('')
+  console.log('把這個 .aab 拖進 Play Console 的「上傳應用程式套件」。')
+  console.log('⚠️ 每次上傳的 versionCode 都必須比上一次大——同版號重傳會被拒，要先升版。')
+  process.exit(0)
+}
 
 if (!fs.existsSync(apkSrc)) {
   fail(

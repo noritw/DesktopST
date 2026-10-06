@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DeST 隱私權政策</title>
+  <style>
+    :root {
+      --bg: #f7fffc;
+      --surface: #ffffff;
+      --mint: #cbfbc4;
+      --teal: #aaeedd;
+      --sky: #aaeeff;
+      --text: #3d5a52;
+      --muted: #6f968a;
+      --border: #d8f5ec;
+      --strong: #267668;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(203, 251, 196, 0.48), transparent 32rem),
+        radial-gradient(circle at 85% 0%, rgba(170, 238, 255, 0.38), transparent 34rem),
+        var(--bg);
+      color: var(--text);
+      font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+      line-height: 1.75;
+      font-size: 15px;
+    }
+    a {
+      color: var(--strong);
+      font-weight: 700;
+      text-decoration: none;
+      border-bottom: 2px solid rgba(170, 238, 221, 0.9);
+    }
+    a:hover {
+      background: rgba(203, 251, 196, 0.45);
+      border-radius: 6px;
+    }
+    .wrap {
+      width: min(760px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 56px;
+    }
+    header {
+      margin-bottom: 28px;
+      padding: 24px 26px;
+      background: linear-gradient(135deg, rgba(203, 251, 196, 0.55), rgba(170, 238, 255, 0.35));
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.55rem;
+      letter-spacing: 0.02em;
+    }
+    .meta {
+      margin: 0;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    section {
+      margin-bottom: 22px;
+      padding: 20px 22px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 1.08rem;
+      color: var(--strong);
+    }
+    p { margin: 0 0 10px; }
+    p:last-child { margin-bottom: 0; }
+    ul {
+      margin: 8px 0 0;
+      padding-left: 1.35rem;
+    }
+    li { margin-bottom: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 6px 0 10px; }
+    th, td { text-align: left; vertical-align: top; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+    th { color: var(--strong); white-space: nowrap; }
+    .tldr {
+      background: linear-gradient(135deg, rgba(203, 251, 196, 0.32), rgba(170, 238, 255, 0.22));
+      border: 1px solid var(--teal);
+    }
+    .tldr h2 { font-size: 1.14rem; }
+    .tldr ul { padding-left: 1.2rem; }
+    .tldr li { margin-bottom: 10px; }
+    .tldr .lead {
+      font-weight: 700;
+      color: var(--strong);
+    }
+    .note {
+      font-size: 0.82rem;
+      color: var(--muted);
+      padding-top: 8px;
+      border-top: 1px dashed var(--border);
+      margin-top: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>DeST 隱私權政策</h1>
+      <p class="meta">開發者 海苔遊戲工房 · 生效日 2026-10-06 · 公開全文：<a href="https://nori.tw/DeST/privacy.html" target="_blank" rel="noopener noreferrer">nori.tw/DeST/privacy.html</a></p>
+    </header>
+
+    <section class="tldr">
+      <h2>重點摘要</h2>
+      <ul>
+        <li><span class="lead">我們沒有伺服器在收你的資料。</span>角色、對話、設定都存在你自己的手機裡。沒有帳號、沒有廣告、沒有分析追蹤，也不會出售任何資料。</li>
+        <li><span class="lead">對話會送到你自己選的 AI 服務。</span>DeST 本身不是 AI，聊天時會把對話內容直接送到你填入 API Key 的服務商（例如 OpenAI、Anthropic、Google），那些資料受該服務商的隱私權政策規範。</li>
+        <li><span class="lead">刪除 App 就刪除所有資料。</span>我們手上沒有你的任何資料副本。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>1. 適用範圍</h2>
+      <p>本政策適用於海苔遊戲工房（以下稱「我們」）在 Google Play 發布的 Android 應用程式「DeST：AI 角色聊天與日常夥伴」（套件名稱 <code>tw.nori.dest</code>，以下稱「本 App」）。</p>
+    </section>
+
+    <section>
+      <h2>2. 存在你手機上的資料</h2>
+      <p>以下資料只儲存在你的裝置上，我們無法存取：</p>
+      <ul>
+        <li>角色卡、角色圖片、使用者人設、世界觀、用語解說（Lorebook）、情境設定</li>
+        <li>對話記錄與對話摘要</li>
+        <li>提醒、新聞關鍵字、天氣設定與其他偏好設定</li>
+        <li>你填入的 AI 服務 API Key：以 Android Keystore 加密後儲存，不會以明文寫入檔案</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>3. 會離開你手機的資料</h2>
+      <p>本 App 只有在你使用對應功能時，才會從你的手機直接連線到下列服務。資料不經過我們的伺服器（中繼連線除外，見表格最後一列）。</p>
+      <table>
+        <tr><th>功能</th><th>送出的資料</th><th>接收方</th></tr>
+        <tr><td>AI 聊天、記憶摘要、表情判斷、提醒台詞</td><td>對話內容、角色與人設設定、你附上的圖片，以及你開啟的天氣、新聞等輔助資訊</td><td>你自己選擇並填入金鑰的 AI 服務商（OpenAI、Anthropic、Google Gemini、xAI），或你自行指定的端點（例如本機的 Ollama）</td></tr>
+        <tr><td>天氣</td><td>大略位置（經緯度，需你授權）；未授權時改用 IP 位址推估所在城市</td><td>Open-Meteo、BigDataCloud、ip-api.com、ipwho.is、wttr.in、中央氣象署開放資料平臺</td></tr>
+        <tr><td>個人新聞報、對話新聞搜尋</td><td>你設定的新聞關鍵字，或聊天時萃取出的查詢詞</td><td>Google 新聞、Google 搜尋趨勢、你自行加入的新聞來源網站</td></tr>
+        <tr><td>連結閱讀</td><td>你在訊息中貼上的網址（App 會讀取該頁面的公開內容）</td><td>該網址所屬的網站</td></tr>
+        <tr><td>與你自己的電腦版 DeST 同步／遙控</td><td>角色、對話、設定等你選擇同步的資料</td><td>你自己的電腦（區網直連）。若你在電腦版開啟「使用中繼」，資料會經由我們營運、架設在 Cloudflare 上的中繼服務 <code>relay.nori.tw</code> 以 HTTPS 轉送到你的電腦。中繼服務只負責轉送，我們不會讀取、分析或另外保存轉送的內容；API Key 一律不經由中繼傳送。Cloudflare 作為基礎設施供應商，可能依其政策留存連線紀錄（例如 IP 位址與時間）</td></tr>
+      </table>
+      <p class="note">上述第三方服務如何處理收到的資料，請參閱各服務商的隱私權政策。特別是 AI 服務商：它們是否保存你的對話、是否用於訓練，取決於你與該服務商之間的帳號設定與條款。</p>
+    </section>
+
+    <section>
+      <h2>4. 權限說明</h2>
+      <ul>
+        <li><strong>大略位置</strong>：只用於取得當地天氣。可以拒絕，拒絕後改以 IP 推估城市，或使用你手動設定的城市。</li>
+        <li><strong>通知、精確鬧鐘、開機後執行</strong>：讓你設定的提醒準時跳出，包含 App 已關閉或手機重新開機之後。</li>
+        <li><strong>網路</strong>：連線到上一節列出的服務。</li>
+        <li><strong>掃描 QR Code</strong>：使用 Google Play 服務提供的掃描介面，本 App 本身不取得相機權限，也不會存取相機畫面。</li>
+        <li><strong>選擇圖片</strong>：只在你主動選擇角色圖片或附加圖片時，讀取你選的那一張。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>5. 我們不做的事</h2>
+      <ul>
+        <li>不要求註冊帳號，不收集姓名、電子郵件、電話等身分資料</li>
+        <li>不放廣告，不使用任何分析、追蹤或當機回報 SDK</li>
+        <li>不出售、出租或分享你的資料給任何人</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>6. 保存與刪除</h2>
+      <p>你的資料會保存在裝置上，直到你自行刪除。你可以在 App 內刪除個別角色或對話；解除安裝本 App，或在 Android 設定中「清除儲存空間」，會刪除本 App 的所有資料。由於我們不持有你的資料，你不需要另外向我們申請刪除。</p>
+      <p>已經送到 AI 服務商或其他第三方的資料，請依各服務商提供的方式申請刪除。</p>
+    </section>
+
+    <section>
+      <h2>7. 兒童</h2>
+      <p>本 App 不是以 13 歲以下兒童為對象，我們也不會在知情的情況下收集兒童的個人資料。</p>
+    </section>
+
+    <section>
+      <h2>8. 政策變更與聯絡方式</h2>
+      <p>本政策如有修改，會更新在本頁並修改上方的生效日期。對本政策有任何疑問，請寄信至 <a href="mailto:starryseaweed@gmail.com">starryseaweed@gmail.com</a>。</p>
+    </section>
+  </div>
+</body>
+</html>

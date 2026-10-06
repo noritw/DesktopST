@@ -8,6 +8,9 @@
  * `assembleDebug`。③預設不 adb 自動裝機（release 是要拿去發布的檔案，
  * 不該被開發機的舊安裝記錄干擾；真要測可以自己 `adb install -r`）。
  *
+ * `--aab`：改跑 `bundleRelease`，產出給 Google Play 上傳的 AAB（Play 不收 APK）。
+ * 簽章同上，Play 應用程式簽署選「上傳現有金鑰」，Play 版與 GitHub 版才能互相覆蓋更新。
+ *
  * 沿用 DeST 主體同一把 keystore（`android/keystore.properties`），
  * 因為兩個 App 的 applicationId 不同（`tw.nori.dest` vs `tw.nori.destnutrition`），
  * 同一把金鑰簽多個 App 不會互相干擾。這支腳本、還有它呼叫的 Gradle，
@@ -27,6 +30,8 @@ const androidRoot = path.join(mobileRoot, 'android')
 const keystoreProps = path.join(androidRoot, 'keystore.properties')
 const apkSrc = path.join(androidRoot, 'app', 'build', 'outputs', 'apk', 'release', 'app-release.apk')
 const outDir = path.join(root, 'out', 'apk')
+const wantAab = process.argv.includes('--aab')
+const aabSrc = path.join(androidRoot, 'app', 'build', 'outputs', 'bundle', 'release', 'app-release.aab')
 
 function fail(msg, code = 1) {
   console.error(msg)
@@ -46,7 +51,7 @@ function run(command, args, opts = {}) {
 }
 
 console.log('')
-console.log('=== 食記 正式簽章 release APK ===')
+console.log(wantAab ? '=== 食記 正式簽章 AAB（Google Play 上傳用）===' : '=== 食記 正式簽章 release APK ===')
 console.log('')
 
 if (!fs.existsSync(jdk21)) {
@@ -84,12 +89,33 @@ console.log(`[1/4] JAVA_HOME = ${env.JAVA_HOME}`)
 console.log('[2/4] build:nutrition:mobile + cap sync android...')
 run('npm.cmd', ['run', 'sync:nutrition:android'], { env, shell: true })
 
-console.log('[3/4] gradlew assembleRelease ...')
-run(path.join(androidRoot, 'gradlew.bat'), ['assembleRelease'], {
+const gradleTask = wantAab ? 'bundleRelease' : 'assembleRelease'
+console.log(`[3/4] gradlew ${gradleTask} ...`)
+run(path.join(androidRoot, 'gradlew.bat'), [gradleTask], {
   cwd: androidRoot,
   env,
   shell: true
 })
+
+if (wantAab) {
+  if (!fs.existsSync(aabSrc)) {
+    fail(
+      `建置結束但找不到 AAB：${aabSrc}\n` +
+        '常見原因：keystore.properties 的密碼或路徑錯了，往上翻 Gradle 輸出。'
+    )
+  }
+  const pkg = JSON.parse(fs.readFileSync(path.join(mobileRoot, 'package.json'), 'utf8'))
+  fs.mkdirSync(outDir, { recursive: true })
+  const aabDst = path.join(outDir, `DeSTNutrition-v${pkg.version}-release.aab`)
+  fs.copyFileSync(aabSrc, aabDst)
+  const aabMb = (fs.statSync(aabDst).size / (1024 * 1024)).toFixed(1)
+  console.log('')
+  console.log(`[4/4] 完成：${aabDst}  (${aabMb} MB)`)
+  console.log('')
+  console.log('把這個 .aab 拖進 Play Console 的「上傳應用程式套件」。')
+  console.log('⚠️ 每次上傳的 versionCode 都必須比上一次大——同版號重傳會被拒，要先升版。')
+  process.exit(0)
+}
 
 if (!fs.existsSync(apkSrc)) {
   fail(

@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>食記隱私權政策</title>
+  <style>
+    :root {
+      --bg: #f7fffc;
+      --surface: #ffffff;
+      --mint: #cbfbc4;
+      --teal: #aaeedd;
+      --sky: #aaeeff;
+      --text: #3d5a52;
+      --muted: #6f968a;
+      --border: #d8f5ec;
+      --strong: #267668;
+      --radius-lg: 24px;
+      --radius-md: 18px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 15% 10%, rgba(203, 251, 196, 0.48), transparent 32rem),
+        radial-gradient(circle at 85% 0%, rgba(170, 238, 255, 0.38), transparent 34rem),
+        var(--bg);
+      color: var(--text);
+      font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+      line-height: 1.75;
+      font-size: 15px;
+    }
+    a {
+      color: var(--strong);
+      font-weight: 700;
+      text-decoration: none;
+      border-bottom: 2px solid rgba(170, 238, 221, 0.9);
+    }
+    a:hover {
+      background: rgba(203, 251, 196, 0.45);
+      border-radius: 6px;
+    }
+    .wrap {
+      width: min(760px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 32px 0 56px;
+    }
+    header {
+      margin-bottom: 28px;
+      padding: 24px 26px;
+      background: linear-gradient(135deg, rgba(203, 251, 196, 0.55), rgba(170, 238, 255, 0.35));
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 1.55rem;
+      letter-spacing: 0.02em;
+    }
+    .meta {
+      margin: 0;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    section {
+      margin-bottom: 22px;
+      padding: 20px 22px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow-x: auto;
+    }
+    h2 {
+      margin: 0 0 12px;
+      font-size: 1.08rem;
+      color: var(--strong);
+    }
+    p { margin: 0 0 10px; }
+    p:last-child { margin-bottom: 0; }
+    ul {
+      margin: 8px 0 0;
+      padding-left: 1.35rem;
+    }
+    li { margin-bottom: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 6px 0 10px; }
+    th, td { text-align: left; vertical-align: top; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+    th { color: var(--strong); white-space: nowrap; }
+    .tldr {
+      background: linear-gradient(135deg, rgba(203, 251, 196, 0.32), rgba(170, 238, 255, 0.22));
+      border: 1px solid var(--teal);
+    }
+    .tldr h2 { font-size: 1.14rem; }
+    .tldr ul { padding-left: 1.2rem; }
+    .tldr li { margin-bottom: 10px; }
+    .tldr .lead {
+      font-weight: 700;
+      color: var(--strong);
+    }
+    .note {
+      font-size: 0.82rem;
+      color: var(--muted);
+      padding-top: 8px;
+      border-top: 1px dashed var(--border);
+      margin-top: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>食記隱私權政策</h1>
+      <p class="meta">開發者 海苔遊戲工房 · 生效日 2026-10-06 · 公開全文：<a href="https://nori.tw/DeST/nutrition-privacy.html" target="_blank" rel="noopener noreferrer">nori.tw/DeST/nutrition-privacy.html</a></p>
+    </header>
+
+    <section class="tldr">
+      <h2>重點摘要</h2>
+      <ul>
+        <li><span class="lead">飲食與身體資料只存在你的手機。</span>沒有帳號、沒有廣告、沒有分析追蹤。我們沒有伺服器在收你的資料，也不會出售任何資料。</li>
+        <li><span class="lead">Health Connect 的資料只在 App 內顯示與計算。</span>不會上傳給我們、不會用於廣告，也不會分享給任何第三方。</li>
+        <li><span class="lead">用 AI 估算熱量時，餐點照片與描述會送到你自己選的 AI 服務。</span></li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>1. 適用範圍</h2>
+      <p>本政策適用於海苔遊戲工房（以下稱「我們」）在 Google Play 發布的 Android 應用程式「食記」（套件名稱 <code>tw.nori.destnutrition</code>，以下稱「本 App」）。</p>
+    </section>
+
+    <section>
+      <h2>2. 存在你手機上的資料</h2>
+      <p>以下資料只儲存在你的裝置上，我們無法存取：</p>
+      <ul>
+        <li>飲食記錄：餐點名稱、份量、熱量與營養素、餐點照片、備註</li>
+        <li>身體資料：你手動輸入或從 Health Connect 讀取的體重、體脂率、消耗熱量</li>
+        <li>目標設定、報表與偏好設定</li>
+        <li>你填入的 AI 服務 API Key：以 Android Keystore 加密後儲存</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>3. Health Connect</h2>
+      <p>本 App 與 Android Health Connect 的連接預設為關閉，只有在你於設定中開啟、並在系統畫面同意授權後才會讀寫，而且只存取以下項目：</p>
+      <table>
+        <tr><th>存取</th><th>資料類型</th><th>用途</th></tr>
+        <tr><td>讀取</td><td>體重</td><td>顯示最新體重與變化趨勢</td></tr>
+        <tr><td>讀取</td><td>體脂率</td><td>顯示最新體脂率</td></tr>
+        <tr><td>讀取</td><td>總消耗熱量</td><td>計算當日可攝取的熱量上限（例如來自智慧手錶的消耗量）</td></tr>
+        <tr><td>寫入</td><td>營養（攝取熱量）</td><td>把你在本 App 記錄的餐點熱量寫入 Health Connect，供你使用的其他健康 App 讀取</td></tr>
+      </table>
+      <p>從 Health Connect 取得的資料：</p>
+      <ul>
+        <li>只在你的裝置上用於顯示與計算，不會傳送給我們或任何第三方，也不會送給 AI 服務</li>
+        <li>不會用於廣告或行銷，不會出售，也不會用於判斷信用或保險資格</li>
+        <li>你可以隨時在本 App 或 Android 的 Health Connect 設定中撤銷授權</li>
+      </ul>
+      <p>本 App 對 Health Connect 資料的使用遵守 <a href="https://support.google.com/googleplay/android-developer/answer/9888170" target="_blank" rel="noopener noreferrer">Health Connect 權限政策</a>，包含其中的「限制使用」規定。</p>
+    </section>
+
+    <section>
+      <h2>4. 會離開你手機的資料</h2>
+      <table>
+        <tr><th>功能</th><th>送出的資料</th><th>接收方</th></tr>
+        <tr><td>AI 估算熱量（拍照或文字）</td><td>你選擇的餐點照片、你輸入的餐點描述</td><td>你自己選擇並填入金鑰的 AI 服務商（OpenAI、Anthropic、Google Gemini、xAI），或你自行指定的端點</td></tr>
+        <tr><td>語音輸入</td><td>你按下麥克風後說的話</td><td>Android 系統的語音辨識服務（通常由 Google 提供），系統處理後只把文字交給本 App</td></tr>
+      </table>
+      <p class="note">第三方服務如何處理收到的資料，請參閱各服務商的隱私權政策。</p>
+    </section>
+
+    <section>
+      <h2>5. 權限說明</h2>
+      <ul>
+        <li><strong>Health Connect</strong>：見第 3 節，預設關閉。</li>
+        <li><strong>麥克風</strong>：只在你按下語音輸入按鈕時使用，不會在背景錄音，也不保存錄音。</li>
+        <li><strong>網路</strong>：連線到 AI 服務。</li>
+        <li><strong>掃描 QR Code</strong>：用於從 DeST 匯入 AI 服務設定，使用 Google Play 服務提供的掃描介面，本 App 本身不取得相機權限。</li>
+        <li><strong>選擇圖片</strong>：只在你主動拍照或選擇餐點照片時，讀取你選的那一張。</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>6. 我們不做的事</h2>
+      <ul>
+        <li>不要求註冊帳號，不收集姓名、電子郵件、電話等身分資料</li>
+        <li>不放廣告，不使用任何分析、追蹤或當機回報 SDK</li>
+        <li>不出售、出租或分享你的資料給任何人</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>7. 保存與刪除</h2>
+      <p>你的資料會保存在裝置上，直到你自行刪除。你可以在 App 內刪除個別記錄；解除安裝本 App，或在 Android 設定中「清除儲存空間」，會刪除本 App 的所有資料。已寫入 Health Connect 的營養資料，可以在 Health Connect 中刪除。</p>
+    </section>
+
+    <section>
+      <h2>8. 健康聲明與兒童</h2>
+      <p>本 App 提供的熱量與營養數值（包含 AI 估算的結果）僅供參考，不構成醫療建議。本 App 不是以 13 歲以下兒童為對象。</p>
+    </section>
+
+    <section>
+      <h2>9. 政策變更與聯絡方式</h2>
+      <p>本政策如有修改，會更新在本頁並修改上方的生效日期。對本政策有任何疑問，請寄信至 <a href="mailto:starryseaweed@gmail.com">starryseaweed@gmail.com</a>。</p>
+    </section>
+  </div>
+</body>
+</html>
