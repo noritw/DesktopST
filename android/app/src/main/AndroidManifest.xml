@@ -106,12 +106,15 @@
 
     <!--
         精準鬧鐘。SCHEDULE_EXACT_ALARM 在 Android 12–13 是「宣告即取得，
-        但使用者可在系統設定關掉」；Android 14+ 起一般 App 拿不到，
-        要改用 USE_EXACT_ALARM（適用於使用者自己設定的鬧鐘／提醒，正是這個情境）。
-        兩個都宣告，讓各版本各取所需；沒拿到時 ReminderScheduler 會退回不精準模式。
+        但使用者可在系統設定關掉」；Android 14+ 預設不給，要使用者自己到
+        「鬧鐘與提醒」開啟——提醒設定頁（RemindersView）已有引導按鈕，
+        沒拿到時 ReminderScheduler 會退回不精準模式（誤差數分鐘）。
+
+        ⚠️ 不要加回 USE_EXACT_ALARM：Google Play 只准「核心功能是鬧鐘或日曆」
+        的 App 宣告它，DeST 是 AI 聊天，硬填「鬧鐘」會有被下架的風險
+        （2026-10-07 上架 Google Play 時拿掉）。
     -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!-- 重開機後要重新註冊鬧鐘，否則所有提醒會靜靜地永遠不再響 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 提醒到點時起前景服務現場生成台詞（BroadcastReceiver 只有約 10 秒，不夠打 LLM） -->
