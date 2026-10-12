@@ -102,10 +102,35 @@ if ($doVersionBump) {
 Write-Host ""
 Write-Host "要不要一併打包手機 APK 並附到 Release？" -ForegroundColor White
 Write-Host "  有 android\keystore.properties 就輸出正式簽章版（可覆蓋更新舊版），否則是 debug 版。" -ForegroundColor Gray
-Write-Host "  兩者都需要允許「未知來源」，也都無法上架商店。" -ForegroundColor Gray
+Write-Host "  兩者都需要允許「未知來源」；要上 Google Play 是下一題，跟這題無關。" -ForegroundColor Gray
 Write-Host "  會多花約 1 分鐘（gradle）。" -ForegroundColor Gray
 $apkChoice = Read-Host "打包 APK？(y/N)"
 $buildApk = $apkChoice -match '^[Yy]$'
+
+# ── Google Play 要不要一起送審 ─────────────────────────────
+# 2026-10-12 加。官網一律導向 Play，GitHub APK 只是備用，所以 Play 這邊才是使用者真正會拿到的版本。
+# 條件：版本有升（versionCode 用過就永久作廢，同版號一定被拒）＋ 金鑰與 keystore 都在。
+# 帳號設定：docs\play-auto-upload-setup.md
+$sendPlay = $false
+$playNotes = ""
+if ((Test-Path "android\play-service-account.json") -and (Test-Path "android\keystore.properties")) {
+    Write-Host ""
+    if (-not $doVersionBump) {
+        Write-Host "沒有升版號，略過 Google Play（同一個 versionCode 不能再傳一次）。" -ForegroundColor Gray
+    } else {
+        Write-Host "要不要打包 AAB 並送 Google Play 審查？" -ForegroundColor White
+        Write-Host "  會在 GitHub Release 建好之後才送，Play 失敗不影響前面任何步驟。" -ForegroundColor Gray
+        $playChoice = Read-Host "送 Google Play？(y/N)"
+        $sendPlay = $playChoice -match '^[Yy]$'
+        if ($sendPlay) {
+            Write-Host ""
+            Write-Host "Play 商店「最新異動」要寫什麼？（給一般使用者看的，500 字內）" -ForegroundColor White
+            Write-Host "  直接按 Enter＝「錯誤修正與穩定性改善。」" -ForegroundColor Gray
+            $playNotes = (Read-Host "最新異動").Trim()
+            if (-not $playNotes) { $playNotes = "錯誤修正與穩定性改善。" }
+        }
+    }
+}
 
 # ══════════════════════════════════════════════════════════════
 #  [1/6] 檢查 git 狀態
@@ -402,8 +427,11 @@ if (-not $shouldPush) {
                     "",
                     "## Android",
                     "",
-                    "- ``DeST-v$ver-release.apk``　—　正式簽章版，可以直接覆蓋安裝更新舊版。",
-                    "  安裝時系統仍會提示「未知來源」（因為不是從 Play 商店下載），這是正常的，跟簽章無關。",
+                    "**建議從 [Google Play](https://play.google.com/store/apps/details?id=tw.nori.dest) 安裝**，之後會自動更新。",
+                    "",
+                    "- ``DeST-v$ver-release.apk``　—　給沒有 Play 商店的裝置用，可以覆蓋更新之前從 GitHub 裝的版本。",
+                    "  ⚠️ 與 Google Play 版簽章不同，**兩者不能互相覆蓋安裝**，要換來源得先解除安裝（App 內資料會清除）。",
+                    "  安裝時系統會提示「未知來源」，這是正常的。",
                     "  可獨立使用，也可以掃電腦上的 QR 把角色與設定帶過去。"
                 )
             } else {
@@ -435,6 +463,36 @@ if (-not $shouldPush) {
         } else {
             Write-Host "      Release 建立失敗（exit $ghExit），請手動處理。" -ForegroundColor Red
             Write-Host "      https://github.com/noritw/DesktopST/releases/new?tag=v$ver" -ForegroundColor White
+        }
+    }
+}
+
+# ══════════════════════════════════════════════════════════════
+#  Google Play（可選，最後才做）
+# ══════════════════════════════════════════════════════════════
+#  放在 GitHub Release 之後：Play 審查流程跟前面完全獨立，這裡失敗只要事後補跑
+#    node scripts\build-mobile-apk-release.mjs --aab
+#    node scripts\play-upload.mjs --notes-file <檔案>
+#  不必重發整個版本。
+# ══════════════════════════════════════════════════════════════
+if ($sendPlay) {
+    Write-Host ""
+    Write-Host "[Play] 打包 AAB..." -ForegroundColor Cyan
+    node scripts\build-mobile-apk-release.mjs --aab
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "      AAB 打包失敗，沒有送 Play。上面有錯誤訊息。" -ForegroundColor Red
+    } else {
+        Write-Host ""
+        Write-Host "[Play] 上傳並送審..." -ForegroundColor Cyan
+        $playNotesFile = [System.IO.Path]::GetTempFileName()
+        # 跟 GitHub notes 同理：PS 5.1 的 Set-Content 會加 BOM，用 .NET 寫 UTF-8 無 BOM
+        [System.IO.File]::WriteAllText($playNotesFile, $playNotes, (New-Object System.Text.UTF8Encoding $false))
+        node scripts\play-upload.mjs --notes-file $playNotesFile
+        $playExit = $LASTEXITCODE
+        Remove-Item $playNotesFile -Force -ErrorAction SilentlyContinue
+        if ($playExit -ne 0) {
+            Write-Host "      Play 上傳失敗，GitHub 那邊不受影響。修好後補跑：" -ForegroundColor Yellow
+            Write-Host "        node scripts\play-upload.mjs" -ForegroundColor White
         }
     }
 }

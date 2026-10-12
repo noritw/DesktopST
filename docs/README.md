@@ -63,6 +63,7 @@
 | [`news-future-*.md`](news-future-keyword-groups.md) | **構想／未定案**，勿當待辦強制實作 |
 | [`future-character-impression.md`](future-character-impression.md) | B8，完全延後 |
 | [`future-nutrition-module.md`](future-nutrition-module.md) | **B9 飲食熱量模組**（B9a／Health 讀／拍照估價／桌面小工具皆已完成；剩本機報表頁與 B9c）；換機匯出匯入見該檔 §5。開工請直接看 [`nutrition-module-kickoff.md`](nutrition-module-kickoff.md) |
+| [`play-auto-upload-setup.md`](play-auto-upload-setup.md) | **Google Play 自動上傳**：服務帳戶設定步驟（已完成）；§4 是腳本與發版流程怎麼接的 |
 | [`bubble-layer-state-machine.md`](bubble-layer-state-machine.md) | 桌面泡泡層 |
 | [`performance-optimization-review-2026-05-30.md`](performance-optimization-review-2026-05-30.md) | 舊效能筆記 |
 | `*-setup.html`／`license.html`／`api-key-guide.html` | 給使用者的教學頁，不是 AI 開工讀物 |

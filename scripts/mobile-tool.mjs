@@ -15,13 +15,15 @@
  *   [5] 產生 App 圖示：改完 assets/AppIcon-android.png 後重出五種密度的資源。
  *       有「預覽」子選項，因為構圖被圓形遮罩裁到、單色版亮度沒壓夠這兩件事
  *       都要看到圖才知道，而裝機驗證一輪要好幾分鐘（2026-08-24 加）
- *   [6] 打包 Google Play AAB：DeST／食記上架用，簽章同 [4]（2026-10-06 加）
+ *   [6] 打包 Google Play AAB：DeST／食記上架用，簽章同 [4]（2026-10-06 加）；
+ *       DeST 打完可選擇直接送審（scripts/play-upload.mjs，2026-10-12 加）
  *
  * 埠：DeST mobileServer 3721、APK 下載頁 8731、手機 UI HMR 5180 起。
  */
 import { spawn, spawnSync, execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import net from 'node:net'
+import os from 'node:os'
 import path from 'node:path'
 import readline from 'node:readline/promises'
 import { fileURLToPath } from 'node:url'
@@ -327,8 +329,9 @@ async function actionIcons(rl) {
 
 /**
  * 打包 Google Play 上傳用的 AAB（Play 不收 APK）。DeST 與食記都在這裡，
- * 因為上架時通常兩支一起處理。簽章跟 [4] 同一把：Play 的應用程式簽署選
- * 「上傳現有金鑰」，Play 版與 GitHub 版才能互相覆蓋更新（2026-10-06 加）。
+ * 因為上架時通常兩支一起處理。簽章跟 [4] 同一把，但對 Play 來說它只是「上傳金鑰」：
+ * DeST 的應用程式簽署金鑰是 Google 產生的，所以 Play 版與 GitHub APK 不能互相覆蓋安裝
+ * （食記上架前要選「使用自己的金鑰」才能互通）（2026-10-06 加，10-12 更正）。
  */
 async function actionPlayAab(rl) {
   console.log('')
@@ -348,6 +351,26 @@ async function actionPlayAab(rl) {
       console.error('')
       console.error(`${t} 打包失敗，上面有錯誤訊息。`)
       return false
+    }
+  }
+  // DeST 已上架、服務帳戶也設好了的話，可以直接送審（docs/play-auto-upload-setup.md）。
+  // 食記還沒上架，Play 上沒有這支 App，先不問。
+  if (targets.includes('DeST') && fs.existsSync(path.join(root, 'android', 'play-service-account.json'))) {
+    console.log('')
+    const send = (await rl.question('DeST 直接送 Google Play 審查？(y/N)：')).trim()
+    if (/^y$/i.test(send)) {
+      console.log('「最新異動」要寫什麼？（給一般使用者看，500 字內；直接 Enter＝「錯誤修正與穩定性改善。」）')
+      const notes = (await rl.question('最新異動：')).trim() || '錯誤修正與穩定性改善。'
+      const notesFile = path.join(os.tmpdir(), `dest-play-notes-${Date.now()}.txt`)
+      fs.writeFileSync(notesFile, notes, 'utf8')
+      const ok = runStep('node', ['scripts/play-upload.mjs', '--notes-file', notesFile])
+      fs.rmSync(notesFile, { force: true })
+      if (!ok) {
+        console.error('')
+        console.error('Play 上傳失敗，上面有原因。AAB 還在 out/apk/，修好後可以補跑 node scripts/play-upload.mjs')
+        return false
+      }
+      return true
     }
   }
   // 直接開資料夾，省得使用者自己去找要拖哪個檔

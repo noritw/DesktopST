@@ -60,3 +60,5 @@ icon-preview.png
 *.jks
 *.keystore
 keystore.properties
+# Google Play 發布用服務帳戶金鑰（docs/play-auto-upload-setup.md），能替 owner 發布新版本
+play-service-account*.json
