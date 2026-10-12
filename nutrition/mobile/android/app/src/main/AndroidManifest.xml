@@ -65,6 +65,11 @@
             <intent-filter>
                 <action android:name="tw.nori.destnutrition.widget.ACTION_NUTRITION_WIDGET_REFRESH" />
             </intent-filter>
+            <!-- 開機／更新後重繪，否則停在 XML 的預設配色直到打開 App（見 NutritionWidgetProvider.onReceive） -->
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_nutrition_info" />
@@ -84,6 +89,7 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!--
       Health Connect：@capgo/capacitor-health 的 manifest 會把 47 項健康權限全部宣告進來，
       但食記只用到 4 項（health.ts：讀體重／體脂／總消耗熱量，寫 dietaryEnergyConsumed＝營養）。

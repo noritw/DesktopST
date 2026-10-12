@@ -48,6 +48,22 @@ class DeSTWidgetProvider : AppWidgetProvider() {
         maybeTriggerWeatherProactive(context)
     }
 
+    /**
+     * 開機／App 更新後主動重繪一次（2026-10-12 owner 回報：重開機後還沒點進 DeST 前顏色會跑掉）。
+     *
+     * 系統重啟後畫面上先擺的是 `initialLayout`——XML 寫死的薄荷預設底板，
+     * 要等有人呼叫 `updateAppWidget()` 才會換成 `state.json` 裡的配色。原本只靠
+     * 系統的 `APPWIDGET_UPDATE`，它開機後不保證馬上送（`updatePeriodMillis` 是一小時），
+     * 於是一直撐到使用者打開 App、`widgetBridge.ts` 叫 [updateAll] 才恢復。
+     * 這裡只重繪、不碰天氣主動發話（那條仍只走 `onUpdate()` 的節流）。
+     */
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        when (intent.action) {
+            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> updateAll(context)
+        }
+    }
+
     override fun onAppWidgetOptionsChanged(
         context: Context,
         appWidgetManager: AppWidgetManager,

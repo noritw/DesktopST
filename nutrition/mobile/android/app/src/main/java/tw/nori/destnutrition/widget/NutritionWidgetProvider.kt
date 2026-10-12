@@ -60,6 +60,13 @@ class NutritionWidgetProvider : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
+        // 開機／App 更新後主動重繪一次（2026-10-12，與 DeST 小工具同一個坑）：系統重啟後畫面上
+        // 先擺的是 XML 的預設底板，原本只靠 `APPWIDGET_UPDATE` 保底，開機後不保證馬上送，
+        // 於是配色一直停在預設值，直到使用者打開 App 才恢復。
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            updateAll(context)
+            return
+        }
         if (intent.action == ACTION_REFRESH) {
             // 查 Health Connect 是 suspend／IO 動作，onReceive 本身跑在主執行緒、
             // 一結束系統就可能回收這個 BroadcastReceiver——用 goAsync() 換一段
