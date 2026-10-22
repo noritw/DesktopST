@@ -13,7 +13,7 @@
 | 平台 | 狀態 | 說明 |
 |---|---|---|
 | **Windows 桌面版** | ✅ 穩定發布 | Electron；角色浮在桌面、點擊輸入 |
-| **Android 手機版** | ✅ 0.5.0 起可下載 | 不依賴電腦、可單機使用的獨立版；也能與電腦版雙向同步 |
+| **Android 手機版** | ✅ 已上架 [Google Play](https://play.google.com/store/apps/details?id=tw.nori.dest) | 不依賴電腦、可單機使用的獨立版；也能與電腦版雙向同步 |
 
 ---
 
@@ -81,7 +81,9 @@
 初次使用說明請見 <a href="https://nori.tw/DeST/getting-started.html" target="_blank" rel="noopener noreferrer">docs/getting-started.html</a>。
 
 ### Android 手機版
-前往 [Releases](../../releases) 頁面下載最新版 APK，安裝後開啟即可（需自行允許「安裝未知來源 App」）。
+<a href="https://play.google.com/store/apps/details?id=tw.nori.dest" target="_blank" rel="noopener noreferrer"><b>▶ 到 Google Play 下載</b></a>（推薦，之後會自動更新）
+
+沒有 Play 商店的裝置可以改用 [Releases](../../releases) 頁面的 APK（需自行允許「安裝未知來源 App」）。⚠️ GitHub APK 與 Play 版簽章不同，**兩者不能互相覆蓋安裝**，要換來源得先解除安裝（App 內資料會一併清除），一般不建議。
 
 介紹頁：<a href="https://nori.tw/DeST/mobile.html" target="_blank" rel="noopener noreferrer">docs/mobile.html</a>。
 
@@ -91,7 +93,7 @@
 
 跟 DeST 角色扮演無關、單純好用的飲食記錄與熱量追蹤 App，與 DeST 分開安裝、分開運作：拍照估熱量、手動記錄、Health Connect 讀取體重與手錶消耗熱量、Android 桌面小工具。作業系統需求 Android 8.0 以上。
 
-APK 一樣在 [Releases](../../releases) 頁面下載；介紹頁：<a href="https://nori.tw/DeST/nutrition.html" target="_blank" rel="noopener noreferrer">docs/nutrition.html</a>；三個產品的總覽：<a href="https://nori.tw/DeST/hub.html" target="_blank" rel="noopener noreferrer">docs/hub.html</a>。
+<a href="https://play.google.com/store/apps/details?id=tw.nori.destnutrition" target="_blank" rel="noopener noreferrer"><b>▶ 到 Google Play 下載食記</b></a>（推薦，之後會自動更新）；沒有 Play 商店的裝置也可以到 [Releases](../../releases) 頁面下載 APK（與 Play 版同一把簽章，日後可直接改裝 Play 版覆蓋、資料保留）。介紹頁：<a href="https://nori.tw/DeST/nutrition.html" target="_blank" rel="noopener noreferrer">docs/nutrition.html</a>；三個產品的總覽：<a href="https://nori.tw/DeST/hub.html" target="_blank" rel="noopener noreferrer">docs/hub.html</a>。
 
 ---
 
