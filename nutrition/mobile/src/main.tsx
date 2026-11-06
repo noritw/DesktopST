@@ -1680,12 +1680,18 @@ function App(): React.JSX.Element {
         updatedAt: now
       })
     }).then(() => {
+      // ⚠️ 這裡一定要無條件離開表單。舊版用閉包裡的 `snapshot` 找 newId 才切畫面，
+      // 但那份 snapshot 是按下按鈕前的，永遠找不到，畫面就停在**原食物**的表單上。
+      // owner 2026-11-06 以為自己在編輯複製品，改名存檔後蓋掉原食物：
+      // 原食物的舊紀錄全被洗成新名字，複製品反而 0 引用。
+      const orphaned = sessionAddedPhotoKeysRef.current
+      pendingDeletePhotoKeysRef.current = []
+      sessionAddedPhotoKeysRef.current = []
+      // 這次編輯新加的照片已經複製到新食物，原食物沒有存檔，留著就是孤兒檔。
+      if (orphaned.length > 0) void Promise.all(orphaned.map((key) => nutritionMobileStorage.remove(key)))
       setConfirmDuplicateFood(false)
-      const newFood = snapshot?.foodItems.find((item) => item.id === newId)
-      if (newFood) {
-        // 「另存為新食物」後回到食物庫清單，讓使用者看到新建立的食物
-        setView('library')
-      }
+      setEditingFoodId(null)
+      setView('library')
     })
   }
 
@@ -1743,7 +1749,7 @@ function App(): React.JSX.Element {
     }
   }
 
-  function saveMealEdit(scope: 'meal' | 'food'): void {
+  function saveMealEdit(scope: 'meal' | 'food' | 'newFood'): void {
     if (!editingMealId) return
     const servings = Number(mealServings)
     const kcal = Number(mealKcal)
@@ -1757,7 +1763,30 @@ function App(): React.JSX.Element {
     void runAction(async (session) => {
       const current = session.mealLogs.find((log) => log.id === editingMealId)
       if (!current) return
-      if (scope === 'food') {
+      if (scope === 'newFood') {
+        // 這筆其實是另一種食物：開一筆新的食物庫項目再改連過去，原食物與它的舊紀錄都不動。
+        // 碳水／脂肪等欄位不沿用原食物——那是別的食物的數字。
+        const now = Date.now()
+        const newFoodId = `food-${now}`
+        const photoBytes = current.photoKey ? await nutritionMobileStorage.readBinary(current.photoKey) : null
+        const photoKeys: string[] = []
+        if (photoBytes) {
+          const key = foodPhotoKey(newFoodId, 0)
+          await nutritionMobileStorage.writeBinary(key, photoBytes)
+          photoKeys.push(key)
+        }
+        await session.saveFoodItem({
+          id: newFoodId,
+          name,
+          aliases: [],
+          perServing: { kcal, proteinG },
+          photoKeys: photoKeys as FoodItem['photoKeys'],
+          source: 'user',
+          createdAt: now,
+          updatedAt: now
+        })
+        await session.saveMealLog({ ...current, foodItemId: newFoodId, servings, eatenAt, override: undefined, updatedAt: now })
+      } else if (scope === 'food') {
         const foodItem = session.foodItems.find((item) => item.id === current.foodItemId)
         if (foodItem) {
           await session.saveFoodItem({ ...foodItem, name, perServing: { ...foodItem.perServing, kcal, proteinG }, updatedAt: Date.now() })
@@ -2051,6 +2080,8 @@ function App(): React.JSX.Element {
   async function openFoodFormFromEstimate(): Promise<void> {
     if (!estimateResult) return
     const result = estimateResult
+    // 命中食物庫卻走到這裡，代表使用者說「不是這個」，AI 的名稱正是認錯的那個，不帶進表單。
+    const rejectedMatch = estimateMatchedFood !== null
     const id = `food-${Date.now()}`
     setEditingFoodId(id)
     setIsNewFood(true)
@@ -2068,7 +2099,7 @@ function App(): React.JSX.Element {
       photoKeys.push(key)
     }
     setFoodDraft({
-      name: result.name ?? '',
+      name: rejectedMatch ? '' : (result.name ?? ''),
       aliases: '',
       brand: result.brand ?? '',
       flavor: result.flavor ?? '',
@@ -2441,6 +2472,9 @@ function App(): React.JSX.Element {
 
   if (view === 'foodForm') {
     const allTagOptions = Array.from(new Set([...tags, ...foodDraft.tags])).sort()
+    const editingFood = isNewFood ? undefined : snapshot.foodItems.find((item) => item.id === editingFoodId)
+    const editingFoodUseCount = editingFood ? foodUsageOf(foodUsage, editingFood.id).useCount : 0
+    const renamingUsedFood = editingFood !== undefined && editingFoodUseCount > 0 && foodDraft.name.trim() !== editingFood.name
     return (
       <main className="shell">
         <Header title={isNewFood ? '新增食物' : '編輯食物'} onBack={leaveFoodForm} />
@@ -2523,6 +2557,11 @@ function App(): React.JSX.Element {
             )}
           </div>
 
+          {renamingUsedFood && (
+            <small className="hint danger-text">
+              改名後，引用這筆的 {editingFoodUseCount} 筆飲食紀錄都會變成新名字。如果這其實是另一種食物，請按下方的「另存為新食物」。
+            </small>
+          )}
           <button type="button" className="primary" disabled={saving || !foodDraft.name.trim()} onClick={() => saveFoodDraft(false)}>
             {isNewFood ? '加入食物庫' : '保存食物修改'}
           </button>
@@ -2546,7 +2585,7 @@ function App(): React.JSX.Element {
           <div className="confirm-overlay" role="dialog" aria-modal="true">
             <div className="confirm-card">
               <strong>另存「{foodDraft.name}」為新食物</strong>
-              <p>目前編輯的所有資料（名稱、營養數據、照片）都會被儲存到新食物。原來的食物保持不變。</p>
+              <p>目前編輯的所有資料（名稱、營養數據、照片）都會被儲存到新食物。原來的食物保持不變，存好後會回到食物庫。</p>
               <div className="confirm-actions">
                 <button type="button" onClick={() => setConfirmDuplicateFood(false)}>取消</button>
                 <button type="button" className="primary" disabled={saving} onClick={duplicateFoodConfirmed}>確定儲存為新食物</button>
@@ -2586,6 +2625,9 @@ function App(): React.JSX.Element {
     const editingMealLog = snapshot.mealLogs.find((log) => log.id === editingMealId)
     if (!editingMealLog) return <main className="shell"><p>載入中...</p></main>
     const linkedFoodItem = snapshot.foodItems.find((item) => item.id === editingMealLog.foodItemId) ?? null
+    // 名稱改了多半代表「這筆其實是別的食物」，此時「更新食物庫資料」會連舊紀錄一起改掉。
+    const mealRenamed = linkedFoodItem !== null && mealName.trim() !== '' && mealName.trim() !== linkedFoodItem.name
+    const otherMealCount = linkedFoodItem ? Math.max(foodUsageOf(foodUsage, linkedFoodItem.id).useCount - 1, 0) : 0
     const mealReplaceTagFiltered = mealReplaceTag === 'all'
       ? snapshot.foodItems
       : snapshot.foodItems.filter((item) => (item.tags ?? []).includes(mealReplaceTag))
@@ -2707,8 +2749,18 @@ function App(): React.JSX.Element {
         <section className="scope-choice">
           <button type="button" disabled={saving} onClick={() => saveMealEdit('meal')}>只儲存到當日飲食</button>
           <small>只影響這一筆紀錄，食物庫不會改變</small>
-          <button type="button" className="primary" disabled={saving} onClick={() => saveMealEdit('food')}>更新食物庫資料</button>
-          <small>食物庫也會更新，之後每次吃這個食物都會套用新數值</small>
+          {mealRenamed && (
+            <>
+              <button type="button" className="primary" disabled={saving} onClick={() => saveMealEdit('newFood')}>存成新食物「{mealName.trim()}」</button>
+              <small>食物庫新增一筆，這筆紀錄改連過去；原本的「{linkedFoodItem?.name}」和它的舊紀錄都不變</small>
+            </>
+          )}
+          <button type="button" className={mealRenamed ? undefined : 'primary'} disabled={saving} onClick={() => saveMealEdit('food')}>更新食物庫資料</button>
+          <small>
+            {mealRenamed && otherMealCount > 0
+              ? `「${linkedFoodItem?.name}」會被改名，另外 ${otherMealCount} 筆舊紀錄也會跟著變成新的名字和數值`
+              : '食物庫也會更新，之後每次吃這個食物都會套用新數值'}
+          </small>
         </section>
         {linkedFoodItem && (
           <section className="library-data-section">
@@ -3371,18 +3423,19 @@ function App(): React.JSX.Element {
           )}
           {estimatePhase === 'result' && estimateResult && (
             <section className="estimate-result-card">
-              <strong>{estimateMatchedFood ? estimateMatchedFood.name : (estimateResult.name ?? '未命名')}</strong>
-              {(estimateMatchedFood?.brand ?? estimateResult.brand) && <small>{estimateMatchedFood?.brand ?? estimateResult.brand}</small>}
-              {estimateMatchedFood ? (
-                <p>沿用你的紀錄：{estimateMatchedFood.perServing.kcal} kcal · 蛋白 {estimateMatchedFood.perServing.proteinG} g</p>
-              ) : (
-                <>
-                  <p>
-                    約 {estimateResult.perServing?.kcal ?? '？'} kcal · 蛋白 {estimateResult.perServing?.proteinG ?? '？'} g
-                    <span className="tag-chip">{estimateResult.nutritionSource === 'label' ? '依營養標示' : estimateResult.nutritionSource === 'label-partial' ? '標示不完整' : 'AI 估算'}</span>
-                  </p>
-                  {estimateResult.confidence === 'low' && <small className="hint">不太確定，存入後可到食物庫修改</small>}
-                </>
+              <strong>{estimateResult.name ?? '未命名'}</strong>
+              {estimateResult.brand && <small>{estimateResult.brand}</small>}
+              <p>
+                約 {estimateResult.perServing?.kcal ?? '？'} kcal · 蛋白 {estimateResult.perServing?.proteinG ?? '？'} g
+                <span className="tag-chip">{estimateResult.nutritionSource === 'label' ? '依營養標示' : estimateResult.nutritionSource === 'label-partial' ? '標示不完整' : 'AI 估算'}</span>
+              </p>
+              {estimateResult.confidence === 'low' && <small className="hint">不太確定，存入後可到食物庫修改</small>}
+              {/* 名稱相同不代表是同一種食物（AI 可能認錯），一律讓使用者看過兩邊的數字再決定，不替他套用。 */}
+              {estimateMatchedFood && (
+                <p className="estimate-match-box">
+                  食物庫有「{estimateMatchedFood.name}{estimateMatchedFood.brand ? `（${estimateMatchedFood.brand}）` : ''}」：
+                  {estimateMatchedFood.perServing.kcal} kcal · 蛋白 {estimateMatchedFood.perServing.proteinG} g。這是同一種食物嗎？
+                </p>
               )}
               {/* 份量與判斷依據：數字偏高時這兩行才看得出是哪一步估錯（通常是份量，不是熱量密度）。 */}
               {estimateResult.estimatedWeightG !== null && (
@@ -3399,6 +3452,11 @@ function App(): React.JSX.Element {
                   ) : (
                     <button type="button" className="primary" disabled={saving} onClick={applyEstimateToFoodItem}>更新這筆食物庫資料</button>
                   )
+                ) : estimateMatchedFood ? (
+                  <>
+                    <button type="button" className="primary" disabled={saving} onClick={saveEstimateResult}>是，沿用「{estimateMatchedFood.name}」存入</button>
+                    <button type="button" disabled={saving} onClick={() => void openFoodFormFromEstimate()}>不是，建立新食物</button>
+                  </>
                 ) : (
                   <>
                     <button type="button" className="primary" disabled={saving} onClick={saveEstimateResult}>存入</button>

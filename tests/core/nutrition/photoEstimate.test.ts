@@ -51,6 +51,12 @@ describe('buildPhotoEstimatePrompt', () => {
     expect(prompt).not.toMatch(/體重|身高|體脂|上限|dailyKcalLimit|weightKg/)
   })
 
+  it('最近名稱只在確定同一種食物時才沿用，不能叫模型往清單靠（仙草奶凍被認成豆花的回歸測試）', () => {
+    const prompt = buildPhotoEstimatePrompt(['豆花'])
+    expect(prompt).toContain('確定是同一種食物才沿用')
+    expect(prompt).toContain('外觀相近但其實不同')
+  })
+
   it('沒有最近名稱時仍能組出 prompt', () => {
     expect(buildPhotoEstimatePrompt([])).toContain('JSON')
   })

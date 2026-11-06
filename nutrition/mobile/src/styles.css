@@ -234,6 +234,7 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 
 .scope-choice { display: grid; gap: 4px; }
 .scope-choice small { color: var(--text-sub); font-size: 12px; margin-bottom: 8px; }
+.estimate-match-box { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--tint); color: var(--accent-strong); font-size: 13px; font-weight: 700; }
 
 .servings-stepper { display: flex; align-items: center; gap: 8px; }
 .servings-stepper input { flex: 1; text-align: center; }

@@ -66,7 +66,9 @@ export function buildPhotoEstimatePrompt(recentNames: readonly string[], scaleRe
   }
   if (recentNames.length > 0) {
     lines.push('')
-    lines.push(`使用者最近吃過的食物名稱（若照片就是其中之一，請沿用相同名稱）：${recentNames.join('、')}`)
+    // 這句會直接決定本機比對命中哪筆食物（`matchFoodItem` 是名稱全等）。舊版只寫「若是其中之一
+    // 請沿用」，owner 2026-11-06 吃仙草奶凍，模型就往清單裡長得最像的豆花靠。
+    lines.push(`使用者最近吃過的食物名稱（確定是同一種食物才沿用相同名稱；外觀相近但其實不同的食物，請寫它實際的名稱）：${recentNames.join('、')}`)
   }
   lines.push('')
   lines.push('只回傳 JSON，不要有其他文字。格式如下（欄位名稱與大小寫必須完全一致）：')
