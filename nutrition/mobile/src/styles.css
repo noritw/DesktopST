@@ -234,7 +234,14 @@ label input, label select, label textarea { margin-top: 0; font-weight: 400; }
 
 .scope-choice { display: grid; gap: 4px; }
 .scope-choice small { color: var(--text-sub); font-size: 12px; margin-bottom: 8px; }
-.estimate-match-box { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--tint); color: var(--accent-strong); font-size: 13px; font-weight: 700; }
+/* 拍照估算結果頁：食物庫候選與「只改今天」 */
+.estimate-section-title { font-size: 14px !important; color: var(--accent-strong) !important; }
+.estimate-picked { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); }
+.estimate-change { flex-shrink: 0; }
+.estimate-compare { margin: 0; display: block !important; font-size: 13px; color: var(--accent-strong); font-weight: 700; line-height: 1.6; }
+.estimate-today { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.estimate-today label { display: grid; gap: 4px; font-size: 12px; color: var(--text-sub); }
+.estimate-today input { min-width: 0; }
 
 .servings-stepper { display: flex; align-items: center; gap: 8px; }
 .servings-stepper input { flex: 1; text-align: center; }

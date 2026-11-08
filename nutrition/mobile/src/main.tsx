@@ -22,6 +22,7 @@ import {
   foodPhotoKey,
   foodUsageOf,
   listRangeDates,
+  findEstimateCandidates,
   matchFoodItem,
   matchFoodKeyword,
   mealPhotoKey,
@@ -655,7 +656,14 @@ function App(): React.JSX.Element {
   const [llmSettings, setLlmSettings] = React.useState<NutritionLlmSettings>(DEFAULT_LLM_SETTINGS)
   const [estimatePhase, setEstimatePhase] = React.useState<'idle' | 'noteInput' | 'loading' | 'result' | 'error'>('idle')
   const [estimateResult, setEstimateResult] = React.useState<PhotoEstimateResult | null>(null)
+  /** 使用者在結果頁**自己選**的食物庫項目；null＝還沒選或選了「都不是」。程式不替他選。 */
   const [estimateMatchedFood, setEstimateMatchedFood] = React.useState<FoodItem | null>(null)
+  /** 「食物庫裡可能是」清單（`findEstimateCandidates`），同名不同店都列出來給人挑。 */
+  const [estimateCandidates, setEstimateCandidates] = React.useState<FoodItem[]>([])
+  const [estimateCandidateQuery, setEstimateCandidateQuery] = React.useState('')
+  /** 選了食物庫項目後「今天這筆」的數字，預填 AI 估的值，存檔時寫進 MealLog.override。 */
+  const [estimateTodayKcal, setEstimateTodayKcal] = React.useState('')
+  const [estimateTodayProtein, setEstimateTodayProtein] = React.useState('')
   const [estimatePhotoBytes, setEstimatePhotoBytes] = React.useState<Uint8Array[]>([])
   const [estimateError, setEstimateError] = React.useState<string | null>(null)
   /**
@@ -1863,6 +1871,10 @@ function App(): React.JSX.Element {
     setEstimatePhase('idle')
     setEstimateResult(null)
     setEstimateMatchedFood(null)
+    setEstimateCandidates([])
+    setEstimateCandidateQuery('')
+    setEstimateTodayKcal('')
+    setEstimateTodayProtein('')
     setEstimatePhotoBytes([])
     setEstimateError(null)
     setEstimateSelectedFiles([])
@@ -2002,8 +2014,15 @@ function App(): React.JSX.Element {
       // 草稿模式（新增食物表單叫出來的）例外：那筆「食物」根本還沒存在，本質上還是
       // 「這是不是我已經有的食物」的判斷，跟全新估算一樣需要比對。
       const shouldMatchExisting = (!estimateTargetFoodId || estimateTargetIsDraft) && result.name
-      const candidates = shouldMatchExisting ? matchFoodItem(result.name!, result.brand, snapshot?.foodItems ?? []) : []
-      setEstimateMatchedFood(candidates.length === 1 ? candidates[0] : null)
+      const candidates = shouldMatchExisting
+        ? findEstimateCandidates(result.name, result.brand, snapshot?.foodItems ?? [], snapshot?.mealLogs ?? [])
+        : []
+      setEstimateCandidates(candidates)
+      setEstimateCandidateQuery('')
+      // 補充說明重算時，已經選好的店家不要被洗掉（選擇是使用者的，重算只更新 AI 的數字）。
+      setEstimateMatchedFood((prev) => (prev && snapshot?.foodItems.some((item) => item.id === prev.id) ? prev : null))
+      setEstimateTodayKcal(result.perServing ? String(result.perServing.kcal) : '')
+      setEstimateTodayProtein(result.perServing ? String(result.perServing.proteinG) : '')
       setEstimateResult(result)
       setEstimatePhase('result')
     } catch (error) {
@@ -2030,8 +2049,42 @@ function App(): React.JSX.Element {
     await runEstimateRequest(combinedNote)
   }
 
-  /** 「存入」：一顆按鈕完成兩筆寫入，不讓使用者選要不要建食物庫（§2.2）。 */
-  function saveEstimateResult(): void {
+  /**
+   * 結果頁選了（或取消選）食物庫項目。「今天這筆」的數字預填 AI 估的；AI 沒估出數字時
+   * 退回食物庫的值，至少不是空白。
+   */
+  function selectEstimateCandidate(foodItem: FoodItem | null): void {
+    setEstimateMatchedFood(foodItem)
+    if (!foodItem) return
+    const perServing = estimateResult?.perServing ?? foodItem.perServing
+    setEstimateTodayKcal(String(perServing.kcal))
+    setEstimateTodayProtein(String(perServing.proteinG))
+  }
+
+  /** 「今天這筆」兩格的數字；填錯（空白、負數、非數字）回 null，按鈕就按不下去。 */
+  function parseEstimateToday(): { kcal: number; proteinG: number } | null {
+    const kcal = Number(estimateTodayKcal)
+    const proteinG = Number(estimateTodayProtein)
+    if (!estimateTodayKcal.trim() || !estimateTodayProtein.trim()) return null
+    if (!Number.isFinite(kcal) || !Number.isFinite(proteinG) || kcal < 0 || proteinG < 0) return null
+    return { kcal, proteinG }
+  }
+
+  /** 選了食物庫項目、但今天的數字跟食物庫不同時，只存在這一筆紀錄上（MealLog.override）。 */
+  function saveEstimateWithTodayValues(): void {
+    const today = parseEstimateToday()
+    const matchedFood = estimateMatchedFood
+    if (!today || !matchedFood) return
+    // 跟食物庫一模一樣就不要留 override——留了會讓這筆看起來「被改過」，之後改食物庫也不會跟著變。
+    const sameAsLibrary = today.kcal === matchedFood.perServing.kcal && today.proteinG === matchedFood.perServing.proteinG
+    saveEstimateResult(sameAsLibrary ? undefined : today)
+  }
+
+  /**
+   * 「存入」：一顆按鈕完成兩筆寫入，不讓使用者選要不要建食物庫（§2.2）。
+   * `override` 只在使用者選了食物庫項目、並選擇「只改今天」時才會帶；食物庫主檔永遠不動。
+   */
+  function saveEstimateResult(override?: MealLog['override']): void {
     if (!estimateResult) return
     const result = estimateResult
     const matchedFood = estimateMatchedFood
@@ -2066,7 +2119,8 @@ function App(): React.JSX.Element {
         eatenAtSource: 'now',
         servings: result.servings ?? 1,
         photoKeys,
-        mealPhotoKey: mealPhotoKeyValue
+        mealPhotoKey: mealPhotoKeyValue,
+        override: matchedFood ? override : undefined
       })
       if (foodItem) await session.saveFoodItem(foodItem)
       await session.saveMealLog(mealLog)
@@ -2080,8 +2134,9 @@ function App(): React.JSX.Element {
   async function openFoodFormFromEstimate(): Promise<void> {
     if (!estimateResult) return
     const result = estimateResult
-    // 命中食物庫卻走到這裡，代表使用者說「不是這個」，AI 的名稱正是認錯的那個，不帶進表單。
-    const rejectedMatch = estimateMatchedFood !== null
+    // AI 給的名稱跟食物庫某筆完全同名卻走到這裡，代表使用者說「都不是」，
+    // 那個名稱正是認錯的那個，不帶進表單（不然會長出一筆同名的重複食物）。
+    const rejectedMatch = matchFoodItem(result.name ?? '', null, snapshot?.foodItems ?? []).length > 0
     const id = `food-${Date.now()}`
     setEditingFoodId(id)
     setIsNewFood(true)
@@ -3344,6 +3399,28 @@ function App(): React.JSX.Element {
   }
 
   if (view === 'photoEstimate') {
+    const candidateIds = new Set(estimateCandidates.map((item) => item.id))
+    // 搜尋是給「AI 的叫法跟食物庫不一樣」用的（候選只會找名稱含 AI 那幾個字的）。
+    const estimateSearchResults = estimateCandidateQuery.trim()
+      ? matchFoodKeyword(estimateCandidateQuery, snapshot.foodItems, snapshot.mealLogs)
+        .map((match) => match.foodItem)
+        .filter((item) => !candidateIds.has(item.id))
+        .slice(0, 8)
+      : []
+    const estimateToday = parseEstimateToday()
+    const renderEstimateOption = (item: FoodItem) => (
+      <button type="button" className="food-option" key={item.id} disabled={saving} onClick={() => selectEstimateCandidate(item)}>
+        <span className="food-option-name">
+          <strong>{item.name}</strong>
+          <small>{[item.brand, item.flavor].filter(Boolean).join(' · ') || '沒有填店家'}</small>
+          <small>{usageText(foodUsageOf(foodUsage, item.id))}</small>
+        </span>
+        <span className="food-option-stats">
+          <small className="food-option-macro">{item.perServing.kcal} kcal</small>
+          <small className="food-option-macro">{item.perServing.proteinG} g 蛋白</small>
+        </span>
+      </button>
+    )
     return (
       <main className="shell">
         <Header title="拍照記錄" onBack={discardEstimate} />
@@ -3430,13 +3507,6 @@ function App(): React.JSX.Element {
                 <span className="tag-chip">{estimateResult.nutritionSource === 'label' ? '依營養標示' : estimateResult.nutritionSource === 'label-partial' ? '標示不完整' : 'AI 估算'}</span>
               </p>
               {estimateResult.confidence === 'low' && <small className="hint">不太確定，存入後可到食物庫修改</small>}
-              {/* 名稱相同不代表是同一種食物（AI 可能認錯），一律讓使用者看過兩邊的數字再決定，不替他套用。 */}
-              {estimateMatchedFood && (
-                <p className="estimate-match-box">
-                  食物庫有「{estimateMatchedFood.name}{estimateMatchedFood.brand ? `（${estimateMatchedFood.brand}）` : ''}」：
-                  {estimateMatchedFood.perServing.kcal} kcal · 蛋白 {estimateMatchedFood.perServing.proteinG} g。這是同一種食物嗎？
-                </p>
-              )}
               {/* 份量與判斷依據：數字偏高時這兩行才看得出是哪一步估錯（通常是份量，不是熱量密度）。 */}
               {estimateResult.estimatedWeightG !== null && (
                 <small className="hint">
@@ -3453,13 +3523,52 @@ function App(): React.JSX.Element {
                     <button type="button" className="primary" disabled={saving} onClick={applyEstimateToFoodItem}>更新這筆食物庫資料</button>
                   )
                 ) : estimateMatchedFood ? (
+                  /* 選好店家：並列兩邊的數字，今天這筆要用哪個由使用者決定。
+                     刻意不放「更新食物庫」——豆花被洗掉就是在這種情境改到共用那筆（2026-11-06）。 */
                   <>
-                    <button type="button" className="primary" disabled={saving} onClick={saveEstimateResult}>是，沿用「{estimateMatchedFood.name}」存入</button>
-                    <button type="button" disabled={saving} onClick={() => void openFoodFormFromEstimate()}>不是，建立新食物</button>
+                    <div className="estimate-picked">
+                      <span className="food-option-name">
+                        <strong>{estimateMatchedFood.name}</strong>
+                        <small>{[estimateMatchedFood.brand, estimateMatchedFood.flavor].filter(Boolean).join(' · ') || '沒有填店家'}</small>
+                      </span>
+                      <button type="button" className="estimate-change" disabled={saving} onClick={() => selectEstimateCandidate(null)}>換一個</button>
+                    </div>
+                    <p className="estimate-compare">
+                      食物庫 {estimateMatchedFood.perServing.kcal} kcal · 蛋白 {estimateMatchedFood.perServing.proteinG} g
+                      <br />這次 AI 估 {estimateResult.perServing?.kcal ?? '？'} kcal · 蛋白 {estimateResult.perServing?.proteinG ?? '？'} g
+                    </p>
+                    <button type="button" className="primary" disabled={saving} onClick={() => saveEstimateResult()}>用食物庫的數字存入</button>
+                    <small>跟平常一樣，就用食物庫的</small>
+                    <div className="estimate-today">
+                      <label>今天的熱量（kcal）<input value={estimateTodayKcal} onChange={(event) => setEstimateTodayKcal(event.target.value)} inputMode="decimal" /></label>
+                      <label>今天的蛋白質（g）<input value={estimateTodayProtein} onChange={(event) => setEstimateTodayProtein(event.target.value)} inputMode="decimal" /></label>
+                    </div>
+                    <button type="button" disabled={saving || !estimateToday} onClick={saveEstimateWithTodayValues}>用上面的數字存入（只改今天）</button>
+                    <small>預填的是 AI 這次估的，可以自己改；只存在今天這筆，食物庫不會變。碳水、脂肪等其他欄位仍用食物庫的值。</small>
                   </>
                 ) : (
                   <>
-                    <button type="button" className="primary" disabled={saving} onClick={saveEstimateResult}>存入</button>
+                    {estimateCandidates.length > 0 && (
+                      <>
+                        <strong className="estimate-section-title">食物庫裡可能是（點一下選店家）</strong>
+                        <div className="food-options">{estimateCandidates.map(renderEstimateOption)}</div>
+                      </>
+                    )}
+                    <input
+                      value={estimateCandidateQuery}
+                      onChange={(event) => setEstimateCandidateQuery(event.target.value)}
+                      placeholder={estimateCandidates.length > 0 ? '不在上面？搜尋食物庫' : '在食物庫裡？搜尋看看'}
+                    />
+                    {estimateCandidateQuery.trim() && (
+                      estimateSearchResults.length > 0
+                        ? <div className="food-options">{estimateSearchResults.map(renderEstimateOption)}</div>
+                        : <small>找不到符合的食物</small>
+                    )}
+                    {estimateCandidates.length > 0 || estimateCandidateQuery.trim() ? (
+                      <button type="button" disabled={saving} onClick={() => saveEstimateResult()}>都不是，存成新食物</button>
+                    ) : (
+                      <button type="button" className="primary" disabled={saving} onClick={() => saveEstimateResult()}>存入</button>
+                    )}
                     <button type="button" disabled={saving} onClick={() => void openFoodFormFromEstimate()}>不對，我改</button>
                   </>
                 )}

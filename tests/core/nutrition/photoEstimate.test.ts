@@ -5,8 +5,10 @@ import {
   buildPhotoEstimatePrompt,
   canAddAnotherFoodSlot,
   checkRequestCompatibility,
+  ESTIMATE_CANDIDATE_LIMIT,
   estimateRequestCost,
   findDuplicateLog,
+  findEstimateCandidates,
   formatServings,
   hashPhoto,
   matchFoodItem,
@@ -255,6 +257,80 @@ describe('applyEstimateToEntries', () => {
       servings: 1
     })
     expect(created?.source).toBe('label')
+  })
+
+  it('只改今天：override 寫進這筆 MealLog，食物庫主檔不建也不動', () => {
+    const matched = foodItem({ id: 'food-existing', perServing: { kcal: 60, proteinG: 2 } })
+    const { foodItem: created, mealLog: log } = applyEstimateToEntries(baseResult, {
+      matchedFoodItem: matched,
+      newFoodItemId: 'food-unused',
+      newMealLogId: 'meal-new',
+      now: 1000,
+      eatenAt: 1000,
+      eatenAtSource: 'now',
+      servings: 1,
+      override: { kcal: 90, proteinG: 3 }
+    })
+    expect(created).toBeNull()
+    expect(log.foodItemId).toBe('food-existing')
+    expect(log.override).toEqual({ kcal: 90, proteinG: 3 })
+    expect(matched.perServing).toEqual({ kcal: 60, proteinG: 2 })
+  })
+
+  it('沒給 override 時不留空物件（否則畫面會以為這筆被改過）', () => {
+    const { mealLog: log } = applyEstimateToEntries(baseResult, {
+      matchedFoodItem: foodItem({ id: 'food-existing' }),
+      newFoodItemId: 'food-unused',
+      newMealLogId: 'meal-new',
+      now: 1000,
+      eatenAt: 1000,
+      eatenAtSource: 'now',
+      servings: 1
+    })
+    expect(log).not.toHaveProperty('override')
+  })
+})
+
+describe('findEstimateCandidates', () => {
+  const library = [
+    foodItem({ id: 'shop-a', name: '燙青菜', aliases: [], brand: '巷口麵店' }),
+    foodItem({ id: 'shop-b', name: '燙青菜', aliases: [], brand: '自助餐' }),
+    foodItem({ id: 'pork', name: '燙青菜（加肉燥）', aliases: [] }),
+    foodItem({ id: 'other', name: '滷肉飯', aliases: [] })
+  ]
+
+  it('同名不同店全部列出（舊版 2 筆以上就當沒命中、默默再建一筆的回歸測試）', () => {
+    const ids = findEstimateCandidates('燙青菜', null, library).map((f) => f.id)
+    expect(ids).toEqual(expect.arrayContaining(['shop-a', 'shop-b']))
+    expect(ids).not.toContain('other')
+  })
+
+  it('名稱全等的排在「含有」的前面', () => {
+    const ids = findEstimateCandidates('燙青菜', null, library).map((f) => f.id)
+    expect(ids.indexOf('pork')).toBeGreaterThan(ids.indexOf('shop-a'))
+    expect(ids.indexOf('pork')).toBeGreaterThan(ids.indexOf('shop-b'))
+  })
+
+  it('品牌只拿來排序、不過濾：AI 猜的店家排第一，其他店照樣列出', () => {
+    const ids = findEstimateCandidates('燙青菜', '自助餐', library).map((f) => f.id)
+    expect(ids[0]).toBe('shop-b')
+    expect(ids).toContain('shop-a')
+  })
+
+  it('同層依吃過的次數排', () => {
+    const logs = [
+      mealLog({ id: 'm1', foodItemId: 'shop-b' }),
+      mealLog({ id: 'm2', foodItemId: 'shop-b' }),
+      mealLog({ id: 'm3', foodItemId: 'shop-a' })
+    ]
+    expect(findEstimateCandidates('燙青菜', null, library, logs).map((f) => f.id).slice(0, 2)).toEqual(['shop-b', 'shop-a'])
+  })
+
+  it('最多列出上限筆數；名稱空白回空陣列', () => {
+    const many = Array.from({ length: 8 }, (_, i) => foodItem({ id: `f${i}`, name: '燙青菜', aliases: [] }))
+    expect(findEstimateCandidates('燙青菜', null, many)).toHaveLength(ESTIMATE_CANDIDATE_LIMIT)
+    expect(findEstimateCandidates('  ', null, library)).toEqual([])
+    expect(findEstimateCandidates(null, null, library)).toEqual([])
   })
 })
 

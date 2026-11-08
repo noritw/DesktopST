@@ -1,4 +1,5 @@
 import { sha1HexBytes } from '../util/sha1'
+import { deriveUsageMetricsFromMealLogs, matchFoodKeyword } from './keyword'
 import type { FoodItem, FoodItemPhotoKeys, FoodNutritionLabel, FoodNutritionPerServing, MealLog, NutritionLabelBasis } from './types'
 
 // ---------------------------------------------------------------------------
@@ -25,6 +26,47 @@ export function matchFoodItem(
     if (normalizedBrand && item.brand && normalizeText(item.brand) !== normalizedBrand) return false
     return true
   })
+}
+
+/** 拍照估算結果頁一次最多列幾筆食物庫候選，太多就變成在翻清單。 */
+export const ESTIMATE_CANDIDATE_LIMIT = 5
+
+/**
+ * 拍照估算結果頁的「食物庫裡可能是」清單，讓使用者自己挑是哪一家（owner 2026-11-07：
+ * 燙青菜有好幾家店，要先選店家再看 AI 估的熱量）。
+ *
+ * 跟 `matchFoodItem` 的差別：
+ * - **不拿品牌過濾**——同名不同店正是要列出來給人挑的；AI 從照片猜的店家只拿來排序。
+ * - 名稱全等的排前面，接著是名稱／別名「含有」AI 說的字（`matchFoodKeyword`）。
+ * - 同一層內依吃過的次數、最近一次吃的時間排。
+ *
+ * 舊版只在剛好命中 1 筆時才沿用，2 筆以上就當作沒命中、默默再建一筆——
+ * 越常吃的東西食物庫越容易重複。這支回傳的清單永遠只是「候選」，選不選由使用者決定。
+ */
+export function findEstimateCandidates(
+  name: string | null | undefined,
+  brand: string | null | undefined,
+  library: readonly FoodItem[],
+  mealLogs: readonly MealLog[] = [],
+  limit = ESTIMATE_CANDIDATE_LIMIT
+): FoodItem[] {
+  if (!name || !normalizeText(name)) return []
+  const normalizedBrand = brand ? normalizeText(brand) : undefined
+  const logs = [...mealLogs]
+  const usage = new Map(library.map((item) => [item.id, deriveUsageMetricsFromMealLogs(item.id, logs)]))
+  const brandRank = (item: FoodItem): number =>
+    normalizedBrand && item.brand && normalizeText(item.brand) === normalizedBrand ? 1 : 0
+
+  const exact = matchFoodItem(name, null, library).sort((a, b) =>
+    brandRank(b) - brandRank(a)
+    || (usage.get(b.id)?.useCount ?? 0) - (usage.get(a.id)?.useCount ?? 0)
+    || (usage.get(b.id)?.lastEatenAt ?? 0) - (usage.get(a.id)?.lastEatenAt ?? 0)
+  )
+  const exactIds = new Set(exact.map((item) => item.id))
+  const partial = matchFoodKeyword(name, [...library], logs)
+    .map((match) => match.foodItem)
+    .filter((item) => !exactIds.has(item.id))
+  return [...exact, ...partial].slice(0, limit)
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +300,11 @@ export interface ApplyEstimateOptions {
   amountMode?: MealLog['amountMode']
   grams?: number
   estimatedCostMinor?: number
+  /**
+   * 只套在這一筆紀錄的數值（例如選了食物庫的店家，但今天的份量跟平常不同）。
+   * 食物庫主檔完全不動——拍照估算這條路刻意不提供「改食物庫」，那是食物編輯頁的事。
+   */
+  override?: MealLog['override']
 }
 
 export function applyEstimateToEntries(
@@ -313,6 +360,7 @@ export function applyEstimateToEntries(
   if (options.amountMode) mealLog.amountMode = options.amountMode
   if (options.grams !== undefined) mealLog.grams = options.grams
   if (options.estimatedCostMinor !== undefined) mealLog.estimatedCostMinor = options.estimatedCostMinor
+  if (options.override) mealLog.override = options.override
 
   return { foodItem, mealLog }
 }
