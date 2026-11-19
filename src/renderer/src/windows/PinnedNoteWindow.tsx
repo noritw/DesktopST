@@ -30,9 +30,25 @@ export default function PinnedNoteWindow() {
   })
   const [isEditingContent, setIsEditingContent] = useState(false)
   const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [focused, setFocused] = useState(() => document.hasFocus())
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
   const colorButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    const onFocus = (): void => setFocused(true)
+    const onBlur = (): void => {
+      setIsEditingContent(false)
+      setIsEditingTitle(false)
+      setFocused(false)
+    }
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [])
 
   useEffect(() => {
     const unsubUpdateContent = window.api.on('pinned-note:update-content', (payload) => {
@@ -111,79 +127,89 @@ export default function PinnedNoteWindow() {
       onMouseDownCapture={(e) => bringToFront(e)}
     >
       <div
-        className="drag-region flex items-center gap-1 px-2 py-1.5 shrink-0"
-        style={{ borderBottom: `1px solid ${dividerColor}` }}
+        className="drag-region flex items-center gap-1 px-2 shrink-0 transition-all overflow-hidden"
+        style={{
+          borderBottom: focused ? `1px solid ${dividerColor}` : '1px solid transparent',
+          height: focused ? 32 : 10,
+          paddingTop: focused ? 6 : 0,
+          paddingBottom: focused ? 6 : 0
+        }}
       >
-        <button
-          ref={colorButtonRef}
-          type="button"
-          className="no-drag w-5 h-5 flex items-center justify-center rounded-full transition-colors"
-          style={{ color: textColor, background: 'transparent' }}
-          onMouseEnter={event => { event.currentTarget.style.background = controlHoverBg }}
-          onMouseLeave={event => { event.currentTarget.style.background = 'transparent' }}
-          onClick={openColorMenu}
-          title="更換便利貼顏色"
-        >
-          <MonoIcon name="pin" className="w-3.5 h-3.5" />
-        </button>
+        {!focused && <div className="flex-1" />}
+        {focused && (
+          <>
+            <button
+              ref={colorButtonRef}
+              type="button"
+              className="no-drag w-5 h-5 flex items-center justify-center rounded-full transition-colors"
+              style={{ color: textColor, background: 'transparent' }}
+              onMouseEnter={event => { event.currentTarget.style.background = controlHoverBg }}
+              onMouseLeave={event => { event.currentTarget.style.background = 'transparent' }}
+              onClick={openColorMenu}
+              title="更換便利貼顏色"
+            >
+              <MonoIcon name="pin" className="w-3.5 h-3.5" />
+            </button>
 
-        {isEditingTitle || title ? (
-          isEditingTitle ? (
-            <input
-              ref={titleInputRef}
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  if (e.nativeEvent.isComposing) return
-                  e.preventDefault()
-                  void saveTitle(title)
+            {isEditingTitle || title ? (
+              isEditingTitle ? (
+                <input
+                  ref={titleInputRef}
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      if (e.nativeEvent.isComposing) return
+                      e.preventDefault()
+                      void saveTitle(title)
+                    }
+                    if (e.key === 'Escape') setIsEditingTitle(false)
+                  }}
+                  className="no-drag flex-1 min-w-0 text-xs font-semibold rounded px-1 outline-none border"
+                  style={{
+                    color: textColor,
+                    background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.65)',
+                    borderColor
+                  }}
+                  autoFocus
+                />
+              ) : (
+                <span className="flex-1 min-w-0 text-xs font-semibold truncate" style={{ color: textColor }}>
+                  {title}
+                </span>
+              )
+            ) : (
+              <div className="flex-1" />
+            )}
+
+            <button
+              type="button"
+              className="no-drag w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-colors"
+              style={{ borderColor, background: controlBg, color: textColor }}
+              onClick={() => {
+                if (isEditingTitle) {
+                  saveTitle(title)
+                } else {
+                  setIsEditingTitle(true)
+                  setTimeout(() => titleInputRef.current?.focus(), 0)
                 }
-                if (e.key === 'Escape') setIsEditingTitle(false)
               }}
-              className="no-drag flex-1 min-w-0 text-xs font-semibold rounded px-1 outline-none border"
-              style={{
-                color: textColor,
-                background: dark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.65)',
-                borderColor
-              }}
-              autoFocus
-            />
-          ) : (
-            <span className="flex-1 min-w-0 text-xs font-semibold truncate" style={{ color: textColor }}>
-              {title}
-            </span>
-          )
-        ) : (
-          <div className="flex-1" />
+              title={isEditingTitle ? '儲存標題 (Enter)' : title ? '編輯標題' : '新增標題'}
+            >
+              <MonoIcon name={isEditingTitle ? 'check' : 'edit'} className="w-2.5 h-2.5" />
+            </button>
+
+            <button
+              type="button"
+              className="no-drag w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-colors"
+              style={{ borderColor, background: controlBg, color: textColor }}
+              onClick={handleHide}
+              title="收起便利貼"
+            >
+              <MonoIcon name="close" className="w-2.5 h-2.5" />
+            </button>
+          </>
         )}
-
-        <button
-          type="button"
-          className="no-drag w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-colors"
-          style={{ borderColor, background: controlBg, color: textColor }}
-          onClick={() => {
-            if (isEditingTitle) {
-              saveTitle(title)
-            } else {
-              setIsEditingTitle(true)
-              setTimeout(() => titleInputRef.current?.focus(), 0)
-            }
-          }}
-          title={isEditingTitle ? '儲存標題 (Enter)' : title ? '編輯標題' : '新增標題'}
-        >
-          <MonoIcon name={isEditingTitle ? 'check' : 'edit'} className="w-2.5 h-2.5" />
-        </button>
-
-        <button
-          type="button"
-          className="no-drag w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-colors"
-          style={{ borderColor, background: controlBg, color: textColor }}
-          onClick={handleHide}
-          title="收起便利貼"
-        >
-          <MonoIcon name="close" className="w-2.5 h-2.5" />
-        </button>
       </div>
 
       <div className="relative flex-1 min-h-0 p-2 no-drag overflow-hidden">
@@ -251,7 +277,7 @@ export default function PinnedNoteWindow() {
           </div>
         ) : (
           <div
-            className="w-full h-full p-1 pb-7 leading-relaxed overflow-y-auto whitespace-pre-wrap break-words select-text"
+            className={`w-full h-full p-1 pb-7 leading-relaxed whitespace-pre-wrap break-words select-text ${focused ? 'overflow-y-auto' : 'overflow-hidden'}`}
             style={{ fontSize: effectiveFontSize, color: content ? textColor : secondaryTextColor, cursor: 'default' }}
             onDoubleClick={() => { setIsEditingContent(true); setTimeout(() => textareaRef.current?.focus(), 0) }}
             onContextMenu={e => { e.preventDefault(); setIsEditingContent(true); setTimeout(() => textareaRef.current?.focus(), 0) }}
@@ -260,7 +286,7 @@ export default function PinnedNoteWindow() {
             {content || <span className="opacity-70 italic">空白便利貼，雙擊開始編輯</span>}
           </div>
         )}
-        {!isEditingContent && (
+        {!isEditingContent && focused && (
           <button
             type="button"
             className="absolute right-2 bottom-2 w-6 h-6 rounded-full border flex items-center justify-center shrink-0 shadow-soft"
