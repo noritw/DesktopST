@@ -35,9 +35,22 @@ export default function PinnedNoteWindow() {
   const titleInputRef = useRef<HTMLInputElement>(null)
   const colorButtonRef = useRef<HTMLButtonElement>(null)
 
+  // 失焦時要把編輯中的內容／標題存檔，否則畫面顯示新字、磁碟仍是舊的，重開就消失
+  const editStateRef = useRef({ isEditingContent, isEditingTitle, content, title })
+  editStateRef.current = { isEditingContent, isEditingTitle, content, title }
+
   useEffect(() => {
     const onFocus = (): void => setFocused(true)
     const onBlur = (): void => {
+      const s = editStateRef.current
+      if (s.isEditingContent) {
+        window.api.invoke('pinned-note:update-content', noteId, s.content).catch(console.error)
+      }
+      if (s.isEditingTitle) {
+        const trimmed = s.title.trim()
+        setTitle(trimmed)
+        window.api.invoke('pinned-note:update-title', noteId, trimmed).catch(console.error)
+      }
       setIsEditingContent(false)
       setIsEditingTitle(false)
       setFocused(false)
