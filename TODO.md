@@ -590,6 +590,50 @@ WebView 自己的 fetch，而 Android WebView 會把 `User-Agent` 拔掉**
 FB `/share/p/…` 讀到全文）。
 只剩 FB 社團（摘要那條）沒在手機上試過，清單在 `docs/link-reader-plan.md` §10.6。
 
+## 2.12 Electron 34 → 45 升級（2026-10-22 評估，owner 決定延後，**未開工**）
+
+**為什麼要升**：目前裝的是 Electron 34.5.8（內建 Node 20），兩者都已停止維護，
+之後的安全漏洞都不會修。2026-10-21 Node.js 修補了 Brotli 解壓 RCE
+（CVE-2026-111497，High）等 10 個漏洞；DeST 主行程的連結閱讀／新聞會用
+Node `fetch` 抓任意網址並自動解壓 Brotli，正好是觸發面。目前只有 owner 自己在用、
+沒有野外利用報告，所以不急。手機版不受影響（用系統 WebView，不是 Electron）。
+
+**目標版本**：Electron 45（2026-10-20 穩定版，支援到 2027-04-27）。
+⚠️ **45.0.0 內建的是 Node 24.22.0，還沒修到**，要等內含 **Node ≥ 24.22.1** 的
+45.0.x 小版本出來再發布。程式碼改動在 45 主版本內都一樣，可以先改先測，
+等小版本出來只要改版號重打包（不會改兩次）。
+
+**第一階段：必改（小）**
+- [ ] `src/main/ipcHandlers.ts` 的 `clipboard.writeImage(image)`——Electron 44 重寫
+      clipboard，輔助函式移除，改用 `clipboard.write()`＋MIME（回 Promise）
+- [ ] `src/main/index.ts` 的 `protocol.registerFileProtocol('local', …)`——v25 起棄用，
+      改成 `protocol.handle` ＋ `net.fetch(file://…)`
+- [ ] `electron-builder`（25.1.8）／`electron-vite`（2.3.0）視情況一起升
+- 已確認不受影響：renderer 剪貼簿（已用 `navigator.clipboard`）、
+  `desktopCapturer.getSources`（主行程縮圖）、`appendSwitch('ignore-gpu-blocklist')`、
+  建置只打 x64（44 移除 ia32）、`contextIsolation`／`nodeIntegration` 設定
+- `nutrition/desktop` 共用根目錄 Electron，會一起升
+
+**第一階段：手動實測清單（自動測試抓不到）**
+- [ ] 透明角色視窗：透明背景、`setIgnoreMouseEvents` 點擊穿透、`setAlwaysOnTop`、
+      多螢幕座標（跨 11 個 Chromium 大版本，GPU 合成最可能出事；`logGpuDiagnostics` 看 log）
+- [ ] 截圖複製到剪貼簿
+- [ ] `local://` 圖片（頭像、表情）
+- [ ] 連結閱讀／新聞抓取（主行程 Node 20 → 24）
+- [ ] 一鍵更新整條流程（`portable` 版）
+- [ ] 食記桌面版開得起來
+- 小 UX 差異：43 起對話框沒給 `defaultPath` 時預設開「下載」
+
+**第二階段：safeStorage 改非同步（中，升到 45 後必做）**
+- 45 棄用同步的 `isEncryptionAvailable`／`encryptString`／`decryptString`，
+  **46 移除**（46 預定 2027-01-05；留在 45 的話最晚 2027-04 前要做完）
+- 舊密文可用 `decryptStringAsync()` 解開，使用者金鑰不會遺失
+- 難點：`core/adapters/secrets.ts` 刻意維持同步（`fileStore` 存檔鏈直接呼叫）。
+  建議比照手機 `initCapacitorSecrets()`：開機先非同步解密全部密文進快取；
+  輸入新金鑰的 IPC 先非同步加密、種進 `secureStore.ts` 的 `encCache`，core 介面不動。
+  呼叫端：`ipcHandlers`、`spotifyService`、`calendar/index`、`calendar/googleProvider`
+- ⚠️ CLAUDE.md §5「漏初始化會安靜地毀掉 API Key」同一類坑，要補「不會寫成空字串」的測試
+
 ## 3. 排程中／延後
 
 - [x] **B3 階段 7：正式 APK／散布** → ✅ **已完成**（2026-08-25）。owner 已
