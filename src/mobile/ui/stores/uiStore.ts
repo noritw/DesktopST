@@ -58,6 +58,8 @@ export type ViewKind =
   | 'widget-settings'
   /** 把 AI 服務設定（供應商／模型／端點／金鑰）匯出給食記 App，走 QR 或分享。 */
   | 'nutrition-export'
+  /** 陪伴同行（計步陪伴），獨立模式限定。 */
+  | 'walk'
   | 'theme-picker'
   | 'lorebook-editor'
   /** 遙控電腦（清單 H1–H11，B6）。只有 `capabilities.remoteControl` 為真時入口才會出現。 */

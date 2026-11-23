@@ -2,7 +2,7 @@ import { applyUtilitySettings, chatWithLLM } from '../llm'
 import { SECRET_PREFIX } from '../adapters'
 import type { AppSettings } from '../types'
 import { fetchCwaBackgroundWeather } from './cwa'
-import { buildWeatherTemplate, fetchWeather, type WeatherData, type WeatherDeps } from './providers'
+import { buildWeatherTemplate, fetchWeather, fetchWeatherOpenMeteo, type WeatherData, type WeatherDeps } from './providers'
 
 /**
  * 天氣快取。**程序記憶體，重開就沒了** —— 天氣本來就該重抓，不值得落地。
@@ -29,6 +29,27 @@ export function invalidateWeatherCache(): void {
 /** 供 UI 顯示「上次抓到什麼」。 */
 export function getCachedWeatherData(): { data: WeatherData; fetchedAt: number } | null {
   return cache ? { data: cache.data, fetchedAt: cache.fetchedAt } : null
+}
+
+let plainCache: { key: string; at: number; value: { description: string; temperatureC: number } } | null = null
+
+/**
+ * 只要「天氣狀況＋氣溫」、**不含地名**的現況（陪伴同行用）。
+ * 不走 CWA：那條給的是預報，這裡要的是現在。沒開天氣或抓不到就回 `null`。
+ */
+export async function getPlainCurrentWeather(
+  settings: AppSettings,
+  deps: WeatherDeps
+): Promise<{ description: string; temperatureC: number } | null> {
+  const w = settings.weather
+  if (!w?.enabled || !w.latitude || !w.longitude) return null
+  const key = `${w.latitude},${w.longitude}`
+  if (plainCache && plainCache.key === key && Date.now() - plainCache.at < CACHE_TTL) return plainCache.value
+  const data = await fetchWeatherOpenMeteo(deps, w.latitude, w.longitude)
+  if (!data) return null
+  const value = { description: data.description, temperatureC: data.temperatureC }
+  plainCache = { key, at: Date.now(), value }
+  return value
 }
 
 /** 拿得到可用的 CWA 金鑰就回傳，否則空字串。 */

@@ -384,6 +384,24 @@ export function speakMorningBriefing(deps: ProactiveSpeakDeps, injectionText: st
   return speakStandaloneReminder({ ...deps, reminder })
 }
 
+/**
+ * 陪伴同行（獨立模式、前景限定）：由指定角色講一段，走同一條發話管線。
+ * `allowOfflineFallback: false`：生成失敗就安靜略過，不要冒出「提醒」樣式的訊息，
+ * 也才分得出「真的講了」——步數要講成功才算用掉。
+ */
+export function speakWalkTogether(
+  deps: ProactiveSpeakDeps,
+  characterId: string,
+  injectionText: string
+): Promise<ReminderSpeakResult | null> {
+  const reminder: Reminder = {
+    ...buildVirtualReminder(`walk-together:${Date.now()}`, '陪伴同行', injectionText),
+    characterId,
+    allowOfflineFallback: false
+  }
+  return speakStandaloneReminder({ ...deps, reminder })
+}
+
 async function appendReminderMessage(
   opts: {
     events: LocalEventSource

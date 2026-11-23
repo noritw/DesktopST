@@ -20,6 +20,7 @@ export {
 } from './cwa'
 export {
   getCachedWeatherData,
+  getPlainCurrentWeather,
   getWeatherContextString,
   invalidateWeatherCache,
   polishWeatherDescription

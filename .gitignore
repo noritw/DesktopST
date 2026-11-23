@@ -45,6 +45,23 @@ assets/*.dstpack
 /android/app/src/main/*
 !/android/app/src/main/java
 !/android/app/src/main/AndroidManifest.xml
+# 陪伴同行的手寫資源（其餘 res 仍不進版控）
+!/android/app/src/main/res
+/android/app/src/main/res/*
+!/android/app/src/main/res/layout
+/android/app/src/main/res/layout/*
+!/android/app/src/main/res/layout/widget_walk.xml
+!/android/app/src/main/res/xml
+/android/app/src/main/res/xml/*
+!/android/app/src/main/res/xml/widget_walk_info.xml
+!/android/app/src/main/res/drawable
+/android/app/src/main/res/drawable/*
+!/android/app/src/main/res/drawable/bg_walk_widget.xml
+!/android/app/src/main/res/values
+/android/app/src/main/res/values/*
+!/android/app/src/main/res/values/walk_strings.xml
+# 並存測試版的名稱與圖示
+!/android/app/src/destTest
 /out/mobile/
 
 # 測試用 QR 圖（MobileST-*-test.bat 產生）

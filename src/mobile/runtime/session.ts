@@ -38,7 +38,7 @@ import { testLLMConnection } from '@core/llm'
 import { DataError } from '@core/data'
 import { resolveDisplayImagePath, type FaceCropRect } from '@core/character/displayImage'
 import { getFaceCrop as getFaceCropConfig, setFaceCrop as setFaceCropConfig, cropImageToFace } from './faceCropConfig'
-import { refreshWidgetCacheWith } from './widgetBridge'
+import { imageUrlToBytes, refreshWidgetCacheWith } from './widgetBridge'
 import { readWidgetConfig } from './widgetPins'
 import type {
   AppStateSnapshot,
@@ -92,10 +92,17 @@ import {
   speakStandaloneReminder,
   speakWeatherEvent,
   speakMorningBriefing,
+  speakWalkTogether,
   type ProactiveSpeakDeps,
   type ReminderSpeakResult
 } from './reminderSpeak'
 import { checkWeatherProactive } from './weatherProactive'
+import { isConversationTooRecent } from '@core/greeting'
+import { getPlainCurrentWeather } from '@core/weather'
+import { removeWalkCharacter } from '@core/walk'
+import { loadWalkSettings, speakWalk, syncWalk, updateWalkState, type WalkSpeakResult } from './walk'
+import { readWalkDays, writeWalkWidget } from './walkBridge'
+import { normalizeWidgetAppearance, resolveWidgetColors } from '@shared/widgetAppearance'
 import { resetMorningBriefingLaunchFlag, shouldTriggerMorningBriefingNow, triggerMorningBriefing } from './morningBriefing'
 import {
   initReminderScheduler,
@@ -1602,6 +1609,9 @@ export class StandaloneSession {
     if (this.characters.length <= 1) throw new DataError('conflict', 'last-character')
     this.characters = this.characters.filter((c) => c.id !== id)
     await this.adapters.storage.remove(keys.characterDirKey(id))
+    await updateWalkState(this.adapters.storage, (s) =>
+      s.byCharacter[id] ? removeWalkCharacter(s, id) : s
+    ).catch(() => {})
     this.settings.ui.desktopCharacters = this.settings.ui.desktopCharacters.filter(
       (d) => d.characterId !== id
     )
@@ -2280,8 +2290,75 @@ export class StandaloneSession {
       flushDeferredReminders()
       // 前景觸發不需要通知／小工具資訊（訊息本來就會直接顯示在畫面上），
       // 但跟 headless 走同一支函式——省一份平行邏輯。
-      void this.runProactiveGreetingsHeadless()
+      const walkSync = this.syncWalkNow().catch((e) => {
+        console.warn('[Walk] 讀取步數失敗:', e)
+        return false
+      })
+      const greeted = await this.runProactiveGreetingsHeadless()
+      // 一次開 App 最多講一則；散步只在前景講，headless 不會走到這裡
+      if ((await walkSync) && !greeted.notify && greeted.reason !== 'error') await this.speakWalkNow(false)
     })()
+  }
+
+  /** 讀步數、記帳、刷新計步小工具。回傳模組是否開啟；讀取失敗會擲例外。 */
+  async syncWalkNow(): Promise<boolean> {
+    try {
+      const companionIds = this.settings.ui.desktopCharacters.map((d) => d.characterId)
+      const state = await syncWalk({ storage: this.adapters.storage, companionIds, readDays: readWalkDays })
+      return state !== null
+    } finally {
+      await this.refreshWalkWidget().catch(() => {})
+    }
+  }
+
+  /** `manual`＝使用者按鈕觸發，不受門檻、間隔、次數限制。 */
+  async speakWalkNow(manual: boolean): Promise<WalkSpeakResult> {
+    const typing =
+      typeof document !== 'undefined' &&
+      document.activeElement instanceof HTMLTextAreaElement &&
+      document.activeElement.value.trim() !== ''
+    const companions = this.getState().presentCharacters.map((c) => ({ id: c.id, name: c.name, muted: !!c.muted }))
+    return speakWalk({
+      storage: this.adapters.storage,
+      companions,
+      busy: typing || isConversationTooRecent(this.lastUserMessageAt(), Date.now()),
+      manual,
+      getWeather: async () => {
+        const w = await getPlainCurrentWeather(this.settings, { http: this.adapters.http })
+        return w ? { ...w, kind: 'current' } : null
+      },
+      speak: async (id, prompt) => {
+        const r = await speakWalkTogether(this.proactiveSpeakDeps(), id, prompt)
+        if (r) this.refreshWidget()
+        return !!r
+      }
+    })
+  }
+
+  /** 把同行名單、頭像、配色交給原生計步小工具。 */
+  async refreshWalkWidget(): Promise<void> {
+    const settings = await loadWalkSettings(this.adapters.storage)
+    const present = this.getState().presentCharacters
+    const avatars: Uint8Array[] = []
+    if (settings.enabled) {
+      for (const c of present.slice(0, 3)) {
+        const url = await this.characterDisplayImageUrl(c.id, undefined).catch(() => null)
+        const bytes = url ? await imageUrlToBytes(url) : null
+        if (bytes) avatars.push(bytes)
+      }
+    }
+    const appearance = normalizeWidgetAppearance((await readWidgetConfig()).appearance)
+    await writeWalkWidget(this.adapters.storage, {
+      settings,
+      companionCount: present.length,
+      avatars,
+      colors: resolveWidgetColors(appearance, this.settings.ui.colorTheme ?? 'mint')
+    })
+  }
+
+  /** 陪伴同行設定頁讀寫用。 */
+  get walkStorage(): PlatformAdapters['storage'] {
+    return this.adapters.storage
   }
 
   /** `speakWeatherEvent`／`speakMorningBriefing` 共用的相依組裝。 */
@@ -2392,6 +2469,8 @@ export class StandaloneSession {
    */
   onAppBackgrounded(): void {
     void this.refreshReminderCache()
+    // 同行角色可能在這次使用中換過；只更新名單與頭像，不記帳
+    void this.refreshWalkWidget().catch(() => {})
     resetMorningBriefingLaunchFlag()
   }
 

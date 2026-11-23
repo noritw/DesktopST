@@ -121,6 +121,56 @@ function syncGradleVersion() {
 }
 
 syncSigningConfig()
+syncWalkGradle()
+
+/**
+ * 陪伴同行（docs/walk-together-design.md）：Health Connect 依賴、minSdk 26，
+ * 以及**並存測試版**的開關。測試版只有帶 `-PdestTest=1` 時才生效
+ * （`npm run apk:walk-test`），平常的 debug／release 建置完全不受影響。
+ */
+function syncWalkGradle() {
+  if (!fs.existsSync(gradlePath)) return
+
+  const varsPath = path.resolve(root, 'android', 'variables.gradle')
+  if (fs.existsSync(varsPath)) {
+    const vars = fs.readFileSync(varsPath, 'utf8')
+    const patched = vars.replace(/(minSdkVersion\s*=\s*)(\d+)/, (all, head, n) => (Number(n) < 26 ? `${head}26` : all))
+    if (patched !== vars) {
+      fs.writeFileSync(varsPath, patched, 'utf8')
+      console.log('[prepare-android] ✅ minSdkVersion 提高到 26（Health Connect 需要）')
+    }
+  }
+
+  let text = fs.readFileSync(gradlePath, 'utf8')
+  const before = text
+  if (!text.includes('androidx.health.connect:connect-client')) {
+    text +=
+      '\ndependencies {\n' +
+      "    implementation 'androidx.health.connect:connect-client:1.1.0'\n" +
+      "    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0'\n" +
+      '}\n'
+  }
+  if (!text.includes("hasProperty('destTest')")) {
+    text +=
+      "\nif (project.hasProperty('destTest')) {\n" +
+      '    android {\n' +
+      '        buildTypes {\n' +
+      '            debug {\n' +
+      '                applicationIdSuffix ".walktest"\n' +
+      '                versionNameSuffix "-walktest"\n' +
+      '            }\n' +
+      '        }\n' +
+      '        sourceSets {\n' +
+      "            debug { res.srcDirs += ['src/destTest/res'] }\n" +
+      '        }\n' +
+      '    }\n' +
+      '}\n'
+  }
+  if (text !== before) {
+    fs.writeFileSync(gradlePath, text, 'utf8')
+    console.log('[prepare-android] ✅ 已接上 Health Connect 依賴與測試版開關')
+  }
+}
 
 /**
  * 把正式簽章接進 `build.gradle`（`assembleRelease` 才會用到；`assembleDebug`

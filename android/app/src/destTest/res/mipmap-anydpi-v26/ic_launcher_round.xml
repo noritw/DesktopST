@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 刻意不給 monochrome：單色化後會跟正式版分不出來 -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/dest_test_icon_bg" />
+    <foreground android:drawable="@drawable/dest_test_icon_fg" />
+</adaptive-icon>

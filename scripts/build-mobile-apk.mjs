@@ -20,7 +20,10 @@ process.chdir(root)
 const jdk21 = 'C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.8-hotspot'
 const apkSrc = path.join(root, 'android', 'app', 'build', 'outputs', 'apk', 'debug', 'app-debug.apk')
 const outDir = path.join(root, 'out', 'apk')
-const apkDst = path.join(outDir, 'DeST-debug.apk')
+// `--walk-test`：與正式版並存的測試版（套件名 tw.nori.dest.walktest、名稱「DeST 測試」、
+// 圖示有 TEST 標記）。不會碰到手機上的正式版與它的資料。
+const walkTest = process.argv.includes('--walk-test')
+const apkDst = path.join(outDir, walkTest ? 'DeST-walktest.apk' : 'DeST-debug.apk')
 
 function fail(msg, code = 1) {
   console.error(msg)
@@ -69,7 +72,7 @@ console.log('[3/4] gradlew assembleDebug ...')
 // ⚠️ 裸檔名在有些機器會找不到：Windows 的 NoDefaultCurrentDirectoryInExePath=1
 // （安全性設定）會關掉 cmd.exe 用 cwd 找可執行檔的行為，`shell:true` 底下
 // 跑 'gradlew.bat' 就會回「不是內部或外部命令」，即使 cwd 設對了。用絕對路徑繞過。
-run(path.join(root, 'android', 'gradlew.bat'), ['assembleDebug'], {
+run(path.join(root, 'android', 'gradlew.bat'), walkTest ? ['assembleDebug', '-PdestTest=1'] : ['assembleDebug'], {
   cwd: path.join(root, 'android'),
   env,
   shell: true

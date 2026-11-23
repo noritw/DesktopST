@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 並存測試版：只有 -PdestTest=1 時才會套用 -->
+<resources>
+    <string name="app_name">DeST 測試</string>
+    <string name="title_activity_main">DeST 測試</string>
+    <string name="custom_url_scheme">tw.nori.dest.walktest</string>
+    <string name="walk_widget_label">陪伴同行（測試）</string>
+    <color name="dest_test_icon_bg">#FF7A3D</color>
+</resources>

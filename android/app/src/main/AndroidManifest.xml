@@ -102,7 +102,49 @@
             android:name=".weather.WeatherForegroundService"
             android:exported="false"
             android:foregroundServiceType="shortService" />
+
+        <!-- 陪伴同行：計步小工具與 Health Connect 的用途說明頁（docs/walk-together-design.md） -->
+        <receiver
+            android:name=".walk.WalkWidgetProvider"
+            android:label="@string/walk_widget_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_walk_info" />
+        </receiver>
+
+        <!-- Android 13 以下由 Health Connect App 呼叫；14 以上走下面的 alias -->
+        <activity
+            android:name=".walk.WalkRationaleActivity"
+            android:label="@string/walk_widget_label"
+            android:theme="@style/AppTheme"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+        <activity-alias
+            android:name=".walk.WalkPermissionUsage"
+            android:exported="true"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE"
+            android:targetActivity=".walk.WalkRationaleActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
     </application>
+
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+    </queries>
 
     <!-- Permissions -->
 
@@ -135,4 +177,8 @@
         所以必須寫在這裡（Capacitor 8 實測如此）。
     -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- 陪伴同行：只讀步數；背景讀取是給小工具更新用，使用者可以不給 -->
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
 </manifest>

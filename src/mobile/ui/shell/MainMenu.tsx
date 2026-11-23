@@ -40,6 +40,8 @@ const ITEMS: MenuItemDef[] = [
   { kind: 'presets', icon: 'folder', label: '情境與設定組', hint: '情境、使用者設定、世界觀、用語解說' },
   { kind: 'news', icon: 'news', label: '個人新聞報', hint: '批次看新聞、釘選，挑一則跟角色聊' },
   { kind: 'reminders', icon: 'alarm', label: '提醒', hint: '設定時間，讓角色主動開口提醒你' },
+  // 計步只有獨立模式：步數與里程都在這支手機上。
+  { kind: 'walk', icon: 'users', label: '陪伴同行', hint: '你走多遠，角色就陪你走多遠' },
   { kind: 'theme-picker', icon: 'palette', label: '色彩主題', hint: '換一組配色，會同步到所有裝置' },
   // 桌面小工具：只有原生殼（APK）才有小工具這個東西，網頁版下面用 `.filter()` 拿掉。
   { kind: 'widget-settings', icon: 'pin', label: '桌面小工具', hint: '預覽小工具內容、管理釘選的對白' },
@@ -60,7 +62,7 @@ export function MainMenu(): JSX.Element {
     // 小工具是 Android 主畫面的東西，網頁版沒有可以設定的對象。
     if (item.kind === 'widget-settings') return Capacitor.isNativePlatform()
     // 遙控模式下金鑰屬於電腦，exportLlmForNutrition 會直接擲 not-supported。
-    if (item.kind === 'nutrition-export') return standalone
+    if (item.kind === 'nutrition-export' || item.kind === 'walk') return standalone
     return true
   })
 

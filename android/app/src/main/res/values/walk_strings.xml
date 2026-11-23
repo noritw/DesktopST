@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="walk_widget_label">陪伴同行</string>
+    <string name="walk_widget_description">今日步數與陪你走的角色</string>
+    <string name="walk_widget_refresh">重新讀取步數</string>
+    <string name="walk_widget_steps">%1$s 步</string>
+    <string name="walk_widget_distance">約 %1$s 公里</string>
+    <string name="walk_widget_updated">更新於 %1$s</string>
+    <string name="walk_widget_failed">更新失敗（上次 %1$s）</string>
+    <string name="walk_widget_disabled">尚未開啟「陪伴同行」</string>
+    <string name="walk_widget_unsupported">這支手機無法計步</string>
+    <string name="walk_widget_no_permission">點此授權讀取步數</string>
+    <string name="walk_widget_waiting">等待更新</string>
+    <string name="walk_widget_open_app">開啟 App 更新</string>
+    <string name="walk_rationale">陪伴同行：為什麼需要步數\n\nDeST 會讀取你的步數，換算成大約的距離，讓角色知道你們一起走了多遠，並顯示在桌面小工具。\n\n• 步數與里程只存在這支手機，DeST 沒有伺服器。\n• 只讀取步數，不寫入任何健康資料。\n• 背景讀取只用來更新桌面小工具。\n• 角色回應時，會把大約的距離（以及你開啟的天氣）送到你自己設定的 AI 服務。\n\n你可以隨時在 App 內關閉此功能，或到 Health Connect 撤回權限。</string>
+</resources>

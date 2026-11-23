@@ -78,7 +78,7 @@ export interface WidgetDataProvider {
  * 套用 faceCrop 之後也是）也可能是 `blob:`（遙控模式沒有 faceCrop 時，見
  * `remoteDataSource.ts`）——兩種都要能轉成位元組。
  */
-async function imageUrlToBytes(url: string): Promise<Uint8Array | null> {
+export async function imageUrlToBytes(url: string): Promise<Uint8Array | null> {
   try {
     if (url.startsWith('data:')) {
       const comma = url.indexOf(',')
