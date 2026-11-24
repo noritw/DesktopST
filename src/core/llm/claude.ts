@@ -40,6 +40,16 @@ function imageToClaudePart(imgRef: string): ClaudeContentBlock {
   )
 }
 
+/**
+ * 輔助呼叫時關掉思考。Haiku 5.5 預設開思考，會把情緒分類那種 20 tokens 的預算吃光、正文回空字串。
+ *
+ * **刻意只列 Haiku 5.5**：Fable 5.x／Opus 5.5／Sonnet 5.5 收到 `disabled` 會直接 400，
+ * 舊型號則本來就不會自動思考。
+ */
+export function claudeUtilityThinkingParams(model: string): { thinking?: { type: 'disabled' } } {
+  return /^claude-haiku-5-5(-|$)/.test(model) ? { thinking: { type: 'disabled' } } : {}
+}
+
 export async function chatWithClaude(params: ChatLLMParams, deps: LLMDeps): Promise<ChatLLMResult> {
   const { settings, character, messages, images, speakerNameById, persona, world } = params
   const model = resolveModel(settings)
@@ -142,7 +152,8 @@ export async function chatWithClaude(params: ChatLLMParams, deps: LLMDeps): Prom
     model,
     max_tokens: settings.llm.maxResponseTokens * 3,
     system: systemPrompt,
-    messages: claudeMessages as Anthropic.MessageParam[]
+    messages: claudeMessages as Anthropic.MessageParam[],
+    ...(settings.llm.isUtilityCall ? claudeUtilityThinkingParams(model) : {})
   }
 
   let response: Anthropic.Message

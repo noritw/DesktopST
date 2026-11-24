@@ -1,5 +1,5 @@
 import { chatWithOpenAI } from './openai'
-import { chatWithClaude } from './claude'
+import { chatWithClaude, claudeUtilityThinkingParams } from './claude'
 import { chatWithGemini } from './gemini'
 import {
   buildEmotionClassifierSystemPrompt, buildEmotionIdList, buildNewsSubjectivityClassifierSystemPrompt, applyUtilitySettings,
@@ -189,6 +189,7 @@ export async function classifyEmotionWithLLM(params: {
       const resp = await client.messages.create({
         model,
         max_tokens: 20,
+        ...claudeUtilityThinkingParams(model),
         system: systemPrompt,
         messages: [{ role: 'user', content: reply }]
       }, { signal })
@@ -294,6 +295,7 @@ export async function classifyNewsSubjectivityWithLLM(params: {
       const resp = await client.messages.create({
         model,
         max_tokens: 40,
+        ...claudeUtilityThinkingParams(model),
         system: systemPrompt,
         messages: [{ role: 'user', content: userContent }]
       })
@@ -428,6 +430,7 @@ export async function testLLMMessage(params: {
       const resp = await client.messages.create({
         model,
         max_tokens: 20,
+        ...claudeUtilityThinkingParams(model),
         messages: [{ role: 'user', content: 'Say "Hello!" in one word.' }]
       })
       const text = resp.content.filter(b => b.type === 'text').map(b => (b as any).text).join('').trim()

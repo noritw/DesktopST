@@ -6,12 +6,16 @@
  * 只有 Org Owner 能在 data sharing 設定頁開關此選項。
  *
  * 清單為官方文件截錄，OpenAI 更新政策時請對照下列連結手動同步。
- * 最後同步：2026-09-14（逐條對過官方說明頁，兩組清單皆與官方一致，無異動）
+ * 最後同步：2026-11-24（新增 GPT-6 系列四款；官方頁仍列的已下架型號這裡不放）
  * @see https://help.openai.com/en/articles/10306912-sharing-feedback-evaluation-and-fine-tuning-data-and-api-inputs-and-outputs-with-openai
  */
 
 /** 每日 1M（Tier 1–2 為 250K）額度共用 — 與下方 10M 組分開計 */
 export const OPENAI_DATA_SHARING_INCENTIVE_1M_GROUP: string[] = [
+  'gpt-6.1-sol',
+  'gpt-6-astra',
+  'gpt-6-sol',
+  'gpt-6-luna',
   'gpt-5.6-sol',
   'gpt-5.5-2026-04-23',
   'gpt-5.4-2026-03-05',
@@ -22,12 +26,9 @@ export const OPENAI_DATA_SHARING_INCENTIVE_1M_GROUP: string[] = [
   'gpt-5-2025-08-07',
   'gpt-5-chat-latest',
   'gpt-4.1-2025-04-14',
-  'gpt-4o-2024-05-13',
   'gpt-4o-2024-08-06',
   'gpt-4o-2024-11-20',
-  'o3-2025-04-16',
-  'o1-preview-2024-09-12',
-  'o1-2024-12-17'
+  'o3-2025-04-16'
 ]
 
 /** 每日 10M（Tier 1–2 為 2.5M）額度共用 — 較輕量模型組 */
@@ -40,9 +41,6 @@ export const OPENAI_DATA_SHARING_INCENTIVE_10M_GROUP: string[] = [
   'gpt-5-mini-2025-08-07',
   'gpt-5-nano-2025-08-07',
   'gpt-4.1-mini-2025-04-14',
-  'gpt-4.1-nano-2025-04-14',
   'gpt-4o-mini-2024-07-18',
-  'o4-mini-2025-04-16',
-  'o1-mini-2024-09-12',
   'codex-mini-latest'
 ]

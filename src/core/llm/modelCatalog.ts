@@ -25,50 +25,61 @@ import type { LlmProvider } from '../data/types'
  */
 
 /** 模型清單與價格的人工同步日期（依各家官方定價頁） */
-export const MODEL_DATA_UPDATED = '2026-09-24'
+export const MODEL_DATA_UPDATED = '2026-11-24'
 
 /** 建議值：與官方目錄同步手動維護，或以帳戶可用的 `GET https://api.openai.com/v1/models` 為準 */
 export const OPENAI_MODELS = [
+  'gpt-6.2-astra', 'gpt-6.2-sol',
+  'gpt-6.1-sol', 'gpt-6.1-terra',
   'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna',
   'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
   'gpt-5.5', 'gpt-5.5-pro',
   'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano',
   'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.1',
+  // gpt-5／-pro／-mini／-nano 與 o3／o3-pro：官方 2026-12-11 關閉，之後要移除
   'gpt-5', 'gpt-5-pro', 'gpt-5-mini', 'gpt-5-nano',
-  'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
+  // gpt-4.1／4o 系列的快照 2027-01-14 關閉；gpt-5.4-nano、gpt-5.1 是 2027-04-01
+  'gpt-4.1', 'gpt-4.1-mini',
   'gpt-4o', 'gpt-4o-mini',
-  'o3', 'o3-pro', 'o4-mini', 'o1'
+  'o3', 'o3-pro'
 ]
 
 export const CLAUDE_MODELS = [
+  'claude-fable-5-2',
   'claude-fable-5-1',
   'claude-fable-5',
   'claude-opus-5-5',
   'claude-opus-5',
   'claude-opus-4-8',
+  'claude-sonnet-5-5',
   'claude-sonnet-5',
   'claude-opus-4-7',
   'claude-sonnet-4-6',
   'claude-opus-4-6',
+  'claude-haiku-5-5',
   'claude-haiku-4-5'
 ]
 
 /*
  * 2.5 系列已從清單移除：Google 對新帳戶關閉了這批模型，實測回
  * `404 This model models/gemini-2.5-flash-lite is no longer available to new users`。
+ * 3.5／3.7 Flash 也已移除：官方把端點分別轉到 3.6／3.8 Flash，選了等於選新版。
  * 價格表仍保留它們，讓舊訊息與手打的自訂 ID 還能顯示價格。
  */
 export const GEMINI_MODELS = [
+  'gemini-4-neon',
+  'gemini-4-carbon',
+  'gemini-4-argon',
+  'gemini-4-hydrogen',
   'gemini-3.8-flash',
-  'gemini-3.7-flash',
   'gemini-3.6-flash',
-  'gemini-3.5-flash',
   'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
   'gemini-3.1-pro-preview'
 ]
 
 export const GROK_MODELS = [
+  'grok-4.7',
   'grok-4.6',
   'grok-4.5',
   'grok-4.3',
@@ -94,8 +105,9 @@ export const MODELS_BY_PROVIDER: Record<LlmProvider, string[]> = {
 /**
  * 每家的預設模型（切換供應商時自動選這個）。
  *
- * **一律挑該家最便宜、且非高單價區的**。不要拿清單第一個當預設——
- * 清單是照新舊排的，Claude 的第一個是 `claude-fable-5-1`（$10/$50），
+ * **一律挑該家最便宜、且非高單價區的**（Claude 例外：Haiku 5.5 雖然更便宜，但預設開思考，
+ * 當主模型時思考會吃回覆預算，所以仍用 Haiku 4.5；當輔助模型時會自動關思考）。不要拿清單第一個當預設——
+ * 清單是照新舊排的，Claude 的第一個是 `claude-fable-5-2`（$8/$40），
  * 使用者切過去隨手聊兩句就會很痛。
  */
 export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProvider, string> = {
@@ -117,12 +129,16 @@ export const LOCAL_ENDPOINT_PRESETS: Array<{ label: string; url: string }> = [
 /** 每百萬 tokens 美金價（輸入, 輸出）；未列出的模型（如官方快照 ID、自訂 ID）不顯示價格 */
 export const MODEL_PRICES: Record<string, [number, number]> = {
   // OpenAI
+  // OpenAI 一律以 ≤272K 輸入的 Standard 價計
+  'gpt-6.2-astra': [8, 40],
+  'gpt-6.2-sol': [2, 10],
+  'gpt-6.1-sol': [2, 10],
+  'gpt-6.1-terra': [1, 5],
   'gpt-6-astra': [10, 50],
-  // GPT-6 Sol／Luna 2026-09-22 發布；GPT-6 Terra 尚未推出
   'gpt-6-sol': [2, 10],
   'gpt-6-luna': [0.1, 0.5],
-  // gpt-5.6-sol：$4/$20 是 OpenAI 標示「至少到 2026-11-21」的優惠價，原價 $5/$30
-  'gpt-5.6-sol': [4, 20],
+  // gpt-5.6-sol：2026-12-01 起恢復原價 $5/$30（優惠價 $4/$20 只到 11-30），直接列新價
+  'gpt-5.6-sol': [5, 30],
   'gpt-5.6-terra': [2, 12],
   'gpt-5.6-luna': [0.2, 1.2],
   'gpt-5.5': [5, 30],
@@ -148,19 +164,28 @@ export const MODEL_PRICES: Record<string, [number, number]> = {
   'o4-mini': [1.1, 4.4],
   'o1': [15, 60],
   // Anthropic Claude
+  'claude-fable-5-2': [8, 40],
   'claude-fable-5-1': [10, 50],
   'claude-fable-5': [10, 50],
   // claude-opus-5-5：思考無法關閉、不接受強制 tool_choice（本 app 兩者都沒送，不受影響）
   'claude-opus-5-5': [4, 20],
   'claude-opus-5': [5, 25],
   'claude-opus-4-8': [5, 25],
+  'claude-sonnet-5-5': [2, 10],
   // claude-sonnet-5：$2/$10 原是到 2026-08-31 的導入價，官方已宣布不調回 $3/$15
   'claude-sonnet-5': [2, 10],
   'claude-opus-4-7': [5, 25],
   'claude-sonnet-4-6': [3, 15],
   'claude-opus-4-6': [5, 25],
+  // claude-haiku-5-5：prompt ≤100K 的價格，超過為 $0.5/$2.5
+  'claude-haiku-5-5': [0.1, 0.5],
   'claude-haiku-4-5': [1, 5],
   // Google Gemini（長 prompt 分級價以 ≤200K tokens 計）
+  // 4 Carbon／Argon：2026-11-30 前優惠 $2/$10，12-01 起 $4/$20，直接列新價
+  'gemini-4-neon': [3, 15],
+  'gemini-4-carbon': [4, 20],
+  'gemini-4-argon': [4, 20],
+  'gemini-4-hydrogen': [1.5, 7.5],
   // 3.8／3.7／3.6 Flash 的 $0.75/$3.75 是官方標示「至 2026-12-31 有效」的價格，
   // 2027-01-01 之後可能調回 $1.5/$7.5，屆時要回來對一次
   'gemini-3.8-flash': [0.75, 3.75],
@@ -175,6 +200,7 @@ export const MODEL_PRICES: Record<string, [number, number]> = {
   'gemini-2.5-pro': [1.25, 10],
   // xAI Grok
   // xAI 200K 以上長 prompt 另有翻倍價，此處一律以 <200K 計
+  'grok-4.7': [2, 6],
   'grok-4.6': [2, 6],
   'grok-4.5': [2, 6],
   'grok-4.3': [1.25, 2.5],

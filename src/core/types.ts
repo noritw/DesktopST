@@ -472,6 +472,8 @@ export interface AppSettings {
     utilityProvider?: 'openai' | 'claude' | 'gemini' | 'grok' | 'local'
     /** 各供應商的輔助模型名稱 */
     utilityModels?: Record<string, string>
+    /** 執行期標記，只由 `applyUtilitySettings()` 的回傳值帶著；不寫進設定檔、不同步 */
+    isUtilityCall?: boolean
   }
   memory: {
     keepRecentN: number
