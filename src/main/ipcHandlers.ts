@@ -10,7 +10,8 @@ import { defaultProactiveWeatherSettings } from '../core/weather'
 import { MESSAGE_REACTION_EMOJIS } from './types'
 import * as fileStore from './fileStore'
 import { chatWithLLM, testLLMConnection, testLLMMessage, applyUtilitySettings, classifyEmotionWithLLM, classifyNewsSubjectivityWithLLM, generateLoreEntryForCharacter } from './llm/index'
-import { DEFAULT_MODEL_BY_PROVIDER } from '../core/llm/modelCatalog'
+import { DEFAULT_MODEL_BY_PROVIDER, modelPriceText } from '../core/llm/modelCatalog'
+import { applyRetiredModels, clearSwitched, markNotified, pendingRetirementNotices, replaceModel, retirementNoticeText, switchedNoticeText } from '../core/llm/modelRetirement'
 import { summarizeConversation, countUncoveredMessages, listSummarizableMessages } from './llm/summarizer'
 import { normalizeEmotion, buildEmotionIdList, parseEmotion, resolveModel, messageLlmMeta, hasUsableApiKey } from './llm/promptUtils'
 import { formatSystemTimeStamp } from '../core/prompt/systemTime'
@@ -1102,6 +1103,44 @@ export function setLlmProviderDirect(provider: string): { ok: true } | { error: 
   fileStore.saveSettings(settings)
   broadcastToAll('settings:updated', settings)
   return { ok: true }
+}
+
+/**
+ * 模型停用檢查：到期自動換、快到期跳通知（`core/llm/modelRetirement.ts`）。
+ * 開機與每 12 小時各跑一次——桌寵常常好幾天不關，不能只靠開機。
+ */
+let modelRetirementRunning = false
+export async function checkModelRetirement(): Promise<void> {
+  if (modelRetirementRunning) return
+  modelRetirementRunning = true
+  try {
+    const persist = (): void => {
+      fileStore.saveSettings(settings)
+      broadcastToAll('settings:updated', settings)
+    }
+    if (applyRetiredModels(settings.llm, Date.now())) persist()
+    const switched = switchedNoticeText(settings.llm)
+    if (switched) {
+      await dialog.showMessageBox({
+        type: 'info', title: switched.title, message: switched.title, detail: switched.message, buttons: ['知道了']
+      })
+      clearSwitched(settings.llm)
+      persist()
+    }
+    for (const n of pendingRetirementNotices(settings.llm, Date.now())) {
+      const t = retirementNoticeText(n, modelPriceText)
+      const { response } = await dialog.showMessageBox({
+        type: 'info', title: t.title, message: t.title, detail: t.message,
+        buttons: ['立即更換', '先不要'], defaultId: 0, cancelId: 1
+      })
+      // 對話框開著的期間使用者可能存過設定（`settings` 整個被換掉），所以這裡才取最新的
+      if (response === 0) replaceModel(settings.llm, n.provider, n.from, n.to)
+      markNotified(settings.llm, n)
+      persist()
+    }
+  } finally {
+    modelRetirementRunning = false
+  }
 }
 
 export function setLlmModelDirect(provider: string, model: string): { ok: true } | { error: string } {
@@ -4072,7 +4111,7 @@ export function registerIpcHandlers() {
     }
     const previousSettings = settings
     const prevLocationName = settings.weather?.locationName
-    settings = { ...s, llm: { ...s.llm, apiKeys: protectedApiKeys }, weather: protectedWeather, ui }
+    settings = { ...s, llm: { ...s.llm, apiKeys: protectedApiKeys, modelRetirement: settings.llm.modelRetirement }, weather: protectedWeather, ui }
     if (settings.weather?.locationName !== prevLocationName) invalidateWeatherCache()
     fileStore.saveSettings(settings)
     _applyMobileRuntimeSettingsFn?.(previousSettings, settings)

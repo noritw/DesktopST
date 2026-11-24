@@ -474,6 +474,13 @@ export interface AppSettings {
     utilityModels?: Record<string, string>
     /** 執行期標記，只由 `applyUtilitySettings()` 的回傳值帶著；不寫進設定檔、不同步 */
     isUtilityCall?: boolean
+    /** 模型停用通知的裝置本地狀態（`core/llm/modelRetirement.ts`），不同步 */
+    modelRetirement?: {
+      /** 已通知到哪個階段，key ＝ `provider:model:停用日` */
+      notified?: Record<string, 'early' | 'final'>
+      /** 已自動更換、還沒告訴使用者的 */
+      switched?: { from: string; to: string; slots: ('main' | 'utility')[] }[]
+    }
   }
   memory: {
     keepRecentN: number
@@ -672,7 +679,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     provider: 'openai',
     apiKey: '',
     apiKeys: { openai: '', claude: '', gemini: '', grok: '', local: '' },
-    model: 'gpt-5.4-nano-2026-03-17',
+    model: 'gpt-6-luna',
     endpoints: {},
     extraInstruction: '',
     maxResponseTokens: 360,

@@ -20,7 +20,7 @@ function deps(): Parameters<typeof hydrateSettings>[2] {
   return {
     secrets: { encrypt: (v: string) => v, decrypt: (v: string) => v, isAvailable: () => true },
     // 這幾支只在舊欄位遷移時才會被呼叫，本測試的輸入都不觸發
-    migrate: {} as Parameters<typeof hydrateSettings>[2]['migrate'],
+    migrate: { now: () => 0 } as unknown as Parameters<typeof hydrateSettings>[2]['migrate'],
     resolveRemoteControl: (rc) => ({
       enabled: false,
       allowedCapabilities: [],

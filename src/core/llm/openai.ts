@@ -34,6 +34,16 @@ function shouldOmitTemperature(model: string): boolean {
   return /^gpt-[5-9](\.|-|$)/i.test(model) || /^o\d/i.test(model)
 }
 
+/**
+ * 關掉 GPT 的思考（這幾款預設 `medium`，且官方支援 `none`；gpt-6.1-sol 不支援，不能送）。
+ *
+ * 短額度的輔助呼叫（情緒分類只有 20 tokens）不關的話，預算會被思考吃光、正文回空字串。
+ * 主對話只有 gpt-6-luna 關：它是預設模型，要維持便宜且不截斷回覆。
+ */
+export function openaiUtilityReasoningParams(provider: string, model: string): { reasoning?: { effort: 'none' } } {
+  return provider === 'openai' && /^gpt-(6-luna|6-sol|6\.1-terra)$/.test(model) ? { reasoning: { effort: 'none' } } : {}
+}
+
 function extractResponseText(resp: unknown): string {
   const anyResp = resp as { output_text?: string; output?: unknown[] }
   if (typeof anyResp?.output_text === 'string') return anyResp.output_text
@@ -112,6 +122,8 @@ export async function chatWithOpenAI(params: ChatLLMParams, deps: LLMDeps): Prom
     // 思考模型會把 max_output_tokens 全花在 reasoning 上、正文回空字串，
     // 下面的空回應檢查就會丟出根因不明的錯誤。見 index.ts 的 localReasoningParams()。
     body.reasoning = { effort: 'none' }
+  } else if (settings.llm.isUtilityCall || model === 'gpt-6-luna') {
+    Object.assign(body, openaiUtilityReasoningParams(settings.llm.provider, model))
   }
 
   const resp = await client.responses.create(body as any, { signal: params.signal })

@@ -15,6 +15,7 @@ import { DEFAULT_SETTINGS } from '../types'
 import type { SecretAdapter } from '../adapters'
 import { SECRET_PREFIX } from '../adapters'
 import { isPinnedNote, renameModelId, renameModelIdMap } from './normalize'
+import { applyRetiredModels } from '../llm/modelRetirement'
 import type { MigrateDeps } from './migrate'
 import { migrateLegacySettings, needsLegacyMigration } from './migrate'
 
@@ -136,6 +137,9 @@ export function hydrateSettings(
     }
   }
 
+  // 已到官方停用日的型號自動換掉（要寫回磁碟，否則「已更換」通知會每次開機重跳）
+  const switchedRetiredModel = applyRetiredModels(settings.llm, deps.migrate.now())
+
   // Detect plaintext keys that need migration to encrypted storage
   const rawApiKeys = typed.llm?.apiKeys ?? {}
   const needsKeyMigration = Object.values(rawApiKeys).some(
@@ -179,7 +183,7 @@ export function hydrateSettings(
 
   return {
     settings,
-    needsResave: needsMigration || hasLegacyPinnedNotesField || needsKeyMigration || needsEndpointMigration,
+    needsResave: needsMigration || hasLegacyPinnedNotesField || needsKeyMigration || needsEndpointMigration || switchedRetiredModel,
     shouldSavePinnedNotes: shouldMigratePinnedNotes,
     personaToSave,
     worldToSave,

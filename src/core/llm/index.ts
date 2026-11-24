@@ -1,4 +1,4 @@
-import { chatWithOpenAI } from './openai'
+import { chatWithOpenAI, openaiUtilityReasoningParams } from './openai'
 import { chatWithClaude, claudeUtilityThinkingParams } from './claude'
 import { chatWithGemini } from './gemini'
 import {
@@ -226,7 +226,8 @@ export async function classifyEmotionWithLLM(params: {
         { role: 'user', content: reply }
       ],
       max_output_tokens: 20,
-      ...localReasoningParams(provider)
+      ...localReasoningParams(provider),
+      ...openaiUtilityReasoningParams(provider, model)
     } as any, { signal })
     const raw = (typeof (resp as any)?.output_text === 'string' ? (resp as any).output_text : '').trim()
     const inputTokens = (resp as any).usage?.input_tokens as number | undefined
@@ -336,7 +337,8 @@ export async function classifyNewsSubjectivityWithLLM(params: {
         { role: 'user', content: userContent }
       ],
       max_output_tokens: 40,
-      ...localReasoningParams(provider)
+      ...localReasoningParams(provider),
+      ...openaiUtilityReasoningParams(provider, model)
     } as any)
     const raw = (typeof (resp as any)?.output_text === 'string' ? (resp as any).output_text : '').trim()
     const parsed = parse(raw)
@@ -454,7 +456,8 @@ export async function testLLMMessage(params: {
       model,
       input: 'Say "Hello!" in one word.',
       max_output_tokens: 20,
-      ...localReasoningParams(provider)
+      ...localReasoningParams(provider),
+      ...openaiUtilityReasoningParams(provider, model)
     } as any)
     const text = typeof (resp as any)?.output_text === 'string'
       ? (resp as any).output_text
