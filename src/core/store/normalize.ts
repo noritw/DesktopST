@@ -19,8 +19,15 @@ export const RENAMED_MODEL_IDS: Record<string, string> = {
   // xAI 已下架 grok-4-1-fast 系列
   'grok-4-1-fast-reasoning': 'grok-4.3',
   'grok-4-1-fast-non-reasoning': 'grok-4.3',
-  // OpenAI 已下架 o1-mini
-  'o1-mini': 'o4-mini'
+  // OpenAI 2026-10-23 已下架，對應官方建議的替代型號
+  'o1-mini': 'gpt-5.6-terra',
+  'o4-mini': 'gpt-5.6-terra',
+  'o4-mini-2025-04-16': 'gpt-5.6-terra',
+  'o1': 'gpt-5.6-sol',
+  'o1-2024-12-17': 'gpt-5.6-sol',
+  'gpt-4o-2024-05-13': 'gpt-5.6-sol',
+  'gpt-4.1-nano': 'gpt-5.6-luna',
+  'gpt-4.1-nano-2025-04-14': 'gpt-5.6-luna'
 }
 
 export function renameModelId(id: string | undefined): string | undefined {

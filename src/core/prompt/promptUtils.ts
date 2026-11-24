@@ -473,6 +473,7 @@ export function applyUtilitySettings(settings: AppSettings): AppSettings {
     llm: {
       ...settings.llm,
       provider: utilityProvider,
+      isUtilityCall: true,
       models: {
         ...(settings.llm.models ?? {}),
         [utilityProvider]: utilityModel
