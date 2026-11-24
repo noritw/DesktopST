@@ -1,4 +1,5 @@
 import { bootStandaloneSession } from '../runtime/session'
+import { flushUsage } from '../runtime/llmUsage'
 import { getHeadlessBridge, headlessReminderParams, hlog } from './bridge'
 import { headlessAdapters } from './bridgeAdapters'
 
@@ -67,6 +68,7 @@ export async function runHeadlessReminder(): Promise<void> {
       params.screenOn,
       params.occurrenceAtMs
     )
+    await flushUsage()
     done(outcome)
   } catch (e) {
     /*

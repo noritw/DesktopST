@@ -634,6 +634,15 @@ Node `fetch` 抓任意網址並自動解壓 Brotli，正好是觸發面。目前
   呼叫端：`ipcHandlers`、`spotifyService`、`calendar/index`、`calendar/googleProvider`
 - ⚠️ CLAUDE.md §5「漏初始化會安靜地毀掉 API Key」同一類坑，要補「不會寫成空字串」的測試
 
+## 2.13 AI 用量紀錄（2026-11-25 owner 指定，點數機制的前置）→ 已實作，真機待驗
+
+手機本機模式每次 `chatWithLLM` 記一筆（功能、模型、token、估價，不記內容），
+主選單「AI 用量」查看。記帳掛在 `HttpAdapter.onLlmUsage`，新的 LLM 功能只要帶
+`feature`，沒帶會算進「聊天」。真機待驗：聊天／道具／敵人各記一筆、背景提醒有記到。
+自用 1～2 週後用數據決定點數面額（`docs/paid-service-design.md`）。
+
+---
+
 ## 3. 排程中／延後
 
 - [x] **B3 階段 7：正式 APK／散布** → ✅ **已完成**（2026-08-25）。owner 已

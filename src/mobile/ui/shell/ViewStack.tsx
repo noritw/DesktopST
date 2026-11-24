@@ -16,6 +16,7 @@ import { SettingsView } from '../settings/SettingsView'
 import { RemindersView } from '../settings/RemindersView'
 import { WidgetSettingsView } from '../settings/WidgetSettingsView'
 import { NutritionExportView } from '../settings/NutritionExportView'
+import { LlmUsageView } from '../settings/LlmUsageView'
 import { WalkView } from '../settings/WalkView'
 import { JourneyView } from '../walk/JourneyView'
 import { ReminderEditor } from '../settings/ReminderEditor'
@@ -62,6 +63,7 @@ const TITLES: Record<ViewKind, string> = {
   'widget-settings': '桌面小工具',
   'nutrition-export': '匯出設定給食記',
   walk: '陪伴同行設定',
+  'llm-usage': 'AI 用量',
   journey: '今日旅途',
   'theme-picker': '色彩主題',
   'lorebook-editor': '編輯用語解說',
@@ -115,6 +117,7 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'random-tools') return <RandomToolsSheet />
   if (entry.kind === 'widget-settings') return <WidgetSettingsView />
   if (entry.kind === 'nutrition-export') return <NutritionExportView />
+  if (entry.kind === 'llm-usage') return <LlmUsageView />
   if (entry.kind === 'walk') return <WalkView />
   if (entry.kind === 'journey') return <JourneyView />
   if (entry.kind === 'presence') return <PresenceSheet />

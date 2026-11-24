@@ -106,7 +106,8 @@ async function summarizeWithUtility(
     world: null,
     desktopCharacterNames: [],
     isReminder: true,
-    minimal: true
+    minimal: true,
+    feature: 'link'
   }, deps)
 
   // 計時器記得清掉：race 先跑完之後留著的 12 秒 timer 會一直吊著事件迴圈

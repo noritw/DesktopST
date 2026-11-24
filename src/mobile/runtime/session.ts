@@ -3,6 +3,8 @@ import { hydrateSettings, toPersistedSettings } from '@core/store/settings'
 import { applySceneSettings } from '@core/scene/apply'
 import { stampCharacterNames } from '@core/chat/characterName'
 import { chatWithLLM } from '@core/llm'
+import type { LlmFeature } from '@core/llm/usage'
+import { withUsageRecording } from './llmUsage'
 import { hasUsableApiKey } from '@core/prompt/promptUtils'
 import { isActiveSceneDirty } from '@core/scene/dirty'
 import * as keys from '@core/store/keys'
@@ -185,7 +187,7 @@ export class StandaloneSession {
     adapters: PlatformAdapters,
     opts: BootStandaloneOptions = {}
   ): Promise<StandaloneSession> {
-    const session = new StandaloneSession(adapters)
+    const session = new StandaloneSession(withUsageRecording(adapters, opts.headless === true))
     await session.loadAll(opts)
     return session
   }
@@ -2356,7 +2358,7 @@ export class StandaloneSession {
         }
         return null
       },
-      generate: (character, prompt, signal) => this.writeWalkText(this.settings, character, prompt, signal)
+      generate: (character, prompt, signal) => this.writeWalkText(this.settings, character, prompt, signal, 'walk-item')
     })
   }
 
@@ -2371,11 +2373,11 @@ export class StandaloneSession {
       storage: this.adapters.storage,
       character: this.characters.find((c) => c.id === characterId) ?? null,
       hasApiKey: hasUsableApiKey(this.settings),
-      generate: (character, prompt, signal) => this.writeWalkText(settings, character, prompt, signal)
+      generate: (character, prompt, signal) => this.writeWalkText(settings, character, prompt, signal, 'walk-foe')
     })
   }
 
-  private async writeWalkText(settings: AppSettings, character: Character, prompt: string, signal: AbortSignal): Promise<string> {
+  private async writeWalkText(settings: AppSettings, character: Character, prompt: string, signal: AbortSignal, feature: LlmFeature): Promise<string> {
     const r = await chatWithLLM(
       {
         settings,
@@ -2390,6 +2392,7 @@ export class StandaloneSession {
         omitEmotionTag: true,
         // 一般輸出格式（1～3 句、每句一行）會蓋過指定格式，minimal 不附那段
         minimal: true,
+        feature,
         signal
       },
       { http: this.adapters.http }

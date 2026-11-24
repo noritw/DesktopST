@@ -56,7 +56,8 @@ async function extractSearchQuery(
     world: null,
     desktopCharacterNames: [],
     isReminder: true,
-    minimal: true
+    minimal: true,
+    feature: 'news'
   }, deps)
 
   const timeoutPromise = new Promise<null>(resolve => setTimeout(() => resolve(null), 5000))

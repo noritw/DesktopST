@@ -1,3 +1,4 @@
+import type { LlmFeature } from '../llm/usage'
 import type { AppSettings, Message, PersonaPreset, WorldPreset } from '../types'
 import { stemFromFilename, buildSpriteIdMap } from '../character/emotionCatalog'
 
@@ -167,6 +168,8 @@ export type ChatLLMParams = {
   omitEmotionTag?: boolean
   /** 輕量工具 call（意圖萃取等）：跳過角色扮演規則、輸出格式、系統時間、輸入來源等與角色扮演相關的段落 */
   minimal?: boolean
+  /** 用量帳本的分類，預設「聊天」。 */
+  feature?: LlmFeature
   /** 可用於中途取消本次 LLM 請求 */
   signal?: AbortSignal
 }

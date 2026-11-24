@@ -90,7 +90,8 @@ export async function polishWeatherDescription(
         persona: null,
         world: null,
         desktopCharacterNames: [],
-        isReminder: true
+        isReminder: true,
+        feature: 'weather'
       },
       deps
     )

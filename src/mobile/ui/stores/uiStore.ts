@@ -60,6 +60,8 @@ export type ViewKind =
   | 'nutrition-export'
   /** 陪伴同行（計步陪伴），獨立模式限定。 */
   | 'walk'
+  /** AI 用量紀錄，獨立模式限定。 */
+  | 'llm-usage'
   /** 今日旅途（走路撿東西），獨立模式限定。 */
   | 'journey'
   | 'theme-picker'

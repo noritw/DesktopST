@@ -1,4 +1,5 @@
 import type { HttpAdapter } from '../adapters'
+import type { LlmTokens } from './usage'
 
 /**
  * LLM 層需要的平台能力。
@@ -20,4 +21,6 @@ import type { HttpAdapter } from '../adapters'
  */
 export interface LLMDeps {
   http: HttpAdapter
+  /** provider 一收到回應就回報，由 `chatWithLLM()` 接住；呼叫端不要自己填。 */
+  onTokens?(tokens: LlmTokens): void
 }

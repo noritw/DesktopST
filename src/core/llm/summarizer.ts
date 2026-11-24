@@ -87,7 +87,8 @@ export async function summarizeConversation(params: {
     world: null,
     desktopCharacterNames: [],
     isReminder: true,
-    minimal: true
+    minimal: true,
+    feature: 'summary'
   }, deps)
 
   const summary = result.content.trim()

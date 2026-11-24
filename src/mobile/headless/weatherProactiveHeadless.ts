@@ -1,4 +1,5 @@
 import { bootStandaloneSession } from '../runtime/session'
+import { flushUsage } from '../runtime/llmUsage'
 import { getHeadlessBridge, headlessWeatherProactiveParams, hlog } from './bridge'
 import { headlessAdapters } from './bridgeAdapters'
 
@@ -48,6 +49,7 @@ export async function runHeadlessWeatherProactive(): Promise<void> {
     hlog(`資料載入完成：${session.characters.length} 個角色`)
 
     const outcome = await session.runProactiveGreetingsHeadless()
+    await flushUsage()
     done(outcome)
   } catch (e) {
     hlog(`失敗：${e instanceof Error ? e.message : String(e)}`)

@@ -85,7 +85,8 @@ export async function generateLoreEntryForCharacter(params: {
     world: null,
     desktopCharacterNames: [],
     isReminder: true,
-    minimal: true
+    minimal: true,
+    feature: 'lore'
   }, deps)
 
   const content = result.content.trim()

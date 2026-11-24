@@ -394,7 +394,8 @@ async function summarizeWithUtility(
     world: null,
     desktopCharacterNames: [],
     isReminder: true,
-    minimal: true
+    minimal: true,
+    feature: 'news'
   }, deps)
 
   const timed = await Promise.race([

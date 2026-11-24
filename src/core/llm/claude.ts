@@ -175,6 +175,9 @@ export async function chatWithClaude(params: ChatLLMParams, deps: LLMDeps): Prom
     }
   }
 
+  if (response.usage) {
+    deps.onTokens?.({ input: response.usage.input_tokens, output: response.usage.output_tokens })
+  }
   const raw = response.content
     .filter(b => b.type === 'text')
     .map(b => (b as Anthropic.TextBlock).text)

@@ -1,3 +1,5 @@
+import type { LlmUsageRecord } from '../llm/usage'
+
 /**
  * HTTP adapter —— 平台各自實作
  * （Electron: Node 原生 `fetch`；Capacitor: 原生 HTTP plugin，可繞過 CORS）。
@@ -34,4 +36,10 @@ export interface HttpAdapter {
    * false 時呼叫端必須改走非串流路徑，不可退化成錯誤。
    */
   readonly supportsStreaming: boolean
+
+  /**
+   * 選配：每次 LLM 呼叫結束時回報用量。掛在這裡是因為所有 LLM 呼叫都一定會拿到
+   * 這個 adapter，不必逐一改呼叫端，也就不會漏記。
+   */
+  onLlmUsage?(record: LlmUsageRecord): void
 }

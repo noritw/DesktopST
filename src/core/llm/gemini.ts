@@ -40,7 +40,7 @@ function imageToGeminiPart(imgRef: string): GeminiPart {
   )
 }
 
-export async function chatWithGemini(params: ChatLLMParams, _deps: LLMDeps): Promise<ChatLLMResult> {
+export async function chatWithGemini(params: ChatLLMParams, deps: LLMDeps): Promise<ChatLLMResult> {
   const { settings, character, messages, images, speakerNameById, persona, world } = params
   const modelName = resolveModel(settings)
 
@@ -104,6 +104,19 @@ export async function chatWithGemini(params: ChatLLMParams, _deps: LLMDeps): Pro
 
   const chat = model.startChat({ history })
   const result = await chat.sendMessage(currentParts as any, { signal: params.signal })
+  // 思考 token 另計在 thoughtsTokenCount（SDK 型別沒有），以輸出價計費
+  const usage = result.response.usageMetadata as
+    | { promptTokenCount?: number; candidatesTokenCount?: number; cachedContentTokenCount?: number; thoughtsTokenCount?: number }
+    | undefined
+  if (usage) {
+    const thoughts = usage.thoughtsTokenCount ?? 0
+    deps.onTokens?.({
+      input: usage.promptTokenCount ?? 0,
+      output: (usage.candidatesTokenCount ?? 0) + thoughts,
+      cached: usage.cachedContentTokenCount,
+      reasoning: thoughts
+    })
+  }
   const raw = result.response.text().trim()
 
   if (!raw) {

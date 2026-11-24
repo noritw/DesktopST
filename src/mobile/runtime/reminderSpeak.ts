@@ -1,4 +1,5 @@
 import { chatWithLLM } from '@core/llm'
+import type { LlmFeature } from '@core/llm/usage'
 import type { PlatformAdapters } from '@core/adapters'
 import { stripOtherCharacterSpeakerLines } from '@core/group/dialogueCleanup'
 import { normalizeCharacterDialogue } from '@core/prompt/dialogue'
@@ -99,6 +100,8 @@ export async function speakStandaloneReminder(opts: {
    * （owner 2026-08-11 第二輪實機：10:17 那筆就是一片空白）。
    */
   onFailure?: (reason: string) => void
+  /** 用量帳本的分類，預設「提醒」。 */
+  feature?: LlmFeature
 }): Promise<ReminderSpeakResult | null> {
   const { reminder, settings } = opts
   const isLive = (opts.mode ?? 'live') === 'live'
@@ -296,7 +299,8 @@ export async function speakStandaloneReminder(opts: {
           opts.loadLorebook,
           new Map()
         ),
-        isReminder: true
+        isReminder: true,
+        feature: opts.feature ?? 'reminder'
       },
       { http: opts.adapters.http }
     )
@@ -372,7 +376,7 @@ function buildVirtualReminder(id: string, label: string, injectionText: string):
  */
 export function speakWeatherEvent(deps: ProactiveSpeakDeps, injectionText: string): Promise<ReminderSpeakResult | null> {
   const reminder = buildVirtualReminder(`weather-proactive:${Date.now()}`, '天氣主動發話', injectionText)
-  return speakStandaloneReminder({ ...deps, reminder })
+  return speakStandaloneReminder({ ...deps, reminder, feature: 'greeting' })
 }
 
 /**
@@ -381,7 +385,7 @@ export function speakWeatherEvent(deps: ProactiveSpeakDeps, injectionText: strin
  */
 export function speakMorningBriefing(deps: ProactiveSpeakDeps, injectionText: string): Promise<ReminderSpeakResult | null> {
   const reminder = buildVirtualReminder(`morning-briefing:${Date.now()}`, '今日初次問候', injectionText)
-  return speakStandaloneReminder({ ...deps, reminder })
+  return speakStandaloneReminder({ ...deps, reminder, feature: 'greeting' })
 }
 
 /**
@@ -399,7 +403,7 @@ export function speakWalkTogether(
     characterId,
     allowOfflineFallback: false
   }
-  return speakStandaloneReminder({ ...deps, reminder })
+  return speakStandaloneReminder({ ...deps, reminder, feature: 'walk-talk' })
 }
 
 async function appendReminderMessage(

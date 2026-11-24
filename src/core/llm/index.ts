@@ -2,12 +2,13 @@ import { chatWithOpenAI, openaiUtilityReasoningParams } from './openai'
 import { chatWithClaude, claudeUtilityThinkingParams } from './claude'
 import { chatWithGemini } from './gemini'
 import {
-  buildEmotionClassifierSystemPrompt, buildEmotionIdList, buildNewsSubjectivityClassifierSystemPrompt, applyUtilitySettings,
+  resolveModel, buildEmotionClassifierSystemPrompt, buildEmotionIdList, buildNewsSubjectivityClassifierSystemPrompt, applyUtilitySettings,
   expandReactionAnnotations, expandNewsLinkForPrompt, annotateTimeGaps, canonicalizeEmotionId,
   type ChatLLMParams, type ChatLLMResult, type PromptCharacter
 } from '../prompt/promptUtils'
 import type { AppSettings } from '../types'
 import type { LLMDeps } from './deps'
+import { estimateUsd, type LlmTokens } from './usage'
 
 /**
  * LLM 呼叫主流程。原 `src/main/llm/index.ts`。
@@ -90,7 +91,7 @@ export async function chatWithLLM(rawParams: ChatLLMParams, deps: LLMDeps): Prom
     messages: rawParams.settings.injectSystemTime ? annotateTimeGaps(expandedMessages) : expandedMessages,
     extraSystemContext: [memorySummaryBlock, rawParams.extraSystemContext].filter(Boolean).join('\n\n') || undefined
   }
-  const result = await dispatchChat(params, deps)
+  const result = await dispatchMetered(params, deps)
   /*
    * ⚠️ **一定要在這裡（唯一入口）換成 canonical key 再回傳，不要讓呼叫端自己存原始 id。**
    * `buildEmotionContract()` 給模型的 id 可能是自訂 id／檔名主幹，這些是**裝置本地的**
@@ -100,6 +101,33 @@ export async function chatWithLLM(rawParams: ChatLLMParams, deps: LLMDeps): Prom
    * （`EMOTION_OPTIONS` 的固定英文字）才是跨裝置穩定的身分。
    */
   return { ...result, emotion: canonicalizeEmotionId(params.character, result.emotion) }
+}
+
+/** 一次呼叫記一筆。空回應會擲例外，但已經計費，所以 token 數照記。 */
+async function dispatchMetered(params: ChatLLMParams, deps: LLMDeps): Promise<ChatLLMResult> {
+  let tokens: LlmTokens | undefined
+  let ok = false
+  try {
+    const result = await dispatchChat(params, { ...deps, onTokens: (t) => { tokens = t } })
+    ok = true
+    return result
+  } finally {
+    try {
+      const { provider } = params.settings.llm
+      const model = resolveModel(params.settings)
+      deps.http.onLlmUsage?.({
+        at: Date.now(),
+        feature: params.feature ?? 'chat',
+        provider,
+        model,
+        ok,
+        ...tokens,
+        usd: tokens && estimateUsd(provider, model, tokens)
+      })
+    } catch (e) {
+      console.warn('[usage] 回報失敗', e)
+    }
+  }
 }
 
 function dispatchChat(params: ChatLLMParams, deps: LLMDeps): Promise<ChatLLMResult> {

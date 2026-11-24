@@ -127,6 +127,15 @@ export async function chatWithOpenAI(params: ChatLLMParams, deps: LLMDeps): Prom
   }
 
   const resp = await client.responses.create(body as any, { signal: params.signal })
+  const usage = (resp as any).usage
+  if (usage) {
+    deps.onTokens?.({
+      input: usage.input_tokens ?? 0,
+      output: usage.output_tokens ?? 0,
+      cached: usage.input_tokens_details?.cached_tokens,
+      reasoning: usage.output_tokens_details?.reasoning_tokens
+    })
+  }
   const raw = extractResponseText(resp)
   if (!raw || raw.trim().length === 0) {
     throw new Error(`Empty response from model: ${model}`)
