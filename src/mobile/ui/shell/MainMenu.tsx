@@ -1,5 +1,10 @@
+import { useEffect, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import MonoIcon, { type MonoIconName } from '@shared/MonoIcon'
+import { journeyMapFor, type JourneyMapId } from '@core/walk/items'
+import { localDay } from '../../runtime/walk'
+import { loadCollection } from '../../runtime/walkItems'
+import { BOX_ICONS, MAP_ART } from '../walk/art'
 import { useUiStore, type ViewKind } from '../stores/uiStore'
 import { getData, isAttached } from '../stores/appStore'
 import { getStandaloneSession } from '../../runtime/sessionHolder'
@@ -40,8 +45,6 @@ const ITEMS: MenuItemDef[] = [
   { kind: 'presets', icon: 'folder', label: '情境與設定組', hint: '情境、使用者設定、世界觀、用語解說' },
   { kind: 'news', icon: 'news', label: '個人新聞報', hint: '批次看新聞、釘選，挑一則跟角色聊' },
   { kind: 'reminders', icon: 'alarm', label: '提醒', hint: '設定時間，讓角色主動開口提醒你' },
-  // 計步只有獨立模式：步數與里程都在這支手機上。
-  { kind: 'walk', icon: 'users', label: '陪伴同行', hint: '你走多遠，角色就陪你走多遠' },
   { kind: 'theme-picker', icon: 'palette', label: '色彩主題', hint: '換一組配色，會同步到所有裝置' },
   // 桌面小工具：只有原生殼（APK）才有小工具這個東西，網頁版下面用 `.filter()` 拿掉。
   { kind: 'widget-settings', icon: 'pin', label: '桌面小工具', hint: '預覽小工具內容、管理釘選的對白' },
@@ -56,18 +59,45 @@ const ITEMS: MenuItemDef[] = [
 
 export function MainMenu(): JSX.Element {
   const replace = useUiStore((s) => s.replace)
-  const standalone = getStandaloneSession() !== null
+  const session = getStandaloneSession()
+  const standalone = session !== null
+  /** 讀到選擇之前先不畫風景，免得閃一下別張 */
+  const [map, setMap] = useState<JourneyMapId | null>(null)
+  useEffect(() => {
+    if (!session) return
+    const today = localDay(Date.now())
+    loadCollection(session.walkStorage)
+      .then((c) => setMap(journeyMapFor(c.map, today)))
+      .catch(() => setMap(journeyMapFor(undefined, today)))
+  }, [session])
   const items = ITEMS.filter((item) => {
     if (item.kind === 'remote') return isAttached() && getData().capabilities.remoteControl
     // 小工具是 Android 主畫面的東西，網頁版沒有可以設定的對象。
     if (item.kind === 'widget-settings') return Capacitor.isNativePlatform()
     // 遙控模式下金鑰屬於電腦，exportLlmForNutrition 會直接擲 not-supported。
-    if (item.kind === 'nutrition-export' || item.kind === 'walk') return standalone
+    if (item.kind === 'nutrition-export') return standalone
     return true
   })
 
   return (
     <div className="space-y-1.5 pb-2">
+      {/* 計步只有獨立模式：步數與里程都在這支手機上。用風景卡片跟一般選項區隔。 */}
+      {standalone && (
+        <button
+          type="button"
+          onClick={() => replace('journey')}
+          className="relative mb-3 block h-24 w-full overflow-hidden rounded-[20px] bg-[var(--bg)] text-left active:opacity-85"
+        >
+          {map && (
+            <img src={MAP_ART[map]} alt="" className="absolute inset-0 h-full w-full object-cover object-[center_22%]" />
+          )}
+          <span className="absolute left-3 top-3 rounded-[14px] bg-[#FFFDF4] px-3.5 py-2 text-[#3D5A52]">
+            <span className="block text-[16px] font-bold">今日旅途</span>
+            <span className="block text-[12px]">跟角色散步，尋找今天的寶物</span>
+          </span>
+          <img src={BOX_ICONS[1]} alt="" className="absolute bottom-2 right-5 h-16 w-16" />
+        </button>
+      )}
       {items.map((item) => {
         const pending = standalone ? STANDALONE_PENDING[item.kind] : undefined
         return (

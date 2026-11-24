@@ -2,6 +2,7 @@ import { SECRET_PREFIX, type PlatformAdapters } from '@core/adapters'
 import { hydrateSettings, toPersistedSettings } from '@core/store/settings'
 import { applySceneSettings } from '@core/scene/apply'
 import { stampCharacterNames } from '@core/chat/characterName'
+import { chatWithLLM } from '@core/llm'
 import { hasUsableApiKey } from '@core/prompt/promptUtils'
 import { isActiveSceneDirty } from '@core/scene/dirty'
 import * as keys from '@core/store/keys'
@@ -100,6 +101,10 @@ import { checkWeatherProactive } from './weatherProactive'
 import { isConversationTooRecent } from '@core/greeting'
 import { getPlainCurrentWeather } from '@core/weather'
 import { removeWalkCharacter } from '@core/walk'
+import type { JourneyMapId } from '@core/walk/items'
+import { revealWalkItem, collectWalkDrops, simulateWalkSteps, type RevealResult } from './walkItems'
+import { FOE_MAX_RESPONSE_TOKENS } from '@core/walk/foes'
+import { countOpenedBox, writeFoes, type WriteFoesResult } from './walkBattle'
 import { loadWalkSettings, speakWalk, syncWalk, updateWalkState, type WalkSpeakResult } from './walk'
 import { readWalkDays, writeWalkWidget } from './walkBridge'
 import { normalizeWidgetAppearance, resolveWidgetColors } from '@shared/widgetAppearance'
@@ -2304,11 +2309,92 @@ export class StandaloneSession {
   async syncWalkNow(): Promise<boolean> {
     try {
       const companionIds = this.settings.ui.desktopCharacters.map((d) => d.characterId)
-      const state = await syncWalk({ storage: this.adapters.storage, companionIds, readDays: readWalkDays })
+      const state = await syncWalk({
+        storage: this.adapters.storage,
+        companionIds,
+        readDays: readWalkDays,
+        dropCtx: { finders: this.walkFinders(), newId }
+      })
+      if (state) await this.collectWalkItems()
       return state !== null
     } finally {
       await this.refreshWalkWidget().catch(() => {})
     }
+  }
+
+  private walkFinders(): { id: string; name: string }[] {
+    return this.getState().presentCharacters.map((c) => ({ id: c.id, name: c.name }))
+  }
+
+  /** 把新掉落搬進收藏，當天的附上天氣（抓不到就不附）。 */
+  private async collectWalkItems(): Promise<void> {
+    const { includeWeather } = await loadWalkSettings(this.adapters.storage)
+    await collectWalkDrops(this.adapters.storage, async () =>
+      includeWeather ? getPlainCurrentWeather(this.settings, { http: this.adapters.http }) : null
+    ).catch((e) => console.warn('[Walk] 收集道具失敗:', e))
+  }
+
+  /** 測試版專用：不碰真正的計步，只推進撿東西的進度。 */
+  async simulateWalk(steps: number): Promise<void> {
+    await simulateWalkSteps(this.adapters.storage, steps, { finders: this.walkFinders(), newId })
+    await this.collectWalkItems()
+  }
+
+  /** 揭曉一件道具。發現者已被刪除時，由目前在場角色代講。 */
+  revealWalkItem(itemId: string, map?: JourneyMapId): Promise<RevealResult> {
+    return revealWalkItem({
+      storage: this.adapters.storage,
+      itemId,
+      map,
+      onRevealed: () => countOpenedBox(this.adapters.storage),
+      hasApiKey: hasUsableApiKey(this.settings),
+      findCharacter: (id) => {
+        const present = this.settings.ui.desktopCharacters.map((d) => d.characterId)
+        for (const cid of [id, ...present]) {
+          const c = this.characters.find((x) => x.id === cid)
+          if (c) return c
+        }
+        return null
+      },
+      generate: (character, prompt, signal) => this.writeWalkText(this.settings, character, prompt, signal)
+    })
+  }
+
+  /** 為角色寫一批過招的敵人。 */
+  writeWalkFoes(characterId: string): Promise<WriteFoesResult> {
+    // 只改副本的上限，不可寫回設定
+    const settings = {
+      ...this.settings,
+      llm: { ...this.settings.llm, maxResponseTokens: Math.max(this.settings.llm.maxResponseTokens, FOE_MAX_RESPONSE_TOKENS) }
+    }
+    return writeFoes({
+      storage: this.adapters.storage,
+      character: this.characters.find((c) => c.id === characterId) ?? null,
+      hasApiKey: hasUsableApiKey(this.settings),
+      generate: (character, prompt, signal) => this.writeWalkText(settings, character, prompt, signal)
+    })
+  }
+
+  private async writeWalkText(settings: AppSettings, character: Character, prompt: string, signal: AbortSignal): Promise<string> {
+    const r = await chatWithLLM(
+      {
+        settings,
+        character,
+        messages: [],
+        speakerNameById: {},
+        persona: null,
+        world: this.worlds.find((w) => w.id === this.settings.activeWorldId) ?? null,
+        desktopCharacterNames: [],
+        extraSystemContext: prompt,
+        isReminder: true,
+        omitEmotionTag: true,
+        // 一般輸出格式（1～3 句、每句一行）會蓋過指定格式，minimal 不附那段
+        minimal: true,
+        signal
+      },
+      { http: this.adapters.http }
+    )
+    return r.content
   }
 
   /** `manual`＝使用者按鈕觸發，不受門檻、間隔、次數限制。 */

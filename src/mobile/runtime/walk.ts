@@ -1,5 +1,7 @@
 import type { StorageAdapter } from '@core/adapters'
+import type { DropContext } from '@core/walk/items'
 import { moduleSettingsKey, moduleFileKey } from './walkKeys'
+import { clearJourney } from './walkJourney'
 import {
   buildWalkPrompt,
   creditSteps,
@@ -55,7 +57,9 @@ export function updateWalkState(
 }
 
 export async function clearWalkData(storage: StorageAdapter): Promise<void> {
-  await updateWalkState(storage, () => normalizeWalkState(null))
+  // 還沒搬進收藏的道具不算步數資料，清除步數時要留著
+  await updateWalkState(storage, (s) => ({ ...normalizeWalkState(null), pendingDrops: s.pendingDrops }))
+  await clearJourney(storage)
 }
 
 /** 讀步數並記帳。模組關閉回 `null`；讀取失敗會擲例外且不動任何資料。 */
@@ -63,6 +67,7 @@ export async function syncWalk(deps: {
   storage: StorageAdapter
   companionIds: readonly string[]
   readDays: (days: string[]) => Promise<Record<string, number>>
+  dropCtx?: DropContext
   now?: number
 }): Promise<WalkState | null> {
   if (!(await loadWalkSettings(deps.storage)).enabled) return null
@@ -70,7 +75,7 @@ export async function syncWalk(deps: {
     const now = deps.now ?? Date.now()
     const today = localDay(now)
     const totals = await deps.readDays(daysToRead(today))
-    return creditSteps(s, totals, deps.companionIds, today, now)
+    return creditSteps(s, totals, deps.companionIds, today, now, deps.dropCtx)
   })
 }
 

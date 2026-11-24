@@ -1,3 +1,4 @@
+import MonoIcon from '@shared/MonoIcon'
 import { Sheet } from './Sheet'
 import { useUiStore } from '../stores/uiStore'
 import type { ViewEntry, ViewKind } from '../stores/uiStore'
@@ -16,6 +17,7 @@ import { RemindersView } from '../settings/RemindersView'
 import { WidgetSettingsView } from '../settings/WidgetSettingsView'
 import { NutritionExportView } from '../settings/NutritionExportView'
 import { WalkView } from '../settings/WalkView'
+import { JourneyView } from '../walk/JourneyView'
 import { ReminderEditor } from '../settings/ReminderEditor'
 import { ReminderHistoryView } from '../settings/ReminderHistoryView'
 import { PresetsView } from '../presets/PresetsView'
@@ -59,7 +61,8 @@ const TITLES: Record<ViewKind, string> = {
   'random-tools': '隨機工具',
   'widget-settings': '桌面小工具',
   'nutrition-export': '匯出設定給食記',
-  walk: '陪伴同行',
+  walk: '陪伴同行設定',
+  journey: '今日旅途',
   'theme-picker': '色彩主題',
   'lorebook-editor': '編輯用語解說',
   'sync-import': '複製電腦資料',
@@ -73,6 +76,7 @@ export function ViewStack(): JSX.Element | null {
   // ⚠️ 用 `requestPop` 不是 `pop`：有些畫面要先問過才准關（例如角色卡編輯器
   // 有未儲存的改動）。直接 pop 會讓 ✕ 與返回手勢的行為不一致。
   const requestPop = useUiStore((s) => s.requestPop)
+  const push = useUiStore((s) => s.push)
 
   const top = stack[stack.length - 1]
   if (!top) return null
@@ -81,11 +85,23 @@ export function ViewStack(): JSX.Element | null {
     <Sheet
       key={top.id}
       title={TITLES[top.kind]}
+      action={
+        top.kind === 'journey' ? (
+          <button
+            type="button"
+            aria-label="陪伴同行設定"
+            onClick={() => push('walk')}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--text-sub)] active:bg-[var(--border)]"
+          >
+            <MonoIcon name="settings" className="h-[18px] w-[18px]" />
+          </button>
+        ) : undefined
+      }
       onClose={requestPop}
       // 新聞報自己有分頁列、內容區與底部的「換一批」三段式版面，
       // 捲動要發生在中間那段；交給 Sheet 統一捲會讓底部按鈕跟著跑掉。
       // 遙控畫面同理：截圖區要固定高度接手勢，交給 Sheet 統一捲會讓觸控被捲動搶走。
-      scrollable={top.kind !== 'news' && top.kind !== 'remote'}
+      scrollable={top.kind !== 'news' && top.kind !== 'remote' && top.kind !== 'journey'}
     >
       <ViewBody entry={top} />
     </Sheet>
@@ -100,6 +116,7 @@ function ViewBody({ entry }: { entry: ViewEntry }): JSX.Element {
   if (entry.kind === 'widget-settings') return <WidgetSettingsView />
   if (entry.kind === 'nutrition-export') return <NutritionExportView />
   if (entry.kind === 'walk') return <WalkView />
+  if (entry.kind === 'journey') return <JourneyView />
   if (entry.kind === 'presence') return <PresenceSheet />
   if (entry.kind === 'characters') return <CharacterLibrary />
   if (entry.kind === 'character-editor' && entry.param) return <CharacterEditor characterId={entry.param} />

@@ -5,6 +5,16 @@
  * 這裡只管記帳、距離、要不要說話、prompt 內容。
  */
 
+import {
+  advanceItemProgress,
+  defaultItemProgress,
+  normalizeDrops,
+  normalizeItemProgress,
+  type DropContext,
+  type ItemDrop,
+  type ItemProgress
+} from './items'
+
 export interface WalkSettings {
   enabled: boolean
   /** 選填，只用來算步幅，絕不進 prompt */
@@ -31,6 +41,9 @@ export interface WalkState {
   spokenDay: string
   spokenCount: number
   recentThemes: string[]
+  /** 拾物進度與尚未搬進收藏的掉落：必須跟步數同一次寫入，才不會漏發或重發 */
+  itemProgress: ItemProgress
+  pendingDrops: ItemDrop[]
 }
 
 export const DEFAULT_STRIDE_METERS = 0.7
@@ -61,7 +74,9 @@ export function defaultWalkState(): WalkState {
     lastSpokenAt: 0,
     spokenDay: '',
     spokenCount: 0,
-    recentThemes: []
+    recentThemes: [],
+    itemProgress: defaultItemProgress(),
+    pendingDrops: []
   }
 }
 
@@ -120,7 +135,9 @@ export function normalizeWalkState(raw: unknown): WalkState {
     spokenCount: count(raw.spokenCount),
     recentThemes: Array.isArray(raw.recentThemes)
       ? raw.recentThemes.filter((t): t is string => typeof t === 'string').slice(-2)
-      : []
+      : [],
+    itemProgress: normalizeItemProgress(raw.itemProgress),
+    pendingDrops: normalizeDrops(raw.pendingDrops)
   }
 }
 
@@ -162,13 +179,15 @@ export function pendingSteps(state: WalkState, today: string): number {
  *   首次沒讀到的日子，之後補到時會被當成新走的步數。
  * - 同行角色各得全額，不平分。沒有同行角色時仍視為已記帳（不追溯給之後加入的人）。
  * - 資料晚到會補，來源修正變少不倒扣。
+ * - 給了 `dropCtx` 才會撿東西；掉落與步數在同一份狀態裡。
  */
 export function creditSteps(
   state: WalkState,
   totals: Record<string, number>,
   characterIds: readonly string[],
   today: string,
-  now: number
+  now: number,
+  dropCtx?: DropContext
 ): WalkState {
   // 今天讀不到就不動：否則首次啟用的起點會缺今天，稍後整天都被誤記
   if (inRange(totals[today], 0, Number.MAX_SAFE_INTEGER) === undefined) return state
@@ -176,6 +195,8 @@ export function creditSteps(
   const creditedByDay = recentDaysOnly(state.creditedByDay, today)
   const pendingByDay = recentDaysOnly(state.pendingByDay, today)
   let added = 0
+  let itemProgress = state.itemProgress
+  const pendingDrops = [...state.pendingDrops]
 
   for (const day of daysToRead(today)) {
     const raw = inRange(totals[day], 0, Number.MAX_SAFE_INTEGER)
@@ -187,6 +208,11 @@ export function creditSteps(
     if (!state.initialized || delta === 0 || characterIds.length === 0) continue
     added += delta
     pendingByDay[day] = (pendingByDay[day] ?? 0) + delta
+    if (dropCtx) {
+      const r = advanceItemProgress(itemProgress, delta, { day, stepsToday: creditedByDay[day] }, dropCtx)
+      itemProgress = r.progress
+      pendingDrops.push(...r.drops)
+    }
   }
 
   const byCharacter = { ...state.byCharacter }
@@ -196,7 +222,7 @@ export function creditSteps(
       byCharacter[id] = { totalSteps: (prev?.totalSteps ?? 0) + added, since: prev?.since ?? now }
     }
   }
-  return { ...state, initialized: true, creditedByDay, pendingByDay, byCharacter }
+  return { ...state, initialized: true, creditedByDay, pendingByDay, byCharacter, itemProgress, pendingDrops }
 }
 
 export function removeWalkCharacter(state: WalkState, characterId: string): WalkState {
@@ -251,7 +277,7 @@ export function markWalkSpoken(
 }
 
 /** 抽象題材：不綁世界觀，任何角色都能套。 */
-const SOLO_THEMES = ['遇到某個人', '撿到東西', '走錯路', '想起往事', '看到沒見過的東西', '休息一下', '遇上一點小麻煩']
+const SOLO_THEMES = ['遇到某個人', '找到有趣的小東西', '走錯路', '想起往事', '看到沒見過的東西', '休息一下', '遇上一點小麻煩']
 const GROUP_THEME = '跟同伴拌嘴'
 
 export function pickWalkTheme(

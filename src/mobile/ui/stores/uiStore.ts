@@ -60,6 +60,8 @@ export type ViewKind =
   | 'nutrition-export'
   /** 陪伴同行（計步陪伴），獨立模式限定。 */
   | 'walk'
+  /** 今日旅途（走路撿東西），獨立模式限定。 */
+  | 'journey'
   | 'theme-picker'
   | 'lorebook-editor'
   /** 遙控電腦（清單 H1–H11，B6）。只有 `capabilities.remoteControl` 為真時入口才會出現。 */

@@ -99,7 +99,7 @@ describe('發話條件', () => {
 
   it('生成中新增的步數不遺失；手動不佔次數', () => {
     const during = creditSteps(walked, { [T]: 2600 }, ['a'], T, NOW)
-    const done = markWalkSpoken(during, walked.pendingByDay, { ...ctx, theme: '撿到東西' })
+    const done = markWalkSpoken(during, walked.pendingByDay, { ...ctx, theme: '找到有趣的小東西' })
     expect(pendingSteps(done, T)).toBe(600)
     expect(done.spokenCount).toBe(1)
     expect(markWalkSpoken(during, {}, { ...ctx, theme: 'x', manual: true }).spokenCount).toBe(0)
@@ -128,7 +128,7 @@ describe('prompt', () => {
   })
 
   it('題材不重複前兩次；單人不抽同伴題材', () => {
-    const recent = ['遇到某個人', '撿到東西']
+    const recent = ['遇到某個人', '找到有趣的小東西']
     for (let i = 0; i < 20; i++) {
       const t = pickWalkTheme(recent, 1, () => i / 20)
       expect(recent).not.toContain(t)
