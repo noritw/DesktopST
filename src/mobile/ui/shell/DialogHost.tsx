@@ -105,7 +105,7 @@ export function DialogHost(): JSX.Element | null {
             onClick={() => close(null)}
             className="flex-1 rounded-full border border-[var(--border)] py-2.5 text-[15px] text-[var(--text-sub)] active:bg-[var(--border)]"
           >
-            取消
+            {dialog.cancelLabel ?? '取消'}
           </button>
           <button
             type="button"

@@ -1,4 +1,5 @@
 import type { LlmProvider } from '../data/types'
+import { isModelRetired } from './modelRetirement'
 
 /**
  * 四家供應商的模型目錄與參考價 —— **桌面版與手機版共用的唯一一份**。
@@ -36,13 +37,12 @@ export const OPENAI_MODELS = [
   'gpt-5.5', 'gpt-5.5-pro',
   'gpt-5.4', 'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano',
   'gpt-5.2', 'gpt-5.2-pro', 'gpt-5.1',
-  // gpt-5／-pro／-mini／-nano 與 o3／o3-pro：官方 2026-12-11 關閉，之後要移除
+  // 有停用日的型號登記在 modelRetirement.ts，到期會自動從這份清單消失
   'gpt-5', 'gpt-5-pro', 'gpt-5-mini', 'gpt-5-nano',
-  // gpt-4.1／4o 系列的快照 2027-01-14 關閉；gpt-5.4-nano、gpt-5.1 是 2027-04-01
   'gpt-4.1', 'gpt-4.1-mini',
   'gpt-4o', 'gpt-4o-mini',
   'o3', 'o3-pro'
-]
+].filter(m => !isModelRetired('openai', m))
 
 export const CLAUDE_MODELS = [
   'claude-fable-5-2',

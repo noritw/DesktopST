@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { applyTheme } from './theme'
+import { notifyModelRetirement } from './modelRetirementNotice'
 import { useUiStore } from './stores/uiStore'
 import { useAppStore, describeError, notifyForeground, getData, isAttached } from './stores/appStore'
 import { useBackButton } from './shell/useBackButton'
@@ -410,6 +411,7 @@ export function App(): JSX.Element {
     if (!session) return
     coldStartResumeRanRef.current = true
     session.onAppResumed()
+    void notifyModelRetirement(session)
   }, [ready, conn])
 
   useEffect(() => {
@@ -425,6 +427,7 @@ export function App(): JSX.Element {
         void useAppStore.getState().refresh()
         // 亮屏／回到前景：補發押後的提醒（inactiveBehavior: notify_on_unlock）
         session?.onAppResumed()
+        if (session) void notifyModelRetirement(session)
       } else {
         /*
          * 離開前景＝把接下來要響的提醒台詞先生一句起來當離線底線

@@ -100,6 +100,7 @@ export interface DialogRequest {
    */
   multiline?: boolean
   confirmLabel?: string
+  cancelLabel?: string
   destructive?: boolean
   /**
    * 送出／取消之外的額外動作（新聞上下文的「原文 ↗」與「清除摘要」）。
