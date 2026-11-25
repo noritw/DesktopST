@@ -1,5 +1,5 @@
 import { computeRandomResult } from '../random/dice'
-import { findItemKind, type ItemCategory, type WalkItem } from './items'
+import { APPROACHES, APPROACH_IDS, ITEM_CATEGORIES, approachOf, findItemKind, type Approach, type ItemCategory, type WalkItem } from './items'
 
 /**
  * 今日旅途的三回合過招（`docs/walk-battle-design.md`）純邏輯。
@@ -10,26 +10,7 @@ import { findItemKind, type ItemCategory, type WalkItem } from './items'
 
 // ── 做法與對手的形 ───────────────────────────────────
 
-export const APPROACHES = {
-  lure: '引開',
-  move: '打動',
-  trap: '困住',
-  startle: '嚇一跳'
-} as const
-export type Approach = keyof typeof APPROACHES
-export const APPROACH_IDS = Object.keys(APPROACHES) as Approach[]
-
-const APPROACH_OF: Record<ItemCategory, Approach> = {
-  glow: 'lure',
-  sound: 'lure',
-  ink: 'move',
-  lost: 'move',
-  vessel: 'trap',
-  gear: 'trap',
-  nature: 'startle',
-  unknown: 'startle'
-}
-export const approachOf = (category: ItemCategory): Approach => APPROACH_OF[category]
+export { APPROACHES, APPROACH_IDS, approachOf, type Approach }
 
 export interface FoeText {
   name: string
@@ -121,17 +102,18 @@ export const APPEAR_MIN = 3
 export const APPEAR_MAX = 5
 export const LOG_LIMIT = 20
 
-export type BattleItem = Pick<WalkItem, 'id' | 'kindId' | 'name' | 'finderId' | 'finderName' | 'lastBattleAt'>
+export type BattleItem = Pick<WalkItem, 'id' | 'kindId' | 'name' | 'finderId' | 'finderName' | 'lastBattleAt' | 'move'>
 
 export interface Person {
   id: string
   name: string
 }
 
-/** 發牌當下的快照：物品之後被丟掉，這一場仍能打完。 */
+/** 選好當下的快照：物品之後被丟掉，這一場仍能打完。 */
 export interface HandItem {
   itemId: string
   name: string
+  move?: string
   category: ItemCategory
   finderId: string
   finderName: string
@@ -317,63 +299,73 @@ export function bypassBattle(s: BattleStore, battleId: string): BattleStore {
 
 // ── 打一場 ───────────────────────────────────────────
 
-/** 發牌；連同休息中的都不到 3 件時回空陣列。 */
-export function dealHand(
-  items: readonly BattleItem[],
-  weak: readonly Approach[],
-  now: number,
-  random: () => number = Math.random
-): HandItem[] {
-  const usable = items.flatMap((i) => {
-    const kind = findItemKind(i.kindId)
-    return i.name && kind ? [{ item: i, name: i.name, kind }] : []
-  })
-  if (usable.length < MIN_ITEMS) return []
-  const pool = usable.filter((u) => restLeft(u.item.lastBattleAt, now) === 0)
-  if (pool.length < MIN_ITEMS) {
-    const resting = usable
-      .filter((u) => !pool.includes(u))
-      .sort((a, b) => (a.item.lastBattleAt ?? 0) - (b.item.lastBattleAt ?? 0) || (a.item.id < b.item.id ? -1 : 1))
-    pool.push(...resting.slice(0, MIN_ITEMS - pool.length))
-  }
-
-  // 品項不重複的先發，不夠才用重複的補
-  const kinds = new Set<string>()
-  const first: typeof pool = []
-  const repeat: typeof pool = []
-  for (const u of shuffled(pool, random)) {
-    if (kinds.has(u.kind.id)) repeat.push(u)
-    else first.push(u)
-    kinds.add(u.kind.id)
-  }
-  const order = [...first, ...repeat]
-  const hand = order.slice(0, HAND_SIZE)
-  const matches = (u: (typeof pool)[number]): boolean => weak.includes(approachOf(u.kind.category))
-  if (!hand.some(matches)) {
-    const spare = order.slice(HAND_SIZE).find(matches)
-    if (spare) hand[hand.length - 1] = spare
-  }
-  return hand.map((u) => ({
-    itemId: u.item.id,
-    name: u.name,
-    category: u.kind.category,
-    finderId: u.item.finderId,
-    finderName: u.item.finderName
-  }))
+/**
+ * 能出場的物品。不到 3 件時讓休息最久的先回來補滿；
+ * 連同休息中的都不到 3 件，就有幾件回幾件（不能開打）。
+ */
+export function battlePool<T extends BattleItem>(items: readonly T[], now: number): T[] {
+  const usable = items.filter((i) => i.name && findItemKind(i.kindId))
+  const pool = usable.filter((i) => restLeft(i.lastBattleAt, now) === 0)
+  if (pool.length >= MIN_ITEMS) return pool
+  const resting = usable
+    .filter((i) => !pool.includes(i))
+    .sort((a, b) => (a.lastBattleAt ?? 0) - (b.lastBattleAt ?? 0) || (a.id < b.id ? -1 : 1))
+  return [...pool, ...resting.slice(0, MIN_ITEMS - pool.length)]
 }
 
-/** 開打：發牌並定案敵人文字，之後不重發。物品不足就原樣回傳。 */
+/** 第三回合的弱點要打完第二回合才看得到。 */
+export const KNOWN_ROUNDS = 2
+export const knownWeak = (b: Battle): Approach[] => b.weak.slice(0, KNOWN_ROUNDS)
+
+/** 「幫我選」：保留已選的，先配已知弱點，再讓做法分散；看不到第三回合。 */
+export function suggestHand(
+  items: readonly BattleItem[],
+  known: readonly Approach[],
+  now: number,
+  keep: readonly string[] = [],
+  random: () => number = Math.random
+): string[] {
+  const how = (i: BattleItem): Approach => approachOf(findItemKind(i.kindId)!.category)
+  const pool = battlePool(items, now)
+  const hand = pool.filter((i) => keep.includes(i.id)).slice(0, HAND_SIZE)
+  const rest = shuffled(pool.filter((i) => !hand.includes(i)), random)
+  const count = (a: Approach): number => hand.filter((i) => how(i) === a).length
+  const add = (a: Approach): boolean => {
+    const at = rest.findIndex((i) => how(i) === a)
+    if (at < 0) return false
+    hand.push(...rest.splice(at, 1))
+    return true
+  }
+  for (const a of known) {
+    const need = known.filter((k) => k === a).length
+    if (hand.length < HAND_SIZE && count(a) < need) add(a)
+  }
+  // 沒有的做法先補，第三回合才有得選
+  for (const a of shuffled(APPROACH_IDS, random)) if (hand.length < HAND_SIZE && count(a) === 0) add(a)
+  hand.push(...rest.slice(0, Math.max(0, HAND_SIZE - hand.length)))
+  return hand.map((i) => i.id)
+}
+
+/** 開打：記下選好的 3～5 件並定案敵人文字，之後不能換。選的不合法就原樣回傳。 */
 export function startBattle(
   s: BattleStore,
   battleId: string,
   items: readonly BattleItem[],
-  now: number,
-  random: () => number = Math.random
+  itemIds: readonly string[],
+  now: number
 ): BattleStore {
   const b = s.current
   if (!b || b.id !== battleId || b.hand) return s
-  const hand = dealHand(items, b.weak, now, random)
-  if (hand.length === 0) return s
+  const ids = [...new Set(itemIds)]
+  if (ids.length < MIN_ITEMS || ids.length > HAND_SIZE) return s
+  const pool = new Map(battlePool(items, now).map((i) => [i.id, i]))
+  const hand = ids.flatMap((id): HandItem[] => {
+    const i = pool.get(id)
+    return i?.name
+      ? [{ itemId: i.id, name: i.name, move: i.move, category: findItemKind(i.kindId)!.category, finderId: i.finderId, finderName: i.finderName }]
+      : []
+  })
+  if (hand.length !== ids.length) return s
   const text = s.foes[b.leadId]?.list[b.form] ?? FOE_FORMS[b.form].fallback
   return { ...s, current: { ...b, hand, text } }
 }
@@ -497,7 +489,7 @@ const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
 const entries = (v: unknown): [string, unknown][] => (isObject(v) ? Object.entries(v) : [])
 const asForm = (v: unknown): FoeFormId | undefined => FOE_FORM_IDS.find((f) => f === v)
 const isApproach = (v: unknown): v is Approach => APPROACH_IDS.some((a) => a === v)
-const isCategory = (v: unknown): v is ItemCategory => typeof v === 'string' && Object.keys(APPROACH_OF).includes(v)
+const isCategory = (v: unknown): v is ItemCategory => typeof v === 'string' && Object.keys(ITEM_CATEGORIES).includes(v)
 const isFace = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 6
 
 function normalizeText(raw: unknown): FoeText | undefined {
@@ -509,7 +501,7 @@ function normalizeText(raw: unknown): FoeText | undefined {
 function normalizeHand(raw: unknown): HandItem[] | undefined {
   const hand = list(raw).flatMap((h): HandItem[] =>
     isObject(h) && str(h.itemId) && str(h.name) && isCategory(h.category)
-      ? [{ itemId: str(h.itemId), name: str(h.name), category: h.category, finderId: str(h.finderId), finderName: str(h.finderName) }]
+      ? [{ itemId: str(h.itemId), name: str(h.name), move: str(h.move) || undefined, category: h.category, finderId: str(h.finderId), finderName: str(h.finderName) }]
       : []
   )
   return hand.length >= MIN_ITEMS ? hand.slice(0, HAND_SIZE) : undefined

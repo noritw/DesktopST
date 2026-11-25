@@ -81,7 +81,7 @@ describe('過招落地', () => {
   it('整場：出場時間寫到物品，重讀續打，收尾清掉對手', async () => {
     const s = await ready()
     expect((await meet(s)).current?.id).toBe('x')
-    expect((await beginBattle(s, 'x', NOW)).current?.hand).toHaveLength(3)
+    expect((await beginBattle(s, 'x', ['glow-c1', 'ink-c1', 'vessel-c1'], NOW)).current?.hand).toHaveLength(3)
     await Promise.all([play(s, 0, 'glow-c1'), play(s, 0, 'ink-c1')])
     expect((await loadBattles(s)).current?.rounds).toHaveLength(1)
     const first = (await loadBattles(s)).current!.rounds[0]
@@ -102,7 +102,7 @@ describe('過招落地', () => {
   it('出場時間沒寫到就中斷，下次進旅途補寫', async () => {
     const s = await ready()
     await meet(s)
-    await beginBattle(s, 'x', NOW)
+    await beginBattle(s, 'x', ['glow-c1', 'ink-c1', 'vessel-c1'], NOW)
     await play(s, 0, 'glow-c1')
     await updateCollection(s, (c) => ({ ...c, items: c.items.map((i) => ({ ...i, lastBattleAt: undefined })) }))
     await meet(s)
@@ -112,7 +112,7 @@ describe('過招落地', () => {
   it('打到一半丟掉手牌仍能打完', async () => {
     const s = await ready()
     await meet(s)
-    await beginBattle(s, 'x', NOW)
+    await beginBattle(s, 'x', ['glow-c1', 'ink-c1', 'vessel-c1'], NOW)
     await updateCollection(s, (c) => ({ ...c, items: [] }))
     await play(s, 0, 'glow-c1')
     await play(s, 1, 'ink-c1')

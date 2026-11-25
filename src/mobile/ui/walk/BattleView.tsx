@@ -5,10 +5,13 @@ import {
   MIN_ITEMS,
   OUTCOME_TITLE,
   ROUND_COUNT,
+  KNOWN_ROUNDS,
   approachOf,
+  battlePool,
   buildBattleTalkMessage,
   bypassBattle,
   canReroll,
+  knownWeak,
   roundWon,
   type Approach,
   type Battle,
@@ -18,7 +21,7 @@ import {
   type HandItem,
   type Person
 } from '@core/walk/battle'
-import { ITEM_CATEGORIES, type ItemCategory } from '@core/walk/items'
+import { type WalkCollection } from '@core/walk/items'
 import type { StorageAdapter } from '@core/adapters'
 import { getStandaloneSession } from '../../runtime/sessionHolder'
 import {
@@ -29,10 +32,12 @@ import {
   updateBattles,
   type WriteFoesResult
 } from '../../runtime/walkBattle'
+import { loadCollection } from '../../runtime/walkItems'
 import { Avatar } from '../characters/Avatar'
+import { BattlePicker } from './BattlePicker'
 import { useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
-import { CATEGORY_ICONS } from './art'
+import { APPROACH_ICONS } from './art'
 import { FOE_ART } from './foeArt'
 
 /** 三回合過招（`docs/walk-battle-design.md` §4）。 */
@@ -49,12 +54,9 @@ const WRITE_FAIL: Record<Extract<WriteFoesResult, { ok: false }>['reason'], stri
 /** 這一場已經試著寫過，失敗也不自動重試 */
 const triedBattles = new Set<string>()
 
-const CATEGORIES = Object.keys(ITEM_CATEGORIES) as ItemCategory[]
-const categoriesOf = (a: Approach): ItemCategory[] => CATEGORIES.filter((c) => approachOf(c) === a)
-
 const reducedMotion = (): boolean => !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
-function WeakTag({ index, weak, state }: { index: number; weak: Approach; state: 'done' | 'missed' | 'now' | 'later' }): JSX.Element {
+function WeakTag({ index, weak, state }: { index: number; weak: Approach | null; state: 'done' | 'missed' | 'now' | 'later' }): JSX.Element {
   return (
     <div
       className={`flex flex-col items-center gap-1 rounded-[16px] border-2 bg-[#FFFDF4] px-1 py-2 text-center text-[#3D5A52] ${
@@ -62,11 +64,9 @@ function WeakTag({ index, weak, state }: { index: number; weak: Approach; state:
       } ${state === 'done' || state === 'missed' ? 'opacity-60' : ''}`}
     >
       <span className="text-[12px]">第 {index + 1} 回合怕</span>
-      <span className="text-[15px] font-bold">{APPROACHES[weak]}</span>
+      <span className="text-[15px] font-bold">{weak ? APPROACHES[weak] : '？'}</span>
       <span className="flex gap-1">
-        {categoriesOf(weak).map((c) => (
-          <img key={c} src={CATEGORY_ICONS[c]} alt={ITEM_CATEGORIES[c].label} className="h-6 w-6" />
-        ))}
+        {weak && <img src={APPROACH_ICONS[weak]} alt="" className="h-6 w-6" />}
       </span>
       <span className="text-[12px]">{state === 'done' ? '○ 贏了' : state === 'missed' ? '－ 閃過了' : ''}</span>
     </div>
@@ -104,7 +104,7 @@ function HandCard({ card, hit, disabled, onPick }: { card: HandItem; hit: boolea
         hit ? 'border-[var(--mint2)]' : 'border-transparent'
       }`}
     >
-      <img src={CATEGORY_ICONS[card.category]} alt="" className="h-10 w-10 shrink-0 rounded-full bg-[#FFFDF4] p-1" />
+      <img src={APPROACH_ICONS[approachOf(card.category)]} alt="" className="h-10 w-10 shrink-0 rounded-full bg-[#FFFDF4] p-1" />
       <span className="min-w-0 flex-1">
         <span className="block text-[15px] leading-snug">{card.name}</span>
         <span className="block text-[12px] text-[var(--text-sub)]">{card.finderName}找到的</span>
@@ -134,6 +134,7 @@ export function BattleView({
   const [rolling, setRolling] = useState(false)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<BattleRecord | null>(null)
+  const [picking, setPicking] = useState<WalkCollection | null>(null)
 
   const needsFoes = !!b && !b.hand && !store.foes[b.leadId] && !store.declined && !triedBattles.has(b.id)
   /** 敵人還沒定案時先不露出名稱 */
@@ -236,6 +237,39 @@ export function BattleView({
 
   const text: FoeText = b.text ?? store.foes[b.leadId]?.list[b.form] ?? FOE_FORMS[b.form].fallback
 
+  // ── 選物品 ──
+  if (!b.hand && picking) {
+    return (
+      <BattlePicker
+        collection={picking}
+        known={knownWeak(b)}
+        busy={busy}
+        onBack={() => setPicking(null)}
+        onStart={(ids) =>
+          void run(
+            () => beginBattle(storage, b.id, ids),
+            (s) => {
+              if (!s.current?.hand) {
+                ui.toast('有物品不能出場了，請重新選')
+                setPicking(null)
+              }
+            }
+          )
+        }
+      />
+    )
+  }
+
+  const openPicker = async (): Promise<void> => {
+    try {
+      const c = await loadCollection(storage)
+      if (battlePool(c.items, Date.now()).length < MIN_ITEMS) ui.toast(`再找幾件物品吧，要有 ${MIN_ITEMS} 件才能開始`)
+      else setPicking(c)
+    } catch {
+      ui.toast('讀取物品失敗，再試一次', 'error')
+    }
+  }
+
   // ── 遇到 ──
   if (!b.hand) {
     return (
@@ -255,27 +289,20 @@ export function BattleView({
           )}
           <div className="grid w-full grid-cols-3 gap-2">
             {b.weak.map((w, i) => (
-              <WeakTag key={i} index={i} weak={w} state="later" />
+              <WeakTag key={i} index={i} weak={i < KNOWN_ROUNDS ? w : null} state="later" />
             ))}
           </div>
           <p className="text-[13px] leading-relaxed text-[var(--text-sub)]">
-            每回合拿出一件物品。做法對了就擲兩顆骰子取高的，4 以上就贏這回合。出場的物品會休息 24 小時。
+            選 3～5 件物品，每回合拿出一件。做法對了就擲兩顆骰子取高的，4 以上就贏。第 3 回合怕什麼，打完第 2 回合才知道。出場的物品會休息 24 小時。
           </p>
         </div>
         <button
           type="button"
           className={PRIMARY}
           disabled={busy || writing === 'asking'}
-          onClick={() =>
-            void run(
-              () => beginBattle(storage, b.id),
-              (s) => {
-                if (!s.current?.hand) ui.toast(`再找幾件物品吧，要有 ${MIN_ITEMS} 件才能開始`)
-              }
-            )
-          }
+          onClick={() => void openPicker()}
         >
-          {writing === 'writing' ? '不等了，直接開始' : '開始'}
+          {writing === 'writing' ? '不等了，先選物品' : '選物品'}
         </button>
         <div className="grid grid-cols-2 gap-2">
           <button type="button" className={SECONDARY} onClick={onClose}>先不管它</button>
@@ -333,7 +360,8 @@ export function BattleView({
           {b.weak.map((w, i) => {
             const r = b.rounds[i]
             const shown = r && (i < round || (i === round && !rolling))
-            return <WeakTag key={i} index={i} weak={w} state={shown ? (roundWon(r) ? 'done' : 'missed') : i === round ? 'now' : 'later'} />
+            const known = i < KNOWN_ROUNDS || round >= KNOWN_ROUNDS
+            return <WeakTag key={i} index={i} weak={known ? w : null} state={shown ? (roundWon(r) ? 'done' : 'missed') : i === round ? 'now' : 'later'} />
           })}
         </div>
       </div>
@@ -362,6 +390,7 @@ export function BattleView({
             <p role="status" className="min-h-[28px] text-[18px] font-bold">
               {rolling ? '' : roundWon(played) ? `${APPROACHES[approachOf(card.category)]}成功！` : '它閃過了'}
             </p>
+            {!rolling && roundWon(played) && card.move && <p className="text-[15px] leading-relaxed">{card.move}</p>}
           </div>
           {!rolling && (
             <div className={canReroll(b) ? 'grid grid-cols-2 gap-2' : ''}>

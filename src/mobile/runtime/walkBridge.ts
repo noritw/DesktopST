@@ -17,6 +17,7 @@ interface WalkStepsPlugin {
   requestAccess(): Promise<WalkAccess>
   openSettings(): Promise<void>
   readDays(o: { days: string[] }): Promise<{ totals: Record<string, number> }>
+  lastSteps(): Promise<{ day?: string; steps?: number }>
   refreshWidget(): Promise<void>
 }
 
@@ -63,6 +64,14 @@ export async function readWalkDays(days: string[]): Promise<Record<string, numbe
   const loaded = await loadPlugin()
   if (!loaded) throw new Error('unsupported')
   return (await withTimeout(loaded.plugin.readDays({ days }))).totals
+}
+
+/** 小工具上次讀到的今日步數，只供畫面先顯示，不可拿來記帳。 */
+export async function lastWidgetSteps(day: string): Promise<number | undefined> {
+  const loaded = await loadPlugin()
+  if (!loaded) return undefined
+  const r = await withTimeout(loaded.plugin.lastSteps()).catch(() => null)
+  return r?.day === day && typeof r.steps === 'number' ? r.steps : undefined
 }
 
 /** 寫給原生小工具看的資料。**改這裡一定要同步改 `WalkWidgetProvider.kt` 的解析**。 */

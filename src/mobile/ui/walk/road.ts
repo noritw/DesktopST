@@ -35,6 +35,10 @@ export const MAP_ROUTES: Record<JourneyMapId, MapRoute> = {
   station: {
     slots: [{ x: 156, y: 467 }, { x: 156, y: 386 }, { x: 156, y: 304 }, { x: 239, y: 286 }, { x: 289, y: 226 }],
     home: { x: 230, y: 162 }
+  },
+  town: {
+    slots: [{ x: 140, y: 468 }, { x: 250, y: 420 }, { x: 288, y: 352 }, { x: 170, y: 298 }, { x: 128, y: 230 }],
+    home: { x: 206, y: 164 }
   }
 }
 

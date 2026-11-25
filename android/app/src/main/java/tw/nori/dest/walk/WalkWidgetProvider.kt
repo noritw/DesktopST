@@ -113,6 +113,12 @@ class WalkWidgetProvider : AppWidgetProvider() {
             renderAll(context)
         }
 
+        fun lastSteps(context: Context): Pair<String, Long>? {
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val day = prefs.getString("day", null) ?: return null
+            return Pair(day, prefs.getLong("steps", 0))
+        }
+
         private fun widgetIds(context: Context, manager: AppWidgetManager): IntArray =
             manager.getAppWidgetIds(ComponentName(context, WalkWidgetProvider::class.java))
 

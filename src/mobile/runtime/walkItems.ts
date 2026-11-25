@@ -6,13 +6,13 @@ import {
   buildItemPrompt,
   normalizeCollection,
   parseItemReply,
-  patchItem,
   type DropContext,
   type ItemWeather,
   type JourneyMapId,
   type WalkCollection,
   type WalkItem
 } from '@core/walk/items'
+import { liveMoveGuide, prepareReveal } from '@core/walk/treasureDraw'
 import { loadWalkState, localDay, updateWalkState } from './walk'
 import { walkItemsKey } from './walkKeys'
 
@@ -40,25 +40,41 @@ export function updateCollection(
 
 const WEATHER_TIMEOUT_MS = 5000
 
-/** 掉落 → 收藏。先寫收藏再清掉落；中途中斷時重做，以 id 去重。 */
+/**
+ * 掉落 → 收藏。先寫收藏再清掉落；中途中斷時重做，以 id 去重。
+ * 物品先出現，不等天氣；查到後再補上，`weatherDone` 等補完。
+ */
 export async function collectWalkDrops(
   storage: StorageAdapter,
   getWeather: () => Promise<ItemWeather | null>,
   now: number = Date.now()
-): Promise<void> {
+): Promise<{ weatherDone: Promise<void> }> {
   const { pendingDrops } = await loadWalkState(storage)
-  if (pendingDrops.length === 0) return
+  if (pendingDrops.length === 0) return { weatherDone: Promise.resolve() }
   const today = localDay(now)
-  let weather: ItemWeather | null = null
-  if (pendingDrops.some((d) => d.day === today)) {
-    weather = await Promise.race([
-      getWeather().catch(() => null),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), WEATHER_TIMEOUT_MS))
-    ])
-  }
-  await updateCollection(storage, (c) => addDrops(c, pendingDrops, (d) => (d.day === today && weather ? weather : undefined)))
+  const known = new Set((await loadCollection(storage)).seen)
+  await updateCollection(storage, (c) => addDrops(c, pendingDrops))
   const moved = new Set(pendingDrops.map((d) => d.id))
   await updateWalkState(storage, (s) => ({ ...s, pendingDrops: s.pendingDrops.filter((d) => !moved.has(d.id)) }))
+  const fresh = new Set(pendingDrops.filter((d) => d.day === today && !known.has(d.id)).map((d) => d.id))
+  return { weatherDone: fresh.size > 0 ? addWeather(storage, fresh, getWeather) : Promise.resolve() }
+}
+
+async function addWeather(
+  storage: StorageAdapter,
+  ids: ReadonlySet<string>,
+  getWeather: () => Promise<ItemWeather | null>
+): Promise<void> {
+  const weather = await Promise.race([
+    getWeather().catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), WEATHER_TIMEOUT_MS))
+  ])
+  if (!weather) return
+  await updateCollection(storage, (c) => ({
+    ...c,
+    // 已經打開的不補：故事已經照沒有天氣寫了
+    items: c.items.map((i) => (ids.has(i.id) && !i.map && !i.name && !i.weather ? { ...i, weather } : i))
+  })).catch((e) => console.warn('[Walk] 補天氣失敗:', e))
 }
 
 /** 測試版用：只推進撿東西的進度，不動步數與里程。 */
@@ -104,11 +120,8 @@ export function revealWalkItem<C extends { name: string }>(deps: RevealDeps<C>):
 }
 
 async function doReveal<C extends { name: string }>(deps: RevealDeps<C>): Promise<RevealResult> {
-  // 地圖先存再生成，重試時換了地圖也不變
-  const before = await updateCollection(deps.storage, (c) => {
-    const cur = c.items.find((i) => i.id === deps.itemId)
-    return deps.map && cur && !cur.name && !cur.map ? patchItem(c, cur.id, { map: deps.map }) : c
-  })
+  // 地圖與寶物先存再生成，重試時不變
+  const before = await updateCollection(deps.storage, (c) => prepareReveal(c, deps.itemId, deps.map))
   const item = before.items.find((i) => i.id === deps.itemId)
   if (!item) return { ok: false, reason: 'not_found' }
   if (item.name) return { ok: true, item }
@@ -119,7 +132,9 @@ async function doReveal<C extends { name: string }>(deps: RevealDeps<C>): Promis
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), deps.timeoutMs ?? 60_000)
   try {
-    const text = parseItemReply(await deps.generate(character, buildItemPrompt(item, character.name), abort.signal))
+    const prompt = buildItemPrompt(item, character.name, liveMoveGuide(item.kindId, character.name))
+    const text = parseItemReply(await deps.generate(character, prompt, abort.signal), item.look ? item.treasureName : undefined)
+    if (text?.move?.startsWith(character.name)) text.move = text.move.slice(character.name.length)
     if (!text) return { ok: false, reason: 'failed' }
     const c = await updateCollection(deps.storage, (cur) => applyGenerated(cur, item.id, text, Date.now()))
     const done = c.items.find((i) => i.id === item.id)

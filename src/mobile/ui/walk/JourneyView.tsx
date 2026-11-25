@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  ITEM_CATEGORIES,
   ITEM_RARITIES,
+  ITEM_SORTS,
+  ITEM_SORT_IDS,
   JOURNEY_MAPS,
   JOURNEY_MAP_IDS,
   buildItemTalkMessage,
@@ -9,16 +10,20 @@ import {
   findItemKind,
   useItem as applyItemUse,
   journeyMapFor,
+  sortItems,
   type ItemRarity,
+  type ItemSort,
   type JourneyMapId,
   type WalkCollection,
   type WalkItem
 } from '@core/walk/items'
-import { FOE_FORMS, defaultBattleStore, restText, type BattleStore } from '@core/walk/battle'
+import { APPROACHES, APPROACH_IDS, FOE_FORMS, approachOf, defaultBattleStore, restText, type Approach, type BattleStore } from '@core/walk/battle'
+import { prepareReveal } from '@core/walk/treasureDraw'
 import { partyOf, roadAt, slotOrder, tripBetween } from '@core/walk/journey'
 import { newId } from '../../runtime/id'
 import { getStandaloneSession } from '../../runtime/sessionHolder'
 import { loadWalkSettings, loadWalkState, localDay } from '../../runtime/walk'
+import { lastWidgetSteps } from '../../runtime/walkBridge'
 import { loadCollection, updateCollection, type RevealResult } from '../../runtime/walkItems'
 import { openJourney, simulateJourney, stayInJourney } from '../../runtime/walkJourney'
 import { forceEncounter, syncBattles } from '../../runtime/walkBattle'
@@ -28,9 +33,9 @@ import { Avatar } from '../characters/Avatar'
 import { BattleView } from './BattleView'
 import { Companion, type PartyTrip } from './Companion'
 import { FOE_ART } from './foeArt'
-import { MAP_ROUTES, buildRoad, slotsOn, type MapRoute, type Point } from './road'
 import { isWalkTestBuild } from './testBuild'
-import { CATEGORY_ICONS, MAP_ART, boxIconFor } from './art'
+import { MAP_ROUTES, buildRoad, slotsOn, type MapRoute, type Point } from './road'
+import { APPROACH_ICONS, MAP_ART, boxIconFor } from './art'
 
 /** 今日旅途（`docs/walk-items-design.md` §5.1）。 */
 
@@ -77,11 +82,13 @@ function RarityRing({ rarity, children, size }: { rarity: ItemRarity; children: 
   )
 }
 
+const approachOfItem = (i: WalkItem): Approach => approachOf(findItemKind(i.kindId)!.category)
+
 function ItemIcon({ item, size }: { item: WalkItem; size: number }): JSX.Element {
   const kind = findItemKind(item.kindId)!
   return (
     <RarityRing rarity={kind.rarity} size={size}>
-      <img src={CATEGORY_ICONS[kind.category]} alt="" style={{ width: size * 0.66, height: size * 0.66 }} />
+      <img src={APPROACH_ICONS[approachOf(kind.category)]} alt="" style={{ width: size * 0.66, height: size * 0.66 }} />
     </RarityRing>
   )
 }
@@ -93,7 +100,8 @@ function KindTags({ item }: { item: WalkItem }): JSX.Element {
   const border = r === 'rare' ? 'border-2 border-dotted' : r === 'uncommon' ? 'border-[3px] border-double' : 'border'
   return (
     <div className="flex flex-wrap items-center justify-center gap-2 text-[13px] text-[#3D5A52]">
-      <span className="rounded-full bg-[#CDEBDD] px-3 py-1 font-medium">{ITEM_CATEGORIES[kind.category].label}</span>
+      <span className="rounded-full bg-[#CDEBDD] px-3 py-1 font-medium">過招：{APPROACHES[approachOf(kind.category)]}</span>
+      {item.map && <span className="rounded-full bg-[#FFFDF4] px-3 py-1">{JOURNEY_MAPS[item.map]}</span>}
       <span className={`rounded-full border-[#3D5A52] bg-[#FFFDF4] px-3 py-1 ${border}`}>稀有度：{ITEM_RARITIES[r].label}</span>
     </div>
   )
@@ -128,6 +136,7 @@ export function JourneyView(): JSX.Element {
   const [revealingId, setRevealingId] = useState<string | null>(null)
   /** 最近打開過的那件：分類與稀有度先亮出來，失敗時也留著 */
   const [triedId, setTriedId] = useState<string | null>(null)
+  /** 測試按鈕只給開發伺服器與手機測試版 */
   const [test, setTest] = useState(false)
   /** 剛用出來的那件，才播動畫並捲到籤語 */
   const [justUsed, setJustUsed] = useState<string | null>(null)
@@ -140,6 +149,9 @@ export function JourneyView(): JSX.Element {
   const [battles, setBattles] = useState<BattleStore>(defaultBattleStore)
   const [fighting, setFighting] = useState(false)
   const focusRef = useRef<string | null>(null)
+  const [syncing, setSyncing] = useState(0)
+  /** 物品頁只看某種過招效果 */
+  const [filter, setFilter] = useState<Approach | null>(null)
   const [today, setToday] = useState(() => localDay(Date.now()))
   /** 隊伍這一趟怎麼走 */
   const [trip, setTrip] = useState<(PartyTrip & { map: JourneyMapId; day: string; phase: number; leadId?: string }) | null>(null)
@@ -151,9 +163,13 @@ export function JourneyView(): JSX.Element {
 
   const reload = useCallback(async (): Promise<void> => {
     if (!session) return
-    setEnabled((await loadWalkSettings(session.walkStorage)).enabled)
+    const on = (await loadWalkSettings(session.walkStorage)).enabled
+    setEnabled(on)
     const { creditedByDay } = await loadWalkState(session.walkStorage)
-    setSteps({ day: today, n: creditedByDay[today] })
+    // 小工具可能比記帳新，畫面用大的那個；關閉時小工具不會更新
+    const widget = on ? await lastWidgetSteps(today).catch(() => undefined) : undefined
+    const shown = Math.max(creditedByDay[today] ?? -1, widget ?? -1)
+    setSteps({ day: today, n: shown >= 0 ? shown : undefined })
     // 先同步過招：上次中斷的出場時間會補寫到物品上
     const people = (useAppStore.getState().snapshot?.presentCharacters ?? []).map((c) => ({ id: c.id, name: c.name }))
     setBattles(await syncBattles(session.walkStorage, { present: people, newId }).catch((e) => {
@@ -163,15 +179,27 @@ export function JourneyView(): JSX.Element {
     setCol(await loadCollection(session.walkStorage))
   }, [session, today])
 
-  useEffect(() => {
-    void (async () => {
+  /** 先用手上的資料畫出來，再去讀新的步數；讀不到也要看得到既有的東西。 */
+  const refresh = useCallback(async (): Promise<void> => {
+    setSyncing((n) => n + 1)
+    try {
       await reload()
-      setTest(await isWalkTestBuild())
-      // 步數讀不到也要看得到既有的東西
       await session?.syncWalkNow().catch(() => {})
       await reload()
-    })().catch((e) => console.warn('[Walk] 載入今日旅途失敗:', e))
+    } catch (e) {
+      console.warn('[Walk] 載入今日旅途失敗:', e)
+    } finally {
+      setSyncing((n) => n - 1)
+    }
   }, [reload, session])
+
+  useEffect(() => {
+    void isWalkTestBuild().then(setTest)
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
 
   // 開著 App 走路或跨日
   useEffect(() => {
@@ -181,10 +209,7 @@ export function JourneyView(): JSX.Element {
     const wake = (): void => {
       if (document.visibilityState !== 'visible') return
       tick()
-      void (async () => {
-        await session?.syncWalkNow().catch(() => {})
-        await reload()
-      })().catch((e) => console.warn('[Walk] 載入今日旅途失敗:', e))
+      void refresh()
     }
     const timer = setInterval(tick, 30_000)
     document.addEventListener('visibilitychange', wake)
@@ -192,7 +217,7 @@ export function JourneyView(): JSX.Element {
       clearInterval(timer)
       document.removeEventListener('visibilitychange', wake)
     }
-  }, [reload, session])
+  }, [refresh])
 
   const map = col ? journeyMapFor(col.map, today) : null
   const road = useMemo(() => buildRoad(MAP_ROUTES[map ?? 'dream']), [map])
@@ -281,6 +306,8 @@ export function JourneyView(): JSX.Element {
       await updateCollection(session.walkStorage, (c) => ({ ...c, consented: true }))
     }
     setRevealingId(item.id)
+    // 先定下是哪一種，亮出來的分類才不會中途換掉
+    await change((c) => prepareReveal(c, item.id, map))
     setTriedId(item.id)
     try {
       const r = await session.revealWalkItem(item.id, map)
@@ -341,7 +368,25 @@ export function JourneyView(): JSX.Element {
           <KindTags item={open} />
           <RestNote at={open.lastBattleAt} />
           <p className="w-full text-left text-[16px] leading-[1.8]">{open.story}</p>
-          {open.effect && (
+          {open.look && (
+            <div className="w-full rounded-[16px] bg-[var(--surface)] px-4 py-3 text-left">
+              <p className="text-[12px] text-[var(--text-sub)]">說明</p>
+              <p className="pt-1 text-[15px] leading-relaxed">{open.look}</p>
+            </div>
+          )}
+          {open.why && (
+            <div className="w-full rounded-[16px] bg-[var(--surface)] px-4 py-3 text-left">
+              <p className="text-[12px] text-[var(--text-sub)]">為什麼留著</p>
+              <p className="pt-1 text-[15px] leading-relaxed">{open.why}</p>
+            </div>
+          )}
+          {open.move && (
+            <div className="w-full rounded-[16px] bg-[var(--surface)] px-4 py-3 text-left">
+              <p className="text-[12px] text-[var(--text-sub)]">絕招</p>
+              <p className="pt-1 text-[15px] leading-relaxed">{open.move}</p>
+            </div>
+          )}
+          {open.effect && !open.why && (
             <p className="w-full rounded-[16px] bg-[var(--surface)] px-4 py-3 text-left text-[14px] leading-relaxed">{open.effect}</p>
           )}
           {fortune && (
@@ -385,7 +430,7 @@ export function JourneyView(): JSX.Element {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <p className={`${SUB} pb-3`}>選了就固定走這張。在兩張遺跡打開的物品，會是現代文明留下的遺物。</p>
+          <p className={`${SUB} pb-3`}>選了就固定走這張。每張地圖能找到的物品都不一樣。</p>
           <div className="grid grid-cols-2 gap-2.5">
             {choices.map((id) => {
               const on = col.map === id
@@ -405,7 +450,7 @@ export function JourneyView(): JSX.Element {
                   {id ? (
                     <img src={MAP_ART[id]} alt="" className="h-28 w-full object-cover object-[center_25%]" />
                   ) : (
-                    <span className="grid h-28 grid-cols-6">
+                    <span className="grid h-28 grid-cols-7">
                       {JOURNEY_MAP_IDS.map((m) => (
                         <img key={m} src={MAP_ART[m]} alt="" className="h-28 w-full object-cover" />
                       ))}
@@ -453,7 +498,13 @@ export function JourneyView(): JSX.Element {
               className="absolute inset-0 h-full w-full object-cover"
             />
             <p className="absolute left-4 top-3 text-[14px] font-medium text-[#3D5A52]">
-              {stepsToday === undefined ? '今天還沒讀到步數' : `今天走了 ${stepsToday.toLocaleString()} 步`}
+              {stepsToday !== undefined ? `今天走了 ${stepsToday.toLocaleString()} 步` : syncing > 0 ? '' : '今天還沒讀到步數'}
+              {syncing > 0 && (
+                <span role="status" className="block text-[12px] font-normal">
+                  正在看路上有什麼
+                  <span className="journey-dots" aria-hidden="true"><span /><span /><span /></span>
+                </span>
+              )}
             </p>
             <button
               type="button"
@@ -551,7 +602,7 @@ export function JourneyView(): JSX.Element {
           </div>
           {!focus && (
             <p className="pt-2 text-center text-[14px] text-[var(--text)]">
-              {waiting.length === 0 ? '路上還沒有物品，走走看吧' : `路上有 ${waiting.length} 個物品`}
+              {waiting.length === 0 ? (syncing > 0 ? '正在看路上有什麼' : '路上還沒有物品，走走看吧') : `路上有 ${waiting.length} 個物品`}
             </p>
           )}
           {!focus && ahead > 0 && slots.every((id) => !id) && (
@@ -602,8 +653,40 @@ export function JourneyView(): JSX.Element {
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
           {owned.length === 0 && <p className="py-12 text-center text-[14px] text-[var(--text-sub)]">還沒有物品</p>}
-          <div className="grid grid-cols-2 gap-2.5">
-            {[...owned].reverse().map((item) => (
+          {owned.length > 1 && (
+            <label className="flex items-center justify-end gap-2 pb-2.5 text-[13px] text-[var(--text-sub)]">
+              排序
+              <select
+                value={col.sort ?? 'newest'}
+                onChange={(e) => {
+                  const sort = e.target.value as ItemSort
+                  void change((c) => ({ ...c, sort }))
+                }}
+                className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[14px] text-[var(--text)] outline-none"
+              >
+                {ITEM_SORT_IDS.map((id) => (
+                  <option key={id} value={id}>{ITEM_SORTS[id]}</option>
+                ))}
+              </select>
+            </label>
+          )}
+          {owned.length > 0 && (
+            <div className="flex flex-wrap gap-1 pb-2.5" role="group" aria-label="依過招效果篩選">
+              {[null, ...APPROACH_IDS].map((a) => (
+                <button
+                  key={a ?? 'all'}
+                  type="button"
+                  aria-pressed={filter === a}
+                  onClick={() => setFilter(a)}
+                  className={`whitespace-nowrap rounded-full px-2.5 py-2 text-[12px] text-[var(--text)] ${filter === a ? 'bg-[var(--mint)] font-medium' : 'bg-[var(--bg)]'}`}
+                >
+                  {a ? APPROACHES[a] : '全部'} {a ? owned.filter((i) => approachOfItem(i) === a).length : owned.length}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="grid grid-cols-3 gap-2">
+            {sortItems(filter ? owned.filter((i) => approachOfItem(i) === filter) : owned, col.sort).map((item) => (
               <button
                 key={item.id}
                 type="button"
@@ -611,10 +694,11 @@ export function JourneyView(): JSX.Element {
                   setJustUsed(null)
                   setOpenId(item.id)
                 }}
-                className="flex flex-col items-center gap-2 rounded-[20px] bg-[var(--bg)] px-3 py-4 text-center text-[14px] leading-snug text-[var(--text)]"
+                className="flex min-w-0 flex-col items-center gap-1 rounded-[18px] bg-[var(--bg)] px-1.5 py-2.5 text-center text-[13px] leading-snug text-[var(--text)]"
               >
-                <ItemIcon item={item} size={72} />
-                {item.name}
+                <ItemIcon item={item} size={44} />
+                <span className="line-clamp-2 w-full">{item.name}</span>
+                <span className="mt-auto rounded-full bg-[var(--surface)] px-2.5 py-0.5 text-[12px]">{APPROACHES[approachOfItem(item)]}</span>
                 <RestNote at={item.lastBattleAt} brief />
               </button>
             ))}

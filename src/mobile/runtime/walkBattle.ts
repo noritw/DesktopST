@@ -66,8 +66,13 @@ export async function syncBattles(
   return s
 }
 
-export function beginBattle(storage: StorageAdapter, battleId: string, now: number = Date.now()): Promise<BattleStore> {
-  return updateBattles(storage, async (s) => startBattle(s, battleId, (await loadCollection(storage)).items, now))
+export function beginBattle(
+  storage: StorageAdapter,
+  battleId: string,
+  itemIds: readonly string[],
+  now: number = Date.now()
+): Promise<BattleStore> {
+  return updateBattles(storage, async (s) => startBattle(s, battleId, (await loadCollection(storage)).items, itemIds, now))
 }
 
 export async function playBattleRound(storage: StorageAdapter, input: PlayInput): Promise<BattleStore> {

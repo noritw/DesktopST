@@ -2308,7 +2308,17 @@ export class StandaloneSession {
   }
 
   /** 讀步數、記帳、刷新計步小工具。回傳模組是否開啟；讀取失敗會擲例外。 */
-  async syncWalkNow(): Promise<boolean> {
+  syncWalkNow(): Promise<boolean> {
+    // 回到前景與開啟旅途會同時要求，共用同一趟
+    this.walkSyncing ??= this.doSyncWalk().finally(() => {
+      this.walkSyncing = null
+    })
+    return this.walkSyncing
+  }
+
+  private walkSyncing: Promise<boolean> | null = null
+
+  private async doSyncWalk(): Promise<boolean> {
     try {
       const companionIds = this.settings.ui.desktopCharacters.map((d) => d.characterId)
       const state = await syncWalk({
@@ -2320,7 +2330,8 @@ export class StandaloneSession {
       if (state) await this.collectWalkItems()
       return state !== null
     } finally {
-      await this.refreshWalkWidget().catch(() => {})
+      // 小工具不可以拖住畫面
+      void this.refreshWalkWidget().catch(() => {})
     }
   }
 

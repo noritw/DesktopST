@@ -8,15 +8,16 @@ import {
   LOG_LIMIT,
   REST_MS,
   approachOf,
+  battlePool,
   buildBattleTalkMessage,
   bypassBattle,
   canReroll,
   countOpened,
-  dealHand,
   defaultBattleStore,
   dexKey,
   finishBattle,
   keepLead,
+  knownWeak,
   markBattled,
   normalizeBattleStore,
   outcomeOf,
@@ -25,6 +26,7 @@ import {
   restLeft,
   restText,
   startBattle,
+  suggestHand,
   tryAppear,
   type Approach,
   type BattleItem,
@@ -74,7 +76,7 @@ const withFoes = (): BattleStore => ({
   ...waiting(),
   foes: { a: { name: '甲', madeAt: 1, list: { tangle: FOE_FORMS.fog.fallback } } }
 })
-const started = (items: BattleItem[] = FIVE): BattleStore => startBattle(waiting(), 'x', items, NOW, seeded())
+const started = (items: BattleItem[] = FIVE): BattleStore => startBattle(waiting(), 'x', items, items.map((i) => i.id), NOW)
 const fixed =
   (...faces: number[]): BattleRoller =>
   (n) =>
@@ -205,46 +207,19 @@ describe('休息 24 小時', () => {
   })
 })
 
-describe('發牌', () => {
-  it('最多五件、不重複；不足五件全發；抽過籤語的也能出', () => {
-    const random = seeded()
-    for (let i = 0; i < 200; i++) {
-      const hand = dealHand(ONE_EACH, WEAK, NOW, random)
-      expect(hand).toHaveLength(HAND_SIZE)
-      expect(new Set(hand.map((h) => h.itemId)).size).toBe(HAND_SIZE)
-    }
-    const used = FIVE.slice(0, 3).map((i) => ({ ...i, fortune: { text: 't' } }))
-    expect(dealHand(used, WEAK, NOW, random)).toHaveLength(3)
+describe('選物品', () => {
+  const ids = (items: BattleItem[]): string[] => battlePool(items, NOW).map((i) => i.id).sort()
+
+  it('能出場的全部可選，抽過籤語的也能；沒名字的不算', () => {
+    expect(battlePool(ONE_EACH, NOW)).toEqual(ONE_EACH)
+    const used = FIVE.map((i) => ({ ...i, fortune: { text: 't' } }))
+    expect(battlePool(used, NOW)).toHaveLength(5)
+    expect(ids([...FIVE.slice(0, 2), item('z', 'glow-c2', { name: undefined })])).toEqual(['glow', 'ink'])
   })
 
-  it('沒名字的不算，不到 3 件不開打', () => {
-    const items = [...FIVE.slice(0, 2), item('z', 'glow-c2', { name: undefined })]
-    expect(dealHand(items, WEAK, NOW)).toEqual([])
-    const s = waiting()
-    expect(startBattle(s, 'x', items, NOW)).toBe(s)
-  })
-
-  it('盡量不重複品項', () => {
-    const items = [...Array.from({ length: 10 }, (_, i) => item(`g${i}`, 'glow-c1')), ...ONE_EACH.slice(1, 6)]
-    const random = seeded()
-    for (let i = 0; i < 100; i++) {
-      const hand = dealHand(items, WEAK, NOW, random)
-      expect(new Set(hand.map((h) => h.category)).size).toBe(HAND_SIZE)
-    }
-  })
-
-  it('收藏裡有對的做法，至少發到一件', () => {
-    const items = [...kindsOf('nature').map((k) => item(k, k)), item('only', 'ink-c1')]
-    const random = seeded()
-    for (let i = 0; i < 100; i++) {
-      expect(dealHand(items, ['move', 'trap', 'move'], NOW, random).some((h) => h.itemId === 'only')).toBe(true)
-    }
-  })
-
-  it('休息中的不發；不到 3 件才讓休息最久的回來，不清時間', () => {
+  it('休息中的不能選；不到 3 件才讓休息最久的回來，不清時間', () => {
     const at = (id: string, hoursAgo: number): BattleItem => item(id, `${id}-c1`, { lastBattleAt: NOW - hoursAgo * HOUR })
-    const ids = (items: BattleItem[]): string[] => dealHand(items, WEAK, NOW).map((h) => h.itemId).sort()
-    expect(ids([...FIVE.slice(0, 3), at('gear', 1)])).not.toContain('gear')
+    expect(ids([...FIVE.slice(0, 3), at('gear', 1)])).toEqual(['glow', 'ink', 'vessel'])
     const tight = [item('glow', 'glow-c1'), at('ink', 2), at('gear', 20), at('lost', 10)]
     const before = structuredClone(tight)
     expect(ids(tight)).toEqual(['gear', 'glow', 'lost'])
@@ -253,12 +228,39 @@ describe('發牌', () => {
     expect(ids([item('glow', 'glow-c1'), at('lost', 2), at('ink', 2), at('gear', 2)])).toEqual(['gear', 'glow', 'ink'])
   })
 
-  it('開打才發牌，重按不重發；文字當下定案', () => {
+  it('幫我選：最多五件、不重複，配到已知弱點，四種做法都有；保留已選的', () => {
+    const random = seeded()
+    const many = (Object.keys(ITEM_CATEGORIES) as ItemCategory[]).flatMap((c) => kindsOf(c).slice(0, 3).map((k) => item(k, k)))
+    const how = (id: string): Approach => approachOf(ITEM_KINDS.find((k) => k.id === id)!.category)
+    for (let i = 0; i < 200; i++) {
+      const hand = suggestHand(many, ['trap', 'trap'], NOW, ['ink-c2'], random)
+      expect(new Set(hand).size).toBe(HAND_SIZE)
+      expect(hand).toContain('ink-c2')
+      expect(hand.filter((id) => how(id) === 'trap').length).toBeGreaterThanOrEqual(2)
+      expect(new Set(hand.map(how)).size).toBe(APPROACH_IDS.length)
+    }
+    expect(suggestHand(FIVE.slice(0, 3), ['lure', 'move'], NOW)).toHaveLength(3)
+    expect(suggestHand([], ['lure', 'move'], NOW)).toEqual([])
+  })
+
+  it('只看得到前兩回合的弱點', () => {
+    expect(knownWeak(waiting().current!)).toEqual(WEAK.slice(0, 2))
+  })
+
+  it('選好才開打並記下快照，之後不能換；文字當下定案', () => {
     const s = started()
-    expect(s.current?.hand).toHaveLength(5)
+    expect(s.current?.hand?.map((h) => h.itemId)).toEqual(FIVE.map((i) => i.id))
     expect(s.current?.text).toEqual(FOE_FORMS.tangle.fallback)
-    expect(startBattle(s, 'x', ONE_EACH, NOW + REST_MS)).toBe(s)
-    expect(startBattle(withFoes(), 'x', FIVE, NOW).current?.text?.name).toBe('瞇眼的霧')
+    expect(startBattle(s, 'x', ONE_EACH, ['glow', 'ink', 'gear'], NOW + REST_MS)).toBe(s)
+    expect(startBattle(withFoes(), 'x', FIVE, ['glow', 'ink', 'vessel'], NOW).current?.text?.name).toBe('瞇眼的霧')
+  })
+
+  it('件數不對、重複、休息中、不存在的都不能開打', () => {
+    const s = waiting()
+    const all = [...ONE_EACH, item('r', 'glow-c2', { lastBattleAt: NOW })]
+    const bad = [['glow', 'ink'], ['glow', 'glow', 'ink'], ONE_EACH.slice(0, 6).map((i) => i.id), ['glow', 'ink', 'r'], ['glow', 'ink', 'nope'], []]
+    for (const pick of bad) expect(startBattle(s, 'x', all, pick, NOW)).toBe(s)
+    expect(startBattle(s, 'y', all, ['glow', 'ink', 'gear'], NOW)).toBe(s)
   })
 })
 

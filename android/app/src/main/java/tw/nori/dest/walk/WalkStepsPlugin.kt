@@ -14,7 +14,10 @@ import com.getcapacitor.annotation.CapacitorPlugin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -73,16 +76,29 @@ class WalkStepsPlugin : Plugin() {
         val days = call.getArray("days") ?: JSArray()
         scope.launch {
             try {
-                val totals = JSObject()
-                for (i in 0 until days.length()) {
-                    val day = days.getString(i)
-                    totals.put(day, WalkSteps.readDay(context, LocalDate.parse(day)) ?: 0L)
+                val names = (0 until days.length()).map { days.getString(it) }
+                // 一天一個請求，依序讀會慢好幾倍
+                val counts = coroutineScope {
+                    names.map { async { WalkSteps.readDay(context, LocalDate.parse(it)) ?: 0L } }.awaitAll()
                 }
+                val totals = JSObject()
+                names.forEachIndexed { i, day -> totals.put(day, counts[i]) }
                 call.resolve(JSObject().apply { put("totals", totals) })
             } catch (e: Exception) {
                 call.reject("讀取步數失敗: ${e.message}")
             }
         }
+    }
+
+    /** 小工具上次讀到的步數，不必等 Health Connect；沒讀過就沒有 `day`。 */
+    @PluginMethod
+    fun lastSteps(call: PluginCall) {
+        call.resolve(JSObject().apply {
+            WalkWidgetProvider.lastSteps(context)?.let { (day, steps) ->
+                put("day", day)
+                put("steps", steps)
+            }
+        })
     }
 
     @PluginMethod

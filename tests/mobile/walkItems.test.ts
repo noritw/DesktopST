@@ -13,7 +13,9 @@ import {
   useItem,
   journeyMapFor,
   normalizeCollection,
-  parseItemReply
+  parseItemReply,
+  sortItems,
+  type ItemSort
 } from '@core/walk/items'
 import { FORTUNES, USE_REACTIONS, cleanFortune, drawFortune, fortuneKindAt } from '@core/walk/itemFortunes'
 import { clearWalkData, loadWalkState, localDay, saveWalkSettings, syncWalk, updateWalkState } from '../../src/mobile/runtime/walk'
@@ -37,7 +39,7 @@ const REPLY = '名稱：「破舊的字典」\n故事：它卡在石縫裡。\n�
 async function withItems(steps = 10_000): Promise<ReturnType<typeof createMemoryStorage>> {
   const storage = createMemoryStorage()
   await simulateWalkSteps(storage, steps, ctx(), NOW)
-  await collectWalkDrops(storage, async () => ({ description: '小雨', temperatureC: 21.6 }), NOW)
+  await (await collectWalkDrops(storage, async () => ({ description: '小雨', temperatureC: 21.6 }), NOW)).weatherDone
   return storage
 }
 const reveal = (storage: ReturnType<typeof createMemoryStorage>, itemId: string, over = {}) =>
@@ -120,12 +122,26 @@ describe('拾物：記帳不漏不重', () => {
     expect((await loadCollection(storage)).items).toHaveLength(before - 1)
   })
 
+  it('天氣還沒查到，物品就先出現；已經打開的不補', async () => {
+    const storage = createMemoryStorage()
+    await simulateWalkSteps(storage, 10_000, ctx(), NOW)
+    let give: (w: { description: string; temperatureC: number }) => void = () => {}
+    const r = await collectWalkDrops(storage, () => new Promise((resolve) => { give = resolve }), NOW)
+    expect((await loadCollection(storage)).items.length).toBeGreaterThan(1)
+    await updateCollection(storage, (c) => ({ ...c, items: c.items.map((i, n) => (n === 0 ? { ...i, map: 'city' as const } : i)) }))
+    give({ description: '小雨', temperatureC: 21 })
+    await r.weatherDone
+    const items = (await loadCollection(storage)).items
+    expect(items[0].weather).toBeUndefined()
+    expect(items[1].weather?.description).toBe('小雨')
+  })
+
   it('天氣只附當天的', async () => {
     const storage = await withItems()
     expect((await loadCollection(storage)).items[0].weather?.description).toBe('小雨')
     const old = createMemoryStorage()
     await simulateWalkSteps(old, 10_000, ctx(), NOW - 86_400_000)
-    await collectWalkDrops(old, async () => ({ description: '晴', temperatureC: 20 }), NOW)
+    await (await collectWalkDrops(old, async () => ({ description: '晴', temperatureC: 20 }), NOW)).weatherDone
     expect((await loadCollection(old)).items[0].weather).toBeUndefined()
   })
 
@@ -215,8 +231,8 @@ describe('拾物：揭曉', () => {
     const storage = await withItems()
     const id = (await loadCollection(storage)).items[0].id
     expect(await reveal(storage, id, { generate: async () => { throw new Error('x') } })).toEqual({ ok: false, reason: 'failed' })
-    const prompt = buildItemPrompt((await loadCollection(storage)).items[0], '甲')
-    expect(await reveal(storage, id, { generate: async () => '我不知道' })).toEqual({ ok: false, reason: 'failed' })
+    let prompt = ''
+    expect(await reveal(storage, id, { generate: async (_c: { name: string }, p: string) => ((prompt = p), '我不知道') })).toEqual({ ok: false, reason: 'failed' })
     expect(await reveal(storage, id, { hasApiKey: false })).toEqual({ ok: false, reason: 'no_key' })
     expect((await loadCollection(storage)).items[0].status).toBe('unopened')
     const generate = vi.fn(async (_c: { name: string }, _p: string) => REPLY)
@@ -224,17 +240,17 @@ describe('拾物：揭曉', () => {
     expect(generate.mock.calls[0][1]).toBe(prompt)
   })
 
-  it('遺跡地圖才寫成現代遺物；第一次打開就定案，失敗後換地圖也不變', async () => {
+  it('打開時所在的地圖決定道具；失敗後換地圖也不變', async () => {
     const storage = await withItems()
     const [a, b] = (await loadCollection(storage)).items
-    expect(buildItemPrompt({ ...a, map: 'dream' }, '甲')).not.toContain('遺物')
-    expect(buildItemPrompt({ ...a, map: 'station' }, '甲')).toContain('遺物')
     await reveal(storage, a.id, { map: 'ruins', generate: async () => { throw new Error('x') } })
-    const generate = vi.fn(async (_c: { name: string }, _p: string) => REPLY)
-    await reveal(storage, a.id, { map: 'dream', generate })
-    expect(generate.mock.calls[0][1]).toContain('現代文明留下的遺物')
+    const first = (await loadCollection(storage)).items[0]
+    const generate = vi.fn(async (_c: { name: string }, _p: string) => '故事：這個有刮痕。我試了一下。\n籤語：先做最小的那一步')
+    const r = await reveal(storage, a.id, { map: 'dream', generate })
+    expect(r.ok && r.item).toMatchObject({ name: first.treasureName, look: first.look, move: first.move, map: 'ruins', story: '這個有刮痕。我試了一下。' })
+    expect(generate.mock.calls[0][1]).toContain('不解釋、不猜原因')
     await reveal(storage, b.id, { map: 'dream', generate })
-    expect(generate.mock.calls[1][1]).not.toContain('遺物')
+    expect(generate.mock.calls[1][1]).not.toContain('不猜原因')
     expect((await loadCollection(storage)).items.slice(0, 2).map((i) => i.map)).toEqual(['ruins', 'dream'])
   })
 
@@ -244,7 +260,7 @@ describe('拾物：揭曉', () => {
     expect(journeyMapFor('ruins', T)).toBe('ruins')
     expect(journeyMapFor(undefined, T)).toBe(journeyMapFor(undefined, T))
     const seen = new Set(Array.from({ length: 60 }, (_, i) => journeyMapFor(undefined, shiftDay(T, i))))
-    expect(seen.size).toBe(6)
+    expect(seen.size).toBe(7)
   })
 
   it('連點只生成一次', async () => {
@@ -288,5 +304,27 @@ describe('拾物：揭曉', () => {
   it('解析容忍 markdown 與全半形冒號', () => {
     expect(parseItemReply('**名稱**: 鈴\n- 故事：響了。\n')).toMatchObject({ name: '鈴', story: '響了。' })
     expect(parseItemReply('名稱：鈴')).toBeNull()
+  })
+})
+
+describe('物品排序', () => {
+  const mk = (id: string, kindId: string, name: string, finderName: string) => ({ id, kindId, name, finderName, day: T, finderId: finderName, stepsToday: 0 })
+  const list = [mk('1', 'gear-c1', '乙', '王'), mk('2', 'glow-r1', '甲', '李'), mk('3', 'glow-u1', '丙', '王'), mk('4', 'gear-c2', '丁', '李')]
+  const by = (s?: ItemSort): string => sortItems(list, s).map((i) => i.id).join('')
+
+  it('各種排序，同組新的在前，不改原陣列', () => {
+    expect(by()).toBe('4321')
+    expect(by('newest')).toBe('4321')
+    expect(by('oldest')).toBe('1234')
+    expect(by('approach')).toBe('3241')
+    expect(by('rarity')).toBe('2341')
+    expect(['4231', '3142']).toContain(by('finder'))
+    expect([...by('name')].sort().join('')).toBe('1234')
+    expect(list.map((i) => i.id).join('')).toBe('1234')
+  })
+
+  it('排序存得下來，亂值退回預設', () => {
+    expect(normalizeCollection({ sort: 'rarity' }).sort).toBe('rarity')
+    expect(normalizeCollection({ sort: 'x' }).sort).toBeUndefined()
   })
 })
