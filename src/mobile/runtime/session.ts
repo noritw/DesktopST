@@ -107,6 +107,8 @@ import type { JourneyMapId } from '@core/walk/items'
 import { revealWalkItem, collectWalkDrops, simulateWalkSteps, type RevealResult } from './walkItems'
 import { FOE_MAX_RESPONSE_TOKENS } from '@core/walk/foes'
 import { countOpenedBox, writeFoes, type WriteFoesResult } from './walkBattle'
+import { canAfford, findBox, rewardWalkBattle, spend, type PointActionResult } from './walkPoints'
+import type { BattleOutcome } from '@core/walk/battle'
 import { loadWalkSettings, speakWalk, syncWalk, updateWalkState, type WalkSpeakResult } from './walk'
 import { readWalkDays, writeWalkWidget } from './walkBridge'
 import { normalizeWidgetAppearance, resolveWidgetColors } from '@shared/widgetAppearance'
@@ -2347,6 +2349,16 @@ export class StandaloneSession {
     ).catch((e) => console.warn('[Walk] 收集道具失敗:', e))
   }
 
+  /** 花點數在附近找一個箱子。 */
+  findWalkBox(): Promise<PointActionResult> {
+    return findBox(this.adapters.storage, { finders: this.walkFinders(), newId, collect: () => this.collectWalkItems() })
+  }
+
+  /** 過招結束後發獎勵（點數＋箱子），同一場只發一次。 */
+  rewardWalkBattle(battleId: string, outcome: BattleOutcome, finder: { id: string; name: string }): Promise<void> {
+    return rewardWalkBattle(this.adapters.storage, { battleId, outcome, finder, newId, collect: () => this.collectWalkItems() })
+  }
+
   /** 測試版專用：不碰真正的計步，只推進撿東西的進度。 */
   async simulateWalk(steps: number): Promise<void> {
     await simulateWalkSteps(this.adapters.storage, steps, { finders: this.walkFinders(), newId })
@@ -2360,6 +2372,12 @@ export class StandaloneSession {
       itemId,
       map,
       onRevealed: () => countOpenedBox(this.adapters.storage),
+      pay: {
+        check: () => canAfford(this.adapters.storage, 'openBox'),
+        charge: async () => {
+          await spend(this.adapters.storage, 'openBox')
+        }
+      },
       hasApiKey: hasUsableApiKey(this.settings),
       findCharacter: (id) => {
         const present = this.settings.ui.desktopCharacters.map((d) => d.characterId)

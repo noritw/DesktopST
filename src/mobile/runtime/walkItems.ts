@@ -93,7 +93,7 @@ export async function simulateWalkSteps(
 
 export type RevealResult =
   | { ok: true; item: WalkItem }
-  | { ok: false; reason: 'not_found' | 'no_key' | 'no_character' | 'failed' }
+  | { ok: false; reason: 'not_found' | 'no_key' | 'no_character' | 'no_points' | 'failed' }
 
 export interface RevealDeps<C extends { name: string }> {
   storage: StorageAdapter
@@ -106,6 +106,8 @@ export interface RevealDeps<C extends { name: string }> {
   timeoutMs?: number
   /** 由無名變有名的那一次才呼叫，失敗不影響揭曉 */
   onRevealed?: () => Promise<void>
+  /** 開箱要付點數：先確認夠不夠，揭曉成功才扣（失敗重試不重扣） */
+  pay?: { check: () => Promise<boolean>; charge: () => Promise<void> }
 }
 
 const inFlight = new Map<string, Promise<RevealResult>>()
@@ -128,6 +130,7 @@ async function doReveal<C extends { name: string }>(deps: RevealDeps<C>): Promis
   if (!deps.hasApiKey) return { ok: false, reason: 'no_key' }
   const character = deps.findCharacter(item.finderId)
   if (!character) return { ok: false, reason: 'no_character' }
+  if (deps.pay && !(await deps.pay.check())) return { ok: false, reason: 'no_points' }
 
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(), deps.timeoutMs ?? 60_000)
@@ -138,6 +141,7 @@ async function doReveal<C extends { name: string }>(deps: RevealDeps<C>): Promis
     if (!text) return { ok: false, reason: 'failed' }
     const c = await updateCollection(deps.storage, (cur) => applyGenerated(cur, item.id, text, Date.now()))
     const done = c.items.find((i) => i.id === item.id)
+    if (done) await deps.pay?.charge().catch((e) => console.warn('[Walk] 扣點失敗:', e))
     if (done) await deps.onRevealed?.().catch((e) => console.warn('[Walk] 開箱計數失敗:', e))
     return done ? { ok: true, item: done } : { ok: false, reason: 'not_found' }
   } catch (e) {

@@ -14,6 +14,7 @@ import {
   type ItemDrop,
   type ItemProgress
 } from './items'
+import { defaultPoints, earnPoints, normalizePoints, type PointsState } from './points'
 
 export interface WalkSettings {
   enabled: boolean
@@ -44,6 +45,8 @@ export interface WalkState {
   /** 拾物進度與尚未搬進收藏的掉落：必須跟步數同一次寫入，才不會漏發或重發 */
   itemProgress: ItemProgress
   pendingDrops: ItemDrop[]
+  /** 步數點數（`points.ts`）：跟步數同一次寫入，才不會重複入帳 */
+  points: PointsState
 }
 
 export const DEFAULT_STRIDE_METERS = 0.7
@@ -76,7 +79,8 @@ export function defaultWalkState(): WalkState {
     spokenCount: 0,
     recentThemes: [],
     itemProgress: defaultItemProgress(),
-    pendingDrops: []
+    pendingDrops: [],
+    points: defaultPoints()
   }
 }
 
@@ -137,7 +141,8 @@ export function normalizeWalkState(raw: unknown): WalkState {
       ? raw.recentThemes.filter((t): t is string => typeof t === 'string').slice(-2)
       : [],
     itemProgress: normalizeItemProgress(raw.itemProgress),
-    pendingDrops: normalizeDrops(raw.pendingDrops)
+    pendingDrops: normalizeDrops(raw.pendingDrops),
+    points: normalizePoints(raw.points)
   }
 }
 
@@ -195,6 +200,8 @@ export function creditSteps(
   const creditedByDay = recentDaysOnly(state.creditedByDay, today)
   const pendingByDay = recentDaysOnly(state.pendingByDay, today)
   let added = 0
+  /** 點數不看有沒有同行角色：走了就算 */
+  let earned = 0
   let itemProgress = state.itemProgress
   const pendingDrops = [...state.pendingDrops]
 
@@ -205,6 +212,7 @@ export function creditSteps(
     const credited = creditedByDay[day] ?? 0
     const delta = Math.max(0, total - credited)
     creditedByDay[day] = Math.max(credited, total)
+    if (state.initialized) earned += delta
     if (!state.initialized || delta === 0 || characterIds.length === 0) continue
     added += delta
     pendingByDay[day] = (pendingByDay[day] ?? 0) + delta
@@ -222,7 +230,8 @@ export function creditSteps(
       byCharacter[id] = { totalSteps: (prev?.totalSteps ?? 0) + added, since: prev?.since ?? now }
     }
   }
-  return { ...state, initialized: true, creditedByDay, pendingByDay, byCharacter, itemProgress, pendingDrops }
+  const points = earnPoints(state.points, earned)
+  return { ...state, initialized: true, creditedByDay, pendingByDay, byCharacter, itemProgress, pendingDrops, points }
 }
 
 export function removeWalkCharacter(state: WalkState, characterId: string): WalkState {

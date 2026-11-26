@@ -162,6 +162,18 @@ body {
 .anim-sheet-in { animation: sheet-in 0.24s cubic-bezier(0.32, 0.72, 0, 1); }
 .anim-fade-in  { animation: fade-in 0.18s ease-out; }
 .anim-pop-in   { animation: pop-in 0.18s ease-out; }
+/* 步數換點數：小光點從步數飛進點數（JourneyView 的 PointsPill） */
+.points-fly { position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 9999px; background: #F5C96B; border: 2px solid #FFFDF4; opacity: 0; pointer-events: none; animation: points-fly 0.75s cubic-bezier(0.45, 0, 0.2, 1) forwards; }
+@keyframes points-fly {
+  0%   { transform: translate(var(--dx), var(--dy)) scale(0.5); opacity: 0; }
+  15%  { opacity: 1; }
+  55%  { transform: translate(calc(var(--dx) * 0.45), calc(var(--dy) * 0.45 - 28px)) scale(1.1); }
+  100% { transform: translate(0, 0) scale(0.8); opacity: 0.9; }
+}
+.points-bump { animation: points-bump 0.22s ease-out; }
+@keyframes points-bump { 0% { transform: scale(1); } 50% { transform: scale(1.18); } 100% { transform: scale(1); } }
+.points-delta { animation: points-delta 1.2s ease-out forwards; }
+@keyframes points-delta { 0% { translate: 0 4px; opacity: 0; } 20% { translate: 0 0; opacity: 1; } 100% { translate: 0 -14px; opacity: 0; } }
 
 /* 使用者要求減少動態時一律關掉——這是無障礙的基本要求，不是加分項。 */
 @media (prefers-reduced-motion: reduce) {
@@ -173,7 +185,9 @@ body {
   .anim-journey-nod,
   .anim-sheet-in,
   .anim-fade-in,
-  .anim-pop-in {
+  .anim-pop-in,
+  .points-bump,
+  .points-fly {
     animation: none;
   }
 }

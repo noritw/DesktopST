@@ -57,8 +57,8 @@ export function updateWalkState(
 }
 
 export async function clearWalkData(storage: StorageAdapter): Promise<void> {
-  // 還沒搬進收藏的道具不算步數資料，清除步數時要留著
-  await updateWalkState(storage, (s) => ({ ...normalizeWalkState(null), pendingDrops: s.pendingDrops }))
+  // 還沒搬進收藏的道具與點數不算步數資料，清除步數時要留著
+  await updateWalkState(storage, (s) => ({ ...normalizeWalkState(null), pendingDrops: s.pendingDrops, points: s.points }))
   await clearJourney(storage)
 }
 

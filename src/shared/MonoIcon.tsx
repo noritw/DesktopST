@@ -65,6 +65,7 @@ export type MonoIconName =
   | 'palette'
   | 'dice'
   | 'paw'
+  | 'chibi'
   | 'plus'
   | 'chevron-left'
   | 'chevron-right'
@@ -389,6 +390,17 @@ export default function MonoIcon({ name, className = 'w-4 h-4' }: { name: MonoIc
           <ellipse {...common} cx="9.9" cy="6.6" rx="1.9" ry="2.5" />
           <ellipse {...common} cx="14.1" cy="6.6" rx="1.9" ry="2.5" />
           <path {...common} d="M12 13.2c3 0 5 2 5 4.1 0 1.7-1.5 2.9-3.2 2.6-1.2-.2-1.6-.4-1.8-.4s-.6.2-1.8.4c-1.7.3-3.2-.9-3.2-2.6 0-2.1 2-4.1 5-4.1Z" />
+        </>
+      )}
+      {name === 'chibi' && (
+        <>
+          {/* 預設頭像剪影：只有頭與肩，不畫臉和頭髮。放進圓形頭像時填滿，下緣被圓切掉 */}
+          <circle cx="12" cy="9.2" r="4.4" fill="currentColor" stroke="none" />
+          <path
+            fill="currentColor"
+            stroke="none"
+            d="M4.8 24c.5-4 1.5-6.4 2.8-7.5 1.2-1 2.8-1.3 4.4-1.3s3.2.3 4.4 1.3c1.3 1.1 2.3 3.5 2.8 7.5Z"
+          />
         </>
       )}
       {name === 'plus' && (

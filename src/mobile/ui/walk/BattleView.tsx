@@ -21,7 +21,11 @@ import {
   type HandItem,
   type Person
 } from '@core/walk/battle'
-import { type WalkCollection } from '@core/walk/items'
+import { type JourneyMapId, type WalkCollection } from '@core/walk/items'
+import { BATTLE_REWARDS, POINT_COSTS } from '@core/walk/points'
+import { ITEM_RARITIES } from '@core/walk/items'
+import { newId } from '../../runtime/id'
+import { loadPoints, summonWalkItem } from '../../runtime/walkPoints'
 import type { StorageAdapter } from '@core/adapters'
 import { getStandaloneSession } from '../../runtime/sessionHolder'
 import {
@@ -118,12 +122,15 @@ export function BattleView({
   store,
   present,
   storage,
+  map,
   onChange,
   onClose
 }: {
   store: BattleStore
   present: readonly Person[]
   storage: StorageAdapter
+  /** 應急拿道具時從這張地圖的道具表抽 */
+  map: JourneyMapId
   onChange: (s: BattleStore) => void
   onClose: () => void
 }): JSX.Element | null {
@@ -135,6 +142,7 @@ export function BattleView({
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<BattleRecord | null>(null)
   const [picking, setPicking] = useState<WalkCollection | null>(null)
+  const [points, setPoints] = useState<number | null>(null)
 
   const needsFoes = !!b && !b.hand && !store.foes[b.leadId] && !store.declined && !triedBattles.has(b.id)
   /** 敵人還沒定案時先不露出名稱 */
@@ -209,6 +217,11 @@ export function BattleView({
           <p className="text-[14px] text-[var(--text-sub)]">{result.text.name}</p>
           <p className="text-[24px] font-bold">{OUTCOME_TITLE[result.outcome]}</p>
           <p className="w-full text-left text-[16px] leading-[1.8]">{result.text[result.outcome]}</p>
+          <p className="w-full rounded-[14px] bg-[var(--surface)] px-3 py-2 text-[15px] font-medium">
+            ＋{BATTLE_REWARDS[result.outcome].points.toLocaleString()} 點
+            {BATTLE_REWARDS[result.outcome].box &&
+              `，還留下一個箱子${result.outcome === 'perfect' ? `（至少${ITEM_RARITIES[BATTLE_REWARDS[result.outcome].box!].label}）` : ''}`}
+          </p>
           <ul className="w-full space-y-1.5 text-left text-[14px]">
             {result.rounds.map((r, i) => (
               <li key={i} className="rounded-[14px] bg-[var(--surface)] px-3 py-2">
@@ -244,6 +257,19 @@ export function BattleView({
         collection={picking}
         known={knownWeak(b)}
         busy={busy}
+        points={points}
+        summonCost={POINT_COSTS.summonItem}
+        onSummon={async (approach) => {
+          const r = await summonWalkItem(storage, { approach, map, finder: { id: b.leadId, name: b.leadName }, newId })
+          setPoints((await loadPoints(storage)).balance)
+          if (!r.ok) {
+            ui.toast(r.reason === 'no_points' ? `點數不夠，要 ${POINT_COSTS.summonItem.toLocaleString()} 點` : '這次沒拿出來，點數已退回', 'error')
+            return null
+          }
+          ui.toast(`拿出了「${r.item.name}」`)
+          setPicking(await loadCollection(storage))
+          return r.item.id
+        }}
         onBack={() => setPicking(null)}
         onStart={(ids) =>
           void run(
@@ -263,8 +289,10 @@ export function BattleView({
   const openPicker = async (): Promise<void> => {
     try {
       const c = await loadCollection(storage)
-      if (battlePool(c.items, Date.now()).length < MIN_ITEMS) ui.toast(`再找幾件物品吧，要有 ${MIN_ITEMS} 件才能開始`)
-      else setPicking(c)
+      setPoints((await loadPoints(storage)).balance)
+      // 不夠的話也讓人進去，可以花點數補
+      if (battlePool(c.items, Date.now()).length < MIN_ITEMS) ui.toast(`能出場的不到 ${MIN_ITEMS} 件，可以花點數拿出道具`)
+      setPicking(c)
     } catch {
       ui.toast('讀取物品失敗，再試一次', 'error')
     }
@@ -343,7 +371,15 @@ export function BattleView({
     }
     void run(
       () => endBattle(storage, b.id),
-      (s) => setResult(s.log.find((r) => r.id === b.id) ?? null)
+      (s) => {
+        const record = s.log.find((r) => r.id === b.id) ?? null
+        setResult(record)
+        if (record) {
+          void getStandaloneSession()
+            ?.rewardWalkBattle(record.id, record.outcome, { id: record.leadId, name: record.leadName })
+            .catch((e) => console.warn('[Walk] 發過招獎勵失敗:', e))
+        }
+      }
     )
   }
 

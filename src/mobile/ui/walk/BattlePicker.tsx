@@ -24,6 +24,9 @@ export function BattlePicker({
   collection,
   known,
   busy,
+  points,
+  summonCost,
+  onSummon,
   onStart,
   onBack
 }: {
@@ -31,12 +34,19 @@ export function BattlePicker({
   /** 已經知道的弱點；「幫我選」也只看得到這些 */
   known: readonly Approach[]
   busy: boolean
+  /** 目前點數；`null`＝還沒讀到 */
+  points: number | null
+  summonCost: number
+  /** 花點數拿出一件；成功回新物品 id */
+  onSummon: (approach: Approach) => Promise<string | null>
   onStart: (ids: string[]) => void
   onBack: () => void
 }): JSX.Element {
   const [filter, setFilter] = useState<Approach | null>(null)
   const [chosen, setChosen] = useState<string[]>([])
   const [now, setNow] = useState(() => Date.now())
+  const [summoning, setSummoning] = useState<Approach | null>(null)
+  const [summonOpen, setSummonOpen] = useState(false)
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 15_000)
     return () => clearInterval(t)
@@ -107,6 +117,38 @@ export function BattlePicker({
         {readyShown.length === 0 && <p className="py-6 text-center text-[13px] text-[var(--text-sub)]">這類沒有能出場的物品</p>}
         {restingShown.length > 0 && <p className="pt-2 text-[13px] text-[var(--text-sub)]">休息中</p>}
         {restingShown.map((i) => row(i, true))}
+      </div>
+      <div className="shrink-0 rounded-[18px] bg-[var(--bg)] px-3 py-2 text-[var(--text)]">
+        <button type="button" className="flex w-full items-center justify-between text-[13px]" onClick={() => setSummonOpen((o) => !o)} aria-expanded={summonOpen}>
+          <span>應急：花 {summonCost.toLocaleString()} 點拿出一件</span>
+          <span className="text-[var(--text-sub)]">{points === null ? '' : `有 ${points.toLocaleString()} 點`}</span>
+        </button>
+        {summonOpen && (
+          <div className="grid grid-cols-4 gap-1.5 pt-2">
+            {APPROACH_IDS.map((a) => (
+              <button
+                key={a}
+                type="button"
+                disabled={busy || summoning !== null || full || points === null || points < summonCost}
+                onClick={() => {
+                  setSummoning(a)
+                  void onSummon(a)
+                    .then((id) => {
+                      if (id) setChosen((cur) => (cur.length < HAND_SIZE ? [...cur, id] : cur))
+                    })
+                    .finally(() => setSummoning(null))
+                }}
+                className="flex flex-col items-center gap-0.5 rounded-[14px] bg-[var(--surface)] py-1.5 text-[12px] disabled:opacity-45"
+              >
+                <img src={APPROACH_ICONS[a]} alt="" className={`h-7 w-7 ${summoning === a ? 'anim-journey-nod' : ''}`} />
+                {APPROACHES[a]}
+              </button>
+            ))}
+          </div>
+        )}
+        {summonOpen && points !== null && points < summonCost && (
+          <p className="pt-1.5 text-center text-[12px] text-[var(--text-sub)]">點數不夠，再走 {(summonCost - points).toLocaleString()} 步</p>
+        )}
       </div>
       <div className="grid shrink-0 grid-cols-2 gap-2">
         <button type="button" className={SECONDARY} onClick={onBack}>返回</button>

@@ -44,12 +44,12 @@ export function Avatar({
         />
       ) : (
         <div
-          className={`flex h-full w-full items-center justify-center rounded-full border border-[var(--border)] bg-[var(--mint2)] text-[var(--text)] ${
+          className={`flex h-full w-full items-center justify-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--mint2)] text-[var(--text)] ${
             muted ? 'grayscale opacity-55' : ''
           }`}
         >
           {/* 用比例而非固定尺寸：頭像在聊天列是 40px、在角色選單是 52px，圖示要跟著縮放 */}
-          <MonoIcon name="paw" className="h-1/2 w-1/2" />
+          <MonoIcon name="chibi" className="h-full w-full text-[#FFFDF4]" />
         </div>
       )}
       {muted && (

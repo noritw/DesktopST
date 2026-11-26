@@ -541,7 +541,7 @@ function AvatarPicker({ draft, onPick, busy }: { draft: Character; onPick: () =>
           <img src={url} alt="" className="max-h-40 object-contain" onError={() => setBroken(true)} />
         ) : (
           <span className="flex items-center gap-1.5 text-sm text-[var(--text-sub)]">
-            <MonoIcon name="paw" className="h-5 w-5" />
+            <MonoIcon name="chibi" className="h-5 w-5" />
             點一下選圖
           </span>
         )}
@@ -680,7 +680,7 @@ function EmotionSpriteRow({
         {hasSprite && url ? (
           <img src={url} alt="" className="h-full w-full object-cover" />
         ) : (
-          <MonoIcon name="paw" className="h-1/2 w-1/2 text-[var(--text-sub)]" />
+          <MonoIcon name="chibi" className="h-full w-full text-[var(--text-sub)]" />
         )}
       </div>
       <span className="line-clamp-1 text-center text-[10px] text-[var(--text)]">{emotionLabel(emotionKey)}</span>

@@ -27,6 +27,9 @@ import { lastWidgetSteps } from '../../runtime/walkBridge'
 import { loadCollection, updateCollection, type RevealResult } from '../../runtime/walkItems'
 import { openJourney, simulateJourney, stayInJourney } from '../../runtime/walkJourney'
 import { forceEncounter, syncBattles } from '../../runtime/walkBattle'
+import { lureFoe, markPointsSeen } from '../../runtime/walkPoints'
+import { POINT_COSTS, defaultPoints, weekStats, type PointsState } from '@core/walk/points'
+import { PointsPill, WeekPanel } from './StepsPoints'
 import { useAppStore } from '../stores/appStore'
 import { useUiStore } from '../stores/uiStore'
 import { Avatar } from '../characters/Avatar'
@@ -65,6 +68,7 @@ const FAIL_TEXT: Record<Extract<RevealResult, { ok: false }>['reason'], string> 
   not_found: '找不到這件物品',
   no_key: '要先設定 API Key 才能聽故事，物品會留著',
   no_character: '找不到可以說故事的角色，物品會留著',
+  no_points: `點數不夠，打開一個要 ${POINT_COSTS.openBox} 點，箱子會留著`,
   failed: '這次沒說成，物品會留著，稍後再試'
 }
 
@@ -132,6 +136,11 @@ export function JourneyView(): JSX.Element {
   const [col, setCol] = useState<WalkCollection | null>(null)
   const [enabled, setEnabled] = useState<boolean | null>(null)
   const [steps, setSteps] = useState<{ day: string; n?: number } | null>(null)
+  const [points, setPoints] = useState<PointsState>(defaultPoints)
+  const [credited, setCredited] = useState<Record<string, number>>({})
+  const [showWeek, setShowWeek] = useState(false)
+  const [buying, setBuying] = useState(false)
+  const stepsRef = useRef<HTMLButtonElement>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const [revealingId, setRevealingId] = useState<string | null>(null)
   /** 最近打開過的那件：分類與稀有度先亮出來，失敗時也留著 */
@@ -165,7 +174,9 @@ export function JourneyView(): JSX.Element {
     if (!session) return
     const on = (await loadWalkSettings(session.walkStorage)).enabled
     setEnabled(on)
-    const { creditedByDay } = await loadWalkState(session.walkStorage)
+    const { creditedByDay, points: pts } = await loadWalkState(session.walkStorage)
+    setCredited(creditedByDay)
+    setPoints(pts)
     // 小工具可能比記帳新，畫面用大的那個；關閉時小工具不會更新
     const widget = on ? await lastWidgetSteps(today).catch(() => undefined) : undefined
     const shown = Math.max(creditedByDay[today] ?? -1, widget ?? -1)
@@ -305,6 +316,10 @@ export function JourneyView(): JSX.Element {
       if (!ok) return
       await updateCollection(session.walkStorage, (c) => ({ ...c, consented: true }))
     }
+    if (points.balance < POINT_COSTS.openBox) {
+      ui.toast(FAIL_TEXT.no_points)
+      return
+    }
     setRevealingId(item.id)
     // 先定下是哪一種，亮出來的分類才不會中途換掉
     await change((c) => prepareReveal(c, item.id, map))
@@ -322,6 +337,38 @@ export function JourneyView(): JSX.Element {
       ui.toast(FAIL_TEXT.failed, 'error')
     } finally {
       setRevealingId((id) => (id === item.id ? null : id))
+      await reload()
+    }
+  }
+
+  const spendOn = async (what: 'findBox' | 'lureFoe'): Promise<void> => {
+    const ok = await ui.confirm({
+      title: what === 'findBox' ? '在附近找一個箱子' : '引來一個對手',
+      message: `會用掉 ${POINT_COSTS[what].toLocaleString()} 點（現在有 ${points.balance.toLocaleString()} 點）。點數只能靠走路和過招拿到。`,
+      confirmLabel: '用點數'
+    })
+    if (!ok) return
+    setBuying(true)
+    try {
+      if (what === 'findBox') {
+        const r = await session.findWalkBox()
+        if (!r.ok) ui.toast(r.reason === 'no_points' ? '點數不夠' : r.reason === 'no_character' ? '要有同行的角色才找得到' : '這次沒找到，點數沒有扣')
+      } else {
+        const people = present.map((c) => ({ id: c.id, name: c.name }))
+        const r = await lureFoe(session.walkStorage, { present: people, newId })
+        if (!r.ok) {
+          ui.toast(
+            r.reason === 'no_points' ? '點數不夠'
+              : r.reason === 'no_character' ? '要有同行的角色才會遇到'
+              : r.reason === 'not_now' ? '要先打開 3 件物品，而且路上沒有對手在等'
+              : '這次沒引來，點數已退回'
+          )
+        }
+      }
+    } catch {
+      ui.toast('儲存失敗', 'error')
+    } finally {
+      setBuying(false)
       await reload()
     }
   }
@@ -473,6 +520,7 @@ export function JourneyView(): JSX.Element {
         store={battles}
         present={present.map((c) => ({ id: c.id, name: c.name }))}
         storage={session.walkStorage}
+        map={map}
         onChange={setBattles}
         onClose={() => {
           setFighting(false)
@@ -497,15 +545,42 @@ export function JourneyView(): JSX.Element {
               alt=""
               className="absolute inset-0 h-full w-full object-cover"
             />
-            <p className="absolute left-4 top-3 text-[14px] font-medium text-[#3D5A52]">
-              {stepsToday !== undefined ? `今天走了 ${stepsToday.toLocaleString()} 步` : syncing > 0 ? '' : '今天還沒讀到步數'}
+            <div className="absolute left-3 top-2 z-[600] text-[#3D5A52]">
+              <button
+                ref={stepsRef}
+                type="button"
+                aria-expanded={showWeek}
+                onClick={() => setShowWeek((v) => !v)}
+                className="rounded-[18px] bg-[#FFFDF4]/85 px-3.5 py-1.5 text-left"
+              >
+                <span className="block text-[12px]">今天{showWeek ? '' : '・看本週'}</span>
+                {stepsToday !== undefined ? (
+                  <span className="block leading-none">
+                    <span className="text-[34px] font-bold tabular-nums">{stepsToday.toLocaleString()}</span>
+                    <span className="pl-1 text-[14px]">步</span>
+                  </span>
+                ) : (
+                  <span className="block text-[14px] font-medium">{syncing > 0 ? '讀取中' : '還沒讀到步數'}</span>
+                )}
+              </button>
               {syncing > 0 && (
-                <span role="status" className="block text-[12px] font-normal">
+                <span role="status" className="block px-2 pt-1 text-[12px]">
                   正在看路上有什麼
                   <span className="journey-dots" aria-hidden="true"><span /><span /><span /></span>
                 </span>
               )}
-            </p>
+            </div>
+            <div className="absolute right-3 top-[60px] z-[600]">
+              <PointsPill
+                balance={points.balance}
+                unseen={points.unseen}
+                fromRef={stepsRef}
+                onSeen={(n) => void markPointsSeen(session.walkStorage, n).catch(() => {})}
+              />
+            </div>
+            {showWeek && (
+              <WeekPanel stats={weekStats(credited, today, stepsToday)} today={today} onClose={() => setShowWeek(false)} />
+            )}
             <button
               type="button"
               disabled={!!focusId || !!pickup}
@@ -592,9 +667,12 @@ export function JourneyView(): JSX.Element {
                 </p>
                 {drawn && <KindTags item={focus} />}
                 {!revealing && (
-                  <button type="button" className={PRIMARY} onClick={() => void reveal(focus)}>
-                    {drawn ? '再試一次' : '打開看看'}
+                  <button type="button" className={PRIMARY} disabled={points.balance < POINT_COSTS.openBox} onClick={() => void reveal(focus)}>
+                    {drawn ? '再試一次' : '打開看看'}・{POINT_COSTS.openBox} 點
                   </button>
+                )}
+                {!revealing && points.balance < POINT_COSTS.openBox && (
+                  <p className="text-[13px]">點數不夠，再走 {(POINT_COSTS.openBox - points.balance).toLocaleString()} 步就能打開</p>
                 )}
                 <button type="button" className="w-full py-2 text-[14px]" onClick={putBack}>先放著</button>
               </div>
@@ -609,6 +687,26 @@ export function JourneyView(): JSX.Element {
             <button type="button" className={`${PRIMARY} mt-2`} onClick={() => setSlots(fillSlots([], waiting.map((w) => w.id), order()))}>
               往前走
             </button>
+          )}
+          {!focus && enabled && (
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className={SECONDARY}
+                disabled={busy || buying || points.balance < POINT_COSTS.findBox}
+                onClick={() => void spendOn('findBox')}
+              >
+                找一個箱子・{POINT_COSTS.findBox.toLocaleString()} 點
+              </button>
+              <button
+                type="button"
+                className={SECONDARY}
+                disabled={busy || buying || !!foe || points.balance < POINT_COSTS.lureFoe}
+                onClick={() => void spendOn('lureFoe')}
+              >
+                引來對手・{POINT_COSTS.lureFoe.toLocaleString()} 點
+              </button>
+            </div>
           )}
           {!enabled && (
             <button type="button" className={`${PRIMARY} mt-2`} onClick={() => ui.push('walk')}>先開啟陪伴同行</button>

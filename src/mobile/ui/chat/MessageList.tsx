@@ -223,8 +223,8 @@ function MessageAvatar({ characterId, emotion }: { characterId: string; emotion?
           className="h-full w-full rounded-full border border-[var(--border)] object-cover"
         />
       ) : (
-        <div className="flex h-full w-full items-center justify-center rounded-full border border-[var(--border)] bg-[var(--mint2)] text-[var(--text)]">
-          <MonoIcon name="paw" className="h-1/2 w-1/2" />
+        <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border border-[var(--border)] bg-[var(--mint2)] text-[var(--text)]">
+          <MonoIcon name="chibi" className="h-full w-full text-[#FFFDF4]" />
         </div>
       )}
     </div>
