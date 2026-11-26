@@ -27,7 +27,7 @@ import { lastWidgetSteps } from '../../runtime/walkBridge'
 import { loadCollection, updateCollection, type RevealResult } from '../../runtime/walkItems'
 import { openJourney, simulateJourney, stayInJourney } from '../../runtime/walkJourney'
 import { forceEncounter, syncBattles } from '../../runtime/walkBattle'
-import { lureFoe, markPointsSeen } from '../../runtime/walkPoints'
+import { addTestPoints, lureFoe, markPointsSeen } from '../../runtime/walkPoints'
 import { POINT_COSTS, defaultPoints, weekStats, type PointsState } from '@core/walk/points'
 import { PointsPill, WeekPanel } from './StepsPoints'
 import { useAppStore } from '../stores/appStore'
@@ -44,6 +44,7 @@ import { APPROACH_ICONS, MAP_ART, boxIconFor } from './art'
 
 const PRIMARY = 'w-full rounded-full bg-[var(--mint2)] px-4 py-3 text-[15px] font-medium text-[var(--text)] disabled:opacity-45'
 const SECONDARY = 'w-full rounded-full bg-[var(--bg)] px-4 py-2.5 text-[14px] text-[var(--text)] disabled:opacity-45'
+const TEST_BTN = 'rounded-[16px] bg-[var(--bg)] px-1 py-2 text-[12px] leading-snug text-[var(--text)] disabled:opacity-45'
 const SUB = 'text-[12px] leading-relaxed text-[var(--text-sub)]'
 
 const SLOT_COUNT = 5
@@ -92,7 +93,7 @@ function ItemIcon({ item, size }: { item: WalkItem; size: number }): JSX.Element
   const kind = findItemKind(item.kindId)!
   return (
     <RarityRing rarity={kind.rarity} size={size}>
-      <img src={APPROACH_ICONS[approachOf(kind.category)]} alt="" style={{ width: size * 0.66, height: size * 0.66 }} />
+      <img src={APPROACH_ICONS[approachOf(kind.category)]} alt="" style={{ width: size * 0.84, height: size * 0.84 }} />
     </RarityRing>
   )
 }
@@ -712,10 +713,10 @@ export function JourneyView(): JSX.Element {
             <button type="button" className={`${PRIMARY} mt-2`} onClick={() => ui.push('walk')}>先開啟陪伴同行</button>
           )}
           {test && (
-            <div className="mt-2 space-y-2">
+            <div className="mt-2 grid grid-cols-3 gap-1.5">
               <button
                 type="button"
-                className={SECONDARY}
+                className={TEST_BTN}
                 disabled={busy}
                 onClick={() =>
                   void session
@@ -729,11 +730,11 @@ export function JourneyView(): JSX.Element {
                     })
                     .catch(() => ui.toast('模擬失敗', 'error'))}
               >
-                測試：走 2,000 步
+                測試<br />走 2,000 步
               </button>
               <button
                 type="button"
-                className={SECONDARY}
+                className={TEST_BTN}
                 onClick={() =>
                   void forceEncounter(session.walkStorage)
                     .then(reload)
@@ -743,7 +744,18 @@ export function JourneyView(): JSX.Element {
                     .catch(() => ui.toast('模擬失敗', 'error'))
                 }
               >
-                測試：遇到對手
+                測試<br />遇到對手
+              </button>
+              <button
+                type="button"
+                className={TEST_BTN}
+                onClick={() =>
+                  void addTestPoints(session.walkStorage, 3000)
+                    .then(reload)
+                    .catch(() => ui.toast('模擬失敗', 'error'))
+                }
+              >
+                測試<br />＋3,000 點
               </button>
             </div>
           )}
@@ -794,9 +806,9 @@ export function JourneyView(): JSX.Element {
                 }}
                 className="flex min-w-0 flex-col items-center gap-1 rounded-[18px] bg-[var(--bg)] px-1.5 py-2.5 text-center text-[13px] leading-snug text-[var(--text)]"
               >
+                <span className="rounded-full bg-[var(--surface)] px-2.5 py-0.5 text-[12px]">{APPROACHES[approachOfItem(item)]}</span>
                 <ItemIcon item={item} size={44} />
                 <span className="line-clamp-2 w-full">{item.name}</span>
-                <span className="mt-auto rounded-full bg-[var(--surface)] px-2.5 py-0.5 text-[12px]">{APPROACHES[approachOfItem(item)]}</span>
                 <RestNote at={item.lastBattleAt} brief />
               </button>
             ))}

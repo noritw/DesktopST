@@ -78,7 +78,7 @@ export function BattlePicker({
           on ? 'border-[var(--mint2)]' : 'border-transparent'
         }`}
       >
-        <img src={APPROACH_ICONS[a]} alt="" className="h-9 w-9 shrink-0 rounded-full bg-[#FFFDF4] p-1" />
+        <img src={APPROACH_ICONS[a]} alt="" className="h-9 w-9 shrink-0" />
         <span className="min-w-0 flex-1">
           <span className="block text-[15px] leading-snug">{i.name}</span>
           <span className="block text-[12px] text-[var(--text-sub)]">{rests ? restText(i.lastBattleAt, now) : `${i.finderName}找到的`}</span>

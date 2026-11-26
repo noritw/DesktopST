@@ -108,7 +108,7 @@ function HandCard({ card, hit, disabled, onPick }: { card: HandItem; hit: boolea
         hit ? 'border-[var(--mint2)]' : 'border-transparent'
       }`}
     >
-      <img src={APPROACH_ICONS[approachOf(card.category)]} alt="" className="h-10 w-10 shrink-0 rounded-full bg-[#FFFDF4] p-1" />
+      <img src={APPROACH_ICONS[approachOf(card.category)]} alt="" className="h-10 w-10 shrink-0" />
       <span className="min-w-0 flex-1">
         <span className="block text-[15px] leading-snug">{card.name}</span>
         <span className="block text-[12px] text-[var(--text-sub)]">{card.finderName}找到的</span>

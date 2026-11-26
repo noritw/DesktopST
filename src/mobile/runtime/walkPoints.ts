@@ -1,7 +1,7 @@
 import type { StorageAdapter } from '@core/adapters'
 import { MIN_ITEMS, tryAppear, type Approach, type BattleStore } from '@core/walk/battle'
 import type { JourneyMapId, WalkItem } from '@core/walk/items'
-import { BATTLE_REWARDS, POINT_COSTS, makeDrop, rewardBattle, spendPoints, summonItem, type PointUse, type PointsState } from '@core/walk/points'
+import { BATTLE_REWARDS, POINT_COSTS, earnPoints, makeDrop, rewardBattle, spendPoints, summonItem, type PointUse, type PointsState } from '@core/walk/points'
 import { loadWalkState, localDay, updateWalkState } from './walk'
 import { loadCollection, updateCollection } from './walkItems'
 import { updateBattles } from './walkBattle'
@@ -146,4 +146,9 @@ export async function rewardWalkBattle(
     return { ...s, points, pendingDrops: [...s.pendingDrops, drop] }
   })
   if (boxed) await deps.collect()
+}
+
+/** 測試版用：直接加點數，會照常播入帳動畫。 */
+export async function addTestPoints(storage: StorageAdapter, amount: number): Promise<void> {
+  await updateWalkState(storage, (s) => ({ ...s, points: earnPoints(s.points, amount) }))
 }

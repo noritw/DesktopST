@@ -48,10 +48,21 @@ export function boxIconFor(itemId: string): string {
   return BOX_ICONS[hash(itemId) % BOX_ICONS.length]
 }
 
-/** 圖示代表過招效果；一件一圖之後再補。 */
+/** 過招效果的底色：圖形一律白色，靠底色分辨（設計稿 2026-11-27，Codex 繪製）。 */
+export const APPROACH_COLORS: Record<Approach, string> = {
+  lure: '#78B5A4',
+  move: '#D68FA4',
+  trap: '#7EAACB',
+  startle: '#AA94CD'
+}
+
+const approachIcon = (a: Approach, shape: string): string =>
+  icon(`<circle cx="60" cy="60" r="60" fill="${APPROACH_COLORS[a]}"/><g fill="#FFFFFF">${shape}</g>`)
+
+/** 圖示代表過招效果：粉彩圓底＋白色圖形。 */
 export const APPROACH_ICONS: Record<Approach, string> = {
-  lure: icon('<path d="M22 86q10-44 48-40" fill="none" stroke="#5E9AA8" stroke-width="11"/><path d="M62 24l34 23-34 23z" fill="#8FC4CF" stroke="#5E9AA8" stroke-width="6"/><circle cx="24" cy="98" r="8" fill="#5E9AA8"/><circle cx="48" cy="98" r="5" fill="#8FC4CF"/>'),
-  move: icon('<path d="M60 100C18 72 14 52 20 38c8-18 32-18 40 0 8-18 32-18 40 0 6 14 2 34-40 62z" fill="#F3B6BC" stroke="#CF7F88" stroke-width="7"/><path d="M36 44q4-8 12-6" fill="none" stroke="#FFFDF4" stroke-width="6"/>'),
-  trap: icon('<path d="M20 100V58a40 40 0 0 1 80 0v42z" fill="#F7E3A8"/><path d="M20 100V58a40 40 0 0 1 80 0v42zM47 100V21M73 100V21M20 62h80" fill="none" stroke="#B9934B" stroke-width="7"/>'),
-  startle: icon('<path d="M60 10l12 20 22-10-2 24 22 6-16 18 14 20-24 2-2 24-20-14-20 14-4-24-22-4 14-18L14 50l22-6-2-24 20 10z" fill="#CDB9E8" stroke="#8E74B8" stroke-width="6"/><path d="M60 38v28" stroke="#5E4A85" stroke-width="10"/><circle cx="60" cy="83" r="6" fill="#5E4A85"/>')
+  lure: approachIcon('lure', '<g transform="translate(-3 -7) scale(1.2)"><path d="M25 60C27 45 38 37 56 37H61V28Q61 24 65 27L81 41Q85 44 81 47L65 61Q61 64 61 60V51H56C46 51 41 54 39 60Z"/><circle cx="32" cy="78" r="9"/></g>'),
+  move: approachIcon('move', '<g transform="translate(-2 0) scale(1.2)"><path d="M39 78C34 76 17 63 17 49C17 36 31 31 39 42C47 31 61 36 61 49C61 63 44 76 39 78Z"/><path d="M72 49C69 48 59 40 59 32C59 23 68 20 72 27C77 20 86 23 86 32C86 40 75 48 72 49Z"/></g>'),
+  trap: approachIcon('trap', '<g transform="translate(0 4) scale(1.2)"><path fill-rule="evenodd" d="M41 26V23C41 11 59 11 59 23V26H65Q79 26 79 40V73Q79 80 72 80H28Q21 80 21 73V40Q21 26 35 26ZM47 26H53V23C53 19 47 19 47 23ZM30 40V69Q30 72 33 72H37V35H35Q30 35 30 40ZM45 35V72H55V35ZM63 35V72H68Q70 72 70 69V40Q70 35 65 35Z"/></g>'),
+  startle: approachIcon('startle', '<g transform="translate(-4 0) scale(1.2)"><g transform="translate(5 8) scale(.82)"><path d="M29 26Q28 21 33 20L38 19Q43 18 44 23L48 53Q49 58 44 59Q39 60 38 55Z"/><circle cx="47" cy="73" r="7"/></g><path transform="translate(-14 -10) scale(1.25)" d="M71 25Q77 21 75 28L70 43H81Q86 43 82 48L62 72Q57 77 59 70L63 55H55Q50 55 53 50Z"/></g>')
 }

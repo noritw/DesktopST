@@ -25,10 +25,10 @@ export const ITEM_CATEGORIES: Record<ItemCategory, { label: string; hint: string
 // ── 過招做法（`battle.ts` 轉出口）──────────────────────
 
 export const APPROACHES = {
-  lure: '引開',
-  move: '打動',
-  trap: '困住',
-  startle: '嚇一跳'
+  lure: '誘導',
+  move: '感化',
+  trap: '封鎖',
+  startle: '嚇阻'
 } as const
 export type Approach = keyof typeof APPROACHES
 export const APPROACH_IDS = Object.keys(APPROACHES) as Approach[]
@@ -323,7 +323,9 @@ export function normalizeCollection(raw: unknown): WalkCollection {
   for (const r of Array.isArray(raw.items) ? raw.items : []) {
     const drop = normalizeDrop(r)
     if (!drop || !isObject(r)) continue
-    const name = str(r.name)
+    // 地圖道具的名稱與說明照表：改過表（例如換掉讓人不舒服的品項）時，手上的也跟著換
+    const fixed = str(r.name) ? findMapItem(str(r.treasureId)) : undefined
+    const name = fixed?.name ?? str(r.name)
     const w = r.weather
     items.push({
       ...drop,
@@ -338,11 +340,11 @@ export function normalizeCollection(raw: unknown): WalkCollection {
       story: str(r.story),
       place: str(r.place),
       effect: str(r.effect),
-      look: str(r.look),
+      look: fixed?.look ?? str(r.look),
       why: str(r.why),
-      move: str(r.move),
+      move: fixed?.move ?? str(r.move),
       treasureId: str(r.treasureId),
-      treasureName: str(r.treasureName),
+      treasureName: fixed?.name ?? str(r.treasureName),
       omen: str(r.omen),
       // 試玩期曾可用三次、存成 uses 陣列，取最後一句
       fortune: normalizeUse(r.fortune) ?? (Array.isArray(r.uses) ? normalizeUse(r.uses.at(-1)) : undefined),

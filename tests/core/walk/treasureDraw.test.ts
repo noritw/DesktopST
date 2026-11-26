@@ -102,7 +102,7 @@ describe('打開箱子時抽', () => {
   it('即時生成也有理由與絕招，做法跟分類一致', () => {
     const i = drop('a', { kindId: 'vessel-c1', finderName: '別人' })
     const p = buildItemPrompt(i, '別人', liveMoveGuide(i.kindId, '別人'))
-    expect(p).toContain('做法是「困住」')
+    expect(p).toContain('做法是「封鎖」')
     expect(p).toContain('只輸出下面六行')
     expect(parseItemReply('名稱：罐\n故事：在。\n地點：街\n留著：「放著就好。」\n絕招：打開罐子放霧。\n籤語：先做最小的那一步')).toEqual({
       name: '罐', story: '在。', place: '街', effect: undefined, why: '放著就好。', move: '打開罐子放霧', omen: '先做最小的那一步'
