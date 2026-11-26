@@ -3301,6 +3301,10 @@ function App(): React.JSX.Element {
             </>
           )}
           <div>
+            <span>合計蛋白</span>
+            <strong>{stats.totalProteinG.toLocaleString('zh-TW')} g</strong>
+          </div>
+          <div>
             <span>日均蛋白</span>
             <strong>{stats.averageProteinPerDay} g</strong>
           </div>
@@ -3614,7 +3618,7 @@ function App(): React.JSX.Element {
           <strong className={effectiveKcalLimit !== undefined && daily.totalKcal > effectiveKcalLimit ? 'over' : ''}>{daily.totalKcal} kcal</strong>
           <small>/ {effectiveKcalLimit ?? '未設定'}</small>
         </div>
-        <div><span>蛋白質</span><strong className={bodyProfile && daily.totalProteinG >= bodyProfile.dailyProteinGoalG ? 'good' : ''}>{daily.totalProteinG} g</strong><small>/ {bodyProfile?.dailyProteinGoalG ?? '未設定'}</small></div>
+        <div className="summary-tappable" role="button" tabIndex={0} onClick={() => setView('stats')} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') setView('stats') }}><span>蛋白質</span><strong className={bodyProfile && daily.totalProteinG >= bodyProfile.dailyProteinGoalG ? 'good' : ''}>{daily.totalProteinG} g</strong><small>/ {bodyProfile?.dailyProteinGoalG ?? '未設定'}</small></div>
       </section>
       {!isViewingToday && healthSettings.connected && healthSettings.useWatchCalorieLimit && healthAvailable && healthPermissionGranted && (
         <button
